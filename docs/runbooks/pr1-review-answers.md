@@ -4,8 +4,8 @@
 |---|---|
 | Review | `/workspace/review-pr1/REVIEW.md` (PR #1 "Sprint 1: identity/tenancy/auth + patient registration", `feat/sprint-1-identity` → `main`, head `f756f20`) |
 | Fix plan | `/workspace/review-pr1/FIX-PLAN.md`. Owner here: DevOps & Release, branch `fix/pr1-devops` (cut from `f756f20`) |
-| Written | 2026-10-06 ~21:20 IST |
-| Rules followed | Nothing pushed. GitHub, hosted Supabase `medicore-hms` (`gvgomzogbzbjhlcsimrx`) and Render were used **read-only**. No settings, roles, passwords, network rules, branch protection or rulesets were changed. No secret values appear in this document. |
+| Written | 2026-10-06 ~21:20 IST; updated ~21:30 IST (Q3 re-verified after protection was applied; mocked web E2E added to CI) |
+| Rules followed | Nothing pushed. GitHub, hosted Supabase `medicore-hms` (`gvgomzogbzbjhlcsimrx`) and Render were used **read-only**. No settings, roles, passwords, network rules, branch protection or rulesets were changed by DevOps. Branch protection on `main` was applied by the CTO, with Mohith's approval; see Q3. No secret values appear in this document. |
 
 Legend: **[NEEDS MOHITH'S APPROVAL]** = a change outside the repo that only Mohith may apply. **[NOT VERIFIED]** = couldn't be read or run from here; the reason is given.
 
@@ -15,117 +15,81 @@ Legend: **[NEEDS MOHITH'S APPROVAL]** = a change outside the repo that only Mohi
 
 > 3. Are the `database` and `e2e` jobs **required** status checks under main's branch protection?
 
-### Finding
+### Finding (current state, verified 2026-10-06 ~21:24 IST)
 
-**No. `main` has no branch protection and no rulesets, so no status check is required.** On this plan the repo **can't have any** until either the plan or the repo visibility changes.
+**Yes. `main` is protected and requires all four CI checks, including `database` and `e2e`.** Mohith made the repo **public**. The CTO then applied this runbook's Option A branch-protection `PUT`. What I read back matches what the CTO described, with no differences:
 
-### Evidence (gh CLI, read-only, 2026-10-06 ~21:10 IST)
-
-Repo from `git remote -v`: `https://github.com/kakani-dev/hospital-management-system.git`. The default `gh` account (`kakani17481a0566`) gets `404` on this private repo, so I switched to the already-logged-in owner account `kakani-dev` (`admin: true`) for these reads and then switched back.
-
-| Call | Result (verbatim) |
+| Setting | Read back |
 |---|---|
-| `gh api repos/kakani-dev/hospital-management-system` | `"private":true,"visibility":"private","default_branch":"main"`, permissions `admin:true` |
-| `gh api repos/kakani-dev/hospital-management-system/branches/main` | `"protected":false,"protection":{"enabled":false,"required_status_checks":{"enforcement_level":"off","contexts":[],"checks":[]}}` |
-| `gh api …/branches/main/protection` | **HTTP 403** `"Upgrade to GitHub Pro or make this repository public to enable this feature."` |
-| `gh api …/branches/main/protection/required_status_checks` | **HTTP 403**, same message |
-| `gh api …/rules/branches/main` | **HTTP 403**, same message |
-| `gh api "…/rulesets?includes_parents=true"` | **HTTP 403**, same message |
+| Repo visibility | `"private":false,"visibility":"public"` |
+| Required status checks | the 4 contexts below, each pinned to GitHub Actions (`app_id` 15368) |
+| Strict (branch must be up to date) | `"strict":true` |
+| Enforce for admins | `"enforce_admins":{"enabled":true}` (Mohith can't merge on red CI either) |
+| Force pushes | `"allow_force_pushes":{"enabled":false}` |
+| Deletion | `"allow_deletions":{"enabled":false}` |
+| Conversation resolution | `"required_conversation_resolution":{"enabled":true}` (part of Option A) |
+| Required PR reviews | not set (Option A sent `null`; deliberate for a solo owner) |
+| Linear history / signed commits / lock branch | all `false` |
+| Rulesets | **none**: `GET …/rulesets` → `[]`, `GET …/rules/branches/main` → `[]`. Option B (ruleset) **wasn't used**. Don't add it now, because duplicate rules in two systems are harder to reason about. |
 
-**Current required checks: none** (`"contexts":[]`, `"checks":[]`, `enforcement_level: "off"`).
+**Required checks (verbatim from `required_status_checks.contexts`, byte-identical to the job `name:` values in `.github/workflows/ci.yml`):**
 
-The 403 isn't a permissions problem: the token is the repo admin. Branch protection and rulesets on **private** repos need GitHub Pro, Team or Enterprise, and the owner account is on GitHub Free (Supabase org also `free`, for context).
+| Job id | Required check context |
+|---|---|
+| `web` | `Frontend (lint, unit tests, build)` |
+| `api` | `Backend (build + unit tests)` |
+| `database` | `SQL/RLS tests + API integration tests (real Postgres)` |
+| `e2e` | `Playwright E2E (web + API + mock auth + Postgres)` |
 
-**Check names.** Each check-run name is the job's `name:` in `.github/workflows/ci.yml`. All are emitted by GitHub Actions, `app_id` **15368**.
+**Not required, by design:**
+- `DB prototype on Supabase stack (supabase start, non-required)` (Minor 9)
+- `Web E2E (mocked API, Playwright)` (see "CI coverage: mocked web E2E" below)
+- the `vercel` check suite
 
-| Job id | Check context (exact) | PR #1 head `f756f20`, run 37485120738 |
-|---|---|---|
-| `web` | `Frontend (lint, unit tests, build)` | success (20:40:15 → 20:40:53 IST) |
-| `api` | `Backend (build + unit tests)` | success (20:40:14 → 20:41:00 IST) |
-| `database` | `SQL/RLS tests + API integration tests (real Postgres)` | success (20:40:15 → 20:41:46 IST) |
-| `e2e` | `Playwright E2E (web + API + mock auth + Postgres)` | success (20:40:15 → 20:42:33 IST) |
-| `db-supabase-prototype` (new on this branch) | `DB prototype on Supabase stack (supabase start, non-required)` | not run yet. **Must not be required** (see Minor 9) |
+### Evidence (gh CLI, read-only)
 
-Other things on that commit:
-- Commit statuses (legacy API) are empty (`contexts: []`).
-- A `vercel` check suite exists with no conclusion. It isn't a CI job and shouldn't be required.
-- `cleanup.yml` only has `schedule`/`workflow_dispatch` triggers, so it never reports on PRs.
+The default `gh` account (`kakani17481a0566`) isn't a collaborator. I switched to the already-logged-in owner account `kakani-dev` for these reads, then switched back; the active account is `kakani17481a0566` again.
 
-### Recommendation / next action [NEEDS MOHITH'S APPROVAL]
+```text
+gh api repos/kakani-dev/hospital-management-system --jq '{private,visibility}'
+  {"private":false,"visibility":"public"}
 
-Before branch protection can exist, Mohith must pick one:
+gh api repos/kakani-dev/hospital-management-system/branches/main/protection
+  "required_status_checks":{"strict":true,
+    "contexts":["Frontend (lint, unit tests, build)","Backend (build + unit tests)",
+                "SQL/RLS tests + API integration tests (real Postgres)",
+                "Playwright E2E (web + API + mock auth + Postgres)"],
+    "checks":[{"context":"Frontend (lint, unit tests, build)","app_id":15368},
+              {"context":"Backend (build + unit tests)","app_id":15368},
+              {"context":"SQL/RLS tests + API integration tests (real Postgres)","app_id":15368},
+              {"context":"Playwright E2E (web + API + mock auth + Postgres)","app_id":15368}]},
+  "required_signatures":{"enabled":false},"enforce_admins":{"enabled":true},
+  "required_linear_history":{"enabled":false},"allow_force_pushes":{"enabled":false},
+  "allow_deletions":{"enabled":false},"block_creations":{"enabled":false},
+  "required_conversation_resolution":{"enabled":true},"lock_branch":{"enabled":false},
+  "allow_fork_syncing":{"enabled":false}
 
-1. **Upgrade the `kakani-dev` account to GitHub Pro.** This is a paid purchase. Recommended: smallest change, and the repo stays private.
-2. Move the repo into an organization on GitHub Team.
-3. Make the repo public. **Not recommended** for a hospital system, even with synthetic data, because it exposes the security design and infra notes.
+gh api repos/kakani-dev/hospital-management-system/branches/main --jq '{protected,protection}'
+  {"protected":true,"protection":{"enabled":true,"required_status_checks":{…same 4 checks…,"enforcement_level":"everyone"}}}
 
-After that, require all four existing CI checks, including `database` and `e2e`. Do **not** require the prototype or `vercel`. Two equivalent ways follow. **Neither has been run.**
-
-**Option A: classic branch protection.** `PUT` replaces the whole protection object. None exists today, so nothing is lost.
-
-```bash
-gh api -X PUT repos/kakani-dev/hospital-management-system/branches/main/protection \
-  -H "Accept: application/vnd.github+json" --input - <<'JSON'
-{
-  "required_status_checks": {
-    "strict": true,
-    "checks": [
-      { "context": "Frontend (lint, unit tests, build)", "app_id": 15368 },
-      { "context": "Backend (build + unit tests)", "app_id": 15368 },
-      { "context": "SQL/RLS tests + API integration tests (real Postgres)", "app_id": 15368 },
-      { "context": "Playwright E2E (web + API + mock auth + Postgres)", "app_id": 15368 }
-    ]
-  },
-  "enforce_admins": true,
-  "required_pull_request_reviews": null,
-  "restrictions": null,
-  "required_linear_history": false,
-  "allow_force_pushes": false,
-  "allow_deletions": false,
-  "required_conversation_resolution": true
-}
-JSON
+gh api repos/kakani-dev/hospital-management-system/rulesets          ->  []
+gh api repos/kakani-dev/hospital-management-system/rules/branches/main  ->  []
 ```
 
-**Option B: repository ruleset.** This is GitHub's newer mechanism; use A or B, not both.
+PR #1 head `f756f20` (run 37485120738) passed all four of these checks before protection was turned on.
 
-```bash
-gh api -X POST repos/kakani-dev/hospital-management-system/rulesets \
-  -H "Accept: application/vnd.github+json" --input - <<'JSON'
-{
-  "name": "main: required CI",
-  "target": "branch",
-  "enforcement": "active",
-  "conditions": { "ref_name": { "include": ["~DEFAULT_BRANCH"], "exclude": [] } },
-  "bypass_actors": [],
-  "rules": [
-    { "type": "deletion" },
-    { "type": "non_fast_forward" },
-    { "type": "pull_request", "parameters": {
-        "required_approving_review_count": 0,
-        "dismiss_stale_reviews_on_push": true,
-        "require_code_owner_review": false,
-        "require_last_push_approval": false,
-        "required_review_thread_resolution": true } },
-    { "type": "required_status_checks", "parameters": {
-        "strict_required_status_checks_policy": true,
-        "do_not_enforce_on_create": false,
-        "required_status_checks": [
-          { "context": "Frontend (lint, unit tests, build)", "integration_id": 15368 },
-          { "context": "Backend (build + unit tests)", "integration_id": 15368 },
-          { "context": "SQL/RLS tests + API integration tests (real Postgres)", "integration_id": 15368 },
-          { "context": "Playwright E2E (web + API + mock auth + Postgres)", "integration_id": 15368 }
-        ] } }
-  ]
-}
-JSON
-```
+### History
 
-Notes:
-- `enforce_admins: true` (or an empty `bypass_actors`) also stops Mohith from merging on red CI. If he wants an emergency bypass, set `enforce_admins` to `false`, or add himself as a bypass actor.
-- `required_approving_review_count: 0` is intentional for a solo owner, because GitHub doesn't let you approve your own PR.
-- Renaming any job's `name:` changes its check context. The required list must be updated in the same PR, or every PR will wait forever for a check that no longer exists.
-- Verify afterwards (read-only): `gh api repos/kakani-dev/hospital-management-system/branches/main/protection/required_status_checks` or `gh api repos/kakani-dev/hospital-management-system/rules/branches/main`.
+On first check (~21:10 IST) `main` was unprotected (`"protected":false`, required checks `[]`). The protection and rulesets APIs returned HTTP 403 "Upgrade to GitHub Pro or make this repository public to enable this feature." because the repo was private on GitHub Free. The options offered were GitHub Pro, an org on GitHub Team, or making the repo public. Mohith chose **public**, so the Pro/Team upgrade isn't needed.
+
+### Consequences and next actions
+- **Job renames break merges.** Each check context is the job's `name:`. Renaming a required job, or dropping it, leaves every PR waiting forever for a check that no longer reports. Any rename must change the protection in the same change. That needs Mohith's approval, because it's a GitHub settings change.
+- **Strict mode means one merge at a time.** A PR must be rebuilt on the latest `main` before it can merge, so the CTO's DB → Backend → Web → QA → DevOps merge order means updating and re-running CI on each branch before its merge.
+- **Direct pushes still have to pass.** Because `enforce_admins` is on, a direct push to `main` is accepted only if that commit already has the four green checks, so in practice every change goes through a PR.
+- **Public repo:** CI uses no repository secrets, so PRs from forks can't exfiltrate any. **[NOT VERIFIED; Mohith's setting]** Recommend keeping Settings → Actions → "Require approval for fork pull request workflows" at least for first-time contributors, so outsiders can't burn CI minutes or run unreviewed code on runners. Also re-check that no secret or real data is in git history; the review found only the documented local-only placeholders.
+- **Candidates to require later (each needs Mohith's approval):**
+  - `Web E2E (mocked API, Playwright)`: recommended once fix/pr1-web is on `main` and the job has run green a few times.
+  - `DB prototype on Supabase stack (supabase start, non-required)`: only after it has proven stable, and the job would need renaming first (see Minor 9).
 
 ---
 
@@ -392,10 +356,65 @@ All local runs used a private PG cluster on `127.0.0.1:55432`, created and destr
 
 ---
 
+## CI coverage: mocked web E2E (Frontend team's `e2e:mocked`)
+
+**What:**
+- New CI job `web-e2e-mocked`, check name **`Web E2E (mocked API, Playwright)`**.
+- It runs `npm run e2e:mocked`. That script is in the **root** `package.json`, not `apps/web`, and runs `playwright test -c tests/playwright/playwright.mocked.config.ts`.
+- The suite arrives with `fix/pr1-web` @ `6490b82`: 7 tests in `tests/playwright/mocked/web-contracts.mocked.spec.ts`.
+- Coverage: sessionStorage session and 15-minute idle logoff (Minor 3), the X-Hms-Tenant mismatch banner and cross-tab switch and sign-out (M3), debounced `POST /patients/search` (Minor 5), and the consent-based invite/accept flow (B1).
+- The API and Supabase Auth are answered inside the page (`mocked/mock-backend.ts`), so the job needs no DB, .NET or mock-auth server.
+- The config itself builds the web app into `node_modules/.e2e-mocked-dist` and serves it with `vite preview` on port 4174, with placeholder `VITE_*` values baked in. CI only adds Node 24, `npm ci` for root and `apps/web`, and Chromium.
+
+**Why a separate job and not a step in `Frontend (lint, unit tests, build)`:**
+- The Frontend check is **required** on `main` (Q3). A Playwright or browser problem in a step there would block every merge.
+- A separate job can't affect the required check's result, and its name can't collide with or rename the four required contexts. Verified by a YAML parse of the job ids and names: base `f756f20` vs this branch, the four required names are byte-identical and only `db-supabase-prototype` and `web-e2e-mocked` were added.
+
+**Guard (skips until `fix/pr1-web` merges):**
+- `.github/scripts/detect-npm-script.sh e2e:mocked tests/playwright/playwright.mocked.config.ts` checks the root `package.json` for the script and checks that the config exists.
+- If either is missing, it logs `::notice title=e2e:mocked not present::…skipping (expected until it is merged)` and writes `present=false`. Every later step is conditioned on `present == 'true'`, so the job finishes **green with a clear skip notice**, both on this branch and on `main` if this branch merges first.
+- Once the suite exists it runs normally.
+
+**Browsers and artifacts:**
+- `~/.cache/ms-playwright` is cached by Playwright version. On a cache miss the job runs `npx playwright install --with-deps chromium`; on a hit it runs `npx playwright install-deps chromium`.
+- HTML and JUnit reporters are added on the command line (`--reporter=list,html,junit` plus `PLAYWRIGHT_HTML_OUTPUT_DIR` and `PLAYWRIGHT_JUNIT_OUTPUT_FILE`), because the mocked config's CI reporter is only list + junit.
+- On failure the job uploads the `playwright-report-mocked` artifact (`tests/playwright/playwright-report-mocked` + `tests/playwright/test-results`, 7 days).
+
+**Validation:**
+
+| Check | Result |
+|---|---|
+| actionlint (with shellcheck) on both workflows; shellcheck on all `.github/scripts` | clean |
+| Guard on this branch | `present=false`, two notices, exit 0 |
+| Guard on `6490b82` | `present=true` |
+| The job's `run:` steps, emulated on a temporary worktree of `6490b82` in `/tmp` (Node 24.21.0, Playwright 1.63.0, Chromium 1243 already in the box cache), `CI=true` | **7 passed**; HTML report and `junit-mocked.xml` (`tests="7" failures="0"`) written where the upload step expects them |
+| Failure path (one deliberately failing test added in the scratch worktree only) | exit 1; HTML report, traces and junit present for upload |
+| Not run | the real GitHub runner: `actions/setup-node` and `actions/cache`, `--with-deps` (needs sudo apt, not available on the box), the upload itself. The temporary worktree was removed. |
+
+**Follow-ups:**
+- **Recommend adding `Web E2E (mocked API, Playwright)` to the required checks** after `fix/pr1-web` is on `main` and the job has been green on a few runs. [NEEDS MOHITH'S APPROVAL] Do it by sending the full check list, so each check stays pinned to GitHub Actions:
+  ```bash
+  gh api -X PATCH repos/kakani-dev/hospital-management-system/branches/main/protection/required_status_checks \
+    --input - <<'JSON'
+  {"strict": true, "checks": [
+    {"context": "Frontend (lint, unit tests, build)", "app_id": 15368},
+    {"context": "Backend (build + unit tests)", "app_id": 15368},
+    {"context": "SQL/RLS tests + API integration tests (real Postgres)", "app_id": 15368},
+    {"context": "Playwright E2E (web + API + mock auth + Postgres)", "app_id": 15368},
+    {"context": "Web E2E (mocked API, Playwright)", "app_id": 15368}
+  ]}
+  JSON
+  ```
+  Not run.
+- Web team (optional): `tests/playwright/playwright-report-mocked/` isn't in `.gitignore`. That only matters for local runs using the CI reporter flags.
+
+---
+
 ## Summary of approvals needed from Mohith
 
-1. **GitHub plan:** upgrade `kakani-dev` to GitHub Pro (paid), or move the repo to an org on Team, so `main` can be protected. Then apply **Q3 Option A or B** to require the four CI checks, **including `database` and `e2e`**. Don't include the prototype or `vercel`.
+1. **GitHub branch protection: done.** The repo is public, and Option A was applied by the CTO (verified in Q3). Remaining: approve the fork-PR workflow approval setting (Q3), and later add `Web E2E (mocked API, Playwright)` to the required checks once it's proven (command in "CI coverage: mocked web E2E").
 2. **Supabase Auth (hosted):** read the current values (Q5 commands), then approve `jwt_exp=900`, `refresh_token_rotation_enabled=true`, `security_refresh_token_reuse_interval=10`. Optionally consider Supabase Pro for session timebox and inactivity timeout.
 3. **`hms_api_login` on hosted (Q6 §2):** create the role with `CONNECTION LIMIT 20`, the timeouts, and the secret only in Render, using `\password`. Then adopt the 90-day rotation runbook (§3).
 4. **Network restrictions (Q6 §4):** choose shared Render Singapore ranges (free, shared) or Render dedicated IPs (Pro workspace + $100/month), then apply the Supabase allow-list including his admin IP. Also enable SSL enforcement.
 5. **Prototype CI job:** none now. It's non-required by design. Revisit after several green runs.
+6. **Mocked web E2E job:** none now. It skips until fix/pr1-web merges. Then see item 1.
