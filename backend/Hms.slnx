@@ -1,0 +1,20 @@
+<Solution>
+  <Folder Name="/gateway/">
+    <Project Path="gateway/Hms.Gateway/Hms.Gateway.csproj" />
+  </Folder>
+  <Folder Name="/modules/" />
+  <Folder Name="/modules/Identity/">
+    <Project Path="modules/Identity/Hms.Modules.Identity/Hms.Modules.Identity.csproj" />
+  </Folder>
+  <Folder Name="/modules/Patients/">
+    <Project Path="modules/Patients/Hms.Modules.Patients/Hms.Modules.Patients.csproj" />
+  </Folder>
+  <Folder Name="/shared/">
+    <Project Path="shared/Hms.SharedKernel/Hms.SharedKernel.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Hms.DatabaseTests/Hms.DatabaseTests.csproj" />
+    <Project Path="tests/Hms.IntegrationTests/Hms.IntegrationTests.csproj" />
+    <Project Path="tests/Hms.UnitTests/Hms.UnitTests.csproj" />
+  </Folder>
+</Solution>
