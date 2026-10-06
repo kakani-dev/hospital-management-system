@@ -1,6 +1,14 @@
 namespace Hms.Modules.Identity.Tenancy;
 
-public sealed record MembershipGrant(IReadOnlyList<string> Roles, IReadOnlyList<Guid> AccessibleBranchIds);
+/// <param name="Roles">Union of roles valid in the requested context (pinned branch, or all memberships).</param>
+/// <param name="AccessibleBranchIds">Active branches of the tenant the user can access.</param>
+/// <param name="RolesByBranch">For each accessible branch, the roles held AT that branch (tenant-wide memberships count everywhere).</param>
+/// <param name="BranchTimeZones">IANA time zone of each accessible branch.</param>
+public sealed record MembershipGrant(
+    IReadOnlyList<string> Roles,
+    IReadOnlyList<Guid> AccessibleBranchIds,
+    IReadOnlyDictionary<Guid, IReadOnlyCollection<string>> RolesByBranch,
+    IReadOnlyDictionary<Guid, string> BranchTimeZones);
 
 public sealed record ActiveContext(Guid TenantId, Guid? BranchId);
 
