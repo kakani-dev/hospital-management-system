@@ -96,7 +96,7 @@ public class HmsApiFactory : WebApplicationFactory<Program>
         foreach (var (tenant, branch, role) in memberships)
         {
             await using var cmd = new NpgsqlCommand(
-                "insert into identity.memberships (tenant_id, user_id, branch_id, role) values (@t, @u, @b, @r)", conn);
+                "insert into identity.memberships (tenant_id, user_id, branch_id, role, status) values (@t, @u, @b, @r, 'active')", conn);
             cmd.Parameters.AddWithValue("t", tenant);
             cmd.Parameters.AddWithValue("u", id);
             cmd.Parameters.AddWithValue("b", (object?)branch ?? DBNull.Value);
