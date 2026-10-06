@@ -122,7 +122,7 @@ _(PR #1 fix contract, incl. the 21:16 IST update.)_ Review finding B1: `add_memb
 **Pending invites are hidden from admins.** Listing a pending invite would reveal that the email has an account, so:
 - pending invites do not appear in `GET /api/v1/members`;
 - any admin `PATCH /api/v1/members/{id}` on a pending membership returns `404`;
-- in the database, invited rows are kept out of the admin-visible RLS and out of `is_admin_of_member`, and admins cannot move an invited membership to `active`.
+- in the database, invited rows are kept out of the admin-visible RLS and out of `is_admin_of_member`, and admins cannot move an invited membership to `active`. This database part **is shipped** in the DB fix (`fix/pr1-db` @ `3c5d5ed`, migration `20261008090000_membership_invite_consent.sql`).
 
 Admins listing or revoking pending invites is a backlog item.
 
@@ -134,7 +134,13 @@ Admins listing or revoking pending invites is a backlog item.
 - After acceptance the membership is `active` and grants its role (and branch scope) like any other membership.
 - The web app shows a "Pending invitations" list with Accept.
 
-**Expiry** of pending invitations is **not specified** in the fix contract. Today an invitation stays pending until it is accepted.
+**Second branch (re-review N1).** Invites are per (tenant, user, branch); a branch of `null` means tenant-wide.
+- Inviting an existing member to a **different** branch creates a **separate** `invited` membership. They must accept it like any other invite, and until then it grants nothing at that branch.
+- Inviting them again at the **same** branch is a no-op that returns the same 202.
+
+Both cases are in migration `20261009090000_membership_invite_per_branch.sql` on `fix/pr1-n1`. The same migration makes `memberships.status` default to `invited`, so trusted inserts that mean an active membership must set `status = 'active'` explicitly.
+
+**Expiry** of pending invitations is **not specified** in the fix contract. Today an invitation stays pending until it is accepted. Admins cannot list or revoke pending invites (see S12).
 
 ## Branch-scoped write rules (M1)
 
@@ -145,7 +151,7 @@ _(PR #1 fix contract; API-only in this round.)_ Review finding M1: the API and R
   - There is no patient update endpoint yet. A future one must call `PatientEndpoints.CanWritePatientAt`.
 - **The database does not enforce this yet.** RLS still checks role and branch separately (`has_tenant_role` + `can_access_branch`). Per-branch RLS (`has_branch_role`) is a deferred known gap, so any path that writes to `patient.patients` without going through the API is not covered.
 - **Reads stay tenant-wide** for the registry read roles. A branch-scoped clinician can read every patient of the tenant (CEO product decision).
-- **`tenant_admin` is always tenant-wide** (CEO product decision). The API rejects adding a `tenant_admin` with a branch with `400`. A matching DB `CHECK (role <> 'tenant_admin' or branch_id is null)` is part of the deferred DB hardening unless the DB team ships it with B1.
+- **`tenant_admin` is always tenant-wide** (CEO product decision). The API rejects adding a `tenant_admin` with a branch with `400`, and that is the only gate today. There is no DB-level `CHECK` (see S15).
 - Branch scoping of non-patient modules will be designed with those modules.
 
 ## Server-owned fields (M2)
@@ -214,4 +220,6 @@ _(PR #1 fix contract.)_ The active context is stored **per user**, not per brows
 | S13 | **Deferred (PR #1 scope change, M2 DB side):** the database does not stop direct writes to audit fields. `authenticated` keeps insert grants on `created_at/created_by/updated_at/updated_by/deleted_at`, and the trigger keeps a client-supplied `created_by`. | Enforced in the API only for now. Later DB hardening: actor-wins trigger (`created_by := coalesce(auth.uid(), …)`), revoke the column grants, EF stops sending audit columns. |
 | S14 | **Deferred (PR #1 scope change, M1 DB side):** no `has_branch_role`-based RLS for branch-scoped writes. RLS checks role and branch separately, so a direct table write by a user with a writer role at one branch can still write at another. | Enforced in the API only for now (`HasRoleAtBranch`). Later DB hardening: `identity.has_branch_role(tenant, branch, roles[])` in the `patients` INSERT/UPDATE policies, plus the `tenant_admin` tenant-wide `CHECK`. |
 | S11 | **MFA not enforced (backlog, not in Sprint 1)** | Tenant admins should be required to use MFA (`aal2`). The API does not check the `aal` / `amr` claims today. Planned approach: Supabase Auth MFA (TOTP) enrolment and a step-up challenge in the web app; the API (and optionally RLS through `auth.jwt() ->> 'aal'`) requires `aal = 'aal2'` for `tenant_admin` operations. Scheduled for a later sprint; no date committed. |
-| S12 | Pending invitations never expire, and admins cannot list or revoke them | Backlog (contract update 21:16 IST). Expiry is not specified. |
+| S12 | Pending invitations never expire, and admins cannot list or revoke them | Backlog (contract update 21:16 IST). Expiry is not specified. Not a gap: hiding pending invites from admins and blocking admins from activating them are enforced in the database (`fix/pr1-db` @ `3c5d5ed`, migration `20261008090000`). |
+| S15 | **No DB-level `CHECK` that `tenant_admin` memberships are tenant-wide** (not branch-scoped). The API's `400` on `POST /api/v1/members` is the only gate, so a direct table write or ops SQL can still create a branch-scoped `tenant_admin`. | Deferred DB hardening. The draft constraint `memberships_tenant_admin_tenant_wide check (role <> 'tenant_admin' or branch_id is null)` is in `docs/backlog/pr1-db-hardening-draft.sql` on `fix/pr1-db` / `feat/sprint-1-identity` (not on this branch). |
+| S16 | **Role sets and pinned-branch meaning need a product definition** before a patient update endpoint is built. Open questions: what a pinned (active) branch means for reads and writes, and which roles are clinical and which are read-only (notably `billing` and `receptionist`). | Product decision pending. Until then the role sets in the existing code are the source of truth: `PatientEndpoints.ReadRoles` (tenant_admin, doctor, nurse, receptionist, billing) and `PatientEndpoints.WriteRoles` (tenant_admin, doctor, nurse, receptionist; checked per branch). |
