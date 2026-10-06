@@ -1,0 +1,6 @@
+# Copied in by the db-supabase-prototype CI job from the repo's supabase/ folder.
+supabase/migrations/
+supabase/seed.sql
+# Supabase CLI local state
+supabase/.branches/
+supabase/.temp/

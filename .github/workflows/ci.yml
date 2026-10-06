@@ -151,3 +151,91 @@ jobs:
             tests/playwright/test-results
           retention-days: 7
           if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # PROTOTYPE for PR #1 review item Minor 9 (owner: DevOps). NOT a required check.
+  # Runs the same migrations, seed and SQL tests on Supabase's real stack (supabase/postgres
+  # image + GoTrue via the pinned Supabase CLI) instead of vanilla postgres:17 + the local
+  # shim, and smoke-tests the real GoTrue calling identity.custom_access_token_hook.
+  # continue-on-error: it has not yet been proven stable on GitHub-hosted runners, so a
+  # failure here must not fail the CI run. Do not add it to branch protection until it has
+  # been green on several runs (see docs/runbooks/pr1-review-answers.md, Minor 9).
+  # ---------------------------------------------------------------------------
+  db-supabase-prototype:
+    name: DB prototype on Supabase stack (supabase start, non-required)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 25
+    env:
+      SUPABASE_CLI_VERSION: "2.119.0"
+      SB_WORKDIR: .github/supabase-ci
+    steps:
+      - uses: actions/checkout@v7
+      - uses: supabase/setup-cli@v3
+        with:
+          version: ${{ env.SUPABASE_CLI_VERSION }}
+      - name: Install psql client
+        run: sudo apt-get update -y && sudo apt-get install -y postgresql-client
+      - name: Stage the repo's migrations + seed into the CI-only workdir
+        run: |
+          cp -R supabase/migrations "$SB_WORKDIR/supabase/migrations"
+          cp supabase/seed.sql "$SB_WORKDIR/supabase/seed.sql"
+          ls -1 "$SB_WORKDIR/supabase/migrations"
+      - name: supabase start (supabase/postgres + GoTrue; applies migrations + seed)
+        run: >-
+          supabase start --workdir "$SB_WORKDIR"
+          -x realtime,storage-api,imgproxy,mailpit,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
+      - name: Export local stack endpoints (throwaway local demo credentials)
+        run: |
+          supabase status --workdir "$SB_WORKDIR" -o env > "$RUNNER_TEMP/sb.env"
+          echo "status variables: $(cut -d= -f1 "$RUNNER_TEMP/sb.env" | tr '\n' ' ')"
+          get() { grep -E "^$1=" "$RUNNER_TEMP/sb.env" | head -n1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//'; }
+          api_url="$(get API_URL)"
+          db_url="$(get DB_URL)"
+          key="$(get PUBLISHABLE_KEY)"
+          if [ -z "$key" ]; then key="$(get ANON_KEY)"; fi
+          echo "::add-mask::$key"
+          admin_url="${db_url/\/\/postgres:/\/\/supabase_admin:}"
+          {
+            echo "SB_API_URL=$api_url"
+            echo "SB_APIKEY=$key"
+            echo "SB_DB_URL=$db_url"
+            echo "SB_ADMIN_URL=$admin_url"
+          } >> "$GITHUB_ENV"
+      - name: Smoke query (image, roles, migration history)
+        run: |
+          psql -X -v ON_ERROR_STOP=1 "$SB_DB_URL" <<'SQL'
+          select version();
+          select rolname, rolsuper, rolbypassrls, rolcanlogin, rolconnlimit
+            from pg_roles
+           where rolname in ('postgres', 'supabase_admin', 'supabase_auth_admin', 'authenticated', 'anon', 'service_role', 'hms_api')
+           order by 1;
+          select count(*) as gotrue_migrations from auth.schema_migrations;
+          select version, name from supabase_migrations.schema_migrations order by version;
+          select (select count(*) from identity.tenants) as tenants, (select count(*) from patient.patients) as patients;
+          SQL
+      - name: SQL tests as postgres (hosted parity, non-superuser; informational)
+        continue-on-error: true
+        env:
+          LABEL: as postgres (hosted parity)
+        run: DB_URL="$SB_DB_URL" bash .github/scripts/supabase-ci-sql-tests.sh
+      - name: SQL tests as supabase_admin (superuser, same privileges as the database job)
+        env:
+          LABEL: as supabase_admin
+        run: DB_URL="$SB_ADMIN_URL" bash .github/scripts/supabase-ci-sql-tests.sh
+      - name: Real GoTrue + access token hook + refresh-token reuse smoke test
+        env:
+          EXPECTED_JWT_EXP: "900"
+          REUSE_INTERVAL: "10"
+        run: AUTH_URL="$SB_API_URL/auth/v1" APIKEY="$SB_APIKEY" DB_URL="$SB_ADMIN_URL" bash .github/scripts/supabase-ci-hook-smoke.sh
+      - name: Container logs on failure
+        if: failure()
+        run: |
+          supabase status --workdir "$SB_WORKDIR" || true
+          docker ps -a --format '{{.Names}}\t{{.Status}}'
+          for c in $(docker ps -a --format '{{.Names}}' | grep -E '_hms-ci$'); do
+            echo "::group::$c"; docker logs --tail 200 "$c" 2>&1 || true; echo "::endgroup::"
+          done
+      - name: Stop the stack
+        if: always()
+        run: supabase stop --workdir "$SB_WORKDIR" --no-backup || true
