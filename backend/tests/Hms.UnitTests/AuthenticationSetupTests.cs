@@ -60,18 +60,32 @@ public class AuthenticationSetupTests
         Assert.Single(jwt.TokenValidationParameters.IssuerSigningKeys);
     }
 
-    [Fact]
-    public void Insecure_http_is_refused_in_production() =>
+    [Theory]
+    [InlineData("Production")]
+    [InlineData("Staging")]
+    [InlineData("Demo")]
+    [InlineData("")]
+    public void Insecure_http_is_refused_outside_dev_and_test_environments(string env) =>
         Assert.Throws<InvalidOperationException>(() =>
-            Configure(new SupabaseAuthOptions { ProjectUrl = "http://localhost:54321", AllowInsecureHttp = true }, "Production"));
+            Configure(new SupabaseAuthOptions { ProjectUrl = "http://localhost:54321", AllowInsecureHttp = true }, env));
 
-    [Fact]
-    public void Insecure_http_is_allowed_for_local_mock_auth()
+    [Theory]
+    [InlineData("Development")]
+    [InlineData("Testing")]
+    [InlineData("E2E")]
+    public void Insecure_http_is_allowed_for_local_mock_auth(string env)
     {
-        var jwt = Configure(new SupabaseAuthOptions { ProjectUrl = "http://localhost:54321", AllowInsecureHttp = true }, "Development");
+        var jwt = Configure(new SupabaseAuthOptions { ProjectUrl = "http://localhost:54321", AllowInsecureHttp = true }, env);
         Assert.False(jwt.RequireHttpsMetadata);
         Assert.Equal("http://localhost:54321/auth/v1", jwt.TokenValidationParameters.ValidIssuer);
     }
+
+    [Theory]
+    [InlineData("Production")]
+    [InlineData("Staging")]
+    [InlineData("Development")]
+    public void Https_is_required_when_insecure_http_is_not_requested(string env) =>
+        Assert.True(Configure(new SupabaseAuthOptions { ProjectUrl = "https://abc.supabase.co" }, env).RequireHttpsMetadata);
 
     [Fact]
     public void Jwks_url_is_derived_from_project_url() =>
