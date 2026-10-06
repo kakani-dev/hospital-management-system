@@ -1,0 +1,25 @@
+# Render Blueprint for the ASP.NET Core API (Docker). NOT DEPLOYED in Sprint 0.
+# Before use: verify current Render free-tier limits (spin-down on idle, monthly hours),
+# move this file to the repo root (Render reads render.yaml from the root) or point the
+# Blueprint at this path, and set secrets in the Render dashboard (sync: false = never committed).
+services:
+  - type: web
+    name: hms-api
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./infra/docker/api.Dockerfile
+    dockerContext: .
+    healthCheckPath: /health/live
+    autoDeploy: false
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: ConnectionStrings__HmsDatabase
+        sync: false # Supabase pooled connection string (dedicated least-privilege role, NOT the postgres superuser)
+      - key: Auth__Supabase__ProjectUrl
+        sync: false # https://<project-ref>.supabase.co
+      - key: Cors__AllowedOrigins__0
+        sync: false # e.g. https://<project>.vercel.app
+      - key: OpenApi__Enabled
+        value: "false"

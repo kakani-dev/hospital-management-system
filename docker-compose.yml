@@ -1,0 +1,53 @@
+# Local development stack: PostgreSQL (with Supabase shim + migrations + synthetic seed), API, web.
+#   docker compose up --build
+# Web: http://localhost:8081   API: http://localhost:8080 (Swagger: /swagger)   DB: localhost:5432
+# DEV ONLY: default credentials below must never be used anywhere else.
+name: hms
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: hms
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./supabase:/supabase:ro
+      - ./infra/docker/db-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d hms"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: infra/docker/api.Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__HmsDatabase: "Host=postgres;Port=5432;Database=hms;Username=postgres;Password=postgres"
+      Cors__AllowedOrigins__0: "http://localhost:8081"
+      # Auth__Supabase__ProjectUrl: "https://<project-ref>.supabase.co"   # Sprint 1
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: infra/docker/web.Dockerfile
+      args:
+        VITE_API_BASE_URL: "http://localhost:8080"
+    ports:
+      - "127.0.0.1:8081:8080"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
