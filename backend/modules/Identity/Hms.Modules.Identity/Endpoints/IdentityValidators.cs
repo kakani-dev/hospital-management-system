@@ -45,6 +45,11 @@ public static partial class IdentityValidators
             errors["role"] = [$"Role must be one of: {string.Join(", ", HmsRoles.All.Order(StringComparer.Ordinal))}."];
         }
 
+        if (r.Role == HmsRoles.TenantAdmin && r.BranchId is not null)
+        {
+            errors["branchId"] = [TenantAdminIsTenantWide];
+        }
+
         return errors;
     }
 
@@ -69,6 +74,9 @@ public static partial class IdentityValidators
         return errors;
     }
 
+    /// <summary>tenant_admin is tenant-wide (product decision; DB CHECK role &lt;&gt; 'tenant_admin' or branch_id is null).</summary>
+    public const string TenantAdminIsTenantWide = "tenant_admin is tenant-wide: omit branchId.";
+
     private static void ValidateName(string? name, Dictionary<string, string[]> errors, bool required)
     {
         if ((required && string.IsNullOrWhiteSpace(name)) || name?.Length > 120)
@@ -79,7 +87,10 @@ public static partial class IdentityValidators
 
     private static void ValidateTimezone(string? timezone, Dictionary<string, string[]> errors)
     {
-        if (timezone is not null && !TimeZoneInfo.TryFindSystemTimeZoneById(timezone, out _))
+        // HasIanaId: on ICU runtimes Windows ids ("India Standard Time") resolve too, but PostgreSQL
+        // AT TIME ZONE only understands IANA names, and the stored value must round-trip there.
+        if (timezone is not null
+            && !(TimeZoneInfo.TryFindSystemTimeZoneById(timezone, out var tz) && tz.HasIanaId && string.Equals(tz.Id, timezone, StringComparison.Ordinal)))
         {
             errors["timezone"] = ["Unknown IANA timezone."];
         }

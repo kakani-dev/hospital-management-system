@@ -115,10 +115,12 @@ public sealed class TenantIsolationApiTests(HmsApiFactory factory) : IClassFixtu
         var created = await alpha.PostAsJsonAsync("/api/v1/patients", new { mrn, firstName = "New", lastName = "Patient", registeredBranchId = AlphaMain, sex = "female" });
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
         var patient = await created.Content.ReadFromJsonAsync<PatientView>();
-        Assert.Equal(mrn, patient!.Mrn);
+        Assert.Equal(mrn.ToUpperInvariant(), patient!.Mrn); // MRNs are stored upper-case
 
         var duplicate = await alpha.PostAsJsonAsync("/api/v1/patients", new { mrn, firstName = "Dup", lastName = "Patient", registeredBranchId = AlphaMain });
         Assert.Equal(HttpStatusCode.Conflict, duplicate.StatusCode);
+        var caseVariant = await alpha.PostAsJsonAsync("/api/v1/patients", new { mrn = mrn.ToLowerInvariant(), firstName = "Dup", lastName = "Case", registeredBranchId = AlphaMain });
+        Assert.Equal(HttpStatusCode.Conflict, caseVariant.StatusCode);
 
         using var beta = factory.ClientAs(BetaAdmin, Beta);
         var otherTenant = await beta.PostAsJsonAsync("/api/v1/patients", new { mrn, firstName = "Same", lastName = "Mrn", registeredBranchId = BetaMain });
@@ -141,5 +143,43 @@ public sealed class TenantIsolationApiTests(HmsApiFactory factory) : IClassFixtu
         using var client = factory.ClientAs(AlphaAdmin, Alpha);
         var response = await client.PostAsJsonAsync("/api/v1/patients", new { mrn = "", firstName = "", lastName = "", registeredBranchId = AlphaMain });
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Writer_role_at_one_branch_does_not_allow_writes_at_another()
+    {
+        // Review M1 / PoC P2: billing (read-only) at Main + nurse at East.
+        var user = await CreateUserAsync("mixed", (Alpha, AlphaMain, "billing"), (Alpha, AlphaEast, "nurse"));
+        using var client = factory.ClientAs(user, Alpha);
+        var atMain = await client.PostAsJsonAsync("/api/v1/patients", new { mrn = $"M-{Guid.NewGuid():N}"[..20], firstName = "Main", lastName = "Branch", registeredBranchId = AlphaMain });
+        Assert.Equal(HttpStatusCode.Forbidden, atMain.StatusCode);
+        var atEast = await client.PostAsJsonAsync("/api/v1/patients", new { mrn = $"E-{Guid.NewGuid():N}"[..20], firstName = "East", lastName = "Branch", registeredBranchId = AlphaEast });
+        Assert.Equal(HttpStatusCode.Created, atEast.StatusCode);
+        // Reads stay tenant-wide.
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync($"/api/v1/patients/{AlphaPatientId}")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Search_is_a_post_body_and_stays_tenant_scoped()
+    {
+        using var alpha = factory.ClientAs(AlphaAdmin, Alpha);
+        var response = await alpha.PostAsJsonAsync("/api/v1/patients/search", new { search = "synthetic", page = 1, pageSize = 100 });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var page = await response.Content.ReadFromJsonAsync<PagedView<PatientView>>();
+        Assert.NotEmpty(page!.Items);
+        Assert.DoesNotContain(page.Items, p => p.LastName == "Synthetic-Beta");
+
+        Assert.Equal(HttpStatusCode.BadRequest, (await alpha.GetAsync("/api/v1/patients?search=synthetic")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Responses_carry_the_resolved_tenant()
+    {
+        using var alpha = factory.ClientAs(AlphaAdmin, Alpha);
+        var response = await alpha.GetAsync("/api/v1/patients");
+        Assert.Equal(Alpha.ToString(), Assert.Single(response.Headers.GetValues("X-Hms-Tenant")));
+
+        using var beta = factory.ClientAs(BetaDoctor); // resolved from the server-side default
+        Assert.Equal(Beta.ToString(), Assert.Single((await beta.GetAsync("/api/v1/tenants/current")).Headers.GetValues("X-Hms-Tenant")));
     }
 }

@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace Hms.Modules.Identity.Endpoints;
 
@@ -132,7 +133,8 @@ public static class TenantAdminEndpoints
 
         var rows = await (
                 from m in db.Memberships.AsNoTracking()
-                where m.TenantId == tenant.TenantId
+                // Pending invitations are hidden: listing them would reveal which emails have accounts.
+                where m.TenantId == tenant.TenantId && m.Status != MembershipStatus.Invited
                 join p in db.UserProfiles.AsNoTracking() on m.UserId equals p.Id into profiles
                 from p in profiles.DefaultIfEmpty()
                 join b in db.Branches.AsNoTracking() on m.BranchId equals (Guid?)b.Id into branches
@@ -143,7 +145,14 @@ public static class TenantAdminEndpoints
         return TypedResults.Ok(rows);
     }
 
-    private static async Task<Results<Created<MemberDto>, ValidationProblem, ProblemHttpResult>> AddMemberAsync(
+    /// <summary>
+    /// Invites an existing platform user to the RESOLVED tenant. Always answers 202 with the same
+    /// body whether the email has no account, was invited, or is already a member (no account
+    /// enumeration, review B1). The membership is created as 'invited' by identity.add_member()
+    /// and only the invitee can activate it (POST /api/v1/me/invitations/{id}/accept).
+    /// Validation errors stay 400; authorization failures stay 403.
+    /// </summary>
+    private static async Task<Results<Accepted<AddMemberAcceptedDto>, ValidationProblem, ProblemHttpResult>> AddMemberAsync(
         AddMemberRequest request, IdentityDbContext db, ITenantContext tenant, CancellationToken ct)
     {
         if (!tenant.HasAnyRole(HmsRoles.TenantAdmin))
@@ -162,32 +171,46 @@ public static class TenantAdminEndpoints
             return TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["branchId"] = ["Branch does not belong to this hospital."] });
         }
 
-        Guid id;
+        // Savepoint: if the function raises, roll back just this statement so the request
+        // transaction can still commit and every outcome looks identical to the caller.
+        var tx = db.Database.CurrentTransaction;
+        if (tx is not null)
+        {
+            await tx.CreateSavepointAsync(AddMemberSavepoint, ct);
+        }
+
         try
         {
-            id = (Guid)(await RawSql.ScalarAsync(
+            // Contract: returns the new invited membership id, the EXISTING membership id when the
+            // user is already a member, or NULL when no account exists. The id is deliberately not
+            // returned to the client.
+            await RawSql.ScalarAsync(
                 db,
                 "select identity.add_member(@tenant, @email, @role, @branch)",
                 ct,
                 ("tenant", tenant.TenantId),
                 ("email", request.Email!.Trim()),
                 ("role", request.Role),
-                ("branch", request.BranchId)))!;
+                ("branch", request.BranchId));
+        }
+        catch (Exception ex) when (PostgresErrors.Find(ex)?.SqlState is PostgresErrorCodes.NoDataFound or PostgresErrorCodes.UniqueViolation)
+        {
+            // Older add_member versions raised for "no account" (P0002) / "already a member" (23505).
+            // Map both to the same 202 so no version of the DB function can leak account existence.
+            if (tx is not null)
+            {
+                await tx.RollbackToSavepointAsync(AddMemberSavepoint, ct);
+            }
         }
         catch (Exception ex) when (PostgresErrors.ToProblem(ex, "That person already has this membership.") is { } problem)
         {
             return problem;
         }
 
-        var created = await (
-                from m in db.Memberships.AsNoTracking()
-                where m.Id == id
-                join p in db.UserProfiles.AsNoTracking() on m.UserId equals p.Id into profiles
-                from p in profiles.DefaultIfEmpty()
-                select new MemberDto(m.Id, m.UserId, p != null ? p.Email : null, p != null ? p.DisplayName : null, m.Role, m.BranchId, null, m.Status))
-            .SingleAsync(ct);
-        return TypedResults.Created($"/api/v1/members/{id}", created);
+        return TypedResults.Accepted((string?)null, AddMemberAcceptedDto.Instance);
     }
+
+    private const string AddMemberSavepoint = "hms_add_member";
 
     private static async Task<Results<Ok<MemberDto>, NotFound, ValidationProblem, ProblemHttpResult>> UpdateMemberAsync(
         Guid id, UpdateMemberRequest request, IdentityDbContext db, ITenantContext tenant, CancellationToken ct)
@@ -203,10 +226,18 @@ public static class TenantAdminEndpoints
             return TypedResults.ValidationProblem(errors);
         }
 
-        var membership = await db.Memberships.SingleOrDefaultAsync(m => m.Id == id && m.TenantId == tenant.TenantId, ct);
+        // Invited memberships are not visible to admins (that would reveal that the account exists)
+        // and only the invitee may activate them, so they are treated as not found here.
+        var membership = await db.Memberships.SingleOrDefaultAsync(
+            m => m.Id == id && m.TenantId == tenant.TenantId && m.Status != MembershipStatus.Invited, ct);
         if (membership is null)
         {
             return TypedResults.NotFound();
+        }
+
+        if (request.Role == HmsRoles.TenantAdmin && membership.BranchId is not null)
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["role"] = [IdentityValidators.TenantAdminIsTenantWide] });
         }
 
         if (membership.UserId == tenant.UserId)

@@ -50,14 +50,29 @@ internal sealed class EfMembershipStore(IdentityDbContext db) : IMembershipStore
             return null;
         }
 
-        var tenantBranchIds = await db.Branches.AsNoTracking()
+        var tenantBranches = await db.Branches.AsNoTracking()
             .Where(b => b.TenantId == tenantId && b.IsActive)
-            .Select(b => b.Id)
+            .Select(b => new { b.Id, b.Timezone })
             .ToListAsync(cancellationToken);
 
-        var accessible = memberships.Any(m => m.BranchId is null)
-            ? tenantBranchIds
-            : tenantBranchIds.Where(id => memberships.Any(m => m.BranchId == id)).ToList();
+        // Per-branch role map: a (role, branch) pair only counts at that branch; tenant-wide
+        // memberships (branch_id null) count at every branch. Never take the union of roles x
+        // the union of branches (review M1).
+        var rolesByBranch = new Dictionary<Guid, IReadOnlyCollection<string>>();
+        foreach (var branch in tenantBranches)
+        {
+            var atBranch = memberships
+                .Where(m => m.BranchId is null || m.BranchId == branch.Id)
+                .Select(m => m.Role)
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+            if (atBranch.Count > 0)
+            {
+                rolesByBranch[branch.Id] = atBranch;
+            }
+        }
+
+        var accessible = tenantBranches.Where(b => rolesByBranch.ContainsKey(b.Id)).Select(b => b.Id).ToList();
 
         if (branchId is { } requested && !accessible.Contains(requested))
         {
@@ -71,7 +86,9 @@ internal sealed class EfMembershipStore(IdentityDbContext db) : IMembershipStore
             .Distinct(StringComparer.Ordinal)
             .ToList();
 
-        return new MembershipGrant(roles, accessible);
+        var timeZones = tenantBranches.Where(b => rolesByBranch.ContainsKey(b.Id)).ToDictionary(b => b.Id, b => b.Timezone);
+
+        return new MembershipGrant(roles, accessible, rolesByBranch, timeZones);
     }
 
     private async Task<T?> InTransactionAsync<T>(Func<CancellationToken, Task<T?>> work, CancellationToken ct)

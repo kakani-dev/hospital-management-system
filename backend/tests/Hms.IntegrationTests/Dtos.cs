@@ -16,3 +16,7 @@ public sealed record PagedView<T>(List<T> Items, int Page, int PageSize, int Tot
 public sealed record BranchView(Guid Id, string Code, string Name, string Timezone, bool IsActive);
 
 public sealed record MemberView(Guid Id, Guid UserId, string? Email, string? DisplayName, string Role, Guid? BranchId, string? BranchName, string Status);
+
+public sealed record AcceptedView(string Message);
+
+public sealed record InvitationView(Guid MembershipId, Guid TenantId, string TenantName, Guid? BranchId, string Role, DateTimeOffset InvitedAt);

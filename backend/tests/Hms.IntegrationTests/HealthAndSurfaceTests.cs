@@ -35,6 +35,7 @@ public sealed class HealthAndSurfaceTests(HmsApiFactory factory) : IClassFixture
     [InlineData("/api/v1/branches")]
     [InlineData("/api/v1/members")]
     [InlineData("/api/v1/tenants/current")]
+    [InlineData("/api/v1/me/invitations")]
     public async Task Api_requires_authentication(string path)
     {
         using var client = factory.CreateClient();

@@ -24,7 +24,10 @@ public sealed class SupabaseAuthOptions
     /// </summary>
     public string? LegacyJwtSecret { get; set; }
 
-    /// <summary>Allow http:// JWKS (local mock auth / tests only). Refused in Production.</summary>
+    /// <summary>
+    /// Allow http:// JWKS (local mock auth / tests only). Only honoured in the environments listed in
+    /// <see cref="AuthenticationSetup.InsecureHttpEnvironments"/>; startup fails anywhere else.
+    /// </summary>
     public bool AllowInsecureHttp { get; set; }
 
     public string Issuer => $"{ProjectUrl.TrimEnd('/')}/auth/v1";
@@ -51,6 +54,17 @@ internal sealed class JwksConfigurationRetriever(string issuer) : IConfiguration
 
 public static class AuthenticationSetup
 {
+    /// <summary>
+    /// Environments where <see cref="SupabaseAuthOptions.AllowInsecureHttp"/> may be enabled. An
+    /// allow-list (review Minor 7): Staging/Demo/any unknown name is refused, not just Production.
+    /// "E2E" is the Playwright full-stack environment (tests/playwright/playwright.config.ts).
+    /// </summary>
+    public static readonly IReadOnlySet<string> InsecureHttpEnvironments =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase) { Environments.Development, "Testing", "E2E" };
+
+    public static bool IsInsecureHttpAllowed(IHostEnvironment environment) =>
+        InsecureHttpEnvironments.Contains(environment.EnvironmentName);
+
     public static IServiceCollection AddHmsAuthentication(this IServiceCollection services, IConfiguration configuration, IHostEnvironment environment)
     {
         services.Configure<SupabaseAuthOptions>(configuration.GetSection(SupabaseAuthOptions.Section));
@@ -82,12 +96,13 @@ public static class AuthenticationSetup
             return;
         }
 
-        if (options.AllowInsecureHttp && environment.IsProduction())
+        if (options.AllowInsecureHttp && !IsInsecureHttpAllowed(environment))
         {
-            throw new InvalidOperationException("Auth:Supabase:AllowInsecureHttp must not be enabled in Production.");
+            throw new InvalidOperationException(
+                $"Auth:Supabase:AllowInsecureHttp is only allowed in {string.Join("/", InsecureHttpEnvironments)} (current: '{environment.EnvironmentName}').");
         }
 
-        var requireHttps = !options.AllowInsecureHttp;
+        var requireHttps = !(options.AllowInsecureHttp && IsInsecureHttpAllowed(environment));
         jwt.RequireHttpsMetadata = requireHttps;
 
         // JWKS (asymmetric ES256/RS256 signing keys). ConfigurationManager caches the key set and

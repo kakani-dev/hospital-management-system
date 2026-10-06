@@ -11,8 +11,9 @@ namespace Hms.Modules.Identity.Tenancy;
 ///      if the token has no tenant claim (issued before the access token hook was enabled), asks
 ///      the database for the user's server-side default context (identity.my_active_context());
 ///   2. verifies an ACTIVE membership in an ACTIVE tenant (queried as the user, under RLS);
-///   3. fills the scoped <see cref="TenantContext"/> and pins <see cref="DbSessionContext"/> to the
-///      tenant, so every later query in the request is RLS-scoped to it.
+///   3. fills the scoped <see cref="TenantContext"/> (incl. the per-branch role map) and pins
+///      <see cref="DbSessionContext"/> to the tenant, so every later query in the request is RLS-scoped to it;
+///   4. adds the <c>X-Hms-Tenant</c> response header with the resolved tenant id.
 /// It never short-circuits; endpoints opt in with <c>.RequireTenant()</c> (403 when unresolved).
 /// </summary>
 public sealed partial class TenantResolutionMiddleware(RequestDelegate next, ILogger<TenantResolutionMiddleware> logger)
@@ -61,8 +62,17 @@ public sealed partial class TenantResolutionMiddleware(RequestDelegate next, ILo
             return;
         }
 
-        tenantContext.Resolve(tenantId, userId, branchId, grant.Roles, grant.AccessibleBranchIds);
+        tenantContext.Resolve(tenantId, userId, branchId, grant.Roles, grant.AccessibleBranchIds, grant.RolesByBranch, grant.BranchTimeZones);
         dbSession.SetTenant(tenantId, branchId);
+
+        // Tell the client which tenant the server acted in (review M3 option b). OnStarting so the
+        // header survives handlers/exception handling that reset headers before the response starts.
+        var tenantHeader = tenantId.ToString();
+        context.Response.OnStarting(() =>
+        {
+            context.Response.Headers[HmsHeaders.Tenant] = tenantHeader;
+            return Task.CompletedTask;
+        });
 
         // Logging scope => Serilog (Enrich.FromLogContext) adds TenantId/UserId to every log line.
         using (logger.BeginScope(new Dictionary<string, object> { ["TenantId"] = tenantId, ["UserId"] = userId }))
