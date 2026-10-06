@@ -13,6 +13,9 @@ public class IdentityValidatorsTests
     [InlineData("has space", "Main", "UTC", false)]
     [InlineData("main", "", "UTC", false)]
     [InlineData("main", "Main", "Mars/Olympus", false)]
+    [InlineData("main", "Main", "India Standard Time", false)] // Windows id: Postgres AT TIME ZONE rejects it
+    [InlineData("main", "Main", "Pacific Standard Time", false)]
+    [InlineData("main", "Main", "Europe/London", true)]
     [InlineData(null, "Main", "UTC", false)]
     public void Create_branch(string? code, string? name, string? tz, bool valid) =>
         Assert.Equal(valid, IdentityValidators.Validate(new CreateBranchRequest(code, name, tz)).Count == 0);
@@ -27,6 +30,7 @@ public class IdentityValidatorsTests
         Assert.Empty(IdentityValidators.Validate(new UpdateBranchRequest(null, null, false)));
         Assert.NotEmpty(IdentityValidators.Validate(new UpdateBranchRequest("  ", null, null)));
         Assert.NotEmpty(IdentityValidators.Validate(new UpdateBranchRequest(null, "Not/AZone", null)));
+        Assert.NotEmpty(IdentityValidators.Validate(new UpdateBranchRequest(null, "India Standard Time", null)));
     }
 
     [Theory]
@@ -38,6 +42,14 @@ public class IdentityValidatorsTests
     [InlineData(null, "doctor", false)]
     public void Add_member(string? email, string? role, bool valid) =>
         Assert.Equal(valid, IdentityValidators.Validate(new AddMemberRequest(email, role, null)).Count == 0);
+
+    [Fact]
+    public void Tenant_admin_cannot_be_branch_scoped()
+    {
+        var errors = IdentityValidators.Validate(new AddMemberRequest("a@hospital.example", "tenant_admin", Guid.NewGuid()));
+        Assert.Equal(["branchId"], errors.Keys);
+        Assert.Empty(IdentityValidators.Validate(new AddMemberRequest("a@hospital.example", "nurse", Guid.NewGuid())));
+    }
 
     [Theory]
     [InlineData("nurse", null, true)]

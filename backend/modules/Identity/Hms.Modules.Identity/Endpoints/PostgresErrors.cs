@@ -20,7 +20,6 @@ internal static class PostgresErrors
         PostgresErrorCodes.InsufficientPrivilege => TypedResults.Problem(title: "Forbidden", detail: "Not permitted for your memberships.", statusCode: StatusCodes.Status403Forbidden),
         PostgresErrorCodes.ForeignKeyViolation or PostgresErrorCodes.CheckViolation =>
             TypedResults.Problem(title: "Invalid reference", detail: "A referenced value is invalid for this hospital.", statusCode: StatusCodes.Status400BadRequest),
-        PostgresErrorCodes.NoDataFound => TypedResults.Problem(title: "Not found", detail: "No account exists for that email. The person must sign up first.", statusCode: StatusCodes.Status404NotFound),
         _ => null,
     };
 }
