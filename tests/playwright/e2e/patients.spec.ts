@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { signIn, unique, users } from './helpers'
+import { bearer, searchPatients, signIn, tokenFor, unique, users } from './helpers'
 
 test.describe('patient registration', () => {
   test('receptionist registers a patient; duplicate MRN is rejected; other tenant cannot see it', async ({ page, browser }) => {
@@ -17,8 +17,16 @@ test.describe('patient registration', () => {
     await page.getByRole('button', { name: 'Register patient' }).click()
 
     await expect(page.getByText(`Patient ${mrn} registered.`)).toBeVisible()
+    // Search goes in a POST body (review Minor 5): the MRN must never appear in a request URL.
+    const urlsWithTerm: string[] = []
+    page.on('request', (r) => {
+      if (r.url().includes(mrn)) urlsWithTerm.push(r.url())
+    })
+    const searched = page.waitForResponse((r) => r.url().endsWith('/api/v1/patients/search') && r.request().method() === 'POST')
     await page.getByLabel('Search patients').fill(mrn)
+    expect((await searched).status()).toBe(200)
     await expect(page.getByTestId('patient-row').filter({ hasText: mrn })).toBeVisible()
+    expect(urlsWithTerm).toEqual([])
 
     // Duplicate MRN in the same tenant -> 409 mapped to a field error.
     await page.getByRole('link', { name: 'Register patient' }).click()
@@ -36,6 +44,16 @@ test.describe('patient registration', () => {
     await betaPage.getByLabel('Search patients').fill(mrn)
     await expect(betaPage.getByTestId('patients-empty')).toBeVisible()
     await other.close()
+  })
+
+  test('GET ?search= is refused; POST /api/v1/patients/search is tenant-scoped', async ({ request }) => {
+    const token = await tokenFor(request, users.alphaReception)
+    expect((await request.get('/api/v1/patients?search=ALP', { headers: bearer(token) })).status()).toBe(400)
+    const response = await searchPatients(request, token, 'synthetic', 100)
+    expect(response.status()).toBe(200)
+    const body = (await response.json()) as { items: { lastName: string }[] }
+    expect(body.items.some((p) => p.lastName === 'Synthetic-Alpha')).toBe(true)
+    expect(body.items.some((p) => p.lastName === 'Synthetic-Beta')).toBe(false)
   })
 
   test('client-side validation blocks bad input', async ({ page }) => {
