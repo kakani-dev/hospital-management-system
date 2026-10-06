@@ -1,10 +1,12 @@
 import type {
   AddMemberRequest,
+  AddMemberResponse,
   Branch,
   CreateBranchRequest,
   CreatePatientRequest,
   CurrentUser,
   HealthStatus,
+  Invitation,
   Member,
   PagedResult,
   PatientSearchRequest,
@@ -91,7 +93,8 @@ export class ApiClient {
       throw new ApiError(response.status, problem)
     }
     if (response.status === 204) return undefined as T
-    return (await response.json()) as T
+    const text = await response.text()
+    return (text ? JSON.parse(text) : undefined) as T
   }
 
   health = {
@@ -113,9 +116,21 @@ export class ApiClient {
       this.request<Branch>(`/api/v1/branches/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
   }
 
+  /** Invitations addressed to the signed-in user; only the invitee can accept (consent). */
+  invitations = {
+    list: async () => {
+      const result = await this.request<Invitation[] | { items?: Invitation[] } | undefined>('/api/v1/me/invitations')
+      return Array.isArray(result) ? result : (result?.items ?? [])
+    },
+    accept: (membershipId: string) =>
+      this.request<void>(`/api/v1/me/invitations/${encodeURIComponent(membershipId)}/accept`, { method: 'POST' }),
+  }
+
   members = {
     list: () => this.request<Member[]>('/api/v1/members'),
-    add: (body: AddMemberRequest) => this.request<Member>('/api/v1/members', { method: 'POST', body: JSON.stringify(body) }),
+    /** Always 202 + a generic message (no account / invited / already a member look the same). */
+    add: (body: AddMemberRequest) =>
+      this.request<AddMemberResponse | undefined>('/api/v1/members', { method: 'POST', body: JSON.stringify(body) }),
     update: (id: string, body: UpdateMemberRequest) =>
       this.request<Member>(`/api/v1/members/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
   }

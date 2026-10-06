@@ -7,7 +7,7 @@ import { Button } from '../../components/ui/Button'
 import { FormField } from '../../components/ui/FormField'
 import { SelectField } from '../../components/ui/SelectField'
 import { useAddMember, useBranches, useMembers, useUpdateMember } from '../../lib/api/hooks'
-import { ApiError } from '../../lib/api/client'
+import { ApiError, fieldErrors } from '../../lib/api/client'
 import { ROLES, type Role } from '../../lib/api/types'
 import { memberSchema, type MemberFormValues } from './adminSchemas'
 import { useMe } from '../../lib/api/hooks'
@@ -32,17 +32,17 @@ export function MembersPage() {
   const onSubmit = async (values: MemberFormValues) => {
     setMessage(null)
     try {
-      const added = await addMember.mutateAsync({ email: values.email, role: values.role, branchId: values.branchId || null })
+      // 202 + generic message for every outcome (no account / invited / already a member): the UI
+      // must not reveal whether the email has an account, so it shows the server's text verbatim.
+      const text = await addMember.mutateAsync({ email: values.email, role: values.role, branchId: values.branchId || null })
       reset({ email: '', role: values.role, branchId: values.branchId })
-      setMessage({ tone: 'info', text: `${added.email ?? values.email} added as ${roleLabel(added.role)}.` })
+      setMessage({ tone: 'info', text })
     } catch (error) {
-      if (error instanceof ApiError && error.status === 404) {
-        setError('email', { message: 'No user with this email has signed up yet' })
-      } else if (error instanceof ApiError && error.status === 409) {
-        setError('email', { message: 'This person already has that membership' })
-      } else {
-        setMessage({ tone: 'error', text: 'Could not add the member.' })
+      const fields = fieldErrors(error)
+      for (const [field, text] of Object.entries(fields)) {
+        if (field === 'email' || field === 'role' || field === 'branchId') setError(field, { message: text })
       }
+      setMessage({ tone: 'error', text: Object.keys(fields).length ? 'Please fix the highlighted fields.' : 'Could not send the invitation.' })
     }
   }
 
@@ -63,7 +63,9 @@ export function MembersPage() {
       <h1 className="text-2xl font-semibold">Members</h1>
       {message && <Alert tone={message.tone}>{message.text}</Alert>}
       <Card title="Add member">
-        <p className="mb-3 text-sm text-slate-600">The person must already have an account (signed up with this email).</p>
+        <p className="mb-3 text-sm text-slate-600">
+          People with an HMS account get an invitation and must accept it after signing in before they can access this hospital.
+        </p>
         <form noValidate aria-label="Add member" onSubmit={handleSubmit(onSubmit)} className="grid gap-4 sm:grid-cols-4 sm:items-end">
           <FormField label="Email" type="email" autoComplete="off" error={errors.email?.message} {...register('email')} />
           <SelectField label="Role" error={errors.role?.message} {...register('role')}>
@@ -128,7 +130,7 @@ export function MembersPage() {
                   <td className="px-3 py-2">{m.branchName ?? 'All branches'}</td>
                   <td className="px-3 py-2 capitalize">{m.status}</td>
                   <td className="px-3 py-2 text-right">
-                    {!self && (
+                    {!self && m.status !== 'invited' && (
                       <Button
                         variant="secondary"
                         disabled={updateMember.isPending}

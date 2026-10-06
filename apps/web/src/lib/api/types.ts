@@ -117,13 +117,35 @@ export interface Member {
   role: string
   branchId: Guid | null
   branchName: string | null
-  status: 'active' | 'suspended' | string
+  status: 'active' | 'invited' | 'suspended' | string
 }
 
 export interface AddMemberRequest {
   email: string
   role: Role
   branchId?: Guid | null
+}
+
+/**
+ * POST /api/v1/members always answers 202 with this body — for "no account", "invited" and
+ * "already a member" alike — so the response never reveals whether an email has an account.
+ */
+export interface AddMemberResponse {
+  message: string
+}
+
+export const ADD_MEMBER_GENERIC_MESSAGE = 'If an account exists for that email, an invitation has been sent.'
+
+/** GET /api/v1/me/invitations (identity.my_invitations()): memberships waiting for the invitee's consent. */
+export interface Invitation {
+  membershipId: Guid
+  tenantId: Guid
+  tenantName: string
+  branchId: Guid | null
+  /** Not part of the my_invitations() contract; shown if the API ever adds it. */
+  branchName?: string | null
+  role: string
+  invitedAt: string
 }
 
 /** POST /api/v1/patients/search — the search term travels in the body, never in the URL (PHI). */

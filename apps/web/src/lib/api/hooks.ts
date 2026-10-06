@@ -8,10 +8,12 @@ import type {
   UpdateBranchRequest,
   UpdateMemberRequest,
 } from './types'
+import { ADD_MEMBER_GENERIC_MESSAGE } from './types'
 
 export const queryKeys = {
   health: ['health'] as const,
   me: ['me'] as const,
+  invitations: ['me', 'invitations'] as const,
   patients: (search: string) => ['patients', { search }] as const,
   branches: ['branches'] as const,
   members: ['members'] as const,
@@ -102,11 +104,30 @@ export function useMembers() {
   return useQuery({ queryKey: queryKeys.members, queryFn: () => apiClient.members.list(), retry: false })
 }
 
+/** Resolves to the API's generic 202 message (never reveals whether the email has an account). */
 export function useAddMember() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (body: AddMemberRequest) => apiClient.members.add(body),
+    mutationFn: async (body: AddMemberRequest) => {
+      const response = await apiClient.members.add(body)
+      return response?.message?.trim() || ADD_MEMBER_GENERIC_MESSAGE
+    },
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.members }),
+  })
+}
+
+/** Pending invitations for the signed-in user (GET /api/v1/me/invitations). */
+export function useInvitations(enabled = true) {
+  return useQuery({ queryKey: queryKeys.invitations, queryFn: () => apiClient.invitations.list(), retry: false, enabled })
+}
+
+/** Accepts an invitation, then refetches memberships (/me) and the invitation list. */
+export function useAcceptInvitation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (membershipId: string) => apiClient.invitations.accept(membershipId),
+    // ['me'] prefix-matches ['me', 'invitations'], so this refetches both /me and the invitation list.
+    onSettled: () => qc.invalidateQueries({ queryKey: queryKeys.me }),
   })
 }
 
