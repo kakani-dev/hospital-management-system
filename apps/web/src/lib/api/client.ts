@@ -7,6 +7,7 @@ import type {
   HealthStatus,
   Member,
   PagedResult,
+  PatientSearchRequest,
   PatientSummary,
   ProblemDetails,
   SwitchContextRequest,
@@ -120,14 +121,17 @@ export class ApiClient {
   }
 
   patients = {
-    list: (params: { page?: number; pageSize?: number; search?: string } = {}) => {
+    /** Paging only. Search terms are PHI and must never be put in a URL: use `search`. */
+    list: (params: { page?: number; pageSize?: number } = {}) => {
       const query = new URLSearchParams()
       if (params.page) query.set('page', String(params.page))
       if (params.pageSize) query.set('pageSize', String(params.pageSize))
-      if (params.search) query.set('search', params.search)
       const qs = query.toString()
       return this.request<PagedResult<PatientSummary>>(`/api/v1/patients${qs ? `?${qs}` : ''}`)
     },
+    /** POST /api/v1/patients/search: the term travels in the JSON body (not logged in access logs). */
+    search: (body: PatientSearchRequest) =>
+      this.request<PagedResult<PatientSummary>>('/api/v1/patients/search', { method: 'POST', body: JSON.stringify(body) }),
     create: (body: CreatePatientRequest) =>
       this.request<PatientSummary>('/api/v1/patients', { method: 'POST', body: JSON.stringify(body) }),
   }

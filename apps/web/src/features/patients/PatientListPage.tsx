@@ -1,8 +1,9 @@
-import { useDeferredValue, useId, useState } from 'react'
+import { useId, useState } from 'react'
 import { Card } from '../../components/ui/Card'
 import { Alert } from '../../components/ui/Alert'
 import { Link, useLocation } from 'react-router'
-import { usePatients } from '../../lib/api/hooks'
+import { PATIENT_SEARCH_DEBOUNCE_MS, usePatients } from '../../lib/api/hooks'
+import { useDebouncedValue } from '../../lib/useDebouncedValue'
 import { ApiError } from '../../lib/api/client'
 import { useCurrentContext } from '../tenancy/useCurrentContext'
 
@@ -10,9 +11,10 @@ const WRITE_ROLES = ['tenant_admin', 'doctor', 'nurse', 'receptionist']
 
 export function PatientListPage() {
   const [search, setSearch] = useState('')
-  const deferredSearch = useDeferredValue(search)
+  // Debounced: one request after typing pauses, not one per keystroke (PHI + rate limit).
+  const debouncedSearch = useDebouncedValue(search, PATIENT_SEARCH_DEBOUNCE_MS)
   const searchId = useId()
-  const patients = usePatients(deferredSearch)
+  const patients = usePatients(debouncedSearch)
   const { roles, branches } = useCurrentContext()
   const location = useLocation()
   const registered = (location.state as { registered?: string } | null)?.registered

@@ -12,13 +12,27 @@ describe('ApiClient', () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(emptyPage))
     const client = new ApiClient({ baseUrl: 'https://api.example.test/', getAccessToken: () => 'tkn', fetchImpl })
 
-    await client.patients.list({ search: 'doe', pageSize: 25 })
+    await client.patients.list({ pageSize: 25 })
 
     const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit]
-    expect(url).toBe('https://api.example.test/api/v1/patients?pageSize=25&search=doe')
+    expect(url).toBe('https://api.example.test/api/v1/patients?pageSize=25')
     const headers = new Headers(init.headers)
     expect(headers.get('Authorization')).toBe('Bearer tkn')
     expect([...headers.keys()].some((k) => k.toLowerCase().includes('tenant'))).toBe(false)
+  })
+
+  it('searches patients with POST /patients/search and keeps the term out of the URL', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(emptyPage))
+    const client = new ApiClient({ baseUrl: 'https://api.example.test', fetchImpl })
+
+    await client.patients.search({ search: 'Doe ALP-0001', pageSize: 25 })
+
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('https://api.example.test/api/v1/patients/search')
+    expect(url).not.toContain('?')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(String(init.body))).toEqual({ search: 'Doe ALP-0001', pageSize: 25 })
+    expect(new Headers(init.headers).get('Content-Type')).toBe('application/json')
   })
 
   it('reports the X-Hms-Tenant response header (success and error responses)', async () => {

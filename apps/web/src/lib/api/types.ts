@@ -126,6 +126,13 @@ export interface AddMemberRequest {
   branchId?: Guid | null
 }
 
+/** POST /api/v1/patients/search — the search term travels in the body, never in the URL (PHI). */
+export interface PatientSearchRequest {
+  search: string
+  page?: number
+  pageSize?: number
+}
+
 export interface UpdateMemberRequest {
   role?: Role
   status?: 'active' | 'suspended'

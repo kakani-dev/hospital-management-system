@@ -25,10 +25,18 @@ export function useMe(enabled = true) {
   return useQuery({ queryKey: queryKeys.me, queryFn: () => apiClient.me(), retry: false, enabled, staleTime: 60_000 })
 }
 
+/** Debounced patient search term (ms). */
+export const PATIENT_SEARCH_DEBOUNCE_MS = 300
+
+/**
+ * A non-empty term goes to POST /api/v1/patients/search (term in the body — names/MRNs are PHI and
+ * must never appear in a URL); an empty term pages through GET /api/v1/patients. Callers debounce.
+ */
 export function usePatients(search: string) {
+  const term = search.trim()
   return useQuery({
-    queryKey: queryKeys.patients(search),
-    queryFn: () => apiClient.patients.list({ search: search || undefined, pageSize: 25 }),
+    queryKey: queryKeys.patients(term),
+    queryFn: () => (term ? apiClient.patients.search({ search: term, pageSize: 25 }) : apiClient.patients.list({ pageSize: 25 })),
     retry: false,
   })
 }
