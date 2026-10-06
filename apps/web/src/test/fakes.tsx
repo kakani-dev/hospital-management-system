@@ -45,8 +45,9 @@ export function fakeAuthClient(
   const listeners = new Set<(event: string, s: Session | null) => void>()
   const notify = (event: string, s: Session | null) => listeners.forEach((cb) => cb(event, s))
   const client = {
-    emit: (event: string, next: Session | null) => {
-      session = next
+    /** `keepStorage`: like a supabase-js cross-tab broadcast, listeners hear it but this tab's storage keeps its session. */
+    emit: (event: string, next: Session | null, { keepStorage = false }: { keepStorage?: boolean } = {}) => {
+      if (!keepStorage) session = next
       notify(event, next)
     },
     getSession: vi.fn(async () => ({ data: { session }, error: null })),

@@ -119,6 +119,26 @@ export function AuthProvider({
     [resetCache],
   )
 
+  /**
+   * Drops this tab's own stored session (sessionStorage) after a sign-out that happened elsewhere
+   * (another tab's sign-out/idle logoff, broadcast by supabase-js or our channel). Otherwise a
+   * reload would resurrect a session the user ended. No-op when nothing is stored (e.g. a failed
+   * refresh, where supabase-js already removed it), which also ends any cross-tab ping-pong.
+   */
+  const purgeLocalSession = useCallback(async () => {
+    if (!client) return
+    try {
+      const { data } = await client.getSession()
+      if (!data.session) return
+      pendingSignOutReasonRef.current = 'ended'
+      await client.signOut({ scope: 'local' })
+    } catch {
+      /* best effort */
+    } finally {
+      pendingSignOutReasonRef.current = null
+    }
+  }, [client])
+
   useEffect(() => {
     if (!client) return
     let active = true
@@ -132,7 +152,10 @@ export function AuthProvider({
       // SIGNED_OUT covers: our own sign-out, sign-out broadcast by supabase-js from another tab,
       // and a failed token refresh (supabase-js removes the session and emits SIGNED_OUT).
       if (event === 'SIGNED_OUT' || (!next && userIdRef.current)) {
+        const initiatedHere = pendingSignOutReasonRef.current !== null
         handleSignedOut(pendingSignOutReasonRef.current ?? 'ended')
+        // Never call supabase.auth inside this callback (it holds the auth lock): defer.
+        if (!initiatedHere) setTimeout(() => void purgeLocalSession(), 0)
         return
       }
       const nextUser = next?.user.id ?? null
@@ -146,29 +169,22 @@ export function AuthProvider({
       active = false
       data.subscription.unsubscribe()
     }
-  }, [client, checkResolvedTenant, handleSignedOut, resetCache])
+  }, [client, checkResolvedTenant, handleSignedOut, resetCache, purgeLocalSession])
 
   // Explicit sign-out in another HMS tab: drop this tab's own (sessionStorage) copy of the session too.
   useEffect(() => {
     const channel = openAuthChannel((message) => {
-      if (message.type !== 'signed-out' || !userIdRef.current) return
-      pendingSignOutReasonRef.current = 'ended'
-      handleSignedOut('ended')
-      if (client) {
-        void client
-          .signOut({ scope: 'local' })
-          .catch(() => undefined)
-          .finally(() => {
-            pendingSignOutReasonRef.current = null
-          })
-      }
+      if (message.type !== 'signed-out') return
+      // supabase-js's own SIGNED_OUT broadcast may have arrived first and already cleared the UI.
+      if (userIdRef.current) handleSignedOut('ended')
+      void purgeLocalSession()
     })
     channelRef.current = channel
     return () => {
       channel.close()
       channelRef.current = null
     }
-  }, [client, handleSignedOut])
+  }, [handleSignedOut, purgeLocalSession])
 
   // The API client always asks Supabase for the current (auto-refreshed) access token.
   useEffect(() => {

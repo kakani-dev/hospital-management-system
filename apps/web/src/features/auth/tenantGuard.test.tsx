@@ -125,6 +125,29 @@ describe('M3: sign-out always clears the query cache', () => {
     expect(queryClient.getQueryData(['me'])).toBeUndefined()
   })
 
+  it('a SIGNED_OUT broadcast from another tab also drops this tab\'s stored session (no resurrection on reload)', async () => {
+    const { queryClient, auth } = setup()
+    renderWithProviders(<App />, { path: '/', auth, queryClient })
+    await waitFor(() => expect(screen.getByTestId('dashboard-tenant')).toHaveTextContent('Demo Alpha Hospital'))
+
+    act(() => auth.emit('SIGNED_OUT', null, { keepStorage: true }))
+
+    await waitFor(() => expect(auth.signOut).toHaveBeenCalledWith({ scope: 'local' }))
+    await waitFor(() => expect(screen.getByRole('heading', { name: /sign in to hms/i })).toBeInTheDocument())
+    expect((await auth.getSession()).data.session).toBeNull()
+    expect(auth.signOut).toHaveBeenCalledTimes(1) // the resulting SIGNED_OUT does not loop
+  })
+
+  it('a failed refresh (session already removed) does not call signOut again', async () => {
+    const { auth } = setup()
+    renderWithProviders(<App />, { path: '/', auth })
+    await waitFor(() => expect(screen.getByTestId('dashboard-tenant')).toHaveTextContent('Demo Alpha Hospital'))
+    act(() => auth.emit('SIGNED_OUT', null))
+    expect(await screen.findByRole('heading', { name: /sign in to hms/i })).toBeInTheDocument()
+    await new Promise((r) => setTimeout(r, 20))
+    expect(auth.signOut).not.toHaveBeenCalled()
+  })
+
   it('an explicit sign-out in another HMS tab signs this tab out locally (sessionStorage copy)', async () => {
     const { queryClient, clear, auth } = setup()
     renderWithProviders(<App />, { path: '/', auth, queryClient })
