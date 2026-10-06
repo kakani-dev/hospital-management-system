@@ -16,7 +16,9 @@
     "e2e:install": "playwright install --with-deps chromium",
     "sql:test": "bash supabase/scripts/run-sql-tests.sh",
     "api:build": "dotnet build backend/Hms.slnx",
-    "api:test": "dotnet test backend/Hms.slnx --filter Category!=Database"
+    "api:test": "dotnet test backend/Hms.slnx --filter Category!=Database",
+    "clean": "bash scripts/clean.sh",
+    "clean:all": "bash scripts/clean.sh --all"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",

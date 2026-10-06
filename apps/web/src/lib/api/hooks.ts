@@ -1,18 +1,28 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from './client'
+import type {
+  AddMemberRequest,
+  CreateBranchRequest,
+  CreatePatientRequest,
+  SwitchContextRequest,
+  UpdateBranchRequest,
+  UpdateMemberRequest,
+} from './types'
 
 export const queryKeys = {
   health: ['health'] as const,
+  me: ['me'] as const,
   patients: (search: string) => ['patients', { search }] as const,
+  branches: ['branches'] as const,
+  members: ['members'] as const,
 }
 
 export function useApiHealth() {
-  return useQuery({
-    queryKey: queryKeys.health,
-    queryFn: () => apiClient.health.live(),
-    retry: false,
-    staleTime: 30_000,
-  })
+  return useQuery({ queryKey: queryKeys.health, queryFn: () => apiClient.health.live(), retry: false, staleTime: 30_000 })
+}
+
+export function useMe(enabled = true) {
+  return useQuery({ queryKey: queryKeys.me, queryFn: () => apiClient.me(), retry: false, enabled, staleTime: 60_000 })
 }
 
 export function usePatients(search: string) {
@@ -20,5 +30,72 @@ export function usePatients(search: string) {
     queryKey: queryKeys.patients(search),
     queryFn: () => apiClient.patients.list({ search: search || undefined, pageSize: 25 }),
     retry: false,
+  })
+}
+
+export function useCreatePatient() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: CreatePatientRequest) => apiClient.patients.create(body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['patients'] }),
+  })
+}
+
+/**
+ * Switch tenant/branch: the server validates against memberships and stores the choice, then the
+ * session is refreshed so the custom access token hook issues a token for the new context, then
+ * every cached query (which belonged to the old tenant) is dropped.
+ */
+export function useSwitchContext(refreshSession: () => Promise<void>) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (body: SwitchContextRequest) => {
+      await apiClient.switchContext(body)
+      await refreshSession()
+    },
+    onSuccess: async () => {
+      qc.removeQueries({ predicate: (q) => q.queryKey[0] !== 'me' })
+      await qc.invalidateQueries()
+    },
+  })
+}
+
+export function useBranches() {
+  return useQuery({ queryKey: queryKeys.branches, queryFn: () => apiClient.branches.list(), retry: false })
+}
+
+export function useCreateBranch() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: CreateBranchRequest) => apiClient.branches.create(body),
+    onSuccess: () => Promise.all([qc.invalidateQueries({ queryKey: queryKeys.branches }), qc.invalidateQueries({ queryKey: queryKeys.me })]),
+  })
+}
+
+export function useUpdateBranch() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: UpdateBranchRequest }) => apiClient.branches.update(id, body),
+    onSuccess: () => Promise.all([qc.invalidateQueries({ queryKey: queryKeys.branches }), qc.invalidateQueries({ queryKey: queryKeys.me })]),
+  })
+}
+
+export function useMembers() {
+  return useQuery({ queryKey: queryKeys.members, queryFn: () => apiClient.members.list(), retry: false })
+}
+
+export function useAddMember() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: AddMemberRequest) => apiClient.members.add(body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.members }),
+  })
+}
+
+export function useUpdateMember() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: UpdateMemberRequest }) => apiClient.members.update(id, body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.members }),
   })
 }

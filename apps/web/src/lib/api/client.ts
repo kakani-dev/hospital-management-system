@@ -1,4 +1,18 @@
-import type { CreatePatientRequest, CurrentUser, HealthStatus, PagedResult, PatientSummary, ProblemDetails } from './types'
+import type {
+  AddMemberRequest,
+  Branch,
+  CreateBranchRequest,
+  CreatePatientRequest,
+  CurrentUser,
+  HealthStatus,
+  Member,
+  PagedResult,
+  PatientSummary,
+  ProblemDetails,
+  SwitchContextRequest,
+  UpdateBranchRequest,
+  UpdateMemberRequest,
+} from './types'
 
 export class ApiError extends Error {
   readonly status: number
@@ -35,7 +49,8 @@ export class ApiClient {
   constructor(options: ApiClientOptions = {}) {
     this.baseUrl = (options.baseUrl ?? '').replace(/\/+$/, '')
     this.getAccessToken = options.getAccessToken
-    this.fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis)
+    // Resolved per call (not captured at construction) so polyfills/test stubs installed later apply.
+    this.fetchImpl = options.fetchImpl ?? ((input, init) => globalThis.fetch(input, init))
   }
 
   async request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -68,6 +83,25 @@ export class ApiClient {
 
   me = () => this.request<CurrentUser>('/api/v1/me')
 
+  /** Server validates the requested tenant/branch against memberships (403 otherwise). */
+  switchContext = (body: SwitchContextRequest) =>
+    this.request<void>('/api/v1/me/context', { method: 'POST', body: JSON.stringify(body) })
+
+  branches = {
+    list: () => this.request<Branch[]>('/api/v1/branches'),
+    create: (body: CreateBranchRequest) =>
+      this.request<Branch>('/api/v1/branches', { method: 'POST', body: JSON.stringify(body) }),
+    update: (id: string, body: UpdateBranchRequest) =>
+      this.request<Branch>(`/api/v1/branches/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  }
+
+  members = {
+    list: () => this.request<Member[]>('/api/v1/members'),
+    add: (body: AddMemberRequest) => this.request<Member>('/api/v1/members', { method: 'POST', body: JSON.stringify(body) }),
+    update: (id: string, body: UpdateMemberRequest) =>
+      this.request<Member>(`/api/v1/members/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  }
+
   patients = {
     list: (params: { page?: number; pageSize?: number; search?: string } = {}) => {
       const query = new URLSearchParams()
@@ -82,8 +116,20 @@ export class ApiClient {
   }
 }
 
+let currentTokenProvider: TokenProvider = () => null
+
+/** Called by AuthProvider: the API client asks Supabase for the current access token per request. */
+export function configureApiAuth(provider: TokenProvider) {
+  currentTokenProvider = provider
+}
+
 export const apiClient = new ApiClient({
   baseUrl: import.meta.env.VITE_API_BASE_URL ?? '',
-  // TODO(Sprint 1): return the Supabase session access token (supabase.auth.getSession()).
-  getAccessToken: () => null,
+  getAccessToken: () => currentTokenProvider(),
 })
+
+/** Field errors from a 400 ValidationProblem, keyed by camelCase field name. */
+export function fieldErrors(error: unknown): Record<string, string> {
+  if (!(error instanceof ApiError) || !error.problem?.errors) return {}
+  return Object.fromEntries(Object.entries(error.problem.errors).map(([k, v]) => [k, v[0] ?? 'Invalid value']))
+}
