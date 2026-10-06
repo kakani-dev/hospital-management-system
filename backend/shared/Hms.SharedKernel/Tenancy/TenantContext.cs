@@ -3,6 +3,8 @@ namespace Hms.SharedKernel.Tenancy;
 /// <summary>Scoped, request-lifetime implementation of <see cref="ITenantContext"/>.</summary>
 public sealed class TenantContext : ITenantContext
 {
+    private static readonly IReadOnlySet<string> NoRoles = new HashSet<string>(StringComparer.Ordinal);
+
     private Guid _tenantId;
     private Guid _userId;
 
@@ -14,11 +16,27 @@ public sealed class TenantContext : ITenantContext
 
     public Guid UserId => IsResolved ? _userId : throw new TenantNotResolvedException();
 
-    public IReadOnlySet<string> Roles { get; private set; } = new HashSet<string>();
+    public IReadOnlySet<string> Roles { get; private set; } = NoRoles;
 
     public IReadOnlySet<Guid> AccessibleBranchIds { get; private set; } = new HashSet<Guid>();
 
-    public void Resolve(Guid tenantId, Guid userId, Guid? branchId, IEnumerable<string> roles, IEnumerable<Guid> accessibleBranchIds)
+    public IReadOnlyDictionary<Guid, IReadOnlySet<string>> RolesByBranch { get; private set; } = new Dictionary<Guid, IReadOnlySet<string>>();
+
+    public IReadOnlyDictionary<Guid, string> BranchTimeZones { get; private set; } = new Dictionary<Guid, string>();
+
+    /// <summary>
+    /// Resolves the context. <paramref name="rolesByBranch"/> is the per-branch role map; when it is
+    /// null, every accessible branch gets <paramref name="roles"/> (only for callers that have no
+    /// per-branch data, e.g. tests of tenant-wide behaviour).
+    /// </summary>
+    public void Resolve(
+        Guid tenantId,
+        Guid userId,
+        Guid? branchId,
+        IEnumerable<string> roles,
+        IEnumerable<Guid> accessibleBranchIds,
+        IReadOnlyDictionary<Guid, IReadOnlyCollection<string>>? rolesByBranch = null,
+        IReadOnlyDictionary<Guid, string>? branchTimeZones = null)
     {
         if (IsResolved)
         {
@@ -30,17 +48,37 @@ public sealed class TenantContext : ITenantContext
             throw new ArgumentException("Tenant and user ids must be non-empty.");
         }
 
+        var roleSet = new HashSet<string>(roles, StringComparer.Ordinal);
+        var accessible = new HashSet<Guid>(accessibleBranchIds);
+
+        var map = new Dictionary<Guid, IReadOnlySet<string>>();
+        foreach (var id in accessible)
+        {
+            map[id] = rolesByBranch is null
+                ? roleSet
+                : rolesByBranch.TryGetValue(id, out var atBranch)
+                    ? new HashSet<string>(atBranch, StringComparer.Ordinal)
+                    : NoRoles;
+        }
+
         _tenantId = tenantId;
         _userId = userId;
         BranchId = branchId;
-        Roles = new HashSet<string>(roles, StringComparer.Ordinal);
-        AccessibleBranchIds = new HashSet<Guid>(accessibleBranchIds);
+        Roles = roleSet;
+        AccessibleBranchIds = accessible;
+        RolesByBranch = map;
+        BranchTimeZones = branchTimeZones is null
+            ? new Dictionary<Guid, string>()
+            : branchTimeZones.Where(kv => accessible.Contains(kv.Key)).ToDictionary(kv => kv.Key, kv => kv.Value);
         IsResolved = true;
     }
 
     public bool HasAnyRole(params string[] roles) => IsResolved && roles.Any(Roles.Contains);
 
     public bool CanAccessBranch(Guid branchId) => IsResolved && AccessibleBranchIds.Contains(branchId);
+
+    public bool HasRoleAtBranch(Guid branchId, params string[] roles) =>
+        IsResolved && RolesByBranch.TryGetValue(branchId, out var atBranch) && roles.Any(atBranch.Contains);
 }
 
 public sealed class TenantNotResolvedException : InvalidOperationException

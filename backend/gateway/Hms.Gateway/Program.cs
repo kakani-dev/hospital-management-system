@@ -1,9 +1,9 @@
 using System.Threading.RateLimiting;
 using Hms.Gateway.Infrastructure;
 using Hms.Modules.Identity;
-using Hms.Modules.Identity.Endpoints;
 using Hms.Modules.Patients;
 using Hms.Modules.Patients.Endpoints;
+using Hms.SharedKernel.Tenancy;
 using Microsoft.AspNetCore.HttpOverrides;
 using Serilog;
 using Serilog.Formatting.Compact;
@@ -20,9 +20,8 @@ builder.Services.AddSerilog((services, lc) => lc
 
 builder.Services.AddProblemDetails();
 builder.Services.AddOpenApi("v1");
-builder.Services.AddSingleton(TimeProvider.System);
 
-builder.Services.AddHmsAuthentication(builder.Configuration);
+builder.Services.AddHmsAuthentication(builder.Configuration, builder.Environment);
 builder.Services.AddHmsHealthChecks();
 
 // ---- Modules (each owns its schema, endpoints and DbContext)
@@ -48,7 +47,9 @@ var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get
 builder.Services.AddCors(o => o.AddDefaultPolicy(p => p
     .WithOrigins(allowedOrigins)
     .WithMethods("GET", "POST", "PUT", "PATCH", "DELETE")
-    .WithHeaders("Authorization", "Content-Type")));
+    .WithHeaders("Authorization", "Content-Type", "apikey", "x-client-info")
+    // Let the SPA read the resolved tenant (M3 option b); custom headers are hidden from JS otherwise.
+    .WithExposedHeaders(HmsHeaders.Tenant)));
 
 builder.Services.Configure<ForwardedHeadersOptions>(o =>
 {
@@ -76,8 +77,10 @@ if (app.Configuration.GetValue("OpenApi:Enabled", app.Environment.IsDevelopment(
 
 app.UseCors();
 app.UseAuthentication();
-app.UseTenantResolution(); // derives tenant from validated claims + DB membership
+// Throttle BEFORE tenant resolution: resolution costs 1-2 DB transactions per request and the
+// partition key only needs the validated "sub" claim (review Minor 2).
 app.UseRateLimiter();
+app.UseTenantResolution(); // derives tenant from validated claims + DB membership; sets X-Hms-Tenant
 app.UseAuthorization();
 
 app.MapHmsHealthChecks();

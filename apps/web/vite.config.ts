@@ -4,18 +4,17 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
 // https://vite.dev/config/
+const apiTarget = process.env.VITE_DEV_API_PROXY ?? 'http://localhost:8080'
+// Local dev / E2E only: forward API calls to the ASP.NET Core gateway (same-origin, no CORS needed).
+const apiProxy = {
+  '/api': { target: apiTarget, changeOrigin: true },
+  '/health': { target: apiTarget, changeOrigin: true },
+}
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  server: {
-    port: 5173,
-    strictPort: true,
-    proxy: {
-      // Local dev: forward API calls to the ASP.NET Core gateway.
-      '/api': { target: process.env.VITE_DEV_API_PROXY ?? 'http://localhost:8080', changeOrigin: true },
-      '/health': { target: process.env.VITE_DEV_API_PROXY ?? 'http://localhost:8080', changeOrigin: true },
-    },
-  },
-  preview: { port: 4173, strictPort: true },
+  server: { port: 5173, strictPort: true, proxy: apiProxy },
+  preview: { port: 4173, strictPort: true, proxy: apiProxy },
   test: {
     environment: 'jsdom',
     globals: true,

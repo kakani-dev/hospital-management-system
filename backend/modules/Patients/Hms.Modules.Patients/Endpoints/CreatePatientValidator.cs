@@ -6,7 +6,18 @@ namespace Hms.Modules.Patients.Endpoints;
 /// <summary>Mirrors the CHECK constraints on patient.patients so callers get 400s instead of 500s.</summary>
 public static partial class CreatePatientValidator
 {
-    public static Dictionary<string, string[]> Validate(CreatePatientRequest request)
+    /// <summary>Max phone length (matches the web form and the DB CHECK).</summary>
+    public const int PhoneMaxLength = 32;
+
+    /// <summary>Max email length (RFC 5321 path limit; matches the DB CHECK).</summary>
+    public const int EmailMaxLength = 254;
+
+    /// <summary>
+    /// Validates a create request. <paramref name="today"/> is the current date IN THE REGISTERING
+    /// BRANCH'S time zone (see <see cref="BranchClock"/>), so a baby born after local midnight is
+    /// accepted even while the UTC date is still yesterday.
+    /// </summary>
+    public static Dictionary<string, string[]> Validate(CreatePatientRequest request, DateOnly today)
     {
         var errors = new Dictionary<string, string[]>();
 
@@ -30,7 +41,7 @@ public static partial class CreatePatientValidator
             errors["sex"] = ["Sex must be one of: female, male, other, unknown."];
         }
 
-        if (request.DateOfBirth is { } dob && (dob < new DateOnly(1900, 1, 1) || dob > DateOnly.FromDateTime(DateTime.UtcNow)))
+        if (request.DateOfBirth is { } dob && (dob < new DateOnly(1900, 1, 1) || dob > today))
         {
             errors["dateOfBirth"] = ["Date of birth must be between 1900-01-01 and today."];
         }
@@ -40,13 +51,21 @@ public static partial class CreatePatientValidator
             errors["registeredBranchId"] = ["Registered branch is required."];
         }
 
-        if (request.Email is { Length: > 0 } email && !email.Contains('@', StringComparison.Ordinal))
+        if (request.Phone is { Length: > PhoneMaxLength })
         {
-            errors["email"] = ["Email is not valid."];
+            errors["phone"] = [$"Phone must be at most {PhoneMaxLength} characters."];
+        }
+
+        if (request.Email is { Length: > 0 } email && (email.Length > EmailMaxLength || !email.Contains('@', StringComparison.Ordinal)))
+        {
+            errors["email"] = [$"Email is not valid (max {EmailMaxLength} characters)."];
         }
 
         return errors;
     }
+
+    /// <summary>MRNs are stored upper-case so uniqueness is case-insensitive (DB: unique (tenant_id, upper(mrn))).</summary>
+    public static string NormalizeMrn(string mrn) => mrn.Trim().ToUpperInvariant();
 
     [GeneratedRegex("^[A-Za-z0-9-]{1,32}$")]
     private static partial Regex MrnPattern();

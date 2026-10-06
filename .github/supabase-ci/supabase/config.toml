@@ -1,0 +1,82 @@
+# =============================================================================
+# CI-ONLY Supabase CLI config for the NON-required `db-supabase-prototype` job
+# (.github/workflows/ci.yml). Review item "Minor 9": run the DB tests on Supabase's
+# real Postgres image + real GoTrue instead of vanilla postgres:17 + the local shim.
+#
+# Used as `supabase start --workdir .github/supabase-ci`. The job copies the repo's
+# supabase/migrations and supabase/seed.sql into this folder at run time (they are
+# git-ignored here), so the Database team's files stay the single source of truth.
+#
+# This is NOT the hosted project's config and is never pushed to medicore-hms
+# (gvgomzogbzbjhlcsimrx). Anything not set here uses the pinned CLI's defaults.
+# Throwaway local stack only: the CLI's well-known local demo keys/passwords apply.
+# =============================================================================
+project_id = "hms-ci"
+
+[api]
+enabled = true
+port = 54321
+# Mirrors the intended hosted posture: only the default schemas are exposed. The HMS API
+# reaches identity/patient/audit through Postgres as hms_api_login, not through PostgREST.
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+health_timeout = "3m"
+# Hosted medicore-hms runs Postgres 17 (17.11.0.003 on 2026-10-06).
+major_version = 17
+
+[db.pooler]
+enabled = false
+
+[db.migrations]
+enabled = true
+
+[db.seed]
+enabled = true
+sql_paths = ["./seed.sql"]
+
+# Services the DB/auth tests don't need are disabled to keep the job fast.
+[realtime]
+enabled = false
+
+[studio]
+enabled = false
+
+[local_smtp]
+enabled = false
+
+[storage]
+enabled = false
+
+[edge_runtime]
+enabled = false
+
+[analytics]
+enabled = false
+
+[auth]
+enabled = true
+site_url = "http://127.0.0.1:5173"
+additional_redirect_urls = ["http://127.0.0.1:5173"]
+# Recommended values for a healthcare app (docs/runbooks/pr1-review-answers.md, Q5).
+# They apply ONLY to this CI stack; hosted values are changed only with Mohith's approval.
+jwt_expiry = 900
+enable_refresh_token_rotation = true
+refresh_token_reuse_interval = 10
+enable_signup = true
+enable_anonymous_sign_ins = false
+minimum_password_length = 12
+
+[auth.email]
+enable_signup = true
+enable_confirmations = false
+
+# The real GoTrue invokes the repo's hook, exactly like
+# Dashboard > Authentication > Hooks > Customize Access Token (JWT) Claims on hosted.
+[auth.hook.custom_access_token]
+enabled = true
+uri = "pg-functions://postgres/identity/custom_access_token_hook"

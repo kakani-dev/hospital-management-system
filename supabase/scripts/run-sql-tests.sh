@@ -3,6 +3,7 @@
 #
 #   DATABASE_URL  admin connection to a server (default postgresql://postgres:postgres@localhost:5432/postgres)
 #   TEST_DB       name of the throwaway database (default hms_sql_test) — it is DROPPED and recreated.
+#   SKIP_SQL_TESTS=1  only prepare the database (shim, migrations, seed, API login role); used for E2E.
 #
 # Never point this at a real Supabase project: it drops TEST_DB and installs a local auth shim.
 set -euo pipefail
@@ -27,6 +28,14 @@ done
 
 echo "==> Seeding synthetic data"
 "${PSQL[@]}" "$TEST_URL" --single-transaction -f "$ROOT/seed.sql"
+
+echo "==> Ensuring local API login role (hms_api_login)"
+"${PSQL[@]}" "$TEST_URL" -f "$ROOT/scripts/local-api-login-role.sql"
+
+if [[ "${SKIP_SQL_TESTS:-0}" == "1" ]]; then
+  echo "==> Database ${TEST_DB} prepared (SQL tests skipped)"
+  exit 0
+fi
 
 echo "==> Installing test helpers"
 "${PSQL[@]}" "$TEST_URL" -f "$ROOT/tests/00_test_helpers.sql"

@@ -1,26 +1,36 @@
 import { Card } from '../../components/ui/Card'
 import { useApiHealth } from '../../lib/api/hooks'
-import { useSession } from '../auth/session'
+import { useCurrentContext } from '../tenancy/useCurrentContext'
+import { PendingInvitations } from '../invitations/PendingInvitations'
 
 export function DashboardPage() {
-  const { activeMembership } = useSession()
+  const { activeTenant, branches, activeBranchId, roles } = useCurrentContext()
   const health = useApiHealth()
-
   const apiStatus = health.isPending ? 'Checking…' : health.isError ? 'Unreachable' : health.data.status
+  const branchName = branches.find((b) => b.id === activeBranchId)?.name ?? 'All my branches'
 
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-semibold">Dashboard</h1>
+      <PendingInvitations />
       <div className="grid gap-4 md:grid-cols-3">
         <Card title="Context">
           <dl className="space-y-1 text-sm">
             <div>
               <dt className="inline text-slate-600">Hospital: </dt>
-              <dd className="inline">{activeMembership?.tenantName ?? '—'}</dd>
+              <dd className="inline" data-testid="dashboard-tenant">
+                {activeTenant?.name ?? '—'}
+              </dd>
             </div>
             <div>
               <dt className="inline text-slate-600">Branch: </dt>
-              <dd className="inline">{activeMembership?.branchName ?? 'All branches'}</dd>
+              <dd className="inline" data-testid="dashboard-branch">
+                {branchName}
+              </dd>
+            </div>
+            <div>
+              <dt className="inline text-slate-600">Roles: </dt>
+              <dd className="inline">{roles.join(', ') || '—'}</dd>
             </div>
           </dl>
         </Card>

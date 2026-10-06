@@ -39,7 +39,7 @@ jobs:
       - run: npm run build
 
   api:
-    name: Backend (build + xUnit)
+    name: Backend (build + unit tests)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -48,16 +48,18 @@ jobs:
           dotnet-version: ${{ env.DOTNET_VERSION }}
       - run: dotnet restore backend/Hms.slnx
       - run: dotnet build backend/Hms.slnx -c Release --no-restore
-      - name: Unit + API integration tests (no database)
-        run: dotnet test backend/Hms.slnx -c Release --no-build --filter "Category!=Database" --logger "trx;LogFilePrefix=api" --results-directory test-results
+      - name: Unit tests (no database)
+        run: dotnet test backend/Hms.slnx -c Release --no-build --filter "Category!=Database" --logger "trx;LogFilePrefix=unit" --results-directory test-results
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: api-test-results
+          name: api-unit-test-results
           path: test-results
+          retention-days: 7
+          if-no-files-found: ignore
 
   database:
-    name: SQL migrations + RLS/tenant-isolation tests
+    name: SQL/RLS tests + API integration tests (real Postgres)
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -76,21 +78,48 @@ jobs:
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
       HMS_DB_TEST_CONNECTION: Host=localhost;Port=5432;Database=hms_sql_test;Username=postgres;Password=postgres
+      # Local-only password created by supabase/scripts/local-api-login-role.sql (throwaway CI database).
+      HMS_API_TEST_CONNECTION: Host=localhost;Port=5432;Database=hms_sql_test;Username=hms_api_login;Password=hms_api_local_only
     steps:
       - uses: actions/checkout@v7
       - name: Install psql client
         run: sudo apt-get update -y && sudo apt-get install -y postgresql-client
-      - name: Apply migrations + seed, run SQL tests
+      - name: Apply migrations + seed, run SQL tests (hook, API role, RLS)
         run: bash supabase/scripts/run-sql-tests.sh
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
-      - name: EF Core mapping tests against the migrated database
-        run: dotnet test backend/tests/Hms.DatabaseTests -c Release --filter "Category=Database"
+      - name: Integration (JWT + HTTP) and RLS defense-in-depth tests
+        run: >-
+          dotnet test backend/Hms.slnx -c Release --filter "Category=Database"
+          --logger "trx;LogFilePrefix=db" --results-directory test-results
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: api-db-test-results
+          path: test-results
+          retention-days: 7
+          if-no-files-found: ignore
 
   e2e:
-    name: Playwright E2E
+    name: Playwright E2E (web + API + mock auth + Postgres)
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -100,9 +129,18 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             apps/web/package-lock.json
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+      - name: Install psql client
+        run: sudo apt-get update -y && sudo apt-get install -y postgresql-client
       - run: npm ci --no-audit --no-fund
       - run: npm --prefix apps/web ci --no-audit --no-fund
       - run: npx playwright install --with-deps chromium
+      - name: Prepare E2E database (migrations + synthetic seed)
+        run: npm run e2e:db
+      - name: Build API
+        run: dotnet build backend/gateway/Hms.Gateway
       - run: npm run e2e
       - uses: actions/upload-artifact@v7
         if: always()
@@ -112,3 +150,155 @@ jobs:
             tests/playwright/playwright-report
             tests/playwright/test-results
           retention-days: 7
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # PROTOTYPE for PR #1 review item Minor 9 (owner: DevOps). NOT a required check.
+  # Runs the same migrations, seed and SQL tests on Supabase's real stack (supabase/postgres
+  # image + GoTrue via the pinned Supabase CLI) instead of vanilla postgres:17 + the local
+  # shim, and smoke-tests the real GoTrue calling identity.custom_access_token_hook.
+  # continue-on-error: it has not yet been proven stable on GitHub-hosted runners, so a
+  # failure here must not fail the CI run. Do not add it to branch protection until it has
+  # been green on several runs (see docs/runbooks/pr1-review-answers.md, Minor 9).
+  # ---------------------------------------------------------------------------
+  db-supabase-prototype:
+    name: DB prototype on Supabase stack (supabase start, non-required)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 25
+    env:
+      SUPABASE_CLI_VERSION: "2.119.0"
+      SB_WORKDIR: .github/supabase-ci
+    steps:
+      - uses: actions/checkout@v7
+      - uses: supabase/setup-cli@v3
+        with:
+          version: ${{ env.SUPABASE_CLI_VERSION }}
+      - name: Install psql client
+        run: sudo apt-get update -y && sudo apt-get install -y postgresql-client
+      - name: Stage the repo's migrations + seed into the CI-only workdir
+        run: |
+          cp -R supabase/migrations "$SB_WORKDIR/supabase/migrations"
+          cp supabase/seed.sql "$SB_WORKDIR/supabase/seed.sql"
+          ls -1 "$SB_WORKDIR/supabase/migrations"
+      - name: supabase start (supabase/postgres + GoTrue; applies migrations + seed)
+        run: >-
+          supabase start --workdir "$SB_WORKDIR"
+          -x realtime,storage-api,imgproxy,mailpit,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
+      - name: Export local stack endpoints (throwaway local demo credentials)
+        run: |
+          supabase status --workdir "$SB_WORKDIR" -o env > "$RUNNER_TEMP/sb.env"
+          echo "status variables: $(cut -d= -f1 "$RUNNER_TEMP/sb.env" | tr '\n' ' ')"
+          get() { grep -E "^$1=" "$RUNNER_TEMP/sb.env" | head -n1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//'; }
+          api_url="$(get API_URL)"
+          db_url="$(get DB_URL)"
+          key="$(get PUBLISHABLE_KEY)"
+          if [ -z "$key" ]; then key="$(get ANON_KEY)"; fi
+          echo "::add-mask::$key"
+          admin_url="${db_url/\/\/postgres:/\/\/supabase_admin:}"
+          {
+            echo "SB_API_URL=$api_url"
+            echo "SB_APIKEY=$key"
+            echo "SB_DB_URL=$db_url"
+            echo "SB_ADMIN_URL=$admin_url"
+          } >> "$GITHUB_ENV"
+      - name: Smoke query (image, roles, migration history)
+        run: |
+          psql -X -v ON_ERROR_STOP=1 "$SB_DB_URL" <<'SQL'
+          select version();
+          select rolname, rolsuper, rolbypassrls, rolcanlogin, rolconnlimit
+            from pg_roles
+           where rolname in ('postgres', 'supabase_admin', 'supabase_auth_admin', 'authenticated', 'anon', 'service_role', 'hms_api')
+           order by 1;
+          select count(*) as gotrue_migrations from auth.schema_migrations;
+          select version, name from supabase_migrations.schema_migrations order by version;
+          select (select count(*) from identity.tenants) as tenants, (select count(*) from patient.patients) as patients;
+          SQL
+      - name: SQL tests as postgres (hosted parity, non-superuser; informational)
+        continue-on-error: true
+        env:
+          LABEL: as postgres (hosted parity)
+        run: DB_URL="$SB_DB_URL" bash .github/scripts/supabase-ci-sql-tests.sh
+      - name: SQL tests as supabase_admin (superuser, same privileges as the database job)
+        env:
+          LABEL: as supabase_admin
+        run: DB_URL="$SB_ADMIN_URL" bash .github/scripts/supabase-ci-sql-tests.sh
+      - name: Real GoTrue + access token hook + refresh-token reuse smoke test
+        env:
+          EXPECTED_JWT_EXP: "900"
+          REUSE_INTERVAL: "10"
+        run: AUTH_URL="$SB_API_URL/auth/v1" APIKEY="$SB_APIKEY" DB_URL="$SB_ADMIN_URL" bash .github/scripts/supabase-ci-hook-smoke.sh
+      - name: Container logs on failure
+        if: failure()
+        run: |
+          supabase status --workdir "$SB_WORKDIR" || true
+          docker ps -a --format '{{.Names}}\t{{.Status}}'
+          for c in $(docker ps -a --format '{{.Names}}' | grep -E '_hms-ci$'); do
+            echo "::group::$c"; docker logs --tail 200 "$c" 2>&1 || true; echo "::endgroup::"
+          done
+      - name: Stop the stack
+        if: always()
+        run: supabase stop --workdir "$SB_WORKDIR" --no-backup || true
+
+  # ---------------------------------------------------------------------------
+  # Frontend's mocked browser suite (`npm run e2e:mocked`, root package.json; API and Supabase
+  # Auth are answered in the page by tests/playwright/mocked/mock-backend.ts, so no DB, .NET or
+  # mock-auth server). It arrives with fix/pr1-web. Until then the guard step finds no script
+  # and the job skips cleanly with a notice. It is a SEPARATE job so it can never turn the
+  # required "Frontend (lint, unit tests, build)" check red. Not required (yet).
+  # ---------------------------------------------------------------------------
+  web-e2e-mocked:
+    name: Web E2E (mocked API, Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Detect the e2e:mocked suite on this ref
+        id: guard
+        run: bash .github/scripts/detect-npm-script.sh e2e:mocked tests/playwright/playwright.mocked.config.ts
+      - uses: actions/setup-node@v7
+        if: steps.guard.outputs.present == 'true'
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/web/package-lock.json
+      - name: Install dependencies (root Playwright + web app)
+        if: steps.guard.outputs.present == 'true'
+        run: |
+          npm ci --no-audit --no-fund
+          npm --prefix apps/web ci --no-audit --no-fund
+      - name: Resolve Playwright version
+        id: pw
+        if: steps.guard.outputs.present == 'true'
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+      - name: Cache Playwright browsers
+        id: pw-cache
+        if: steps.guard.outputs.present == 'true'
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-chromium-${{ steps.pw.outputs.version }}
+      - name: Install Chromium + OS dependencies
+        if: steps.guard.outputs.present == 'true' && steps.pw-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+      - name: Install OS dependencies only (browsers restored from cache)
+        if: steps.guard.outputs.present == 'true' && steps.pw-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+      - name: Run mocked browser suite
+        if: steps.guard.outputs.present == 'true'
+        env:
+          PLAYWRIGHT_HTML_OUTPUT_DIR: tests/playwright/playwright-report-mocked
+          PLAYWRIGHT_HTML_OPEN: never
+          PLAYWRIGHT_JUNIT_OUTPUT_FILE: tests/playwright/test-results/junit-mocked.xml
+        run: npm run e2e:mocked -- --reporter=list,html,junit
+      - uses: actions/upload-artifact@v7
+        if: failure() && steps.guard.outputs.present == 'true'
+        with:
+          name: playwright-report-mocked
+          path: |
+            tests/playwright/playwright-report-mocked
+            tests/playwright/test-results
+          retention-days: 7
+          if-no-files-found: ignore

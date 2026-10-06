@@ -1,4 +1,21 @@
-import type { CreatePatientRequest, CurrentUser, HealthStatus, PagedResult, PatientSummary, ProblemDetails } from './types'
+import type {
+  AddMemberRequest,
+  AddMemberResponse,
+  Branch,
+  CreateBranchRequest,
+  CreatePatientRequest,
+  CurrentUser,
+  HealthStatus,
+  Invitation,
+  Member,
+  PagedResult,
+  PatientSearchRequest,
+  PatientSummary,
+  ProblemDetails,
+  SwitchContextRequest,
+  UpdateBranchRequest,
+  UpdateMemberRequest,
+} from './types'
 
 export class ApiError extends Error {
   readonly status: number
@@ -14,10 +31,22 @@ export class ApiError extends Error {
 
 export type TokenProvider = () => string | null | Promise<string | null>
 
+/** Response header carrying the tenant the API resolved for the request (M3 option b). */
+export const TENANT_HEADER = 'X-Hms-Tenant'
+
+/**
+ * Called with the X-Hms-Tenant value of every API response that carries one, plus when the request
+ * started (performance.now()), so answers to requests sent before a cache reset can be ignored.
+ */
+export type ResolvedTenantListener = (tenantId: string, requestStartedAt: number) => void
+
+const clock = () => (typeof performance !== 'undefined' ? performance.now() : Date.now())
+
 export interface ApiClientOptions {
   baseUrl?: string
   getAccessToken?: TokenProvider
   fetchImpl?: typeof fetch
+  onResolvedTenant?: ResolvedTenantListener
 }
 
 /**
@@ -31,11 +60,14 @@ export class ApiClient {
   private readonly baseUrl: string
   private readonly getAccessToken?: TokenProvider
   private readonly fetchImpl: typeof fetch
+  private readonly onResolvedTenant?: ResolvedTenantListener
 
   constructor(options: ApiClientOptions = {}) {
     this.baseUrl = (options.baseUrl ?? '').replace(/\/+$/, '')
     this.getAccessToken = options.getAccessToken
-    this.fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis)
+    this.onResolvedTenant = options.onResolvedTenant
+    // Resolved per call (not captured at construction) so polyfills/test stubs installed later apply.
+    this.fetchImpl = options.fetchImpl ?? ((input, init) => globalThis.fetch(input, init))
   }
 
   async request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -47,7 +79,10 @@ export class ApiClient {
     const token = await this.getAccessToken?.()
     if (token) headers.set('Authorization', `Bearer ${token}`)
 
+    const startedAt = clock()
     const response = await this.fetchImpl(`${this.baseUrl}${path}`, { ...init, headers })
+    const resolvedTenant = response.headers.get(TENANT_HEADER)?.trim()
+    if (resolvedTenant) this.onResolvedTenant?.(resolvedTenant, startedAt)
     if (!response.ok) {
       let problem: ProblemDetails | null = null
       try {
@@ -58,7 +93,8 @@ export class ApiClient {
       throw new ApiError(response.status, problem)
     }
     if (response.status === 204) return undefined as T
-    return (await response.json()) as T
+    const text = await response.text()
+    return (text ? JSON.parse(text) : undefined) as T
   }
 
   health = {
@@ -68,22 +104,75 @@ export class ApiClient {
 
   me = () => this.request<CurrentUser>('/api/v1/me')
 
+  /** Server validates the requested tenant/branch against memberships (403 otherwise). */
+  switchContext = (body: SwitchContextRequest) =>
+    this.request<void>('/api/v1/me/context', { method: 'POST', body: JSON.stringify(body) })
+
+  branches = {
+    list: () => this.request<Branch[]>('/api/v1/branches'),
+    create: (body: CreateBranchRequest) =>
+      this.request<Branch>('/api/v1/branches', { method: 'POST', body: JSON.stringify(body) }),
+    update: (id: string, body: UpdateBranchRequest) =>
+      this.request<Branch>(`/api/v1/branches/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  }
+
+  /** Invitations addressed to the signed-in user; only the invitee can accept (consent). */
+  invitations = {
+    list: async () => {
+      const result = await this.request<Invitation[] | { items?: Invitation[] } | undefined>('/api/v1/me/invitations')
+      return Array.isArray(result) ? result : (result?.items ?? [])
+    },
+    accept: (membershipId: string) =>
+      this.request<void>(`/api/v1/me/invitations/${encodeURIComponent(membershipId)}/accept`, { method: 'POST' }),
+  }
+
+  members = {
+    list: () => this.request<Member[]>('/api/v1/members'),
+    /** Always 202 + a generic message (no account / invited / already a member look the same). */
+    add: (body: AddMemberRequest) =>
+      this.request<AddMemberResponse | undefined>('/api/v1/members', { method: 'POST', body: JSON.stringify(body) }),
+    update: (id: string, body: UpdateMemberRequest) =>
+      this.request<Member>(`/api/v1/members/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  }
+
   patients = {
-    list: (params: { page?: number; pageSize?: number; search?: string } = {}) => {
+    /** Paging only. Search terms are PHI and must never be put in a URL: use `search`. */
+    list: (params: { page?: number; pageSize?: number } = {}) => {
       const query = new URLSearchParams()
       if (params.page) query.set('page', String(params.page))
       if (params.pageSize) query.set('pageSize', String(params.pageSize))
-      if (params.search) query.set('search', params.search)
       const qs = query.toString()
       return this.request<PagedResult<PatientSummary>>(`/api/v1/patients${qs ? `?${qs}` : ''}`)
     },
+    /** POST /api/v1/patients/search: the term travels in the JSON body (not logged in access logs). */
+    search: (body: PatientSearchRequest) =>
+      this.request<PagedResult<PatientSummary>>('/api/v1/patients/search', { method: 'POST', body: JSON.stringify(body) }),
     create: (body: CreatePatientRequest) =>
       this.request<PatientSummary>('/api/v1/patients', { method: 'POST', body: JSON.stringify(body) }),
   }
 }
 
+let currentTokenProvider: TokenProvider = () => null
+let currentTenantListener: ResolvedTenantListener | null = null
+
+/** Called by AuthProvider: the API client asks Supabase for the current access token per request. */
+export function configureApiAuth(provider: TokenProvider) {
+  currentTokenProvider = provider
+}
+
+/** Called by AuthProvider: every X-Hms-Tenant response header is checked against the displayed tenant. */
+export function configureResolvedTenantListener(listener: ResolvedTenantListener | null) {
+  currentTenantListener = listener
+}
+
 export const apiClient = new ApiClient({
   baseUrl: import.meta.env.VITE_API_BASE_URL ?? '',
-  // TODO(Sprint 1): return the Supabase session access token (supabase.auth.getSession()).
-  getAccessToken: () => null,
+  getAccessToken: () => currentTokenProvider(),
+  onResolvedTenant: (tenantId, startedAt) => currentTenantListener?.(tenantId, startedAt),
 })
+
+/** Field errors from a 400 ValidationProblem, keyed by camelCase field name. */
+export function fieldErrors(error: unknown): Record<string, string> {
+  if (!(error instanceof ApiError) || !error.problem?.errors) return {}
+  return Object.fromEntries(Object.entries(error.problem.errors).map(([k, v]) => [k, v[0] ?? 'Invalid value']))
+}

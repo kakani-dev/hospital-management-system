@@ -1,16 +1,25 @@
 import { NavLink, Outlet, useNavigate } from 'react-router'
-import { useSession } from '../../features/auth/session'
-import { TenantBranchIndicator } from '../../features/tenancy/TenantBranchIndicator'
+import { useAuth } from '../../features/auth/AuthProvider'
+import { TenantSwitcher } from '../../features/tenancy/TenantSwitcher'
+import { useCurrentContext } from '../../features/tenancy/useCurrentContext'
+import { TenantChangedBanner } from '../../features/tenancy/TenantChangedBanner'
 import { Button } from '../ui/Button'
 
-const navItems = [
-  { to: '/', label: 'Dashboard', end: true },
-  { to: '/patients', label: 'Patients', end: false },
-]
-
 export function AppShell() {
-  const { session, signOut } = useSession()
+  const { email, signOut } = useAuth()
+  const { isAdmin } = useCurrentContext()
   const navigate = useNavigate()
+
+  const navItems = [
+    { to: '/', label: 'Dashboard', end: true },
+    { to: '/patients', label: 'Patients', end: false },
+    ...(isAdmin
+      ? [
+          { to: '/admin/branches', label: 'Branches', end: false },
+          { to: '/admin/members', label: 'Members', end: false },
+        ]
+      : []),
+  ]
 
   return (
     <div className="min-h-screen">
@@ -28,14 +37,16 @@ export function AppShell() {
             </span>
             <span className="text-lg font-semibold">HMS</span>
           </div>
-          <TenantBranchIndicator />
+          <TenantSwitcher />
           <div className="flex items-center gap-3 text-sm">
-            <span className="hidden text-slate-600 sm:inline">{session?.email}</span>
+            <span className="hidden text-slate-600 sm:inline" data-testid="user-email">
+              {email}
+            </span>
             <Button
               variant="secondary"
-              onClick={() => {
-                signOut()
-                navigate('/login')
+              onClick={async () => {
+                await signOut()
+                navigate('/login', { replace: true })
               }}
             >
               Sign out
@@ -43,7 +54,7 @@ export function AppShell() {
           </div>
         </div>
         <nav aria-label="Primary" className="mx-auto max-w-7xl px-4">
-          <ul className="flex gap-1">
+          <ul className="flex flex-wrap gap-1">
             {navItems.map((item) => (
               <li key={item.to}>
                 <NavLink
@@ -65,6 +76,7 @@ export function AppShell() {
       <div role="note" className="bg-amber-50 px-4 py-1 text-center text-xs text-amber-900">
         Demonstration build — synthetic data only. Not for clinical use.
       </div>
+      <TenantChangedBanner />
       <main id="main-content" tabIndex={-1} className="mx-auto max-w-7xl px-4 py-6">
         <Outlet />
       </main>

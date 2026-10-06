@@ -1,4 +1,5 @@
 using Hms.Modules.Identity.Domain;
+using Hms.SharedKernel.Persistence;
 using Microsoft.EntityFrameworkCore;
 
 namespace Hms.Modules.Identity.Persistence;
@@ -16,6 +17,7 @@ public sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> option
     public DbSet<Tenant> Tenants => Set<Tenant>();
     public DbSet<Branch> Branches => Set<Branch>();
     public DbSet<Membership> Memberships => Set<Membership>();
+    public DbSet<UserProfile> UserProfiles => Set<UserProfile>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -38,5 +40,10 @@ public sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> option
             e.ToTable("memberships");
             e.HasIndex(x => new { x.UserId, x.TenantId });
         });
+
+        modelBuilder.Entity<UserProfile>(e => e.ToTable("user_profiles"));
+
+        // Audit columns are DB-managed (trigger): EF never sends them.
+        modelBuilder.UseDbManagedAuditColumns();
     }
 }

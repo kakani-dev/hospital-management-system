@@ -29,9 +29,14 @@ services:
       dockerfile: infra/docker/api.Dockerfile
     environment:
       ASPNETCORE_ENVIRONMENT: Development
-      ConnectionStrings__HmsDatabase: "Host=postgres;Port=5432;Database=hms;Username=postgres;Password=postgres"
+      # Low-privilege login role (local password from supabase/scripts/local-api-login-role.sql):
+      # every API transaction switches to `authenticated` + JWT claims, so RLS applies.
+      ConnectionStrings__HmsDatabase: "Host=postgres;Port=5432;Database=hms;Username=hms_api_login;Password=hms_api_local_only"
       Cors__AllowedOrigins__0: "http://localhost:8081"
-      # Auth__Supabase__ProjectUrl: "https://<project-ref>.supabase.co"   # Sprint 1
+      # Point at your Supabase project (JWKS is fetched from <url>/auth/v1/.well-known/jwks.json),
+      # or at the local mock auth server (`npm run mock-auth`, then AllowInsecureHttp=true):
+      Auth__Supabase__ProjectUrl: "${HMS_AUTH_URL:-}"
+      Auth__Supabase__AllowInsecureHttp: "${HMS_AUTH_ALLOW_HTTP:-false}"
     ports:
       - "127.0.0.1:8080:8080"
     depends_on:
@@ -44,6 +49,8 @@ services:
       dockerfile: infra/docker/web.Dockerfile
       args:
         VITE_API_BASE_URL: "http://localhost:8080"
+        VITE_SUPABASE_URL: "${VITE_SUPABASE_URL:-}"
+        VITE_SUPABASE_PUBLISHABLE_KEY: "${VITE_SUPABASE_PUBLISHABLE_KEY:-}"
     ports:
       - "127.0.0.1:8081:8080"
     depends_on:

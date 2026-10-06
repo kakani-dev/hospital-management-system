@@ -1,8 +1,9 @@
 namespace Hms.SharedKernel.Domain;
 
 /// <summary>
-/// Audit columns. In PostgreSQL these are (re)stamped by the audit.stamp_audit_columns() trigger;
-/// the API also sets them so non-Postgres providers (tests) behave the same.
+/// Audit columns. They are owned by PostgreSQL (audit.stamp_audit_columns() trigger + defaults) and
+/// are NEVER sent by EF (<see cref="Persistence.AuditColumnConventions"/>). The save interceptor
+/// still fills the in-memory values so the tracked entity looks sensible after SaveChanges.
 /// </summary>
 public abstract class AuditableEntity
 {

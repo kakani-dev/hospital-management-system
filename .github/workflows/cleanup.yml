@@ -1,0 +1,57 @@
+name: Cleanup old artifacts and caches
+
+# Deletes GitHub Actions artifacts older than 7 days and caches not used for 7 days.
+# Runs weekly and on demand. Uses only the workflow's GITHUB_TOKEN (no stored secrets).
+on:
+  schedule:
+    - cron: "17 3 * * 1" # Mondays 03:17 UTC
+  workflow_dispatch:
+    inputs:
+      max_age_days:
+        description: "Delete artifacts/caches older than / unused for this many days"
+        required: false
+        default: "7"
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    name: Delete stale artifacts and caches
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+      MAX_AGE_DAYS: ${{ github.event.inputs.max_age_days || '7' }}
+    steps:
+      - name: Compute cutoff
+        run: |
+          [[ "$MAX_AGE_DAYS" =~ ^[0-9]+$ ]] || { echo "max_age_days must be an integer"; exit 1; }
+          echo "CUTOFF=$(date -u -d "-${MAX_AGE_DAYS} days" +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+
+      - name: Delete artifacts older than cutoff
+        run: |
+          deleted=0
+          while read -r id name created; do
+            [[ -z "$id" ]] && continue
+            echo "Deleting artifact $id ($name, created $created)"
+            gh api -X DELETE "repos/$REPO/actions/artifacts/$id" && deleted=$((deleted + 1))
+          done < <(gh api --paginate "repos/$REPO/actions/artifacts?per_page=100" \
+                     --jq ".artifacts[] | select(.expired == false and .created_at < \"$CUTOFF\") | \"\(.id) \(.name) \(.created_at)\"")
+          echo "Deleted $deleted artifact(s) created before $CUTOFF" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Delete caches not used since cutoff
+        run: |
+          deleted=0
+          while read -r id key last; do
+            [[ -z "$id" ]] && continue
+            echo "Deleting cache $id ($key, last used $last)"
+            gh cache delete "$id" --repo "$REPO" && deleted=$((deleted + 1))
+          done < <(gh cache list --repo "$REPO" --limit 1000 --json id,key,lastAccessedAt \
+                     --jq ".[] | select(.lastAccessedAt < \"$CUTOFF\") | \"\(.id) \(.key) \(.lastAccessedAt)\"")
+          echo "Deleted $deleted cache(s) not used since $CUTOFF" | tee -a "$GITHUB_STEP_SUMMARY"

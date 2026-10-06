@@ -13,6 +13,8 @@ tests/playwright/test-results/
 tests/playwright/playwright-report/
 tests/playwright/.cache/
 blob-report/
+playwright-report/
+tests/playwright/blob-report/
 
 # .NET
 bin/
@@ -40,3 +42,6 @@ supabase/.temp/
 !.env.example
 *.pem
 *.pfx
+
+# CI test reports (Jenkins)
+reports/

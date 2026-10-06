@@ -11,10 +11,12 @@
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../modules/Identity/Hms.Modules.Identity/Hms.Modules.Identity.csproj" />
     <ProjectReference Include="../../modules/Patients/Hms.Modules.Patients/Hms.Modules.Patients.csproj" />
+    <ProjectReference Include="../../gateway/Hms.Gateway/Hms.Gateway.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />
