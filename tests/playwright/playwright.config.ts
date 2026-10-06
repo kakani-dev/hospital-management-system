@@ -62,7 +62,8 @@ export default defineConfig({
     },
     {
       name: 'api',
-      command: 'dotnet run --project ../../backend/gateway/Hms.Gateway --no-launch-profile',
+      // E2E_API_COMMAND lets CI run a prebuilt (e.g. self-contained) gateway instead of `dotnet run`.
+      command: process.env.E2E_API_COMMAND ?? 'dotnet run --project ../../backend/gateway/Hms.Gateway --no-launch-profile',
       url: `http://localhost:${API_PORT}/health/ready`,
       reuseExistingServer: reuse,
       timeout: 240_000,

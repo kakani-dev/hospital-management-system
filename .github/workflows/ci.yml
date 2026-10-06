@@ -39,7 +39,7 @@ jobs:
       - run: npm run build
 
   api:
-    name: Backend (build + xUnit)
+    name: Backend (build + unit tests)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -48,16 +48,18 @@ jobs:
           dotnet-version: ${{ env.DOTNET_VERSION }}
       - run: dotnet restore backend/Hms.slnx
       - run: dotnet build backend/Hms.slnx -c Release --no-restore
-      - name: Unit + API integration tests (no database)
-        run: dotnet test backend/Hms.slnx -c Release --no-build --filter "Category!=Database" --logger "trx;LogFilePrefix=api" --results-directory test-results
+      - name: Unit tests (no database)
+        run: dotnet test backend/Hms.slnx -c Release --no-build --filter "Category!=Database" --logger "trx;LogFilePrefix=unit" --results-directory test-results
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: api-test-results
+          name: api-unit-test-results
           path: test-results
+          retention-days: 7
+          if-no-files-found: ignore
 
   database:
-    name: SQL migrations + RLS/tenant-isolation tests
+    name: SQL/RLS tests + API integration tests (real Postgres)
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -76,21 +78,48 @@ jobs:
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
       HMS_DB_TEST_CONNECTION: Host=localhost;Port=5432;Database=hms_sql_test;Username=postgres;Password=postgres
+      # Local-only password created by supabase/scripts/local-api-login-role.sql (throwaway CI database).
+      HMS_API_TEST_CONNECTION: Host=localhost;Port=5432;Database=hms_sql_test;Username=hms_api_login;Password=hms_api_local_only
     steps:
       - uses: actions/checkout@v7
       - name: Install psql client
         run: sudo apt-get update -y && sudo apt-get install -y postgresql-client
-      - name: Apply migrations + seed, run SQL tests
+      - name: Apply migrations + seed, run SQL tests (hook, API role, RLS)
         run: bash supabase/scripts/run-sql-tests.sh
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
-      - name: EF Core mapping tests against the migrated database
-        run: dotnet test backend/tests/Hms.DatabaseTests -c Release --filter "Category=Database"
+      - name: Integration (JWT + HTTP) and RLS defense-in-depth tests
+        run: >-
+          dotnet test backend/Hms.slnx -c Release --filter "Category=Database"
+          --logger "trx;LogFilePrefix=db" --results-directory test-results
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: api-db-test-results
+          path: test-results
+          retention-days: 7
+          if-no-files-found: ignore
 
   e2e:
-    name: Playwright E2E
+    name: Playwright E2E (web + API + mock auth + Postgres)
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -100,9 +129,18 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             apps/web/package-lock.json
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+      - name: Install psql client
+        run: sudo apt-get update -y && sudo apt-get install -y postgresql-client
       - run: npm ci --no-audit --no-fund
       - run: npm --prefix apps/web ci --no-audit --no-fund
       - run: npx playwright install --with-deps chromium
+      - name: Prepare E2E database (migrations + synthetic seed)
+        run: npm run e2e:db
+      - name: Build API
+        run: dotnet build backend/gateway/Hms.Gateway
       - run: npm run e2e
       - uses: actions/upload-artifact@v7
         if: always()
@@ -112,3 +150,4 @@ jobs:
             tests/playwright/playwright-report
             tests/playwright/test-results
           retention-days: 7
+          if-no-files-found: ignore

@@ -19,15 +19,24 @@
 | 0.11 | Docs: architecture, security, ERD, API, local dev, report | Documentation Team | Done | `docs/` |
 | 0.12 | Create GitHub repo and push | Release Management | **On hold.** The user wants a different GitHub account. | — |
 
-## Backlog: Sprint 1 (Tenant & Identity)
+## Sprint 1 (Tenant & Identity)
+
+| # | Task | Simulated owner | Status |
+|---|---|---|---|
+| 1.1 | Supabase Auth in the SPA. Replace the demo session with `GET /api/v1/me`. | React Team | Done |
+| 1.2 | JWKS validation of Supabase JWTs, plus tests with signed tokens | Security Team | Done (test-signed tokens + fake JWKS; mock GoTrue in E2E) |
+| 1.3 | Custom access token hook issuing `tenant_id`/`branch_id`, plus a tenant/branch switch flow | Security / Database | Done. The function is applied; **enabling it in the Auth dashboard is a manual step**. |
+| 1.4 | Non-owner DB role for the API, with `request.jwt.claims` set per transaction | Database Engineering | Done locally. The hosted `hms_api_login` must be created out-of-band. |
+| 1.5 | Tenant admin UI: branches and memberships (add, role change, suspend) | React / .NET | Done (adds existing accounts; email invitations deferred) |
+| 1.6 | Cross-tenant attack E2E tests against a running API with real tokens | QA Automation | Done |
+| 1.7 | Clean script, CI artifact retention, cleanup workflow, Jenkins mirror | DevOps | Done (Jenkinsfile linted, **not run on a Jenkins server**) |
+| 1.8 | Branch protection, required CI checks, PR review rules | Release Management | Waiting on user approval |
+
+## Backlog: Sprint 2 (Patients & Appointments)
 
 | # | Task | Simulated owner |
 |---|---|---|
-| 1.1 | Supabase Auth in the SPA. Replace the demo session with `GET /api/v1/me`. | React Team |
-| 1.2 | JWKS validation of Supabase JWTs, plus tests with signed tokens | Security Team |
-| 1.3 | Custom access token hook that issues `tenant_id`/`branch_id` claims, plus a tenant/branch switch flow | Security / Database |
-| 1.4 | Non-owner DB role for the API. Set `request.jwt.claims` per transaction so RLS also covers API traffic. | Database Engineering |
-| 1.5 | Tenant admin UI: branches and memberships (invite, suspend) | React / .NET |
-| 1.6 | Cross-tenant attack E2E tests against a running API with real tokens | QA Automation |
-| 1.7 | Transactional outbox table and dispatcher skeleton | .NET Backend |
-| 1.8 | Branch protection, required CI checks, PR review rules (needs the user to approve the repo setup) | Release Management |
+| 2.1 | Patient detail/edit + soft delete, search by phone/DOB, duplicate detection | React / .NET |
+| 2.2 | Appointment schema (`appointment` schema, RLS, branch-scoped slots), API and calendar UI | Database / .NET / React |
+| 2.3 | Transactional outbox + dispatcher skeleton (appointment events) | .NET Backend |
+| 2.4 | Member invitations via Supabase Auth admin API (server-side), deploy API to Render with `hms_api_login` | Security / DevOps |

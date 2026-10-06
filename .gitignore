@@ -42,3 +42,6 @@ supabase/.temp/
 !.env.example
 *.pem
 *.pfx
+
+# CI test reports (Jenkins)
+reports/

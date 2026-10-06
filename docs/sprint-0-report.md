@@ -2,12 +2,14 @@
 
 _Date: 2026-10-06 (IST). Prepared by the simulated CTO / orchestrator role. See [team-tracker.md](team-tracker.md)._
 
+> **Historical document.** Superseded by [sprint-1-report.md](sprint-1-report.md). The repo now lives at the private `kakani-dev/hospital-management-system`, and the Supabase project `gvgomzogbzbjhlcsimrx` exists. Blockers 1–3 in §6 were resolved in Sprint 1.
+
 ## 1. Work completed
 
 - **Monorepo** following brief §9: `apps/web`, `backend/{gateway,modules,shared,tests}`, `supabase/{migrations,tests,seed.sql}`, `tests/playwright`, `infra/{docker,render,vercel}`, `docs`, `.github/workflows`, `docker-compose.yml`.
 - **Frontend** (`apps/web`): React 19, Vite 8, React Router, TanStack Query, Tailwind v4, React Hook Form + Zod. It includes a login placeholder with validation, a protected app shell with skip link, primary nav, tenant/branch indicator and switcher, dashboard (API health), patient list (search, empty and error states), 404, and a typed API client that never sends a tenant header.
 - **Backend** (`backend`): .NET 10 solution with `Hms.Gateway`, `Hms.Modules.Identity`, `Hms.Modules.Patients` and `Hms.SharedKernel`. It provides EF Core + Npgsql (snake_case), OpenAPI + Swagger UI, Serilog JSON logs, `/health/live` and `/health/ready`, `/api/v1` routes, rate limiting, CORS, security headers, tenant resolution middleware, and RFC 7807 errors.
-- **Database** (`supabase`): 6 migrations creating the `identity`, `patient` and `audit` schemas. Tables: tenants, branches, user_profiles, memberships, patients, audit_log. Also included: tenant-scoped unique constraints and composite FKs, indexes, audit-column and tenant-immutability triggers, an append-only audit log, RLS on every table, membership-based helper functions, and column-level grants. The seed contains synthetic data only (2 tenants, 3 branches, 7 users, 7 patients).
+- **Database** (`supabase`): 6 migrations at the time of this report (7 by the end of Sprint 0, after `20261006090600_advisor_fixes`; see the Sprint 1 report for the current list), creating the `identity`, `patient` and `audit` schemas. Tables: tenants, branches, user_profiles, memberships, patients, audit_log. Also included: tenant-scoped unique constraints and composite FKs, indexes, audit-column and tenant-immutability triggers, an append-only audit log, RLS on every table, membership-based helper functions, and column-level grants. The seed contains synthetic data only (2 tenants, 3 branches, 7 users, 7 patients).
 - **Infra**: API and web Dockerfiles, nginx config, docker-compose (postgres + api + web), Render blueprint, Vercel config + README, CI workflow (4 jobs).
 
 ## 2. Test commands and verified results
@@ -38,7 +40,7 @@ These were run on the build box (Debian 13, Node 24.21.0, .NET SDK 10.0.401, Pos
 | `docker build` / `docker compose up` | Docker is not installed on the build box (and was deliberately not installed). The DB init script logic was run against local Postgres instead. |
 | GitHub Actions run | No repo yet. Repo creation and push are **on hold** because the user wants a different GitHub account. |
 | Render / Vercel / Supabase deploys | Out of scope for Sprint 0. Not authorised. |
-| Supabase JWT validation with real tokens | No Supabase project. Code path is TODO(Sprint 1). |
+| Supabase JWT validation with real tokens | No Supabase project at the time. _(Update: project `gvgomzogbzbjhlcsimrx` was created after this report, and Sprint 1 implemented JWKS validation; see [sprint-1-report.md](sprint-1-report.md).)_ |
 | `supabase` CLI (`supabase db push/test`) | Not installed. Migrations were applied with psql plus the local shim on vanilla PostgreSQL 17. |
 | Playwright `--with-deps` | `apt-get update` failed inside the Playwright installer (Debian repo signature error), so Chromium was installed without system deps. The existing system libs were enough. |
 

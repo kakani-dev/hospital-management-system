@@ -38,15 +38,15 @@ flowchart LR
   SPA -- sign-in --> AUTH
   ID --> PG
   PT --> PG
-  GW -- "JWKS validation (Sprint 1)" --> AUTH
+  GW -- "JWKS (cached)" --> AUTH
 ```
 
 ## Service status
 
-| Service (brief §6) | Schema | Sprint 0 status |
+| Service (brief §6) | Schema | Status (Sprint 1) |
 |---|---|---|
-| Identity & Tenant | `identity` | Tables, RLS, helper functions, EF mapping, tenant resolution middleware, `/api/v1/me`, `/api/v1/tenants/current` |
-| Patient | `patient` | Patient registry table, RLS, list/get/create endpoints |
+| Identity & Tenant | `identity` | Tables, RLS, helpers, access token hook, active context, EF mapping, tenant resolution, `/me`, `/me/context`, `/tenants/current`, branches and members admin |
+| Patient | `patient` | Patient registry table, RLS, list/get/create endpoints, registration UI |
 | Audit | `audit` | Append-only `audit_log` populated by triggers. No API yet. |
 | Appointment, Clinical, Billing, Pharmacy, Inventory, Laboratory, Admission, Notification, Reporting | — | Not started (roadmap sprints 2+) |
 
@@ -54,7 +54,8 @@ flowchart LR
 
 `ForwardedHeaders → ExceptionHandler → SecurityHeaders → Serilog request logging → (Swagger in Development) → CORS → Authentication (JWT) → TenantResolution → RateLimiter → Authorization → endpoints`
 
-- **Authentication:** JWT bearer, configured for Supabase Auth (`Auth:Supabase:ProjectUrl`). If that is unset, every token is rejected (fail closed). Full JWKS validation is a Sprint 1 TODO; see `AuthenticationSetup.cs`.
+- **Authentication:** JWT bearer against Supabase Auth: JWKS (ES256/RS256) with optional HS256 legacy secret, issuer `<url>/auth/v1`, audience `authenticated`, `role = authenticated`. If `Auth:Supabase:ProjectUrl` is unset, every token is rejected (fail closed). See [auth-flow.md](auth-flow.md).
+- **Database access:** the API connects as `hms_api_login` (member of `hms_api`, no direct privileges). Every request transaction switches to `authenticated` with the validated claims, so RLS applies to API traffic. See [multi-tenancy-and-security.md](multi-tenancy-and-security.md).
 - **Tenant resolution:** see [multi-tenancy-and-security.md](multi-tenancy-and-security.md).
 - **Health:** `/health/live` checks the process only. `/health/ready` also checks the database (`DbContextCheck`).
 - **Logging:** compact JSON to stdout. `TenantId` and `UserId` are attached through a logging scope. Request bodies are never logged.
@@ -67,9 +68,9 @@ flowchart LR
 
 ## Frontend
 
-- `apps/web` is a Vite SPA. Routes: `/login`, `/` (dashboard), `/patients`, and a 404 page inside the shell.
+- `apps/web` is a Vite SPA. Routes: `/login`, `/` (dashboard), `/patients`, `/patients/new`, `/admin/branches`, `/admin/members` (tenant admins), and a 404 page inside the shell.
 - The typed API client (`src/lib/api/client.ts`) attaches the bearer token and **never sends a tenant header**.
-- Sprint 0 uses a placeholder demo session with synthetic memberships. Sprint 1 replaces it with Supabase Auth and `GET /api/v1/me`.
+- Supabase Auth via `supabase-js` (`AuthProvider`). The tenant/branch switcher is driven by `GET /api/v1/me`, and switching goes through `POST /api/v1/me/context` followed by a session refresh.
 
 ## Deployment targets (not deployed)
 
