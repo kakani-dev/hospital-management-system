@@ -239,3 +239,66 @@ jobs:
       - name: Stop the stack
         if: always()
         run: supabase stop --workdir "$SB_WORKDIR" --no-backup || true
+
+  # ---------------------------------------------------------------------------
+  # Frontend's mocked browser suite (`npm run e2e:mocked`, root package.json; API and Supabase
+  # Auth are answered in the page by tests/playwright/mocked/mock-backend.ts, so no DB, .NET or
+  # mock-auth server). It arrives with fix/pr1-web. Until then the guard step finds no script
+  # and the job skips cleanly with a notice. It is a SEPARATE job so it can never turn the
+  # required "Frontend (lint, unit tests, build)" check red. Not required (yet).
+  # ---------------------------------------------------------------------------
+  web-e2e-mocked:
+    name: Web E2E (mocked API, Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Detect the e2e:mocked suite on this ref
+        id: guard
+        run: bash .github/scripts/detect-npm-script.sh e2e:mocked tests/playwright/playwright.mocked.config.ts
+      - uses: actions/setup-node@v7
+        if: steps.guard.outputs.present == 'true'
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/web/package-lock.json
+      - name: Install dependencies (root Playwright + web app)
+        if: steps.guard.outputs.present == 'true'
+        run: |
+          npm ci --no-audit --no-fund
+          npm --prefix apps/web ci --no-audit --no-fund
+      - name: Resolve Playwright version
+        id: pw
+        if: steps.guard.outputs.present == 'true'
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+      - name: Cache Playwright browsers
+        id: pw-cache
+        if: steps.guard.outputs.present == 'true'
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-chromium-${{ steps.pw.outputs.version }}
+      - name: Install Chromium + OS dependencies
+        if: steps.guard.outputs.present == 'true' && steps.pw-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+      - name: Install OS dependencies only (browsers restored from cache)
+        if: steps.guard.outputs.present == 'true' && steps.pw-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+      - name: Run mocked browser suite
+        if: steps.guard.outputs.present == 'true'
+        env:
+          PLAYWRIGHT_HTML_OUTPUT_DIR: tests/playwright/playwright-report-mocked
+          PLAYWRIGHT_HTML_OPEN: never
+          PLAYWRIGHT_JUNIT_OUTPUT_FILE: tests/playwright/test-results/junit-mocked.xml
+        run: npm run e2e:mocked -- --reporter=list,html,junit
+      - uses: actions/upload-artifact@v7
+        if: failure() && steps.guard.outputs.present == 'true'
+        with:
+          name: playwright-report-mocked
+          path: |
+            tests/playwright/playwright-report-mocked
+            tests/playwright/test-results
+          retention-days: 7
+          if-no-files-found: ignore
