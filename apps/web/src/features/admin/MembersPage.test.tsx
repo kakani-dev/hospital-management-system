@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { App } from '../../App'
 import { ADD_MEMBER_GENERIC_MESSAGE } from '../../lib/api/types'
@@ -44,6 +44,38 @@ describe('Members page: add member (B1, no account enumeration)', () => {
     await addMember('x@synthetic.example')
     expect(await screen.findByText('Email is too long')).toBeInTheDocument()
     expect(screen.getByText(/fix the highlighted fields/i)).toBeInTheDocument()
+  })
+
+  it('offers only "All branches" for tenant admins and shows the API 400 on the branch field', async () => {
+    const branch = { id: 'a1111111-0000-4000-8000-000000000002', code: 'east', name: 'Alpha East', timezone: 'Asia/Kolkata', isActive: true }
+    const calls = stubFetch({
+      ...routes(() => json({ title: 'Validation', status: 400, errors: { branchId: ['tenant_admin is tenant-wide: omit branchId.'] } }, 400)),
+      'GET /api/v1/branches': () => json([branch]),
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: '/admin/members', auth: fakeAuthClient({ session: fakeSession() }) })
+    const scope = await screen.findByLabelText('Branch scope')
+    await within(scope).findByRole('option', { name: 'Alpha East' })
+    await user.selectOptions(scope, 'Alpha East')
+    expect(scope).toHaveValue(branch.id)
+
+    await user.selectOptions(screen.getByLabelText('Role'), 'tenant_admin')
+    expect(scope).toHaveValue('')
+    expect(within(scope).queryByRole('option', { name: 'Alpha East' })).not.toBeInTheDocument()
+
+    // Server-side 400 (e.g. an older form) is still shown on the field.
+    await user.type(screen.getByLabelText('Email'), 'boss@synthetic.example')
+    await user.click(screen.getByRole('button', { name: 'Add member' }))
+    expect(await screen.findByText('tenant_admin is tenant-wide: omit branchId.')).toBeInTheDocument()
+    expect(calls.find((c) => c.method === 'POST')!.body).toEqual({ email: 'boss@synthetic.example', role: 'tenant_admin', branchId: null })
+  })
+
+  it('does not insert anything into the members list after a 202 (pending invites are hidden)', async () => {
+    const calls = stubFetch(routes(() => json({ message: ADD_MEMBER_GENERIC_MESSAGE }, 202)))
+    await addMember('pending@synthetic.example')
+    expect(await screen.findByText(ADD_MEMBER_GENERIC_MESSAGE)).toBeInTheDocument()
+    await waitFor(() => expect(calls.filter((c) => c.method === 'GET' && c.path === '/api/v1/members')).toHaveLength(2))
+    expect(screen.queryByTestId('member-row')).not.toBeInTheDocument()
   })
 
   it('shows invited members without suspend/reactivate actions', async () => {

@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { useEffect, useState } from 'react'
+import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Card } from '../../components/ui/Card'
 import { Alert } from '../../components/ui/Alert'
@@ -26,8 +26,16 @@ export function MembersPage() {
     handleSubmit,
     reset,
     setError,
+    setValue,
+    control,
     formState: { errors, isSubmitting },
   } = useForm<MemberFormValues>({ resolver: zodResolver(memberSchema), defaultValues: { email: '', role: 'receptionist', branchId: '' } })
+
+  // tenant_admin is tenant-wide (API 400 / DB CHECK otherwise): only "All branches" is offered.
+  const tenantWide = useWatch({ control, name: 'role' }) === 'tenant_admin'
+  useEffect(() => {
+    if (tenantWide) setValue('branchId', '')
+  }, [tenantWide, setValue])
 
   const onSubmit = async (values: MemberFormValues) => {
     setMessage(null)
@@ -39,10 +47,19 @@ export function MembersPage() {
       setMessage({ tone: 'info', text })
     } catch (error) {
       const fields = fieldErrors(error)
+      const unmapped: string[] = []
       for (const [field, text] of Object.entries(fields)) {
         if (field === 'email' || field === 'role' || field === 'branchId') setError(field, { message: text })
+        else unmapped.push(text)
       }
-      setMessage({ tone: 'error', text: Object.keys(fields).length ? 'Please fix the highlighted fields.' : 'Could not send the invitation.' })
+      setMessage({
+        tone: 'error',
+        text: Object.keys(fields).length
+          ? ['Please fix the highlighted fields.', ...unmapped].join(' ')
+          : error instanceof ApiError && error.status === 403
+            ? 'Only tenant admins can add members.'
+            : 'Could not send the invitation.',
+      })
     }
   }
 
@@ -77,7 +94,8 @@ export function MembersPage() {
           </SelectField>
           <SelectField label="Branch scope" error={errors.branchId?.message} {...register('branchId')}>
             <option value="">All branches</option>
-            {branches.data
+            {!tenantWide &&
+              branches.data
               ?.filter((b) => b.isActive)
               .map((b) => (
                 <option key={b.id} value={b.id}>

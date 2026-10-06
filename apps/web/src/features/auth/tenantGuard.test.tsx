@@ -46,14 +46,14 @@ describe('M3: tenant drift guard', () => {
     server.tenant = BETA
     act(() => auth.emit('TOKEN_REFRESHED', fakeSession(EMAIL, fakeJwt({ tenant_id: BETA }))))
 
-    const banner = await screen.findByTestId('tenant-changed-banner')
+    const banner = await screen.findByTestId('tenant-switched-banner')
     expect(clear).toHaveBeenCalled()
     expect(banner).toHaveTextContent(/was Demo Alpha Hospital/)
     await waitFor(() => expect(screen.getByTestId('dashboard-tenant')).toHaveTextContent('Demo Beta Clinic'))
     expect(banner).toHaveTextContent(/now belongs to Demo Beta Clinic/)
 
     await userEvent.setup().click(screen.getByRole('button', { name: /dismiss/i }))
-    expect(screen.queryByTestId('tenant-changed-banner')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('tenant-switched-banner')).not.toBeInTheDocument()
   })
 
   it('does nothing when the refreshed token keeps the displayed tenant (or has no tenant claim)', async () => {
@@ -63,7 +63,7 @@ describe('M3: tenant drift guard', () => {
     act(() => auth.emit('TOKEN_REFRESHED', fakeSession(EMAIL, fakeJwt({ tenant_id: ALPHA }))))
     act(() => auth.emit('TOKEN_REFRESHED', fakeSession(EMAIL, 'opaque-token-without-claims')))
     await new Promise((r) => setTimeout(r, 20))
-    expect(screen.queryByTestId('tenant-changed-banner')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('tenant-switched-banner')).not.toBeInTheDocument()
     expect(clear).not.toHaveBeenCalled()
   })
 
@@ -77,7 +77,7 @@ describe('M3: tenant drift guard', () => {
     // Without the hook the API falls back to the stored context: the next call silently resolves Beta.
     server.tenant = BETA
     await userEvent.setup().type(screen.getByLabelText('Search patients'), 'x')
-    expect(await screen.findByTestId('tenant-changed-banner')).toBeInTheDocument()
+    expect(await screen.findByTestId('tenant-switched-banner')).toBeInTheDocument()
     expect(clear).toHaveBeenCalled()
     await waitFor(() => expect(screen.getByTestId('tenant-name')).toHaveTextContent('Demo Beta Clinic'))
   })
@@ -95,7 +95,7 @@ describe('M3: tenant drift guard', () => {
     expect(server.tenant).toBe(BETA)
     expect(clear).toHaveBeenCalledTimes(1)
     expect(auth.refreshSession).toHaveBeenCalledTimes(1)
-    expect(screen.queryByTestId('tenant-changed-banner')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('tenant-switched-banner')).not.toBeInTheDocument()
     // /me was refetched after the switch with the refreshed (Beta) token.
     const lastMe = calls.filter((c) => c.path === '/api/v1/me').at(-1)!
     expect(lastMe.headers.get('Authorization')).toBe(`Bearer ${fakeJwt({ tenant_id: BETA })}`)

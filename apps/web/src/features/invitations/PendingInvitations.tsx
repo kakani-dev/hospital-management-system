@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { Card } from '../../components/ui/Card'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
-import { useAcceptInvitation, useInvitations } from '../../lib/api/hooks'
+import { useAcceptInvitation, useInvitations, useMe } from '../../lib/api/hooks'
+import { useAuth } from '../auth/AuthProvider'
 import { ApiError } from '../../lib/api/client'
 import type { Invitation } from '../../lib/api/types'
 
@@ -20,13 +21,24 @@ function formatInvitedAt(value: string) {
 export function PendingInvitations() {
   const invitations = useInvitations()
   const accept = useAcceptInvitation()
+  const me = useMe()
+  const { refresh } = useAuth()
   const [message, setMessage] = useState<{ tone: 'info' | 'error'; text: string } | null>(null)
 
   const onAccept = (invitation: Invitation) => {
     setMessage(null)
+    const hadTenant = Boolean(me.data?.activeTenantId)
     accept.mutate(invitation.membershipId, {
-      onSuccess: () =>
-        setMessage({ tone: 'info', text: `You joined ${invitation.tenantName} as ${roleLabel(invitation.role)}. Use the hospital switcher to open it.` }),
+      onSuccess: () => {
+        // First hospital: re-issue the token so the access token hook stamps the new tenant.
+        if (!hadTenant) {
+          void refresh()
+            .then(() => me.refetch())
+            .catch(() => undefined)
+        }
+        const joined = `You joined ${invitation.tenantName} as ${roleLabel(invitation.role)}.`
+        setMessage({ tone: 'info', text: hadTenant ? `${joined} Use the hospital switcher to open it.` : joined })
+      },
       onError: (error) =>
         setMessage({
           tone: 'error',

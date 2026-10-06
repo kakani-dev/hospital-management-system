@@ -60,6 +60,24 @@ describe('patient search', () => {
   })
 })
 
+describe('patient search length cap', () => {
+  it('caps the search box at 100 characters and never posts a longer term', async () => {
+    const calls = stubFetch({
+      'GET /api/v1/me': () => json(meFor({ roles: ['receptionist'] })),
+      'GET /api/v1/patients': () => json({ items: [], page: 1, pageSize: 25, totalCount: 0 }),
+      'POST /api/v1/patients/search': () => json({ items: [], page: 1, pageSize: 25, totalCount: 0 }),
+    })
+    renderWithProviders(<App />, { path: '/patients', auth: fakeAuthClient({ session: fakeSession() }) })
+    const input = await screen.findByLabelText('Search patients')
+    expect(input).toHaveAttribute('maxLength', '100')
+    await userEvent.setup().type(input, `  ${'a'.repeat(120)}`)
+    await waitFor(() => expect(calls.some((c) => c.path === '/api/v1/patients/search')).toBe(true))
+    const term = (calls.filter((c) => c.path === '/api/v1/patients/search').at(-1)!.body as { search: string }).search
+    expect(term.length).toBeLessThanOrEqual(100)
+    expect(term).toBe(term.trim())
+  })
+})
+
 describe('useDebouncedValue', () => {
   it(`waits ${PATIENT_SEARCH_DEBOUNCE_MS} ms after the last change`, () => {
     expect(PATIENT_SEARCH_DEBOUNCE_MS).toBe(300)

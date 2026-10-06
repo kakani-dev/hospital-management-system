@@ -2,7 +2,7 @@ import { useId, useState } from 'react'
 import { Card } from '../../components/ui/Card'
 import { Alert } from '../../components/ui/Alert'
 import { Link, useLocation } from 'react-router'
-import { PATIENT_SEARCH_DEBOUNCE_MS, usePatients } from '../../lib/api/hooks'
+import { PATIENT_SEARCH_DEBOUNCE_MS, PATIENT_SEARCH_MAX_LENGTH, usePatients } from '../../lib/api/hooks'
 import { useDebouncedValue } from '../../lib/useDebouncedValue'
 import { ApiError } from '../../lib/api/client'
 import { useCurrentContext } from '../tenancy/useCurrentContext'
@@ -43,6 +43,7 @@ export function PatientListPage() {
           <input
             id={searchId}
             type="search"
+            maxLength={PATIENT_SEARCH_MAX_LENGTH}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Name or MRN"

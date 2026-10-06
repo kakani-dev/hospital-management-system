@@ -74,3 +74,32 @@ describe('Pending invitations', () => {
     expect(screen.queryByRole('region', { name: 'Pending invitations' })).not.toBeInTheDocument()
   })
 })
+
+describe('Pending invitations for a user with no hospital yet', () => {
+  it('renders on the no-tenant dashboard; accepting re-issues the token and loads the new hospital', async () => {
+    let accepted = false
+    const calls = stubFetch({
+      // No X-Hms-Tenant header and no active tenant: nothing resolved yet.
+      'GET /api/v1/me': () =>
+        json(meFor({ email: 'new@synthetic.example', activeTenantId: null, roles: [], accessibleBranches: [], memberships: accepted ? [betaMembership] : [] })),
+      'GET /api/v1/me/invitations': () => json(accepted ? [] : [invitation]),
+      [`POST /api/v1/me/invitations/${MEMBERSHIP_ID}/accept`]: () => {
+        accepted = true
+        return json(null, 204)
+      },
+    })
+    const auth = fakeAuthClient({ session: fakeSession('new@synthetic.example') })
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: '/', auth })
+
+    expect(await screen.findByTestId('tenant-name')).toHaveTextContent('No hospital memberships')
+    await user.click(await screen.findByRole('button', { name: /accept invitation to demo beta clinic/i }))
+    expect(await screen.findByText('You joined Demo Beta Clinic as doctor.')).toBeInTheDocument()
+    await waitFor(() => expect(auth.refreshSession).toHaveBeenCalledTimes(1))
+    expect(screen.queryByTestId('tenant-switched-banner')).not.toBeInTheDocument()
+    // The invitation calls never carry a tenant header (tenant comes from the token, if any).
+    for (const call of calls.filter((c) => c.path.startsWith('/api/v1/me/invitations'))) {
+      expect([...call.headers.keys()].some((k) => k.toLowerCase().includes('tenant'))).toBe(false)
+    }
+  })
+})

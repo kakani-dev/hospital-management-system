@@ -29,13 +29,15 @@ export function useMe(enabled = true) {
 
 /** Debounced patient search term (ms). */
 export const PATIENT_SEARCH_DEBOUNCE_MS = 300
+/** API cap for POST /api/v1/patients/search (longer terms are a 400). */
+export const PATIENT_SEARCH_MAX_LENGTH = 100
 
 /**
  * A non-empty term goes to POST /api/v1/patients/search (term in the body — names/MRNs are PHI and
  * must never appear in a URL); an empty term pages through GET /api/v1/patients. Callers debounce.
  */
 export function usePatients(search: string) {
-  const term = search.trim()
+  const term = search.trim().slice(0, PATIENT_SEARCH_MAX_LENGTH)
   return useQuery({
     queryKey: queryKeys.patients(term),
     queryFn: () => (term ? apiClient.patients.search({ search: term, pageSize: 25 }) : apiClient.patients.list({ pageSize: 25 })),
