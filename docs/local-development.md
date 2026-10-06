@@ -19,7 +19,9 @@ DATABASE_URL=postgresql://postgres:postgres@localhost:5432/postgres npm run sql:
 ```
 
 - `supabase/scripts/local-supabase-shim.sql` creates the `anon`, `authenticated` and `service_role` roles, plus `auth.users`, `auth.uid()` and `auth.jwt()`, **only when they don't already exist**. Never run it against a hosted Supabase project.
-- On a real Supabase project, apply `supabase/migrations` with `supabase db push`, or let the Supabase GitHub integration do it. Expose the `identity` and `patient` schemas in API settings only if PostgREST access is wanted.
+- On a real Supabase project, apply `supabase/migrations` with `supabase db push`, or let the Supabase GitHub integration do it. Expose the `identity` and `patient` schemas in API settings only if PostgREST access is wanted. The migrations themselves contain no `auth` stand-ins; Supabase already provides `auth.users`, `auth.uid()`, `auth.jwt()` and the roles.
+- Seeding a hosted project (synthetic data only): run `supabase/scripts/hosted-auth-users.sql` first (it creates the 7 demo users with the extra columns GoTrue needs, **without passwords**, so nobody can sign in as them), then `supabase/seed.sql`.
+- If migrations were applied through the Supabase dashboard/MCP instead of the CLI, the remote migration history uses the apply time as version, not the file timestamp. Run `supabase migration repair` before the first `supabase db push` so the CLI does not try to re-apply them.
 - SQL tests impersonate users the way PostgREST does: `set local role authenticated` plus `request.jwt.claims` (see `supabase/tests/00_test_helpers.sql`).
 
 ## 2. Backend

@@ -4,8 +4,9 @@
 -- Two independent demo tenants (Alpha, Beta) are used by supabase/tests and the web demo.
 -- =============================================================================
 
--- Demo auth users (local/dev only). On a hosted Supabase project create users via the
--- Auth admin API instead of inserting into auth.users directly.
+-- Demo auth users. Locally these go into the shim's minimal auth.users. On a hosted
+-- Supabase project run supabase/scripts/hosted-auth-users.sql FIRST (it fills the extra
+-- columns GoTrue needs); this insert then becomes a no-op via ON CONFLICT.
 insert into auth.users (id, email, aud, role) values
   ('0a000000-0000-4000-8000-000000000001', 'admin@alpha.example',       'authenticated', 'authenticated'),
   ('0a000000-0000-4000-8000-000000000002', 'reception@alpha.example',   'authenticated', 'authenticated'),
