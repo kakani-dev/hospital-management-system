@@ -69,45 +69,113 @@ public sealed class TenantAdminApiTests(HmsApiFactory factory) : IClassFixture<H
         Assert.All(list!, b => Assert.True(b.IsActive));
     }
 
+    private const string InviteMessage = "If an account exists for that email, an invitation has been sent.";
+
+    private static async Task AssertUniformAcceptedAsync(HttpResponseMessage response)
+    {
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        Assert.Null(response.Headers.Location);
+        var body = await response.Content.ReadFromJsonAsync<AcceptedView>();
+        Assert.Equal(InviteMessage, body!.Message);
+    }
+
     [Fact]
-    public async Task Admin_adds_member_with_branch_scope_then_updates_role_and_status()
+    public async Task Admin_invites_member_who_must_accept_before_gaining_access()
     {
         var user = await CreateUserAsync("newhire");
         var email = await EmailOfAsync(user);
         using var client = factory.ClientAs(AlphaAdmin, Alpha);
 
-        var added = await client.PostAsJsonAsync("/api/v1/members", new { email, role = "nurse", branchId = AlphaEast });
-        Assert.Equal(HttpStatusCode.Created, added.StatusCode);
-        var member = await added.Content.ReadFromJsonAsync<MemberView>();
-        Assert.Equal(user, member!.UserId);
-        Assert.Equal("nurse", member.Role);
-        Assert.Equal(AlphaEast, member.BranchId);
+        await AssertUniformAcceptedAsync(await client.PostAsJsonAsync("/api/v1/members", new { email, role = "nurse", branchId = AlphaEast }));
+        // Already invited / already a member: same answer, no conflict signal.
+        await AssertUniformAcceptedAsync(await client.PostAsJsonAsync("/api/v1/members", new { email, role = "nurse", branchId = AlphaEast }));
 
-        var again = await client.PostAsJsonAsync("/api/v1/members", new { email, role = "nurse", branchId = AlphaEast });
-        Assert.Equal(HttpStatusCode.Conflict, again.StatusCode);
+        // Invited grants nothing and is not listed to the admin (listing would reveal the account).
+        using var invitee = factory.ClientAs(user, Alpha);
+        Assert.Equal(HttpStatusCode.Forbidden, (await invitee.GetAsync("/api/v1/patients")).StatusCode);
+        Assert.DoesNotContain((await client.GetFromJsonAsync<List<MemberView>>("/api/v1/members"))!, m => m.UserId == user);
 
+        // The invitee sees the invitation (no tenant needed).
+        using var inviteeNoTenant = factory.ClientAs(user);
+        var invitations = await inviteeNoTenant.GetFromJsonAsync<List<InvitationView>>("/api/v1/me/invitations");
+        var invitation = Assert.Single(invitations!, i => i.TenantId == Alpha);
+        Assert.Equal("nurse", invitation.Role);
+        Assert.Equal(AlphaEast, invitation.BranchId);
+        Assert.False(string.IsNullOrWhiteSpace(invitation.TenantName));
+
+        // The admin cannot activate it on the invitee's behalf; nobody else can accept it.
+        var forced = await client.PatchAsJsonAsync($"/api/v1/members/{invitation.MembershipId}", new { status = "active" });
+        Assert.Equal(HttpStatusCode.NotFound, forced.StatusCode);
+        using var other = factory.ClientAs(AlphaReception, Alpha);
+        Assert.Equal(HttpStatusCode.NotFound, (await other.PostAsync($"/api/v1/me/invitations/{invitation.MembershipId}/accept", null)).StatusCode);
+
+        // Accept -> 204, then it is no longer pending.
+        Assert.Equal(HttpStatusCode.NoContent, (await inviteeNoTenant.PostAsync($"/api/v1/me/invitations/{invitation.MembershipId}/accept", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await inviteeNoTenant.PostAsync($"/api/v1/me/invitations/{invitation.MembershipId}/accept", null)).StatusCode);
+        Assert.DoesNotContain((await inviteeNoTenant.GetFromJsonAsync<List<InvitationView>>("/api/v1/me/invitations"))!, i => i.MembershipId == invitation.MembershipId);
+        Assert.Equal(HttpStatusCode.OK, (await invitee.GetAsync("/api/v1/patients")).StatusCode);
+
+        var members = await client.GetFromJsonAsync<List<MemberView>>("/api/v1/members");
+        var member = Assert.Single(members!, m => m.UserId == user);
         var patched = await client.PatchAsJsonAsync($"/api/v1/members/{member.Id}", new { role = "doctor", status = "suspended" });
         Assert.Equal(HttpStatusCode.OK, patched.StatusCode);
         var after = await patched.Content.ReadFromJsonAsync<MemberView>();
         Assert.Equal("doctor", after!.Role);
         Assert.Equal("suspended", after.Status);
 
-        var members = await client.GetFromJsonAsync<List<MemberView>>("/api/v1/members");
+        members = await client.GetFromJsonAsync<List<MemberView>>("/api/v1/members");
         // Suspended members stay listed WITH their email so the admin can reactivate them.
         Assert.Contains(members!, m => m.Id == member.Id && m.Email == email && m.Status == "suspended");
         Assert.DoesNotContain(members!, m => m.UserId == BetaAdmin);
 
         // Suspended membership grants nothing.
-        using var suspended = factory.ClientAs(user, Alpha);
-        Assert.Equal(HttpStatusCode.Forbidden, (await suspended.GetAsync("/api/v1/patients")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await invitee.GetAsync("/api/v1/patients")).StatusCode);
     }
 
     [Fact]
-    public async Task Adding_unknown_email_is_404()
+    public async Task Unknown_email_gets_the_same_202_as_a_real_invite()
     {
         using var client = factory.ClientAs(AlphaAdmin, Alpha);
-        var response = await client.PostAsJsonAsync("/api/v1/members", new { email = $"nobody-{Guid.NewGuid():N}@synthetic.example", role = "doctor" });
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        var unknown = await client.PostAsJsonAsync("/api/v1/members", new { email = $"nobody-{Guid.NewGuid():N}@synthetic.example", role = "doctor" });
+        var known = await client.PostAsJsonAsync("/api/v1/members", new { email = await EmailOfAsync(await CreateUserAsync("known")), role = "doctor" });
+        await AssertUniformAcceptedAsync(unknown);
+        await AssertUniformAcceptedAsync(known);
+        Assert.Equal(await known.Content.ReadAsStringAsync(), await unknown.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task Inviting_another_tenants_user_does_not_change_their_default_context()
+    {
+        // Review B1 / PoC P1.
+        var victim = await CreateUserAsync("victim", (Beta, null, "doctor"));
+        using var victimClient = factory.ClientAs(victim); // no tenant claim => server-side default
+        Assert.Equal(Beta, (await victimClient.GetFromJsonAsync<TenantView>("/api/v1/tenants/current"))!.Id);
+
+        using var alphaAdmin = factory.ClientAs(AlphaAdmin, Alpha);
+        await AssertUniformAcceptedAsync(await alphaAdmin.PostAsJsonAsync("/api/v1/members", new { email = await EmailOfAsync(victim), role = "doctor" }));
+
+        Assert.Equal(Beta, (await victimClient.GetFromJsonAsync<TenantView>("/api/v1/tenants/current"))!.Id);
+        using var victimInAlpha = factory.ClientAs(victim, Alpha);
+        Assert.Equal(HttpStatusCode.Forbidden, (await victimInAlpha.GetAsync("/api/v1/patients")).StatusCode);
+    }
+
+    [Fact]
+    public async Task User_without_any_membership_can_list_invitations()
+    {
+        var loner = await CreateUserAsync("loner");
+        using var client = factory.ClientAs(loner);
+        var response = await client.GetAsync("/api/v1/me/invitations");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Empty((await response.Content.ReadFromJsonAsync<List<InvitationView>>())!);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.PostAsync($"/api/v1/me/invitations/{Guid.NewGuid()}/accept", null)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Tenant_admin_cannot_be_branch_scoped()
+    {
+        using var client = factory.ClientAs(AlphaAdmin, Alpha);
+        var response = await client.PostAsJsonAsync("/api/v1/members", new { email = await EmailOfAsync(await CreateUserAsync("scopedadmin")), role = "tenant_admin", branchId = AlphaMain });
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     [Fact]
