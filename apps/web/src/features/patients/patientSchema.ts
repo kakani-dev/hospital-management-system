@@ -1,7 +1,9 @@
 import { z } from 'zod'
 import { SEXES } from '../../lib/api/types'
+import { localToday } from '../../lib/dates'
 
-const today = () => new Date().toISOString().slice(0, 10)
+/** "Today" in local (branch workstation) time — evaluated per validation, not at import. */
+const today = () => localToday()
 const optionalText = (max: number) => z.string().trim().max(max, { error: `Max ${max} characters` })
 
 /** Mirrors CreatePatientValidator (API) and the patient.patients CHECK constraints (DB). */
