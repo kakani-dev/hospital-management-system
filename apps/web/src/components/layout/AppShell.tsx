@@ -2,6 +2,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router'
 import { useAuth } from '../../features/auth/AuthProvider'
 import { TenantSwitcher } from '../../features/tenancy/TenantSwitcher'
 import { useCurrentContext } from '../../features/tenancy/useCurrentContext'
+import { TenantChangedBanner } from '../../features/tenancy/TenantChangedBanner'
 import { Button } from '../ui/Button'
 
 export function AppShell() {
@@ -75,6 +76,7 @@ export function AppShell() {
       <div role="note" className="bg-amber-50 px-4 py-1 text-center text-xs text-amber-900">
         Demonstration build — synthetic data only. Not for clinical use.
       </div>
+      <TenantChangedBanner />
       <main id="main-content" tabIndex={-1} className="mx-auto max-w-7xl px-4 py-6">
         <Outlet />
       </main>

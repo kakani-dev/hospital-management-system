@@ -1,4 +1,5 @@
 import { Route, Routes } from 'react-router'
+import { useAuth } from './features/auth/AuthProvider'
 import { AppShell } from './components/layout/AppShell'
 import { LoginPage } from './features/auth/LoginPage'
 import { RequireAuth } from './features/auth/RequireAuth'
@@ -11,8 +12,11 @@ import { MembersPage } from './features/admin/MembersPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 
 export function App() {
+  // Remount every page whenever the query cache is cleared (tenant switch/mismatch, sign-out), so
+  // components never keep rendering data from a removed cache entry.
+  const { cacheEpoch } = useAuth()
   return (
-    <Routes>
+    <Routes key={cacheEpoch}>
       <Route path="/login" element={<LoginPage />} />
       <Route element={<RequireAuth />}>
         <Route element={<AppShell />}>

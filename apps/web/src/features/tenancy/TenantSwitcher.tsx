@@ -4,9 +4,9 @@ import { useSwitchContext } from '../../lib/api/hooks'
 import { useCurrentContext } from './useCurrentContext'
 
 export function TenantSwitcher() {
-  const { refresh } = useAuth()
+  const { refresh, resetCache, expectTenant } = useAuth()
   const { me, tenants, activeTenant, roles, branches, activeBranchId } = useCurrentContext()
-  const switchContext = useSwitchContext(refresh)
+  const switchContext = useSwitchContext({ refresh, resetCache, expectTenant })
   const tenantSelectId = useId()
   const branchSelectId = useId()
 

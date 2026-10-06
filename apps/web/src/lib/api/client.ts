@@ -28,10 +28,22 @@ export class ApiError extends Error {
 
 export type TokenProvider = () => string | null | Promise<string | null>
 
+/** Response header carrying the tenant the API resolved for the request (M3 option b). */
+export const TENANT_HEADER = 'X-Hms-Tenant'
+
+/**
+ * Called with the X-Hms-Tenant value of every API response that carries one, plus when the request
+ * started (performance.now()), so answers to requests sent before a cache reset can be ignored.
+ */
+export type ResolvedTenantListener = (tenantId: string, requestStartedAt: number) => void
+
+const clock = () => (typeof performance !== 'undefined' ? performance.now() : Date.now())
+
 export interface ApiClientOptions {
   baseUrl?: string
   getAccessToken?: TokenProvider
   fetchImpl?: typeof fetch
+  onResolvedTenant?: ResolvedTenantListener
 }
 
 /**
@@ -45,10 +57,12 @@ export class ApiClient {
   private readonly baseUrl: string
   private readonly getAccessToken?: TokenProvider
   private readonly fetchImpl: typeof fetch
+  private readonly onResolvedTenant?: ResolvedTenantListener
 
   constructor(options: ApiClientOptions = {}) {
     this.baseUrl = (options.baseUrl ?? '').replace(/\/+$/, '')
     this.getAccessToken = options.getAccessToken
+    this.onResolvedTenant = options.onResolvedTenant
     // Resolved per call (not captured at construction) so polyfills/test stubs installed later apply.
     this.fetchImpl = options.fetchImpl ?? ((input, init) => globalThis.fetch(input, init))
   }
@@ -62,7 +76,10 @@ export class ApiClient {
     const token = await this.getAccessToken?.()
     if (token) headers.set('Authorization', `Bearer ${token}`)
 
+    const startedAt = clock()
     const response = await this.fetchImpl(`${this.baseUrl}${path}`, { ...init, headers })
+    const resolvedTenant = response.headers.get(TENANT_HEADER)?.trim()
+    if (resolvedTenant) this.onResolvedTenant?.(resolvedTenant, startedAt)
     if (!response.ok) {
       let problem: ProblemDetails | null = null
       try {
@@ -117,15 +134,22 @@ export class ApiClient {
 }
 
 let currentTokenProvider: TokenProvider = () => null
+let currentTenantListener: ResolvedTenantListener | null = null
 
 /** Called by AuthProvider: the API client asks Supabase for the current access token per request. */
 export function configureApiAuth(provider: TokenProvider) {
   currentTokenProvider = provider
 }
 
+/** Called by AuthProvider: every X-Hms-Tenant response header is checked against the displayed tenant. */
+export function configureResolvedTenantListener(listener: ResolvedTenantListener | null) {
+  currentTenantListener = listener
+}
+
 export const apiClient = new ApiClient({
   baseUrl: import.meta.env.VITE_API_BASE_URL ?? '',
   getAccessToken: () => currentTokenProvider(),
+  onResolvedTenant: (tenantId, startedAt) => currentTenantListener?.(tenantId, startedAt),
 })
 
 /** Field errors from a 400 ValidationProblem, keyed by camelCase field name. */

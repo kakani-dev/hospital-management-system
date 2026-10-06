@@ -41,21 +41,31 @@ export function useCreatePatient() {
   })
 }
 
+export interface SwitchContextDeps {
+  /** Re-issues the access token so the hook stamps the new tenant. */
+  refresh: () => Promise<void>
+  /** queryClient.clear() + remount (AuthProvider.resetCache). */
+  resetCache: () => void
+  /** Tells the tenant guard the new tenant is expected (no "tenant changed" banner). */
+  expectTenant: (tenantId: string | null) => void
+}
+
 /**
- * Switch tenant/branch: the server validates against memberships and stores the choice, then the
- * session is refreshed so the custom access token hook issues a token for the new context, then
- * every cached query (which belonged to the old tenant) is dropped.
+ * Switch tenant/branch: the server validates against memberships and stores the choice, the session
+ * is refreshed so the custom access token hook issues a token for the new context, and then the
+ * whole query cache (which belonged to the old context) is cleared — every switch, no exceptions.
  */
-export function useSwitchContext(refreshSession: () => Promise<void>) {
-  const qc = useQueryClient()
+export function useSwitchContext({ refresh, resetCache, expectTenant }: SwitchContextDeps) {
   return useMutation({
     mutationFn: async (body: SwitchContextRequest) => {
       await apiClient.switchContext(body)
-      await refreshSession()
-    },
-    onSuccess: async () => {
-      qc.removeQueries({ predicate: (q) => q.queryKey[0] !== 'me' })
-      await qc.invalidateQueries()
+      expectTenant(body.tenantId)
+      try {
+        await refresh()
+      } finally {
+        resetCache()
+        expectTenant(null)
+      }
     },
   })
 }

@@ -1,4 +1,4 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient, type SupabaseClientOptions } from '@supabase/supabase-js'
 
 /**
  * Browser Supabase client (Auth only — data goes through the HMS API).
@@ -10,8 +10,13 @@ const key = (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? import.meta.env.VI
 
 export const supabaseConfigured = Boolean(url && key)
 
-export const supabase: SupabaseClient | null = supabaseConfigured
-  ? createClient(url!, key!, {
-      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false, storageKey: 'hms.auth' },
-    })
-  : null
+/**
+ * The session (incl. refresh token) lives in sessionStorage, not localStorage: it is scoped to the
+ * tab and dies with the browser window, so it does not survive a restart on a shared ward
+ * workstation. Idle auto-logoff is enforced by AuthProvider (useIdleTimeout).
+ */
+export function authOptions(storage: Storage | undefined = globalThis.sessionStorage): NonNullable<SupabaseClientOptions<'public'>['auth']> {
+  return { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false, storageKey: 'hms.auth', storage }
+}
+
+export const supabase: SupabaseClient | null = supabaseConfigured ? createClient(url!, key!, { auth: authOptions() }) : null
