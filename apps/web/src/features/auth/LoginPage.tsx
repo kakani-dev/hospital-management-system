@@ -9,7 +9,7 @@ import { Button } from '../../components/ui/Button'
 import { Alert } from '../../components/ui/Alert'
 
 export function LoginPage() {
-  const { session, signIn, configured } = useAuth()
+  const { session, signIn, configured, signedOutReason } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [authError, setAuthError] = useState<string | null>(null)
@@ -43,6 +43,12 @@ export function LoginPage() {
           <Alert tone="warning">
             Authentication is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY (see .env.example).
           </Alert>
+        )}
+        {signedOutReason === 'idle' && (
+          <Alert tone="info">You were signed out after a period of inactivity. Sign in again to continue.</Alert>
+        )}
+        {signedOutReason === 'ended' && (
+          <Alert tone="info">Your session ended (signed out in another tab, or it expired). Sign in again to continue.</Alert>
         )}
         {authError && <Alert tone="error">{authError}</Alert>}
         <form noValidate onSubmit={handleSubmit(onSubmit)} className="space-y-4" aria-label="Sign in">

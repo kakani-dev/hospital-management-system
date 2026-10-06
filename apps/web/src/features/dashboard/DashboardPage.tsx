@@ -1,6 +1,7 @@
 import { Card } from '../../components/ui/Card'
 import { useApiHealth } from '../../lib/api/hooks'
 import { useCurrentContext } from '../tenancy/useCurrentContext'
+import { PendingInvitations } from '../invitations/PendingInvitations'
 
 export function DashboardPage() {
   const { activeTenant, branches, activeBranchId, roles } = useCurrentContext()
@@ -11,6 +12,7 @@ export function DashboardPage() {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-semibold">Dashboard</h1>
+      <PendingInvitations />
       <div className="grid gap-4 md:grid-cols-3">
         <Card title="Context">
           <dl className="space-y-1 text-sm">

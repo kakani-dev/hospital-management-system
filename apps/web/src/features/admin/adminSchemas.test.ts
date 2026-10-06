@@ -19,6 +19,12 @@ describe('memberSchema', () => {
   it('accepts a known role with optional branch', () => {
     expect(memberSchema.safeParse({ email: 'a@b.example', role: 'nurse', branchId: '' }).success).toBe(true)
   })
+  it('rejects a branch-scoped tenant admin (tenant_admin is tenant-wide)', () => {
+    expect(memberSchema.safeParse({ email: 'a@b.example', role: 'tenant_admin', branchId: '' }).success).toBe(true)
+    const result = memberSchema.safeParse({ email: 'a@b.example', role: 'tenant_admin', branchId: 'a1111111-0000-4000-8000-000000000001' })
+    expect(result.success).toBe(false)
+    expect(result.error?.issues[0]?.path).toEqual(['branchId'])
+  })
   it('rejects unknown roles', () => {
     expect(memberSchema.safeParse({ email: 'a@b.example', role: 'root', branchId: '' }).success).toBe(false)
   })

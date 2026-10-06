@@ -11,6 +11,7 @@ import { useCreatePatient } from '../../lib/api/hooks'
 import { ApiError, fieldErrors } from '../../lib/api/client'
 import { SEXES } from '../../lib/api/types'
 import { useCurrentContext } from '../tenancy/useCurrentContext'
+import { localToday } from '../../lib/dates'
 import { patientSchema, toCreatePatientRequest, type PatientFormValues } from './patientSchema'
 
 export function RegisterPatientPage() {
@@ -91,7 +92,14 @@ export function RegisterPatientPage() {
           </SelectField>
           <FormField label="First name" autoComplete="off" error={errors.firstName?.message} {...register('firstName')} />
           <FormField label="Last name" autoComplete="off" error={errors.lastName?.message} {...register('lastName')} />
-          <FormField label="Date of birth" type="date" error={errors.dateOfBirth?.message} {...register('dateOfBirth')} />
+          <FormField
+            label="Date of birth"
+            type="date"
+            min="1900-01-01"
+            max={localToday()}
+            error={errors.dateOfBirth?.message}
+            {...register('dateOfBirth')}
+          />
           <SelectField label="Sex" error={errors.sex?.message} {...register('sex')}>
             {SEXES.map((s) => (
               <option key={s} value={s}>

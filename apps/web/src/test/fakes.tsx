@@ -12,6 +12,15 @@ export const BETA = '22222222-2222-4222-8222-222222222222'
 export const ALPHA_MAIN = 'a1111111-0000-4000-8000-000000000001'
 export const ALPHA_EAST = 'a1111111-0000-4000-8000-000000000002'
 
+const b64url = (value: unknown) =>
+  btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(value))))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+
+/** Unsigned JWT-shaped token with the given claims (the SPA only reads claims; the API verifies). */
+export function fakeJwt(claims: Record<string, unknown>): string {
+  return `${b64url({ alg: 'ES256', typ: 'JWT' })}.${b64url({ sub: '0a000000-0000-4000-8000-000000000001', ...claims })}.sig`
+}
+
 export function fakeSession(email = 'admin@alpha.example', token = 'token-1'): Session {
   return {
     access_token: token,
@@ -22,12 +31,25 @@ export function fakeSession(email = 'admin@alpha.example', token = 'token-1'): S
   } as Session
 }
 
-/** In-memory stand-in for supabase.auth (only the methods AuthProvider uses). */
-export function fakeAuthClient(opts: { session?: Session | null; password?: string } = {}) {
+/**
+ * In-memory stand-in for supabase.auth (only the methods AuthProvider uses). Like supabase-js it
+ * notifies onAuthStateChange listeners (TOKEN_REFRESHED, SIGNED_OUT); `emit` simulates events that
+ * come from elsewhere (another tab's broadcast, a failed background refresh).
+ * `refreshedTenant` makes refreshSession issue a JWT-shaped token carrying that tenant_id claim.
+ */
+export function fakeAuthClient(
+  opts: { session?: Session | null; password?: string; refreshedTenant?: () => string | null } = {},
+) {
   let session: Session | null = opts.session ?? null
   let refreshCount = 0
   const listeners = new Set<(event: string, s: Session | null) => void>()
+  const notify = (event: string, s: Session | null) => listeners.forEach((cb) => cb(event, s))
   const client = {
+    /** `keepStorage`: like a supabase-js cross-tab broadcast, listeners hear it but this tab's storage keeps its session. */
+    emit: (event: string, next: Session | null, { keepStorage = false }: { keepStorage?: boolean } = {}) => {
+      if (!keepStorage) session = next
+      notify(event, next)
+    },
     getSession: vi.fn(async () => ({ data: { session }, error: null })),
     onAuthStateChange: vi.fn((cb: (event: string, s: Session | null) => void) => {
       listeners.add(cb)
@@ -40,13 +62,16 @@ export function fakeAuthClient(opts: { session?: Session | null; password?: stri
       session = fakeSession(email)
       return { data: { session, user: session.user }, error: null }
     }),
-    signOut: vi.fn(async () => {
+    signOut: vi.fn<(options?: { scope?: 'global' | 'local' | 'others' }) => Promise<{ error: null }>>(async () => {
       session = null
+      notify('SIGNED_OUT', null)
       return { error: null }
     }),
     refreshSession: vi.fn(async () => {
       refreshCount += 1
-      session = session ? { ...session, access_token: `token-refreshed-${refreshCount}` } : null
+      const token = opts.refreshedTenant ? fakeJwt({ tenant_id: opts.refreshedTenant() }) : `token-refreshed-${refreshCount}`
+      session = session ? { ...session, access_token: token } : null
+      if (session) notify('TOKEN_REFRESHED', session)
       return { data: { session, user: session?.user ?? null }, error: null }
     }),
   }
@@ -71,17 +96,17 @@ export function meFor(overrides: Partial<CurrentUser> = {}): CurrentUser {
 
 type Handler = (url: URL, init: RequestInit) => Response | Promise<Response>
 
-export function json(body: unknown, status = 200) {
-  return new Response(status === 204 ? null : JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+export function json(body: unknown, status = 200, headers: Record<string, string> = {}) {
+  return new Response(status === 204 ? null : JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...headers } })
 }
 
 /** Routes fetch calls by "METHOD /path" and records them. */
 export function stubFetch(routes: Record<string, Handler>) {
-  const calls: { method: string; path: string; headers: Headers; body: unknown }[] = []
+  const calls: { method: string; path: string; url: string; headers: Headers; body: unknown }[] = []
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
     const url = new URL(String(input), 'http://localhost')
     const method = (init.method ?? 'GET').toUpperCase()
-    calls.push({ method, path: url.pathname, headers: new Headers(init.headers), body: init.body ? JSON.parse(String(init.body)) : undefined })
+    calls.push({ method, path: url.pathname, url: String(input), headers: new Headers(init.headers), body: init.body ? JSON.parse(String(init.body)) : undefined })
     const handler = routes[`${method} ${url.pathname}`]
     return handler ? handler(url, init) : json({ title: 'Not found' }, 404)
   })
@@ -89,13 +114,17 @@ export function stubFetch(routes: Record<string, Handler>) {
   return calls
 }
 
-export function renderWithProviders(ui: ReactNode, { path = '/', auth }: { path?: string; auth: AuthClient | null }) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <AuthProvider client={auth}>
+export function renderWithProviders(
+  ui: ReactNode,
+  { path = '/', auth, idleTimeoutMs, queryClient }: { path?: string; auth: AuthClient | null; idleTimeoutMs?: number; queryClient?: QueryClient },
+) {
+  const client = queryClient ?? new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const result = render(
+    <QueryClientProvider client={client}>
+      <AuthProvider client={auth} idleTimeoutMs={idleTimeoutMs}>
         <MemoryRouter initialEntries={[path]}>{ui}</MemoryRouter>
       </AuthProvider>
     </QueryClientProvider>,
   )
+  return { ...result, queryClient: client }
 }

@@ -5,6 +5,8 @@ interface ImportMetaEnv {
   readonly VITE_SUPABASE_URL?: string
   readonly VITE_SUPABASE_PUBLISHABLE_KEY?: string
   readonly VITE_SUPABASE_ANON_KEY?: string
+  /** Idle auto-logoff in minutes (default 15). */
+  readonly VITE_IDLE_TIMEOUT_MINUTES?: string
 }
 
 interface ImportMeta {

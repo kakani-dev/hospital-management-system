@@ -8,10 +8,12 @@ import type {
   UpdateBranchRequest,
   UpdateMemberRequest,
 } from './types'
+import { ADD_MEMBER_GENERIC_MESSAGE } from './types'
 
 export const queryKeys = {
   health: ['health'] as const,
   me: ['me'] as const,
+  invitations: ['me', 'invitations'] as const,
   patients: (search: string) => ['patients', { search }] as const,
   branches: ['branches'] as const,
   members: ['members'] as const,
@@ -25,10 +27,20 @@ export function useMe(enabled = true) {
   return useQuery({ queryKey: queryKeys.me, queryFn: () => apiClient.me(), retry: false, enabled, staleTime: 60_000 })
 }
 
+/** Debounced patient search term (ms). */
+export const PATIENT_SEARCH_DEBOUNCE_MS = 300
+/** API cap for POST /api/v1/patients/search (longer terms are a 400). */
+export const PATIENT_SEARCH_MAX_LENGTH = 100
+
+/**
+ * A non-empty term goes to POST /api/v1/patients/search (term in the body — names/MRNs are PHI and
+ * must never appear in a URL); an empty term pages through GET /api/v1/patients. Callers debounce.
+ */
 export function usePatients(search: string) {
+  const term = search.trim().slice(0, PATIENT_SEARCH_MAX_LENGTH)
   return useQuery({
-    queryKey: queryKeys.patients(search),
-    queryFn: () => apiClient.patients.list({ search: search || undefined, pageSize: 25 }),
+    queryKey: queryKeys.patients(term),
+    queryFn: () => (term ? apiClient.patients.search({ search: term, pageSize: 25 }) : apiClient.patients.list({ pageSize: 25 })),
     retry: false,
   })
 }
@@ -41,21 +53,31 @@ export function useCreatePatient() {
   })
 }
 
+export interface SwitchContextDeps {
+  /** Re-issues the access token so the hook stamps the new tenant. */
+  refresh: () => Promise<void>
+  /** queryClient.clear() + remount (AuthProvider.resetCache). */
+  resetCache: () => void
+  /** Tells the tenant guard the new tenant is expected (no "tenant changed" banner). */
+  expectTenant: (tenantId: string | null) => void
+}
+
 /**
- * Switch tenant/branch: the server validates against memberships and stores the choice, then the
- * session is refreshed so the custom access token hook issues a token for the new context, then
- * every cached query (which belonged to the old tenant) is dropped.
+ * Switch tenant/branch: the server validates against memberships and stores the choice, the session
+ * is refreshed so the custom access token hook issues a token for the new context, and then the
+ * whole query cache (which belonged to the old context) is cleared — every switch, no exceptions.
  */
-export function useSwitchContext(refreshSession: () => Promise<void>) {
-  const qc = useQueryClient()
+export function useSwitchContext({ refresh, resetCache, expectTenant }: SwitchContextDeps) {
   return useMutation({
     mutationFn: async (body: SwitchContextRequest) => {
       await apiClient.switchContext(body)
-      await refreshSession()
-    },
-    onSuccess: async () => {
-      qc.removeQueries({ predicate: (q) => q.queryKey[0] !== 'me' })
-      await qc.invalidateQueries()
+      expectTenant(body.tenantId)
+      try {
+        await refresh()
+      } finally {
+        resetCache()
+        expectTenant(null)
+      }
     },
   })
 }
@@ -84,11 +106,30 @@ export function useMembers() {
   return useQuery({ queryKey: queryKeys.members, queryFn: () => apiClient.members.list(), retry: false })
 }
 
+/** Resolves to the API's generic 202 message (never reveals whether the email has an account). */
 export function useAddMember() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (body: AddMemberRequest) => apiClient.members.add(body),
+    mutationFn: async (body: AddMemberRequest) => {
+      const response = await apiClient.members.add(body)
+      return response?.message?.trim() || ADD_MEMBER_GENERIC_MESSAGE
+    },
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.members }),
+  })
+}
+
+/** Pending invitations for the signed-in user (GET /api/v1/me/invitations). */
+export function useInvitations(enabled = true) {
+  return useQuery({ queryKey: queryKeys.invitations, queryFn: () => apiClient.invitations.list(), retry: false, enabled })
+}
+
+/** Accepts an invitation, then refetches memberships (/me) and the invitation list. */
+export function useAcceptInvitation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (membershipId: string) => apiClient.invitations.accept(membershipId),
+    // ['me'] prefix-matches ['me', 'invitations'], so this refetches both /me and the invitation list.
+    onSettled: () => qc.invalidateQueries({ queryKey: queryKeys.me }),
   })
 }
 

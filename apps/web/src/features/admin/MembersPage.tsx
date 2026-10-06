@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { useEffect, useState } from 'react'
+import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Card } from '../../components/ui/Card'
 import { Alert } from '../../components/ui/Alert'
@@ -7,7 +7,7 @@ import { Button } from '../../components/ui/Button'
 import { FormField } from '../../components/ui/FormField'
 import { SelectField } from '../../components/ui/SelectField'
 import { useAddMember, useBranches, useMembers, useUpdateMember } from '../../lib/api/hooks'
-import { ApiError } from '../../lib/api/client'
+import { ApiError, fieldErrors } from '../../lib/api/client'
 import { ROLES, type Role } from '../../lib/api/types'
 import { memberSchema, type MemberFormValues } from './adminSchemas'
 import { useMe } from '../../lib/api/hooks'
@@ -26,23 +26,40 @@ export function MembersPage() {
     handleSubmit,
     reset,
     setError,
+    setValue,
+    control,
     formState: { errors, isSubmitting },
   } = useForm<MemberFormValues>({ resolver: zodResolver(memberSchema), defaultValues: { email: '', role: 'receptionist', branchId: '' } })
+
+  // tenant_admin is tenant-wide (API 400 / DB CHECK otherwise): only "All branches" is offered.
+  const tenantWide = useWatch({ control, name: 'role' }) === 'tenant_admin'
+  useEffect(() => {
+    if (tenantWide) setValue('branchId', '')
+  }, [tenantWide, setValue])
 
   const onSubmit = async (values: MemberFormValues) => {
     setMessage(null)
     try {
-      const added = await addMember.mutateAsync({ email: values.email, role: values.role, branchId: values.branchId || null })
+      // 202 + generic message for every outcome (no account / invited / already a member): the UI
+      // must not reveal whether the email has an account, so it shows the server's text verbatim.
+      const text = await addMember.mutateAsync({ email: values.email, role: values.role, branchId: values.branchId || null })
       reset({ email: '', role: values.role, branchId: values.branchId })
-      setMessage({ tone: 'info', text: `${added.email ?? values.email} added as ${roleLabel(added.role)}.` })
+      setMessage({ tone: 'info', text })
     } catch (error) {
-      if (error instanceof ApiError && error.status === 404) {
-        setError('email', { message: 'No user with this email has signed up yet' })
-      } else if (error instanceof ApiError && error.status === 409) {
-        setError('email', { message: 'This person already has that membership' })
-      } else {
-        setMessage({ tone: 'error', text: 'Could not add the member.' })
+      const fields = fieldErrors(error)
+      const unmapped: string[] = []
+      for (const [field, text] of Object.entries(fields)) {
+        if (field === 'email' || field === 'role' || field === 'branchId') setError(field, { message: text })
+        else unmapped.push(text)
       }
+      setMessage({
+        tone: 'error',
+        text: Object.keys(fields).length
+          ? ['Please fix the highlighted fields.', ...unmapped].join(' ')
+          : error instanceof ApiError && error.status === 403
+            ? 'Only tenant admins can add members.'
+            : 'Could not send the invitation.',
+      })
     }
   }
 
@@ -63,7 +80,9 @@ export function MembersPage() {
       <h1 className="text-2xl font-semibold">Members</h1>
       {message && <Alert tone={message.tone}>{message.text}</Alert>}
       <Card title="Add member">
-        <p className="mb-3 text-sm text-slate-600">The person must already have an account (signed up with this email).</p>
+        <p className="mb-3 text-sm text-slate-600">
+          People with an HMS account get an invitation and must accept it after signing in before they can access this hospital.
+        </p>
         <form noValidate aria-label="Add member" onSubmit={handleSubmit(onSubmit)} className="grid gap-4 sm:grid-cols-4 sm:items-end">
           <FormField label="Email" type="email" autoComplete="off" error={errors.email?.message} {...register('email')} />
           <SelectField label="Role" error={errors.role?.message} {...register('role')}>
@@ -75,7 +94,8 @@ export function MembersPage() {
           </SelectField>
           <SelectField label="Branch scope" error={errors.branchId?.message} {...register('branchId')}>
             <option value="">All branches</option>
-            {branches.data
+            {!tenantWide &&
+              branches.data
               ?.filter((b) => b.isActive)
               .map((b) => (
                 <option key={b.id} value={b.id}>
@@ -128,7 +148,7 @@ export function MembersPage() {
                   <td className="px-3 py-2">{m.branchName ?? 'All branches'}</td>
                   <td className="px-3 py-2 capitalize">{m.status}</td>
                   <td className="px-3 py-2 text-right">
-                    {!self && (
+                    {!self && m.status !== 'invited' && (
                       <Button
                         variant="secondary"
                         disabled={updateMember.isPending}

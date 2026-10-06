@@ -1,6 +1,7 @@
 // Minimal GoTrue (Supabase Auth) stand-in for LOCAL E2E TESTS ONLY.
 //
-// - POST /auth/v1/token?grant_type=password|refresh_token, GET /auth/v1/user, POST /auth/v1/logout
+// - POST /auth/v1/token?grant_type=password|refresh_token, GET /auth/v1/user,
+//   POST /auth/v1/logout?scope=global|local|others (revokes refresh tokens like GoTrue)
 // - GET  /auth/v1/.well-known/jwks.json (ES256 key generated at start-up, never persisted)
 // - Access-token claims are produced by the REAL identity.custom_access_token_hook, executed as
 //   supabase_auth_admin, exactly as hosted Supabase does when the hook is enabled.
@@ -116,6 +117,18 @@ function send(res, status, body) {
   res.end(body === undefined ? '' : JSON.stringify(body))
 }
 
+/** Claims of a bearer token (signature NOT checked: only used to scope a logout in this local mock). */
+function claimsOf(authorization) {
+  const token = String(authorization ?? '').replace(/^Bearer\s+/i, '')
+  const parts = token.split('.')
+  if (parts.length !== 3) return null
+  try {
+    return JSON.parse(Buffer.from(parts[1], 'base64url').toString())
+  } catch {
+    return null
+  }
+}
+
 const authError = (res, status, code, message) => send(res, status, { code: status, error_code: code, msg: message, error: code, error_description: message })
 
 async function readJson(req) {
@@ -161,7 +174,20 @@ const server = createServer(async (req, res) => {
       return user ? send(res, 200, userJson(user)) : authError(res, 401, 'bad_jwt', 'invalid JWT')
     }
 
-    if (req.method === 'POST' && url.pathname === '/auth/v1/logout') return send(res, 204)
+    if (req.method === 'POST' && url.pathname === '/auth/v1/logout') {
+      // Like GoTrue: scope=global (default) revokes every refresh token of the user, scope=local
+      // only this session's, scope=others all but this session. The web app signs out with the
+      // default on "Sign out" and with scope=local on idle auto-logoff / sign-out from another tab.
+      const claims = claimsOf(req.headers.authorization)
+      if (!claims?.sub) return authError(res, 401, 'bad_jwt', 'invalid JWT')
+      const scope = url.searchParams.get('scope') ?? 'global'
+      for (const [token, entry] of refreshTokens) {
+        if (entry.userId !== claims.sub) continue
+        const sameSession = entry.sessionId === claims.session_id
+        if (scope === 'global' || (scope === 'local' && sameSession) || (scope === 'others' && !sameSession)) refreshTokens.delete(token)
+      }
+      return send(res, 204)
+    }
 
     return authError(res, 404, 'not_found', 'Not found')
   } catch (error) {
