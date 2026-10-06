@@ -14,4 +14,7 @@
     <ProjectReference Include="../../modules/Identity/Hms.Modules.Identity/Hms.Modules.Identity.csproj" />
     <ProjectReference Include="../../modules/Patients/Hms.Modules.Patients/Hms.Modules.Patients.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Hms.UnitTests" />
+  </ItemGroup>
 </Project>

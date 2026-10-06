@@ -18,7 +18,7 @@ public static class PatientEndpoints
 
     public static RouteGroupBuilder MapPatientEndpoints(this RouteGroupBuilder api)
     {
-        var group = api.MapGroup("/patients").WithTags("Patients").RequireTenant();
+        var group = api.MapGroup("/patients").WithTags("Patients").RequireTenant().WithDbTransaction<PatientsDbContext>();
 
         group.MapGet("/", ListAsync).WithName("ListPatients");
         group.MapGet("/{id:guid}", GetAsync).WithName("GetPatient");
@@ -108,7 +108,19 @@ public static class PatientEndpoints
             // TenantId is assigned by TenantSaveChangesInterceptor from the resolved context.
         };
         db.Patients.Add(patient);
-        await db.SaveChangesAsync(ct);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is Npgsql.PostgresException { SqlState: Npgsql.PostgresErrorCodes.UniqueViolation })
+        {
+            return TypedResults.Problem(title: "Duplicate MRN", detail: "A patient with this MRN already exists in this hospital.", statusCode: StatusCodes.Status409Conflict);
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is Npgsql.PostgresException { SqlState: Npgsql.PostgresErrorCodes.InsufficientPrivilege })
+        {
+            // RLS (defense in depth) rejected a write the API-level checks allowed.
+            return Forbidden("The database rejected this write for your memberships.");
+        }
 
         return TypedResults.Created($"/api/v1/patients/{patient.Id}", PatientSummaryDto.From(patient));
     }

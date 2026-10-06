@@ -51,9 +51,10 @@ public sealed class DatabaseMappingTests
     public async Task Ef_model_matches_sql_schema_for_every_mapped_table()
     {
         await using var identity = Identity();
-        Assert.Equal(2, await identity.Tenants.CountAsync());
-        Assert.Equal(3, await identity.Branches.CountAsync());
-        Assert.Equal(7, await identity.Memberships.CountAsync());
+        // Seed-relative (other suites add branches/memberships/patients to the same database).
+        Assert.True(await identity.Tenants.CountAsync() >= 2);
+        Assert.True(await identity.Branches.CountAsync() >= 3);
+        Assert.True(await identity.Memberships.CountAsync() >= 7);
         await using var patients = Patients(As(Alpha, AlphaAdmin, AlphaMain));
         Assert.NotNull(await patients.Patients.FirstAsync());
     }
@@ -62,11 +63,12 @@ public sealed class DatabaseMappingTests
     public async Task Query_filter_isolates_seeded_tenants()
     {
         await using var alpha = Patients(As(Alpha, AlphaAdmin, AlphaMain));
-        Assert.Equal(4, await alpha.Patients.CountAsync());
+        Assert.Equal(4, await alpha.Patients.CountAsync(p => p.LastName == "Synthetic-Alpha"));
+        Assert.Equal(0, await alpha.Patients.CountAsync(p => p.LastName == "Synthetic-Beta"));
         Assert.Equal(1, await alpha.Patients.CountAsync(p => p.Mrn == "MRN-1001"));
 
         await using var beta = Patients(As(Beta, Guid.NewGuid()));
-        Assert.Equal(3, await beta.Patients.CountAsync());
+        Assert.Equal(3, await beta.Patients.CountAsync(p => p.LastName == "Synthetic-Beta"));
         Assert.DoesNotContain(await beta.Patients.Select(p => p.TenantId).Distinct().ToListAsync(), t => t == Alpha);
     }
 

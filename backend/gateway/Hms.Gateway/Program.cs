@@ -1,7 +1,6 @@
 using System.Threading.RateLimiting;
 using Hms.Gateway.Infrastructure;
 using Hms.Modules.Identity;
-using Hms.Modules.Identity.Endpoints;
 using Hms.Modules.Patients;
 using Hms.Modules.Patients.Endpoints;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -20,9 +19,8 @@ builder.Services.AddSerilog((services, lc) => lc
 
 builder.Services.AddProblemDetails();
 builder.Services.AddOpenApi("v1");
-builder.Services.AddSingleton(TimeProvider.System);
 
-builder.Services.AddHmsAuthentication(builder.Configuration);
+builder.Services.AddHmsAuthentication(builder.Configuration, builder.Environment);
 builder.Services.AddHmsHealthChecks();
 
 // ---- Modules (each owns its schema, endpoints and DbContext)
@@ -48,7 +46,7 @@ var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get
 builder.Services.AddCors(o => o.AddDefaultPolicy(p => p
     .WithOrigins(allowedOrigins)
     .WithMethods("GET", "POST", "PUT", "PATCH", "DELETE")
-    .WithHeaders("Authorization", "Content-Type")));
+    .WithHeaders("Authorization", "Content-Type", "apikey", "x-client-info")));
 
 builder.Services.Configure<ForwardedHeadersOptions>(o =>
 {
