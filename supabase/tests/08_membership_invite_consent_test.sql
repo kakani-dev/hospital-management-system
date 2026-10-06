@@ -6,10 +6,8 @@ begin;
 -- ---------- privileges ----------
 select tests.ok(
   has_function_privilege('authenticated', 'identity.accept_membership(uuid)', 'execute')
-  and has_function_privilege('hms_api', 'identity.accept_membership(uuid)', 'execute')
-  and has_function_privilege('authenticated', 'identity.my_invitations()', 'execute')
-  and has_function_privilege('hms_api', 'identity.my_invitations()', 'execute'),
-  'accept_membership() / my_invitations() are executable by authenticated and hms_api');
+  and has_function_privilege('authenticated', 'identity.my_invitations()', 'execute'),
+  'accept_membership() / my_invitations() are executable by authenticated (the API runs them as authenticated)');
 select tests.ok(
   not has_function_privilege('anon', 'identity.accept_membership(uuid)', 'execute')
   and not has_function_privilege('anon', 'identity.my_invitations()', 'execute')
@@ -36,8 +34,8 @@ create temporary table p1 on commit drop as
 grant select on p1 to public;
 select tests.ok((select id from p1) is not null, 'P1: add_member returns a membership id for an existing account');
 select tests.ok(
-  identity.add_member('11111111-1111-4111-8111-111111111111', 'doctor@beta.example', 'nurse', 'a1111111-0000-4000-8000-000000000001') = (select id from p1),
-  'inviting again returns the same membership id (no error, no second row)');
+  identity.add_member('11111111-1111-4111-8111-111111111111', 'doctor@beta.example', 'nurse', null) = (select id from p1),
+  'inviting again (same tenant, same tenant-wide scope) returns the same membership id (no error, no second row)');
 select tests.ok(identity.add_member('11111111-1111-4111-8111-111111111111', 'nobody@nowhere.test', 'viewer', null) is null,
   'P1 enumeration: unknown email returns NULL, not an error');
 
@@ -93,10 +91,10 @@ select tests.throws_ok(
   $$insert into identity.memberships (tenant_id, user_id, role, status)
     values ('11111111-1111-4111-8111-111111111111', '0c000000-0000-4000-8000-000000000001', 'viewer', 'active')$$,
   '42501', 'admin cannot INSERT an active membership for another user (bypassing add_member)');
-select tests.throws_ok(
-  $$insert into identity.memberships (tenant_id, user_id, role)
-    values ('11111111-1111-4111-8111-111111111111', '0c000000-0000-4000-8000-000000000001', 'viewer')$$,
-  '42501', 'admin INSERT relying on the column default (active) is rejected');
+select tests.ok(
+  tests.affected_rows($$insert into identity.memberships (tenant_id, user_id, branch_id, role)
+    values ('11111111-1111-4111-8111-111111111111', '0d000000-0000-4000-8000-000000000001', 'a1111111-0000-4000-8000-000000000001', 'viewer')$$) = 1,
+  'admin INSERT relying on the column default creates an INVITED row (default is invited since 20261009090000)');
 select tests.throws_ok(
   $$update identity.memberships set user_id = '0c000000-0000-4000-8000-000000000001'
      where user_id = '0a000000-0000-4000-8000-000000000002' and tenant_id = '11111111-1111-4111-8111-111111111111'$$,
@@ -176,9 +174,9 @@ update identity.tenants set status = 'active' where id = '11111111-1111-4111-811
 select tests.as_superuser();
 insert into auth.users (id, email) values ('0f000000-0000-4000-8000-000000000001', 'ordering@shared.example');
 set local session_replication_role = replica; -- setup only: keep the explicit created_at values
-insert into identity.memberships (tenant_id, user_id, role, created_at) values
-  ('22222222-2222-4222-8222-222222222222', '0f000000-0000-4000-8000-000000000001', 'doctor', now() - interval '1 day'),
-  ('11111111-1111-4111-8111-111111111111', '0f000000-0000-4000-8000-000000000001', 'doctor', now());
+insert into identity.memberships (tenant_id, user_id, role, status, created_at) values
+  ('22222222-2222-4222-8222-222222222222', '0f000000-0000-4000-8000-000000000001', 'doctor', 'active', now() - interval '1 day'),
+  ('11111111-1111-4111-8111-111111111111', '0f000000-0000-4000-8000-000000000001', 'doctor', 'active', now());
 set local session_replication_role = origin;
 set local role supabase_auth_admin;
 select tests.ok(

@@ -92,8 +92,8 @@ select tests.ok(identity.add_member('11111111-1111-4111-8111-111111111111', 'nob
   'unknown email returns NULL (no exception, no enumeration)');
 select tests.ok(
   identity.add_member('11111111-1111-4111-8111-111111111111', 'outsider@example.test', 'nurse', 'a1111111-0000-4000-8000-000000000002')
-  = identity.add_member('11111111-1111-4111-8111-111111111111', 'outsider@example.test', 'doctor'),
-  'repeat invite returns the existing membership id (no exception)');
+  = identity.add_member('11111111-1111-4111-8111-111111111111', 'outsider@example.test', 'doctor', 'a1111111-0000-4000-8000-000000000002'),
+  'repeat invite for the same (tenant, branch) returns the existing membership id (no exception)');
 select tests.throws_ok(
   $$select identity.add_member('11111111-1111-4111-8111-111111111111', 'doctor@beta.example', 'superuser')$$,
   '23514', 'invalid role is rejected');
