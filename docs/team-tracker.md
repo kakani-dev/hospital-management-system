@@ -11,7 +11,7 @@
 | 0.3 | React + Vite app shell, typed API client, accessible components | React Team, UI/UX | Done | `apps/web`, 6 Vitest tests |
 | 0.4 | ASP.NET Core gateway, Identity and Patients modules, shared kernel | .NET Backend Team | Done | `backend/`, 0 build warnings |
 | 0.5 | Tenant resolution from claims plus a membership check | Security Team | Done (JWKS validation is a Sprint 1 TODO) | `ClaimsTenantResolver`, integration tests |
-| 0.6 | SQL migrations, RLS, helper functions, audit log, seed | Database Engineering | Done | `supabase/`, 65 SQL assertions |
+| 0.6 | SQL migrations, RLS, helper functions, audit log, seed | Database Engineering | Done | `supabase/`, 67 SQL assertions |
 | 0.7 | xUnit unit, integration and DB mapping tests | QA Automation | Done | 30 + 17 + 5 passing |
 | 0.8 | Playwright E2E + axe accessibility smoke | QA Automation | Done | 14 passing |
 | 0.9 | Dockerfiles, docker-compose, Render blueprint, Vercel config | DevOps | Written, **not run** (no Docker) | `infra/`, `docker-compose.yml` |

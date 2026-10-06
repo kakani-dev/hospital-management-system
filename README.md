@@ -41,7 +41,7 @@ docker-compose.yml        postgres + api + web (local)
 Full details are in [docs/local-development.md](docs/local-development.md).
 
 ```bash
-# Database (needs PostgreSQL 15+ and psql): migrations + seed + 65 SQL assertions
+# Database (needs PostgreSQL 15+ and psql): migrations + seed + 67 SQL assertions
 npm run sql:test
 
 # Backend

@@ -47,4 +47,18 @@ select tests.ok(
     'branches_tenant_code_key', 'patients_tenant_mrn_key', 'memberships_branch_same_tenant', 'patients_branch_same_tenant')) = 4,
   'tenant-scoped unique and composite FK constraints exist');
 
+select tests.ok(
+  not has_function_privilege('anon', 'audit.log_row_change()', 'execute')
+  and not has_function_privilege('authenticated', 'audit.log_row_change()', 'execute'),
+  'clients cannot call the SECURITY DEFINER audit trigger function directly');
+
+select tests.ok(
+  exists (
+    select 1 from pg_index i
+    where i.indrelid = 'identity.memberships'::regclass
+      and (i.indkey::int2[])[0:1] = (select array_agg(attnum order by attnum)::int2[] from pg_attribute
+                                      where attrelid = 'identity.memberships'::regclass and attname in ('tenant_id', 'branch_id'))
+  ),
+  'composite FK memberships(tenant_id, branch_id) has a covering index');
+
 rollback;

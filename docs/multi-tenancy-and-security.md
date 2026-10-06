@@ -67,7 +67,7 @@ Policy summary:
 
 ## Verified by tests
 
-- `supabase/tests/*.sql`: 65 assertions. They cover cross-tenant read, search, update, delete and insert, privilege escalation, moving rows between tenants, anon access, outsiders, suspended tenants, forged tenant claims, branch scope, constraints, and audit visibility and immutability.
+- `supabase/tests/*.sql`: 67 assertions. They cover cross-tenant read, search, update, delete and insert, privilege escalation, moving rows between tenants, anon access, outsiders, suspended tenants, forged tenant claims, branch scope, constraints, and audit visibility and immutability.
 - `Hms.IntegrationTests`: spoofed `X-Tenant-Id` header ignored, `tenantId` in the request body ignored, a token for a tenant without a membership gets 403, another tenant's patient by id gets 404, cross-tenant branch gets 403, role and branch checks.
 - `Hms.UnitTests`: claim parsing edge cases, fail-closed tenant context, EF filter and interceptor isolation.
 
