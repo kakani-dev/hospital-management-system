@@ -28,6 +28,9 @@ done
 echo "==> Seeding synthetic data"
 "${PSQL[@]}" "$TEST_URL" --single-transaction -f "$ROOT/seed.sql"
 
+echo "==> Ensuring local API login role (hms_api_login)"
+"${PSQL[@]}" "$TEST_URL" -f "$ROOT/scripts/local-api-login-role.sql"
+
 echo "==> Installing test helpers"
 "${PSQL[@]}" "$TEST_URL" -f "$ROOT/tests/00_test_helpers.sql"
 
