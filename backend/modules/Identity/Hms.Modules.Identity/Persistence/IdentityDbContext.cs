@@ -1,4 +1,5 @@
 using Hms.Modules.Identity.Domain;
+using Hms.SharedKernel.Persistence;
 using Microsoft.EntityFrameworkCore;
 
 namespace Hms.Modules.Identity.Persistence;
@@ -41,5 +42,8 @@ public sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> option
         });
 
         modelBuilder.Entity<UserProfile>(e => e.ToTable("user_profiles"));
+
+        // Audit columns are DB-managed (trigger): EF never sends them.
+        modelBuilder.UseDbManagedAuditColumns();
     }
 }

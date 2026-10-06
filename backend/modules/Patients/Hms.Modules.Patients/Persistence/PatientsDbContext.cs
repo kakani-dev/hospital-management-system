@@ -1,4 +1,5 @@
 using Hms.Modules.Patients.Domain;
+using Hms.SharedKernel.Persistence;
 using Hms.SharedKernel.Tenancy;
 using Microsoft.EntityFrameworkCore;
 
@@ -29,5 +30,8 @@ public sealed class PatientsDbContext(DbContextOptions<PatientsDbContext> option
             e.HasIndex(x => new { x.TenantId, x.Mrn }).IsUnique();
             e.HasQueryFilter(p => p.TenantId == CurrentTenantId && p.DeletedAt == null);
         });
+
+        // Audit columns are DB-managed: never sent on INSERT/UPDATE; deleted_at never sent on INSERT.
+        modelBuilder.UseDbManagedAuditColumns();
     }
 }
