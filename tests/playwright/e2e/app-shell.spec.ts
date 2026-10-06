@@ -1,70 +1,71 @@
 import { expect, test } from '@playwright/test'
-import { demoUser, signIn } from './helpers'
+import { signIn, tenantNames, users } from './helpers'
 
-test.describe('app shell', () => {
-  test('loads and redirects unauthenticated users to login', async ({ page }) => {
+test.describe('app shell and authentication', () => {
+  test('redirects unauthenticated users to login', async ({ page }) => {
     await page.goto('/')
     await expect(page).toHaveURL(/\/login$/)
     await expect(page).toHaveTitle('HMS')
     await expect(page.getByRole('heading', { name: 'Sign in to HMS' })).toBeVisible()
   })
 
-  test('protected deep link redirects to login', async ({ page }) => {
+  test('protected deep link redirects to login and back after sign-in', async ({ page }) => {
     await page.goto('/patients')
     await expect(page).toHaveURL(/\/login$/)
+    await page.getByLabel('Email').fill(users.alphaAdmin)
+    await page.getByLabel('Password').fill(process.env.E2E_PASSWORD ?? 'synthetic-demo-pass')
+    await page.getByRole('button', { name: 'Sign in' }).click()
+    await expect(page).toHaveURL(/\/patients$/)
+    await expect(page.getByRole('heading', { name: 'Patients' })).toBeVisible()
   })
 
-  test('login form validates input before signing in', async ({ page }) => {
+  test('login form validates input', async ({ page }) => {
     await page.goto('/login')
     await page.getByRole('button', { name: 'Sign in' }).click()
     await expect(page.getByText('Enter a valid email address')).toBeVisible()
     await expect(page.getByText('Password must be at least 8 characters')).toBeVisible()
     await expect(page.getByLabel('Email')).toHaveAttribute('aria-invalid', 'true')
+  })
 
-    await page.getByLabel('Email').fill('not-an-email')
-    await page.getByLabel('Password').fill('short')
+  test('wrong password is rejected by the auth server', async ({ page }) => {
+    await page.goto('/login')
+    await page.getByLabel('Email').fill(users.alphaAdmin)
+    await page.getByLabel('Password').fill('definitely-wrong')
     await page.getByRole('button', { name: 'Sign in' }).click()
+    await expect(page.getByRole('alert').filter({ hasText: 'Invalid login credentials' })).toBeVisible()
     await expect(page).toHaveURL(/\/login$/)
   })
 
-  test('signs in, shows tenant context and navigates', async ({ page }) => {
-    await signIn(page)
-    await expect(page.getByTestId('tenant-name')).toHaveText('Demo Alpha Hospital (synthetic)')
-    await expect(page.getByText(demoUser.email)).toBeVisible()
+  test('signs in with a real token, shows server-resolved context and navigates', async ({ page }) => {
+    await signIn(page, users.alphaAdmin)
+    await expect(page.getByTestId('dashboard-tenant')).toHaveText(tenantNames.alpha)
+    await expect(page.getByTestId('active-roles')).toHaveText('tenant admin')
+    await expect(page.getByTestId('api-status')).toHaveText('Healthy')
 
-    await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Patients' }).click()
-    await expect(page).toHaveURL(/\/patients$/)
+    const nav = page.getByRole('navigation', { name: 'Primary' })
+    await nav.getByRole('link', { name: 'Patients' }).click()
     await expect(page.getByRole('heading', { name: 'Patients' })).toBeVisible()
-    await expect(page.getByRole('link', { name: 'Patients' })).toHaveAttribute('aria-current', 'page')
-
-    await page.getByRole('link', { name: 'Dashboard' }).click()
-    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible()
+    await expect(nav.getByRole('link', { name: 'Patients' })).toHaveAttribute('aria-current', 'page')
+    await expect(nav.getByRole('link', { name: 'Branches' })).toBeVisible()
+    await expect(nav.getByRole('link', { name: 'Members' })).toBeVisible()
   })
 
-  test('branch switcher only offers branches from the session memberships', async ({ page }) => {
+  test('session survives reload; sign out clears it', async ({ page }) => {
     await signIn(page)
-    const branch = page.getByLabel('Branch')
-    await expect(branch.locator('option')).toHaveText(['Alpha Main Campus', 'Alpha East Clinic'])
-    await branch.selectOption({ label: 'Alpha East Clinic' })
-    await page.getByRole('link', { name: 'Patients' }).click()
     await page.reload()
-    await expect(page.getByLabel('Branch')).toHaveValue('a1111111-0000-4000-8000-000000000002')
-  })
-
-  test('patients page degrades gracefully when the API is unavailable or unauthenticated', async ({ page }) => {
-    await signIn(page)
-    await page.goto('/patients')
-    await expect(page.getByRole('status').filter({ hasText: /unavailable|sign in with a real account/i })).toBeVisible()
-    await expect(page.getByTestId('patients-empty')).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Register patient' })).toBeDisabled()
-  })
-
-  test('sign out clears the session', async ({ page }) => {
-    await signIn(page)
+    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible()
     await page.getByRole('button', { name: 'Sign out' }).click()
     await expect(page).toHaveURL(/\/login$/)
     await page.goto('/')
     await expect(page).toHaveURL(/\/login$/)
+  })
+
+  test('user without memberships gets no tenant and no data', async ({ page }) => {
+    await signIn(page, users.outsider)
+    await expect(page.getByTestId('tenant-name')).toHaveText('No hospital memberships')
+    await page.goto('/patients')
+    await expect(page.getByText('does not include access to the patient registry')).toBeVisible()
+    await expect(page.getByTestId('patient-row')).toHaveCount(0)
   })
 
   test('unknown routes show not-found inside the shell', async ({ page }) => {

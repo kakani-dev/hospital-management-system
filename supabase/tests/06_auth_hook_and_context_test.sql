@@ -114,4 +114,21 @@ select tests.ok(
   (select array_agg(role) from identity.my_memberships()) = array['nurse'],
   'the added user now sees their new membership');
 
+-- Suspended members: admins still see their profile, colleagues do not.
+select tests.as_superuser();
+update identity.memberships set status = 'suspended'
+ where user_id = '0c000000-0000-4000-8000-000000000001' and tenant_id = '11111111-1111-4111-8111-111111111111';
+select tests.authenticate_as('admin@alpha.example');
+select tests.ok(
+  (select count(*) from identity.user_profiles where id = '0c000000-0000-4000-8000-000000000001') = 1,
+  'tenant admin still sees the profile of a suspended member');
+select tests.authenticate_as('reception@alpha.example');
+select tests.ok(
+  (select count(*) from identity.user_profiles where id = '0c000000-0000-4000-8000-000000000001') = 0,
+  'non-admin colleague does not see a suspended member''s profile');
+select tests.authenticate_as('admin@beta.example');
+select tests.ok(
+  (select count(*) from identity.user_profiles where id = '0c000000-0000-4000-8000-000000000001') = 0,
+  'admin of another tenant does not see the profile');
+
 rollback;

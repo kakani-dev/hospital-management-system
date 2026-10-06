@@ -1,10 +1,10 @@
 import AxeBuilder from '@axe-core/playwright'
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { signIn } from './helpers'
 
 const WCAG_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']
 
-async function seriousViolations(page: import('@playwright/test').Page) {
+async function seriousViolations(page: Page) {
   const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze()
   return results.violations
     .filter((v) => v.impact === 'serious' || v.impact === 'critical')
@@ -12,20 +12,33 @@ async function seriousViolations(page: import('@playwright/test').Page) {
 }
 
 test.describe('accessibility smoke (axe, WCAG 2.1 AA)', () => {
-  test('login page has no serious/critical violations', async ({ page }) => {
+  test('login page', async ({ page }) => {
     await page.goto('/login')
     expect(await seriousViolations(page)).toEqual([])
   })
 
-  test('dashboard has no serious/critical violations', async ({ page }) => {
+  test('dashboard', async ({ page }) => {
     await signIn(page)
     expect(await seriousViolations(page)).toEqual([])
   })
 
-  test('patients page has no serious/critical violations', async ({ page }) => {
+  test('patients list and registration form', async ({ page }) => {
     await signIn(page)
     await page.goto('/patients')
-    await expect(page.getByTestId('patients-empty')).toBeVisible()
+    await expect(page.getByTestId('patient-row').first()).toBeVisible()
+    expect(await seriousViolations(page)).toEqual([])
+    await page.goto('/patients/new')
+    await expect(page.getByRole('heading', { name: 'Register patient' })).toBeVisible()
+    expect(await seriousViolations(page)).toEqual([])
+  })
+
+  test('admin pages', async ({ page }) => {
+    await signIn(page)
+    await page.goto('/admin/branches')
+    await expect(page.getByTestId('branch-row').first()).toBeVisible()
+    expect(await seriousViolations(page)).toEqual([])
+    await page.goto('/admin/members')
+    await expect(page.getByTestId('member-row').first()).toBeVisible()
     expect(await seriousViolations(page)).toEqual([])
   })
 

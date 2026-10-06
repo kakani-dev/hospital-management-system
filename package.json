@@ -2,7 +2,7 @@
   "name": "hospital-management-system",
   "private": true,
   "version": "0.1.0",
-  "description": "Multi-tenant Hospital Management System (Sprint 0 foundation). Synthetic data only.",
+  "description": "Multi-tenant Hospital Management System. Synthetic data only.",
   "engines": {
     "node": ">=22.12"
   },
@@ -18,10 +18,15 @@
     "api:build": "dotnet build backend/Hms.slnx",
     "api:test": "dotnet test backend/Hms.slnx --filter Category!=Database",
     "clean": "bash scripts/clean.sh",
-    "clean:all": "bash scripts/clean.sh --all"
+    "clean:all": "bash scripts/clean.sh --all",
+    "e2e:db": "SKIP_SQL_TESTS=1 TEST_DB=${E2E_DB:-hms_e2e} bash supabase/scripts/run-sql-tests.sh",
+    "mock-auth": "node tests/mock-auth/server.mjs",
+    "api:test:db": "dotnet test backend/Hms.slnx --filter Category=Database"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
-    "@playwright/test": "^1.63.0"
+    "@playwright/test": "^1.63.0",
+    "jose": "^6.2.12",
+    "pg": "^8.23.1"
   }
 }

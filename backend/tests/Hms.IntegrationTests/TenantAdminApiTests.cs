@@ -93,7 +93,8 @@ public sealed class TenantAdminApiTests(HmsApiFactory factory) : IClassFixture<H
         Assert.Equal("suspended", after.Status);
 
         var members = await client.GetFromJsonAsync<List<MemberView>>("/api/v1/members");
-        Assert.Contains(members!, m => m.Id == member.Id);
+        // Suspended members stay listed WITH their email so the admin can reactivate them.
+        Assert.Contains(members!, m => m.Id == member.Id && m.Email == email && m.Status == "suspended");
         Assert.DoesNotContain(members!, m => m.UserId == BetaAdmin);
 
         // Suspended membership grants nothing.

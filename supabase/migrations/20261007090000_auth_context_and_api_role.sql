@@ -263,6 +263,39 @@ grant execute on function identity.set_active_context(uuid, uuid) to authenticat
 grant execute on function identity.add_member(uuid, text, text, uuid) to authenticated, service_role;
 
 -- -----------------------------------------------------------------------------
+-- 4b. Tenant admins must still see the profile (email) of SUSPENDED members of their
+--     tenant, otherwise the Members page cannot show who to reactivate. Colleagues keep
+--     seeing only active members (shares_tenant_with). One combined policy (no extra
+--     permissive policy, keeps the performance advisor quiet).
+-- -----------------------------------------------------------------------------
+create or replace function identity.is_admin_of_member(p_user_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from identity.memberships m
+    where m.user_id = p_user_id
+      and identity.has_tenant_role(m.tenant_id, array['tenant_admin'])
+  )
+$$;
+
+revoke all on function identity.is_admin_of_member(uuid) from public, anon;
+grant execute on function identity.is_admin_of_member(uuid) to authenticated, service_role;
+
+drop policy if exists user_profiles_select_self_or_colleague on identity.user_profiles;
+create policy user_profiles_select_self_or_colleague on identity.user_profiles
+  for select to authenticated
+  using (
+    id = (select auth.uid())
+    or identity.shares_tenant_with(id)
+    or identity.is_admin_of_member(id)
+  );
+
+-- -----------------------------------------------------------------------------
 -- 5. Column grants needed by the API's EF Core writes. Audit columns are listed because
 --    EF sends them; the audit triggers overwrite them, so clients still cannot forge them.
 -- -----------------------------------------------------------------------------
