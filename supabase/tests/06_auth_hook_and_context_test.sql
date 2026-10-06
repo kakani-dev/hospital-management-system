@@ -38,7 +38,7 @@ select tests.ok(
   (identity.custom_access_token_hook(jsonb_build_object(
      'user_id', '0d000000-0000-4000-8000-000000000001', 'claims', '{}'::jsonb)) -> 'claims' ->> 'tenant_id')
    = '11111111-1111-4111-8111-111111111111',
-  'multi-tenant consultant defaults deterministically to the first tenant by name (Alpha)');
+  'multi-tenant consultant defaults deterministically by membership age, then tenant id (Alpha)');
 select tests.ok(
   (identity.custom_access_token_hook(jsonb_build_object('user_id', 'not-a-uuid', 'claims', '{"sub":"x"}'::jsonb)) -> 'claims') = '{"sub":"x"}',
   'hook never fails sign-in: bad input returns the original claims');
@@ -82,18 +82,18 @@ select tests.authenticate_as('outsider@example.test');
 select tests.ok((select count(*) from identity.my_memberships()) = 0, 'outsider has no memberships');
 select tests.ok((select count(*) from identity.my_active_context()) = 0, 'outsider has no active context');
 
--- ---------- add_member ----------
+-- ---------- add_member (invite; consent required, see also 08_membership_invite_consent_test) ----------
 select tests.authenticate_as('admin@alpha.example');
 select tests.ok(identity.add_member('11111111-1111-4111-8111-111111111111', 'OUTSIDER@example.test', 'nurse', 'a1111111-0000-4000-8000-000000000002') is not null,
-  'tenant admin adds an existing user (case-insensitive email) with role + branch scope');
-select tests.ok((select count(*) from identity.memberships where user_id = '0c000000-0000-4000-8000-000000000001') = 1,
-  'the new membership is visible to the admin');
-select tests.throws_ok(
-  $$select identity.add_member('11111111-1111-4111-8111-111111111111', 'nobody@nowhere.example', 'nurse')$$,
-  'P0002', 'unknown email is rejected (no account)');
-select tests.throws_ok(
-  $$select identity.add_member('11111111-1111-4111-8111-111111111111', 'outsider@example.test', 'nurse', 'a1111111-0000-4000-8000-000000000002')$$,
-  '23505', 'duplicate membership is rejected');
+  'tenant admin invites an existing user (case-insensitive email) with role + branch scope');
+select tests.ok((select count(*) from identity.memberships where user_id = '0c000000-0000-4000-8000-000000000001') = 0,
+  'the pending invitation is NOT visible to the admin');
+select tests.ok(identity.add_member('11111111-1111-4111-8111-111111111111', 'nobody@nowhere.example', 'nurse') is null,
+  'unknown email returns NULL (no exception, no enumeration)');
+select tests.ok(
+  identity.add_member('11111111-1111-4111-8111-111111111111', 'outsider@example.test', 'nurse', 'a1111111-0000-4000-8000-000000000002')
+  = identity.add_member('11111111-1111-4111-8111-111111111111', 'outsider@example.test', 'doctor'),
+  'repeat invite returns the existing membership id (no exception)');
 select tests.throws_ok(
   $$select identity.add_member('11111111-1111-4111-8111-111111111111', 'doctor@beta.example', 'superuser')$$,
   '23514', 'invalid role is rejected');
@@ -110,9 +110,11 @@ select tests.throws_ok(
   '42501', 'non-admin cannot add members');
 
 select tests.authenticate_as('outsider@example.test');
+select tests.ok((select count(*) from identity.my_memberships()) = 0, 'an invitation grants no membership before acceptance');
+select identity.accept_membership((select membership_id from identity.my_invitations()));
 select tests.ok(
   (select array_agg(role) from identity.my_memberships()) = array['nurse'],
-  'the added user now sees their new membership');
+  'after accepting, the invitee sees their new membership (original invite unchanged)');
 
 -- Suspended members: admins still see their profile, colleagues do not.
 select tests.as_superuser();
