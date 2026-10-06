@@ -22,3 +22,9 @@ public sealed record CreatePatientRequest(
     Guid RegisteredBranchId,
     string? Phone,
     string? Email);
+
+/// <summary>
+/// Body of POST /api/v1/patients/search. The term travels in the body (not the URL) so names/MRNs
+/// never land in proxy/edge access logs (review Minor 5).
+/// </summary>
+public sealed record PatientSearchRequest(string? Search, int? Page, int? PageSize);
