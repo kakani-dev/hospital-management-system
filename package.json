@@ -1,0 +1,25 @@
+{
+  "name": "hospital-management-system",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Multi-tenant Hospital Management System (Sprint 0 foundation). Synthetic data only.",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "web:install": "npm --prefix apps/web ci",
+    "web:dev": "npm --prefix apps/web run dev",
+    "web:build": "npm --prefix apps/web run build",
+    "web:lint": "npm --prefix apps/web run lint",
+    "web:test": "npm --prefix apps/web run test",
+    "e2e": "playwright test -c tests/playwright/playwright.config.ts",
+    "e2e:install": "playwright install --with-deps chromium",
+    "sql:test": "bash supabase/scripts/run-sql-tests.sh",
+    "api:build": "dotnet build backend/Hms.slnx",
+    "api:test": "dotnet test backend/Hms.slnx --filter Category!=Database"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "@playwright/test": "^1.63.0"
+  }
+}

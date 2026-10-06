@@ -1,0 +1,42 @@
+# Node / Vite
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+.vite/
+apps/web/.env
+apps/web/.env.*
+!apps/web/.env.example
+
+# Playwright
+tests/playwright/test-results/
+tests/playwright/playwright-report/
+tests/playwright/.cache/
+blob-report/
+
+# .NET
+bin/
+obj/
+TestResults/
+test-results/
+*.user
+*.suo
+.vs/
+appsettings.*.local.json
+
+# Supabase CLI local state
+supabase/.branches/
+supabase/.temp/
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.pfx
