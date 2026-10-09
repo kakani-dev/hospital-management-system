@@ -190,8 +190,9 @@ export class ApiClient {
   }
 
   practitioners = {
-    list: ({ activeOnly = true }: { activeOnly?: boolean } = {}) =>
-      this.request<Practitioner[]>(`/api/v1/practitioners${qs({ activeOnly: String(activeOnly) })}`),
+    /** `branchId` (API v2): practitioners bookable at that branch; omitted = tenant-wide. */
+    list: ({ activeOnly = true, branchId }: { activeOnly?: boolean; branchId?: string } = {}) =>
+      this.request<Practitioner[]>(`/api/v1/practitioners${qs({ activeOnly: String(activeOnly), branchId })}`),
   }
 
   schedules = {

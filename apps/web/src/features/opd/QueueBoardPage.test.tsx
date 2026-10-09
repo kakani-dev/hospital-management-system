@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { Route, Routes } from 'react-router'
 import { App } from '../../App'
 import { ALPHA_MAIN, fakeAuthClient, fakeSession, json, meWithRoles, renderWithProviders, stubFetch } from '../../test/fakes'
-import { DR_RAO, PATIENT_ID, branchesResponse, patientDetail, practitioners, today } from '../../test/schedulingFixtures'
+import { DR_RAO, PATIENT_ID, branchesResponse, patientDetail, patientRef, practitionersApi, today } from '../../test/schedulingFixtures'
 import { QueueBoardPage } from './QueueBoardPage'
 
 afterEach(() => {
@@ -18,6 +18,7 @@ const entry = (id: string, tokenNo: number, status: string, overrides = {}) => (
   queueDate: today(),
   tokenNo,
   patientId: PATIENT_ID,
+  patient: patientRef,
   appointmentId: null,
   practitionerId: DR_RAO,
   status,
@@ -29,9 +30,8 @@ function routes(roles: string[], queue: () => unknown[], extra: Parameters<typeo
   return stubFetch({
     'GET /api/v1/me': () => json(meWithRoles(roles, ALPHA_MAIN)),
     'GET /api/v1/branches': () => json(branchesResponse),
-    'GET /api/v1/practitioners': () => json(practitioners),
+    'GET /api/v1/practitioners': practitionersApi,
     'GET /api/v1/queue': () => json(queue()),
-    [`GET /api/v1/patients/${PATIENT_ID}`]: () => json(patientDetail),
     ...extra,
   })
 }
@@ -52,6 +52,17 @@ describe('QueueBoardPage', () => {
     expect(screen.queryByRole('button', { name: /token 1/ })).not.toBeInTheDocument()
     const url = new URL(calls.find((c) => c.path === '/api/v1/queue')!.url, 'http://x')
     expect(Object.fromEntries(url.searchParams)).toEqual({ branchId: ALPHA_MAIN, date: today() })
+    // API v2 patient summary: no per-patient fetches
+    expect(calls.filter((c) => c.path.startsWith('/api/v1/patients/'))).toEqual([])
+  })
+
+  it('looks a patient up only when the entry lacks the summary (older API)', async () => {
+    const calls = routes(['billing'], () => [entry('q1', 1, 'waiting', { patient: undefined })], {
+      [`GET /api/v1/patients/${PATIENT_ID}`]: () => json(patientDetail),
+    })
+    renderWithProviders(<App />, { path: '/queue', auth: fakeAuthClient({ session: fakeSession() }) })
+    await waitFor(() => expect(screen.getByTestId('queue-entry')).toHaveTextContent('Synthetic-Alpha, Asha'))
+    expect(calls.filter((c) => c.path === `/api/v1/patients/${PATIENT_ID}`)).toHaveLength(1)
   })
 
   it('a doctor calls in and finishes tokens but cannot remove them', async () => {

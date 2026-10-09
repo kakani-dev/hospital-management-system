@@ -8,9 +8,8 @@ import { StatusBadge } from '../../components/scheduling/StatusBadge'
 import {
   useAppointments,
   useCheckInAppointment,
-  usePatientLookup,
+  usePatientRefs,
   usePractitioners,
-  useSchedules,
   useWalkIn,
 } from '../../lib/api/hooks'
 import { addDays, formatDayLabel, formatTime, localToday, zonedTimeToInstant } from '../../lib/dates'
@@ -18,7 +17,7 @@ import { can } from '../../lib/permissions'
 import type { CheckInResult, PatientSummary } from '../../lib/api/types'
 import { rolesAtBranch, useCurrentContext } from '../tenancy/useCurrentContext'
 import { useBranchSelection } from '../tenancy/useBranchSelection'
-import { practitionersAtBranch } from '../scheduling/scheduleUtils'
+import { useBookablePractitioners } from '../scheduling/useBookablePractitioners'
 import { PatientPicker } from '../patients/PatientPicker'
 import { checkInErrorMessage } from './checkInErrors'
 
@@ -32,8 +31,7 @@ export function CheckInPage() {
   const [error, setError] = useState<string | null>(null)
 
   const practitioners = usePractitioners()
-  const schedules = useSchedules(branchId)
-  const bookable = practitionersAtBranch(practitioners.data ?? [], schedules.data ?? [])
+  const bookable = useBookablePractitioners(branchId)
   const practitionerName = (id: string | null) => (id ? (practitioners.data?.find((p) => p.id === id)?.displayName ?? '—') : 'Any doctor')
 
   const appointments = useAppointments(
@@ -43,7 +41,7 @@ export function CheckInPage() {
     { refetchInterval: 30_000 },
   )
   const todays = (appointments.data ?? []).filter((a) => a.status !== 'cancelled').sort((a, b) => a.startsAt.localeCompare(b.startsAt))
-  const patient = usePatientLookup(todays.map((a) => a.patientId))
+  const patient = usePatientRefs(todays)
   const checkIn = useCheckInAppointment()
   const walkIn = useWalkIn()
 
@@ -81,7 +79,7 @@ export function CheckInPage() {
           {!appointments.isPending && todays.length === 0 && <p className="text-sm text-slate-600">No appointments today.</p>}
           <ul className="divide-y divide-slate-100">
             {todays.map((a) => {
-              const p = patient(a.patientId)
+              const p = patient(a)
               const name = p ? `${p.firstName} ${p.lastName}` : 'patient'
               return (
                 <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm" data-testid="checkin-appointment">

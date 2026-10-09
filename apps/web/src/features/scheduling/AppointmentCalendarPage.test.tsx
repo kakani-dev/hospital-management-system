@@ -12,7 +12,8 @@ import {
   branchesResponse,
   paged,
   patientDetail,
-  practitioners,
+  practitionersApi,
+  practitionersApiWithoutBranchFilter,
   schedules,
   today,
 } from '../../test/schedulingFixtures'
@@ -23,10 +24,9 @@ function routes(roles: string[], extra: Parameters<typeof stubFetch>[0] = {}, br
   return stubFetch({
     'GET /api/v1/me': () => json(meWithRoles(roles, branchId)),
     'GET /api/v1/branches': () => json(branchesResponse),
-    'GET /api/v1/practitioners': () => json(practitioners),
+    'GET /api/v1/practitioners': practitionersApi,
     'GET /api/v1/schedules': (url) => json(schedules.filter((s) => s.branchId === url.searchParams.get('branchId'))),
     'GET /api/v1/appointments': () => json(paged([appointment()])),
-    [`GET /api/v1/patients/${PATIENT_ID}`]: () => json(patientDetail),
     ...extra,
   })
 }
@@ -51,6 +51,44 @@ describe('AppointmentCalendarPage', () => {
     expect(url.searchParams.get('from')).toBe(at(today(), '00:00'))
     expect(url.searchParams.get('to')).toBe(at(addDays(today(), 1), '00:00'))
     expect(url.searchParams.get('pageSize')).toBe('100')
+    // API v2: names come from the embedded patient summary — no per-patient fetches
+    expect(calls.filter((c) => c.path.startsWith('/api/v1/patients/'))).toEqual([])
+  })
+
+  it('falls back to GET /patients/{id} only for rows that lack the embedded summary (older API)', async () => {
+    const OTHER = 'aa000000-0000-4000-8000-000000000002'
+    const calls = routes(['billing'], {
+      'GET /api/v1/appointments': () =>
+        json(paged([appointment(), appointment({ id: 'a-legacy', patientId: OTHER, patient: undefined, startsAt: at(today(), '10:00'), endsAt: at(today(), '10:15') })])),
+      [`GET /api/v1/patients/${OTHER}`]: () => json({ ...patientDetail, id: OTHER, mrn: 'ALP-0002', firstName: 'Bina' }),
+    })
+    renderWithProviders(<App />, { path: `/appointments?branch=${ALPHA_MAIN}`, auth: fakeAuthClient({ session: fakeSession() }) })
+
+    await waitFor(() => expect(screen.getAllByTestId('appointment').map((a) => a.textContent)).toEqual([expect.stringContaining('Synthetic-Alpha, Asha'), expect.stringContaining('Synthetic-Alpha, Bina')]))
+    expect(calls.filter((c) => c.path.startsWith('/api/v1/patients/')).map((c) => c.path)).toEqual([`/api/v1/patients/${OTHER}`])
+  })
+
+  it('offers practitioners from GET /practitioners?branchId= (API v2)', async () => {
+    const calls = routes(['receptionist'], {}, ALPHA_MAIN)
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: '/appointments', auth: fakeAuthClient({ session: fakeSession() }) })
+    await user.click(await screen.findByRole('button', { name: 'Book appointment' }))
+    const select = within(screen.getByRole('form', { name: 'Book appointment' })).getByLabelText('Practitioner')
+    await waitFor(() => expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual(['Select a practitioner…', 'Dr. Rao (synthetic) (General medicine)']))
+    expect(calls.some((c) => c.path === '/api/v1/practitioners' && new URL(c.url, 'http://x').searchParams.get('branchId') === ALPHA_MAIN)).toBe(true)
+    // the branch list is authoritative: no schedule download just to filter practitioners
+    expect(calls.some((c) => c.path === '/api/v1/schedules')).toBe(false)
+  })
+
+  it('an older API that rejects ?branchId= (400) falls back to practitioners scheduled at the branch', async () => {
+    const calls = routes(['receptionist'], { 'GET /api/v1/practitioners': practitionersApiWithoutBranchFilter }, ALPHA_MAIN)
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: '/appointments', auth: fakeAuthClient({ session: fakeSession() }) })
+    await user.click(await screen.findByRole('button', { name: 'Book appointment' }))
+    const select = within(screen.getByRole('form', { name: 'Book appointment' })).getByLabelText('Practitioner')
+    // tenant-wide list has Rao and Iyer; only Rao has a schedule at Alpha Main
+    await waitFor(() => expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual(['Select a practitioner…', 'Dr. Rao (synthetic) (General medicine)']))
+    expect(calls.some((c) => c.path === '/api/v1/schedules' && new URL(c.url, 'http://x').searchParams.get('branchId') === ALPHA_MAIN)).toBe(true)
   })
 
   it('week view: seven branch-local days, Monday first, and appointments land on their day', async () => {
@@ -90,7 +128,7 @@ describe('AppointmentCalendarPage', () => {
     await user.click(await screen.findByRole('button', { name: 'Book appointment' }))
     const form = screen.getByRole('form', { name: 'Book appointment' })
 
-    // Only practitioners scheduled at the branch are offered
+    // Only practitioners working at the branch are offered (GET /practitioners?branchId=)
     const practitionerSelect = within(form).getByLabelText('Practitioner')
     await waitFor(() => expect(within(practitionerSelect).getAllByRole('option').map((o) => o.textContent)).toEqual(['Select a practitioner…', 'Dr. Rao (synthetic) (General medicine)']))
     await user.selectOptions(practitionerSelect, DR_RAO)

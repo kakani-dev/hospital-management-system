@@ -1,5 +1,5 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiClient } from './client'
+import { ApiError, apiClient } from './client'
 import type {
   AddMemberRequest,
   AppointmentQuery,
@@ -7,6 +7,8 @@ import type {
   CreateBranchRequest,
   CreatePatientRequest,
   PatientDetail,
+  PatientRef,
+  Practitioner,
   QueueStatus,
   SwitchContextRequest,
   UpdateBranchRequest,
@@ -23,6 +25,7 @@ export const queryKeys = {
   patients: (criteria: PatientSearchCriteria) => ['patients', criteria] as const,
   patient: (id: string) => ['patients', 'detail', id] as const,
   practitioners: ['practitioners'] as const,
+  branchPractitioners: (branchId: string) => ['practitioners', 'branch', branchId] as const,
   schedules: (branchId: string) => ['schedules', branchId] as const,
   appointments: (q: AppointmentQuery) => ['appointments', q] as const,
   slots: (branchId: string, practitionerId: string, date: string) => ['appointments', 'slots', branchId, practitionerId, date] as const,
@@ -142,6 +145,16 @@ export function usePatientLookup(ids: readonly string[]): (id: string) => Patien
   return (id) => byId.get(id)
 }
 
+/**
+ * Patient summary for appointment/queue rows: the embedded `patient` (API v2) when present; only
+ * rows without it fall back to a cached GET /patients/{id} (null = deleted / not visible).
+ */
+export function usePatientRefs(rows: readonly { patientId: string; patient?: PatientRef | null }[]) {
+  const missing = rows.filter((r) => !r.patient).map((r) => r.patientId)
+  const lookup = usePatientLookup(missing)
+  return (row: { patientId: string; patient?: PatientRef | null }): PatientRef | null | undefined => row.patient ?? lookup(row.patientId)
+}
+
 export function useCreatePatient() {
   const qc = useQueryClient()
   return useMutation({
@@ -242,6 +255,33 @@ export function useUpdateMember() {
 
 export function usePractitioners() {
   return useQuery({ queryKey: queryKeys.practitioners, queryFn: () => apiClient.practitioners.list(), retry: false, staleTime: 60_000 })
+}
+
+export interface BranchPractitioners {
+  practitioners: Practitioner[]
+  /** false when the API rejected `branchId` (older API): callers filter by schedules instead. */
+  branchFiltered: boolean
+}
+
+/**
+ * Practitioners bookable at a branch via GET /practitioners?branchId= (API v2). An API that rejects
+ * the parameter with 400 gets the tenant-wide list and `branchFiltered: false`.
+ */
+export function useBranchPractitioners(branchId: string | null) {
+  return useQuery({
+    queryKey: queryKeys.branchPractitioners(branchId ?? ''),
+    queryFn: async (): Promise<BranchPractitioners> => {
+      try {
+        return { practitioners: await apiClient.practitioners.list({ branchId: branchId! }), branchFiltered: true }
+      } catch (error) {
+        if (!(error instanceof ApiError) || error.status !== 400) throw error
+        return { practitioners: await apiClient.practitioners.list(), branchFiltered: false }
+      }
+    },
+    enabled: !!branchId,
+    retry: false,
+    staleTime: 60_000,
+  })
 }
 
 export function useSchedules(branchId: string | null) {

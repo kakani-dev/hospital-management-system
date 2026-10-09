@@ -261,12 +261,24 @@ export interface Slot {
 export const APPOINTMENT_STATUSES = ['booked', 'checked_in', 'in_consultation', 'completed', 'cancelled', 'no_show'] as const
 export type AppointmentStatus = (typeof APPOINTMENT_STATUSES)[number]
 
-/** AppointmentDto. Names are not embedded: resolve practitioner/patient by id. */
+/**
+ * Patient summary embedded in appointment and queue responses (API v2, per the CTO 16:44 IST).
+ * Optional so an older API without it still works (the UI then looks patients up by id).
+ */
+export interface PatientRef {
+  id: Guid
+  mrn: string
+  firstName: string
+  lastName: string
+}
+
+/** AppointmentDto. Practitioner names are resolved from GET /practitioners. */
 export interface Appointment {
   id: Guid
   branchId: Guid
   practitionerId: Guid
   patientId: Guid
+  patient?: PatientRef | null
   /** Instants (UTC …Z); render in the branch time zone. */
   startsAt: string
   endsAt: string
@@ -321,6 +333,7 @@ export interface QueueEntry {
   /** Per tenant + branch + branch-local day, from 1. */
   tokenNo: number
   patientId: Guid
+  patient?: PatientRef | null
   appointmentId: Guid | null
   practitionerId: Guid | null
   status: QueueStatus

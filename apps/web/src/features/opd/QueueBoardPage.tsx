@@ -3,7 +3,7 @@ import { Card } from '../../components/ui/Card'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
 import { BranchPicker } from '../../components/scheduling/BranchPicker'
-import { QUEUE_REFRESH_MS, usePatientLookup, usePractitioners, useQueue, useUpdateQueueStatus } from '../../lib/api/hooks'
+import { QUEUE_REFRESH_MS, usePatientRefs, usePractitioners, useQueue, useUpdateQueueStatus } from '../../lib/api/hooks'
 import { formatDayLabel, formatTime, localToday } from '../../lib/dates'
 import { can } from '../../lib/permissions'
 import { ApiError, problemCode } from '../../lib/api/client'
@@ -26,7 +26,7 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
   const today = localToday(new Date(), timeZone)
   const queue = useQueue(timeZoneReady ? branchId : null, today, { refetchInterval: refreshMs })
   const practitioners = usePractitioners()
-  const patient = usePatientLookup((queue.data ?? []).map((e) => e.patientId))
+  const patient = usePatientRefs(queue.data ?? [])
   const update = useUpdateQueueStatus()
   const [error, setError] = useState<string | null>(null)
   const branchRoles = rolesAtBranch(me.data, branchId)
@@ -84,7 +84,7 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
                 {items.length === 0 && <p className="text-sm text-slate-500">None</p>}
                 <ol className="space-y-2">
                   {items.map((e) => {
-                    const p = patient(e.patientId)
+                    const p = patient(e)
                     return (
                       <li key={e.id} className="rounded border border-slate-200 p-2" data-testid="queue-entry" data-token={e.tokenNo}>
                         <div className="flex items-baseline gap-3">

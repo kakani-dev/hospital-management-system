@@ -1,6 +1,6 @@
 import { ALPHA_MAIN, ALPHA_EAST } from './fakes'
 import { localToday, zonedTimeToInstant } from '../lib/dates'
-import type { Appointment, Practitioner, Schedule } from '../lib/api/types'
+import type { Appointment, PatientRef, Practitioner, Schedule } from '../lib/api/types'
 
 export const TZ = 'Asia/Kolkata'
 export const today = () => localToday(new Date(), TZ)
@@ -61,6 +61,24 @@ export const patientDetail = {
   deletedAt: null,
 }
 
+/** API v2 patient summary embedded in appointment and queue responses. */
+export const patientRef: PatientRef = { id: PATIENT_ID, mrn: 'ALP-0001', firstName: 'Asha', lastName: 'Synthetic-Alpha' }
+
+/** GET /practitioners as API v2: `?branchId=` narrows to practitioners working at that branch. */
+export function practitionersApi(url: URL) {
+  const branchId = url.searchParams.get('branchId')
+  if (!branchId) return new Response(JSON.stringify(practitioners), { headers: { 'Content-Type': 'application/json' } })
+  const ids = new Set(schedules.filter((s) => s.branchId === branchId).map((s) => s.practitionerId))
+  return new Response(JSON.stringify(practitioners.filter((p) => ids.has(p.id))), { headers: { 'Content-Type': 'application/json' } })
+}
+
+/** An older API that rejects the unknown `branchId` parameter with 400. */
+export function practitionersApiWithoutBranchFilter(url: URL) {
+  if (url.searchParams.has('branchId'))
+    return new Response(JSON.stringify({ title: 'Bad Request', status: 400, errors: { branchId: ['Unknown parameter'] } }), { status: 400, headers: { 'Content-Type': 'application/problem+json' } })
+  return new Response(JSON.stringify(practitioners), { headers: { 'Content-Type': 'application/json' } })
+}
+
 export function appointment(overrides: Partial<Appointment> = {}): Appointment {
   const d = today()
   return {
@@ -68,6 +86,7 @@ export function appointment(overrides: Partial<Appointment> = {}): Appointment {
     branchId: ALPHA_MAIN,
     practitionerId: DR_RAO,
     patientId: PATIENT_ID,
+    patient: patientRef,
     startsAt: at(d, '09:30'),
     endsAt: at(d, '09:45'),
     status: 'booked',

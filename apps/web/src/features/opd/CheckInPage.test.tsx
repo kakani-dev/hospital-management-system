@@ -3,7 +3,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { App } from '../../App'
 import { ALPHA_EAST, ALPHA_MAIN, fakeAuthClient, fakeSession, json, meWithRoles, renderWithProviders, stubFetch } from '../../test/fakes'
-import { DR_RAO, PATIENT_ID, appointment, branchesResponse, paged, patientDetail, practitioners, schedules } from '../../test/schedulingFixtures'
+import { DR_RAO, PATIENT_ID, appointment, branchesResponse, paged, patientDetail, patientRef, practitionersApi, practitionersApiWithoutBranchFilter, schedules } from '../../test/schedulingFixtures'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -14,6 +14,7 @@ const entry = (overrides = {}) => ({
   queueDate: '2026-10-09',
   tokenNo: 7,
   patientId: PATIENT_ID,
+  patient: patientRef,
   appointmentId: APPT,
   practitionerId: DR_RAO,
   status: 'waiting',
@@ -25,10 +26,9 @@ function routes(roles: string[], extra: Parameters<typeof stubFetch>[0] = {}, br
   return stubFetch({
     'GET /api/v1/me': () => json(meWithRoles(roles, branchId)),
     'GET /api/v1/branches': () => json(branchesResponse),
-    'GET /api/v1/practitioners': () => json(practitioners),
+    'GET /api/v1/practitioners': practitionersApi,
     'GET /api/v1/schedules': () => json(schedules),
     'GET /api/v1/appointments': () => json(paged([appointment()])),
-    [`GET /api/v1/patients/${PATIENT_ID}`]: () => json(patientDetail),
     ...extra,
   })
 }
@@ -50,6 +50,28 @@ describe('CheckInPage', () => {
     expect(calls.filter((c) => c.path === `/api/v1/appointments/${APPT}/check-in`)).toHaveLength(1)
     // the list refreshes after a check-in
     await waitFor(() => expect(calls.filter((c) => c.path === '/api/v1/appointments').length).toBeGreaterThan(1))
+    // the embedded patient summary (API v2) names the row: no per-patient fetch
+    expect(calls.filter((c) => c.path.startsWith('/api/v1/patients/'))).toEqual([])
+  })
+
+  it('names appointments without the summary via GET /patients/{id} (older API)', async () => {
+    const calls = routes(['receptionist'], {
+      'GET /api/v1/appointments': () => json(paged([appointment({ patient: undefined })])),
+      [`GET /api/v1/patients/${PATIENT_ID}`]: () => json(patientDetail),
+    })
+    renderWithProviders(<App />, { path: '/reception/check-in', auth: fakeAuthClient({ session: fakeSession() }) })
+    await waitFor(() => expect(screen.getByTestId('checkin-appointment')).toHaveTextContent('Synthetic-Alpha, Asha'))
+    expect(calls.filter((c) => c.path === `/api/v1/patients/${PATIENT_ID}`)).toHaveLength(1)
+  })
+
+  it('walk-in doctor list falls back to schedules at the branch when ?branchId= is rejected (400)', async () => {
+    routes(['receptionist'], {
+      'GET /api/v1/practitioners': practitionersApiWithoutBranchFilter,
+      'GET /api/v1/schedules': (url) => json(schedules.filter((s) => s.branchId === url.searchParams.get('branchId'))),
+    })
+    renderWithProviders(<App />, { path: '/reception/check-in', auth: fakeAuthClient({ session: fakeSession() }) })
+    const form = await screen.findByRole('form', { name: 'Walk-in check-in' })
+    await waitFor(() => expect(within(within(form).getByLabelText('Doctor (optional)')).getAllByRole('option').map((o) => o.textContent)).toEqual([expect.any(String), expect.stringContaining('Dr. Rao')]))
   })
 
   it.each([
@@ -78,7 +100,8 @@ describe('CheckInPage', () => {
 
     await user.type(within(form).getByLabelText('Find walk-in patient'), 'ALP-0001')
     await user.click(await within(form).findByRole('radio', { name: /Synthetic-Alpha, Asha/ }))
-    await waitFor(() => expect(within(within(form).getByLabelText('Doctor (optional)')).getAllByRole('option')).toHaveLength(3))
+    // GET /practitioners?branchId=: only doctors working at Alpha Main
+    await waitFor(() => expect(within(within(form).getByLabelText('Doctor (optional)')).getAllByRole('option').map((o) => o.textContent)).toEqual([expect.any(String), expect.stringContaining('Dr. Rao')]))
     await user.selectOptions(within(form).getByLabelText('Doctor (optional)'), DR_RAO)
     await user.click(within(form).getByRole('button', { name: 'Issue walk-in token' }))
 

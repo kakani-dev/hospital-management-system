@@ -7,14 +7,14 @@ import { SelectField } from '../../components/ui/SelectField'
 import { BranchPicker } from '../../components/scheduling/BranchPicker'
 import { CalendarToolbar } from '../../components/scheduling/CalendarToolbar'
 import { StatusBadge } from '../../components/scheduling/StatusBadge'
-import { useAppointments, useCancelAppointment, usePatientLookup, usePractitioners, useSchedules } from '../../lib/api/hooks'
+import { useAppointments, useCancelAppointment, usePatientRefs, usePractitioners } from '../../lib/api/hooks'
 import { addDays, dateInZone, formatDayLabel, formatTime, weekDates, zonedTimeToInstant } from '../../lib/dates'
 import { can } from '../../lib/permissions'
 import type { Appointment } from '../../lib/api/types'
 import { rolesAtBranch, useCurrentContext } from '../tenancy/useCurrentContext'
 import { useBranchSelection } from '../tenancy/useBranchSelection'
 import { useCalendarParams } from './useCalendarParams'
-import { practitionersAtBranch } from './scheduleUtils'
+import { useBookablePractitioners } from './useBookablePractitioners'
 import { BookingPanel } from './BookingPanel'
 
 /** Calendar refresh while open (other desks book too). */
@@ -28,9 +28,9 @@ export function AppointmentCalendarPage() {
   const [booking, setBooking] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
 
+  // Tenant-wide list for names; the branch list for the filter and the booking picker.
   const practitioners = usePractitioners()
-  const schedules = useSchedules(branchId)
-  const bookable = practitionersAtBranch(practitioners.data ?? [], schedules.data ?? [])
+  const bookable = useBookablePractitioners(branchId)
   const practitionerName = (id: string) => practitioners.data?.find((p) => p.id === id)?.displayName ?? 'Unknown practitioner'
 
   const appointments = useAppointments(
@@ -44,7 +44,7 @@ export function AppointmentCalendarPage() {
       : null,
     { refetchInterval: CALENDAR_REFRESH_MS },
   )
-  const patient = usePatientLookup((appointments.data ?? []).map((a) => a.patientId))
+  const patient = usePatientRefs(appointments.data ?? [])
   const canBook = can(rolesAtBranch(me.data, branchId), 'appointments.book')
 
   const days = cal.view === 'week' ? weekDates(cal.date) : [cal.date]
@@ -122,7 +122,7 @@ export function AppointmentCalendarPage() {
               {!appointments.isPending && (byDay.get(d)?.length ?? 0) === 0 && <p className="text-sm text-slate-500">No appointments</p>}
               <ul className="space-y-2">
                 {byDay.get(d)?.map((a) => {
-                  const p = patient(a.patientId)
+                  const p = patient(a)
                   return (
                     <li key={a.id} data-testid="appointment" data-status={a.status} className="rounded border border-slate-200 p-2 text-sm">
                       <div className="flex flex-wrap items-center justify-between gap-1">
