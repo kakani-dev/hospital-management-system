@@ -147,3 +147,32 @@ describe('patient search by phone and date of birth', () => {
     expect(within(screen.getByTestId('patient-row')).getByText('Active')).toBeInTheDocument()
   })
 })
+
+describe('patient list paging (Tailux pagination, server-side)', () => {
+  it('requests the next page from the API and starts again at page 1 when the search changes', async () => {
+    const calls = stubFetch({
+      'GET /api/v1/me': () => json(meFor({ roles: ['receptionist'] })),
+      'GET /api/v1/patients': (url) => {
+        const page = Number(url.searchParams.get('page') ?? '1')
+        return json({ items: [{ ...patient, id: `p${page}`, mrn: `ALP-P${page}` }], page, pageSize: 25, totalCount: 60 })
+      },
+      'POST /api/v1/patients/search': () => json({ items: [patient], page: 1, pageSize: 25, totalCount: 1 }),
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: '/patients', auth: fakeAuthClient({ session: fakeSession() }) })
+    expect(await screen.findByTestId('patient-row')).toHaveTextContent('ALP-P1')
+    expect(screen.getByText('1 - 25 of 60 entries')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Page 2' }))
+    await waitFor(() => expect(screen.getByTestId('patient-row')).toHaveTextContent('ALP-P2'))
+    expect(calls.filter((c) => c.method === 'GET' && c.path === '/api/v1/patients').at(-1)!.url).toBe('/api/v1/patients?page=2&pageSize=25')
+    expect(screen.getByRole('button', { name: 'Page 2' })).toHaveAttribute('aria-current', 'page')
+
+    await user.type(screen.getByLabelText('Search patients'), 'Synthetic')
+    await waitFor(() => expect(screen.getByTestId('patients-total')).toHaveTextContent('1 patient'))
+    const searches = calls.filter((c) => c.path === '/api/v1/patients/search')
+    expect(searches).toHaveLength(1)
+    expect(searches[0]!.body).toEqual({ search: 'Synthetic', pageSize: 25 })
+    expect(screen.queryByRole('navigation', { name: 'Pagination' })).not.toBeInTheDocument()
+  })
+})
