@@ -363,6 +363,10 @@ supabase/tests/
 
 ### 3.1 Topology
 
+> **Updated by §8.2:** the edge code on the in-progress `ms/services` worktree routes all ten `/api/v1` prefixes to
+> the three services and answers anything else with 404 (no legacy catch-all), and services are addressed as
+> `http://ca-hms-<svc>/` (ACA app-name DNS, internal ingress with `allowInsecure`). `infra/aca/deploy-aca.sh` follows the code.
+
 ```
 Browser (Vercel SPA: medicore-hms-three.vercel.app)
    │ HTTPS, Authorization: Bearer <Supabase JWT>
@@ -448,6 +452,9 @@ ACA has no CLI flags for probes, so they're applied with a YAML patch (§3.8 ste
 - After a secret change, restart the active revision (`az containerapp revision restart`) — secrets are read at start.
 
 ### 3.6 Logging without paid Log Analytics
+
+> **Superseded by §8.3** (CTO, 9 Oct ~18:50 IST): the default is now `LOGS=la`, a Log Analytics workspace
+> kept inside the free 5 GB/month with a 0.15 GB/day cap. `LOGS=none` remains the zero-risk option.
 
 - `--logs-destination none` (the CLI default is `log-analytics`, which would auto-create a workspace: 5 GB/month free,
   then **$3.22/GB** ingestion and $0.14/GB-month retention beyond the free period, Central India retail).
@@ -772,3 +779,238 @@ The DB is shared and unchanged by cutover, so rollback never involves data.
 
 Not in this plan and still separately pending: the hosted Sprint 2 DB apply (`20261009090000` + `20261010090000…090400`),
 which waits for Mohith's confirmation in chat.
+
+---
+
+## 8. Deploy artifacts (added 9 Oct 2026 ~19:15 IST; still PREP ONLY)
+
+Nothing below has been run against Azure. Validation done on the box: `bash -n` + `shellcheck` clean for both
+scripts, `actionlint` clean for the workflow, and `deploy-aca.sh` was exercised end-to-end against **stub** `az`/`curl`
+binaries (fake responses, fake secret files) to check control flow, idempotency branches, the pool rewrite
+(`Maximum Pool Size=5`) and that no secret reaches stdout.
+
+| File | Purpose |
+|---|---|
+| `infra/aca/deploy-aca.sh` | Idempotent create/update of the environment + 4 apps. Refuses without `APPROVED=1` (banner, exit 2) and refuses under `set -x`. |
+| `scripts/smoke/smoke-gateway.sh` | Gateway smoke: public checks (`SMOKE_AUTH=0`), + sign-in and `/me` (default), + writes (`SMOKE_WRITE=1`). |
+| `.github/workflows/deploy-aca.yml` | **DRAFT**, inert unless repo variable `ACA_DEPLOY_ENABLED == 'true'`. Build+push to GHCR, OIDC login, `az containerapp update --image`, public smoke. |
+
+### 8.1 `infra/aca/deploy-aca.sh`
+
+```
+APPROVED=1 IMAGE_SHA=<40-hex> [LOGS=la|none] [POOL_SIZE=5] bash infra/aca/deploy-aca.sh
+```
+
+Order of steps (each one stops the script on failure):
+0. Subscription/RG check; **cost gate**: live retail prices for ACA Standard meters must match the plan (vCPU active
+   $0.000024/s, memory $0.000003/GiB-s, requests $0.40/M); with `LOGS=la`, Log Analytics' first ingestion tier must be
+   $0 and `cap × 31 ≤ 4.9 GB`.
+1. **Provider + quota check, no registration**: stops if `Microsoft.App` (or, for `LOGS=la`,
+   `Microsoft.OperationalInsights`) is not `Registered`, or if `ManagedEnvironmentCount` has no headroom.
+2. Local secrets: connection string must contain `No Reset On Close=true` (warns if not port 6543); edge key generated
+   with `secrets.token_urlsafe(48)` (48 random bytes → 64 chars) into `/home/box/.secrets/medicore-hms-edge-key`
+   **only if missing**, `chmod 600`. The service connection string is derived in memory with any
+   `Maximum Pool Size` replaced by `POOL_SIZE` (default 5).
+3. Images: anonymous GHCR token + manifest HEAD for `hms-{edge,identity,patients,scheduling}:sha-<IMAGE_SHA>` (proves
+   the packages are public and present).
+4. `LOGS=la`: workspace `log-medicore-hms-dev` (PerGB2018, retention 30 d, `--quota 0.15`), verified sku + cap;
+   environment `cae-medicore-hms-dev` with `--enable-workload-profiles false` and the workspace (key fetched inside the
+   shell, all output discarded). `LOGS=none`: `--logs-destination none`. An existing environment is switched to the
+   requested destination. Fails if any workload profile exists.
+5. Services `ca-hms-{identity,patients,scheduling}`: internal ingress + `--allow-insecure` (HTTP only inside the
+   environment), secrets `hms-db`, `hms-edge-key`; then an ARM **PATCH** of `properties.template` (image, env, 0.25/0.5Gi,
+   startup/liveness `/health/live`, readiness `/health/ready`, scale 0..1 HTTP 20) which creates no new revision when nothing
+   changed; then verifies the secret **names** survived.
+6. Edge `ca-hms-edge`: external ingress, secret `hms-edge-key`, readiness `/health/live` (not the aggregate), CORS
+   indices 0–2 overwritten (env vars merge by index; leaving index 2 would keep `http://localhost:4173` from
+   `appsettings.json` in production), YARP destinations
+   `ReverseProxy__Clusters__<svc>__Destinations__primary__Address=http://ca-hms-<svc>/`.
+7. Post-checks: resource types in the RG (fails on registries / vaults / App Insights components / workload profiles),
+   waits ≤90 s for edge `/health/live`, prints `GATEWAY_URL=https://ca-hms-edge.<env-domain>`.
+
+App settings set on every app: `ASPNETCORE_ENVIRONMENT=Production`, `OpenApi__Enabled=false`,
+`DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1`, `Auth__Supabase__ProjectUrl=https://gvgomzogbzbjhlcsimrx.supabase.co`,
+`Edge__Key=secretref:hms-edge-key`. Services add `ConnectionStrings__HmsDatabase=secretref:hms-db`,
+`Database__MaxPoolSize=5`, `Outbox__Dispatcher__Enabled=false` (publisher is log-only; the F1 monolith's dispatcher is
+also off today — turn it on in scheduling only when a consumer exists, MICROSERVICES-PLAN §4.2).
+
+### 8.2 What the code expects (and what's missing)
+
+Found in the **uncommitted** worktree `/workspace/hms-wt/ms-services` (branch `ms/services`, base `1306b8a`; none of
+this is on `main` or pushed):
+
+| Concern | Code | Config / env var |
+|---|---|---|
+| Edge adds the key | `EdgeHost` YARP transform strips every client `X-Hms-*` header, then adds `X-Hms-Edge-Key`; `UpstreamProbe` adds it on readiness calls | `Edge:Key` → **`Edge__Key`** |
+| Services require it | `Hms.Platform.Http.EdgeKeyMiddleware` via `ServiceDefaults` (`UseHmsEdgeKey`): every path except `/health/*` needs the header (constant-time compare), else bare **404**; empty key disables the check | `Edge__Key` |
+| YARP destinations | `appsettings.json` clusters `identity`, `patients`, `scheduling`, destination name **`primary`** | `ReverseProxy__Clusters__<svc>__Destinations__primary__Address` |
+| CORS | `EdgeCors`: exact `Cors:AllowedOrigins` + anchored `Cors:AllowedOriginPatterns` (`https://medicore-hms-[a-z0-9-]+-kakani-devs-projects\.vercel\.app`) | `Cors__AllowedOrigins__0..2` |
+| Pool size | `Hms.Platform.Persistence.HmsDatabase`: forces `No Reset On Close=true` unless set; `Database:MaxPoolSize` overrides the pool | **`Database__MaxPoolSize`** (the script also rewrites the string, so pre-`HmsDatabase` images get 5 too) |
+| Edge health | `/health/live` (self), `/health/ready` (aggregate over clusters), `/api/v1/warmup` (anonymous, 6/min/IP, called by the web app after sign-in to wake services) | – |
+
+**Missing / to fix before deploy day:**
+1. **No `backend/edge/Dockerfile`** → `hms-edge` image can't be built (the workflow and script reference it).
+2. All of the above (edge, `EdgeKeyMiddleware`, `HmsDatabase`, service Dockerfiles) is only in uncommitted local
+   worktrees (`ms-services`, partly `ms-phase0`); it needs its own PR, Code Review and green CI first.
+3. No CI job publishes images to GHCR yet; first publication creates **private** packages (approval A4 to make public).
+4. The edge has **no legacy catch-all**: unknown `/api/v1/*` → 404. So the ACA cutover moves *all* routes to the services
+   at once (the F1 monolith is not behind the edge). That is a bigger step than the strangler in MICROSERVICES-PLAN §12;
+   the rollback (Vercel back to F1) still works because the DB is shared.
+5. `/api/v1/warmup` after every sign-in wakes all three services → each sign-in costs ≈3 × 5–6 replica-minutes
+   (≈0.3 replica-hours). Included in §8.4.
+6. The "service rejects a request without the edge key" check can't be run from outside (internal ingress; chiseled/ASP.NET
+   images have no shell/curl for `az containerapp exec`). Covered by unit tests; noted in the smoke output.
+
+### 8.3 Log Analytics: `none` vs workspace with a cap (`LOGS=la` default)
+
+| | `LOGS=none` | `LOGS=la` (default) |
+|---|---|---|
+| What's kept | nothing; live `az containerapp logs show --follow` only | console + system logs, queryable (KQL), 30 days |
+| Resource | none | `log-medicore-hms-dev`, PerGB2018, retention 30 d, `dailyQuotaGb=0.15` |
+| Price (Central India retail + Azure Monitor pricing page) | $0 | ingestion **first 5 GB/month per billing account free**, then $3.22/GB; **31 days of analytics retention included** (we keep 30) |
+| Worst case | $0 | cap 0.15 GB/day × 31 = **4.65 GB/month < 5 GB**. Microsoft Learn (*Set daily cap*): collection stops at the cap until the workspace's (non-configurable) reset hour, but "the daily cap can't stop data collection at precisely the specified cap level… If data is collected above the cap, it's still billed." So the realistic risk is **log loss** after ~0.15 GB on a bad day, plus a small overshoot that could be billed only if the month's total also exceeds 5 GB |
+| Extra approval | – | register `Microsoft.OperationalInsights` (A1b) |
+| Shared free tier | – | 5 GB is per **billing account**: this subscription is the only one visible and has **no** workspaces or App Insights today; a future workspace elsewhere on the same billing account would share the 5 GB |
+
+Expected volume at demo scale: Serilog compact JSON request logs ≈0.5–1 KB/request + ACA system events; even
+10,000 requests/day ≈ 10 MB/day ≈ 0.3 GB/month — about 6 % of the free tier. Queries on Analytics tables are free
+(the "Data Analyzed" meter applies to Basic/Auxiliary tables, which we don't use). Don't enable App Insights here (A12).
+
+### 8.4 Cost check (recomputed with Log Analytics)
+
+Sources: Microsoft Learn *Billing in Azure Container Apps* (free grant per subscription per calendar month:
+**180,000 vCPU-s, 360,000 GiB-s, 2,000,000 requests**; scaled-to-zero = no charge; only requests from outside the
+environment and not health probes are billable); Azure Retail Prices API, `armRegionName eq 'centralindia'`, queried
+9 Oct 2026 (ACA vCPU active $0.000024/s, idle $0.000003/s, memory $0.000003/GiB-s, requests $0.40/M; Log Analytics
+ingestion 0–5 GB $0 then $3.22/GB; bandwidth internet egress first 100 GB/month $0); Azure Monitor pricing page
+("first 5 GB/month per billing account… free"); Microsoft Learn *Set daily cap*; GitHub Docs (GHCR: public container
+packages pull anonymously; Actions minutes and Packages storage/transfer are free for public repositories).
+
+| Line | Demo-scale usage (4 apps, 0.25 vCPU/0.5 GiB, min 0/max 1) | Free allowance | Cost |
+|---|---|---|---|
+| ACA vCPU-s | ~176 replica-h × 900 vCPU-s = 158,400 | 180,000 | $0 |
+| ACA GiB-s | ~176 replica-h × 1,800 GiB-s = 316,800 | 360,000 | $0 |
+| ACA requests | ≤50,000 (browser → edge only; edge→service and probes not billed) | 2,000,000 | $0 |
+| ACA environment | Consumption-only, no workload profile / PE / maintenance window | no environment fee | $0 |
+| Log Analytics | ≤0.3 GB ingested, 30 d retention; hard-ish cap 4.65 GB | 5 GB + 31 d | $0 |
+| Egress | ≪1 GB (API JSON + Supabase traffic) | 100 GB | $0 |
+| Registry | GHCR public | free | $0 |
+| CI/CD | GitHub Actions on a public repo | free | $0 |
+| Budget alert | Cost Management budget | free | $0 |
+
+"~176 replica-h" = each of 4 apps awake ~2 h/day on 22 days. With warmup-after-sign-in (§8.2 #5) that's ≈ 30 sign-in
+sessions/day spread out, or fewer longer sessions.
+
+**Verdict: $0 confirmed for demo usage, with conditions.** Charges start when any of these happens:
+- total replica time exceeds ~200 replica-hours/month at 0.25/0.5 (e.g. all 4 apps awake 2 h/day every day = 240 h ≈
+  **$1.08**; office-hours use ≈ $16; anything with `min-replicas ≥ 1` ≈ $4–5 per app per month idle);
+- anyone raises CPU/memory (0.5/1.0 Gi halves the free hours) or `max-replicas`;
+- a Dedicated workload profile, private endpoint or planned-maintenance window is added ($0.10–0.14/h ≈ $73–102/month);
+- Log Analytics ingestion passes 5 GB in a month (cap prevents this except for overshoot) or retention is raised above 31 d;
+- an ACR, Key Vault, App Insights or a second workspace is created;
+- egress passes 100 GB/month;
+- a keep-warm pinger or the edge aggregate `/health/ready` is used as a probe.
+
+**The subscription is Pay-As-You-Go (`PayAsYouGo_2014-09-01`) with `spendingLimit: Off`.** The payment method on file
+is charged automatically for any overage, with no cap; the $1 budget only emails (with ~8–24 h data lag).
+
+### 8.5 `hms_api_login` connection limit (needs a decision)
+
+Facts: `hms_api_login` has `CONNECTION LIMIT 20` (runbook `deploy-sprint-2-hosted.md`); the box connection string uses
+the Supavisor **transaction** pooler (port 6543) with `Maximum Pool Size=10`; the F1 app was configured from the same
+file, so it holds up to 10.
+
+| Setup | Client connections (app pools → Supavisor) |
+|---|---|
+| F1 alone (today) | 10 |
+| ACA alone | 3 × 5 = 15 |
+| **F1 + ACA overlap (cutover window)** | **10 + 15 = 25 > 20** |
+
+Nuance: through :6543, app pools are *Supavisor clients* (200 allowed on Nano); the role's CONNECTION LIMIT applies to
+Supavisor's **server** connections to Postgres, which Supavisor caps at its pool size (15 per user+db per
+`pr1-review-answers.md` §5). So 25 client connections would normally be multiplexed onto ≤15 server connections and not
+hit the limit. It **does** bite if anything connects in session mode (:5432 via Supavisor) or directly, or if
+Supavisor's pool size is raised. Options:
+- **Recommended:** during the overlap, lower F1 to `Maximum Pool Size=5` (10 + … → 5 + 15 = 20). This changes the live F1
+  app setting = approval **A15** (command below, not run).
+- Or raise the limit (e.g. `alter role hms_api_login connection limit 30;`) — a hosted DB write = approval **A14**.
+- Long term, per-service login roles (A11) give each service its own limit.
+
+```bash
+# DO NOT RUN until A15 is approved (changes the live F1 app; value built in the shell, never printed)
+az webapp config appsettings set -g rg-medicore-hms-dev -n medicore-hms-api -o none --settings \
+  ConnectionStrings__HmsDatabase="$(tr -d '\n' < /home/box/.secrets/medicore-hms-connstr | sed -E 's/Maximum Pool Size=[0-9]+/Maximum Pool Size=5/')" >/dev/null 2>&1
+```
+
+### 8.6 `scripts/smoke/smoke-gateway.sh`
+
+1. Gateway `/health/live` with up to 90 s cold-start retries.
+2. Per-service readiness through the gateway's **aggregate** `/health/ready` (the gateway doesn't route individual
+   services' `/health/*`). Calling it wakes all three services — fine for a smoke run, never as the edge's ACA probe.
+3. CORS preflight: the Vercel origin is allowed, `https://evil.example` is not.
+4. Isolation: `https://ca-hms-<svc>.internal.<env-domain>/health/live` from the box must not return 200/3xx (ACA
+   answers 404 to outside callers); `/internal/**` at the gateway → 404. The edge-key rejection is printed as a NOTE
+   (not testable from outside, §8.2 #6).
+5. (default) Demo admin sign-in with the password from `/home/box/.secrets/medicore-demo-admin`; the token is held in a
+   600 temp header file (`curl -H @file`), never on a command line or printed.
+6. `GET /api/v1/me` with 90 s cold-start tolerance and a spoofed client `X-Hms-Edge-Key` (must be stripped, still 200).
+7. (`SMOKE_WRITE=1`) patient create + search, then the Sprint 2 flow reused from `deploy-smoke-sprint2.sh`: practitioner,
+   schedule, slots, book, check in, queue board, in_consultation → done, walk-in + cancel.
+
+### 8.7 `.github/workflows/deploy-aca.yml` (DRAFT)
+
+`plan` (resolve sha + matrix; ordered identity, patients, scheduling, edge) → `image` (matrix, `packages: write`,
+buildx with GHA cache, SBOM + provenance, tag `sha-<40hex>`) → `deploy` (matrix, `max-parallel: 1`, `environment: aca-dev`,
+`id-token: write`, `azure/login@v2` OIDC with secrets `AZURE_CLIENT_ID/TENANT_ID/SUBSCRIPTION_ID`,
+`az containerapp update --image` only) → `smoke` (`SMOKE_AUTH=0`, no secrets). Triggers: `workflow_dispatch` (sha, services)
+and `workflow_run` of `CI` on `main` (only when it concluded `success` for a `push`). Workflow-level
+`concurrency: deploy-aca` and per-service groups, never cancelling. **Every job** is gated on
+`vars.ACA_DEPLOY_ENABLED == 'true'`.
+
+---
+
+## 9. Deploy day (exact order)
+
+Preconditions: hosted DB at the Sprint 2 level (separate approval, still pending); the services/edge PR merged with
+green CI (incl. `backend/edge/Dockerfile`); images for one `main` sha pushed to GHCR.
+
+1. **Approvals** — Mohith signs off the checklist below (at least A1, A2, A3, A4, A5, A7; A1b if `LOGS=la`; A14 or A15).
+2. **Budget first** (A3): create the $1 RG budget (§4.3 command).
+3. **Provider registration** (A1/A1b):
+   `az provider register -n Microsoft.App --wait` and, for `LOGS=la`, `az provider register -n Microsoft.OperationalInsights --wait`.
+4. **Quota check** (read-only): `az rest --method get --url "https://management.azure.com/subscriptions/6f4c512a-8528-461a-962b-f4f8525223a3/providers/Microsoft.App/locations/centralindia/usages?api-version=2024-03-01" --query "value[?name.value=='ManagedEnvironmentCount']"`
+   — limit must be ≥1 (otherwise stop and request quota; free).
+5. **Connection budget** (A15 or A14): lower F1's pool to 5, or raise the role limit.
+6. **Packages public** (A4): set `hms-edge`, `hms-identity`, `hms-patients`, `hms-scheduling` to Public (irreversible).
+7. **Run the script**: `APPROVED=1 IMAGE_SHA=<sha> LOGS=la bash infra/aca/deploy-aca.sh` → note `GATEWAY_URL`.
+8. **Smoke**: `GATEWAY_URL=… PUBLISHABLE_KEY=<public key> bash scripts/smoke/smoke-gateway.sh` (read-only), then with
+   `SMOKE_WRITE=1` after the CTO's go. Record cold-start seconds.
+9. **Vercel switch** (A7): `VITE_API_BASE_URL` = `GATEWAY_URL` for Preview → redeploy a preview → smoke against it →
+   Production → redeploy production from `main` → bundle check (gateway host present, no `azurewebsites`) → smoke again.
+10. **Watch**: Cost Management for `rg-medicore-hms-dev` daily for a week; F1 stays as fallback (rollback = Vercel env
+    back to `https://medicore-hms-api.azurewebsites.net` + redeploy). Render stays paused and untouched.
+11. **Later**: A6 (OIDC) + set `ACA_DEPLOY_ENABLED=true` to turn on `deploy-aca.yml`; A8 branch protection; A13 F1 retirement.
+
+### 9.1 Approval checklist (complete; supersedes §7)
+
+| # | Item | Cost | Reversible |
+|---|---|---|---|
+| A1 | Register `Microsoft.App` on the subscription | $0 | yes |
+| A1b | Register `Microsoft.OperationalInsights` (only for `LOGS=la`) | $0 | yes |
+| A2 | Create `cae-medicore-hms-dev` (Consumption-only) + 4 container apps in `rg-medicore-hms-dev`, Central India | $0 in grant; overage billed to PAYG card, no cap | yes |
+| A2b | **Log Analytics choice**: `LOGS=la` (workspace `log-medicore-hms-dev`, PerGB2018, 30 d, 0.15 GB/day cap; $0 inside 5 GB, risk = log loss on a heavy day) **or** `LOGS=none` (no stored logs, zero risk) | $0 | yes |
+| A3 | $1/month budget on `rg-medicore-hms-dev` with email alerts | $0 | yes |
+| A4 | Make the 4 GHCR packages public | $0 | **no** |
+| A5 | Store the DB connection string (pool 5) and the generated edge key as ACA secrets | $0 | yes |
+| A6 | Entra app + federated credential (`environment:aca-dev`) + `Container Apps Contributor` on the RG; GitHub environment `aca-dev` (Mohith as reviewer); secrets `AZURE_*`; repo variable `ACA_DEPLOY_ENABLED=true` | $0 | yes |
+| A7 | Vercel `VITE_API_BASE_URL` → gateway URL (Preview, then Production) + production redeploy | $0 | yes (~2 min) |
+| A8 | Branch protection: add `CI gate`, later replace the 4 names | $0 | yes |
+| A9 | Repo security settings (secret scanning/push protection, Dependabot, code scanning) | $0 | yes |
+| A10 | (optional) Azure Policy allowed resource types on the RG | $0 | yes |
+| A11 | (Phase 2) per-service DB login roles on hosted Supabase | $0 | yes |
+| A12 | (optional, later) App Insights | $0 in 5 GB | yes |
+| A13 | (later) stop then delete F1 | $0 | stop yes / delete no |
+| A14 | **`hms_api_login` CONNECTION LIMIT**: raise 20 → e.g. 30 (hosted DB write) — *or* A15 | $0 | yes |
+| A15 | Lower the live F1 app's `Maximum Pool Size` 10 → 5 during the overlap (recommended over A14) | $0 | yes |
+
+Still separately pending and **not** covered: the hosted Sprint 2 DB apply (`20261009090000` + `20261010090000…090400`).
