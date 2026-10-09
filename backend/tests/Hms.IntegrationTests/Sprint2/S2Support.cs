@@ -22,9 +22,11 @@ public sealed record S2Slot(Guid PractitionerId, Guid BranchId, DateTimeOffset S
 
 public sealed record S2Appointment(
     Guid Id, Guid BranchId, Guid PractitionerId, Guid PatientId, DateTimeOffset StartsAt, DateTimeOffset EndsAt, string Status,
-    string? CancelReason, DateTimeOffset? CheckedInAt, DateTimeOffset? CancelledAt);
+    string? CancelReason, DateTimeOffset? CheckedInAt, DateTimeOffset? CancelledAt, S2PatientRef? Patient = null);
 
-public sealed record S2QueueEntry(Guid Id, Guid BranchId, DateOnly QueueDate, int TokenNo, Guid PatientId, Guid? AppointmentId, string Status);
+public sealed record S2PatientRef(Guid Id, string Mrn, string FirstName, string LastName);
+
+public sealed record S2QueueEntry(Guid Id, Guid BranchId, DateOnly QueueDate, int TokenNo, Guid PatientId, Guid? AppointmentId, string Status, S2PatientRef? Patient = null);
 
 public sealed record S2CheckIn(Guid QueueEntryId, int TokenNo, DateOnly QueueDate, S2QueueEntry Entry);
 
