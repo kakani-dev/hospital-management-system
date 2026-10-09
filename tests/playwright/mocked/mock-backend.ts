@@ -14,11 +14,16 @@ import type { BrowserContext, Page, Request, Route } from '@playwright/test'
  * - patients: GET/PATCH/DELETE /patients/{id} (soft delete → 404; 409 invalid_state with open
  *   appointments/queue), POST /patients/{id}/restore (admin), POST /patients/duplicates
  *   {candidates}, search body {search, phone (≥ 7 digits, last 10 compared), dateOfBirth, includeDeleted};
- * - GET /practitioners, GET /schedules?branchId (weekly), GET /slots (free + future only);
+ * - GET /practitioners[?branchId] (API v2: practitioners with a schedule at the branch),
+ *   GET /schedules?branchId (weekly), GET /slots (free + future only);
  * - GET /appointments (Paged, from/to instants), POST /appointments (409 appointment_overlap),
  *   POST /appointments/{id}/cancel, POST /appointments/{id}/check-in (today only);
  * - GET /queue?branchId&date, POST /queue/walk-in, PATCH /queue/{id} (transition rules, doctor may
  *   only call in / finish); one active entry per patient per branch-day (409 already_checked_in).
+ * API v2 (CTO, 2026-10-09): appointment/queue/check-in/walk-in responses embed
+ * `patient: { id, mrn, firstName, lastName }`. `backend.legacyApi = true` simulates an older API:
+ * no summary, and `?branchId=` on /practitioners → 400. POST/PATCH /patients reject a DOB after
+ * today in the registered branch's zone (`backend.branchTimeZones` overrides a branch's zone).
  * Writes check the role held *at the row's branch*; branch-bound members only see their branches.
  * The resolved tenant is per USER (server-side), like identity.user_profiles, so a "switch on
  * another device" is simulated with `backend.setActiveTenant()`.
@@ -75,8 +80,9 @@ const seedPatients = (): MockPatient[] => [
 
 /** All mock branches are in India: branch-local = UTC+05:30, no DST. */
 export const BRANCH_TZ = 'Asia/Kolkata'
-export const branchToday = (now = new Date()) =>
-  new Intl.DateTimeFormat('en-CA', { timeZone: BRANCH_TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now)
+export const todayIn = (timeZone: string, now = new Date()) =>
+  new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now)
+export const branchToday = (now = new Date()) => todayIn(BRANCH_TZ, now)
 export const branchInstant = (date: string, time: string) => new Date(`${date}T${time}:00+05:30`).toISOString()
 export const addDays = (date: string, days: number) => {
   const d = new Date(`${date}T00:00:00Z`)
@@ -186,6 +192,14 @@ export class MockBackend {
     // Today's booked appointment for Asha with Dr. Rao (check-in flow).
     const today = branchToday()
     this.appointments.push({ id: 'a0000000-0000-4000-8000-000000000001', tenantId: ids.alpha, branchId: ids.alphaMain, practitionerId: practitionerIds.rao, patientId: patientIds.asha, startsAt: branchInstant(today, '09:30'), endsAt: branchInstant(today, '09:45'), status: 'booked', reason: null, cancelReason: null })
+  }
+
+  /** true = pre-v2 API: no embedded patient summary, `/practitioners?branchId=` → 400. */
+  legacyApi = false
+  /** Per-branch IANA zone overrides (default BRANCH_TZ). */
+  readonly branchTimeZones = new Map<string, string>()
+  branchZone(branchId: string) {
+    return this.branchTimeZones.get(branchId) ?? BRANCH_TZ
   }
 
   readonly patients: MockPatient[] = seedPatients()
@@ -427,8 +441,12 @@ export class MockBackend {
         .map(({ p, reasons }) => ({ id: p.id, mrn: p.mrn, firstName: p.firstName, lastName: p.lastName, dateOfBirth: p.dateOfBirth, phone: p.phone, registeredBranchId: p.registeredBranchId, matchReasons: reasons }))
       return reply(200, { candidates }, tenant)
     }
+    // Like CreatePatientValidator: DOB ≤ today in the registered branch's time zone.
+    const dobInFuture = (dob: unknown, branchId: string) => typeof dob === 'string' && dob > todayIn(this.branchZone(branchId))
+    const dobProblem = () => reply(400, { title: 'Validation', status: 400, errors: { dateOfBirth: ['Date of birth cannot be in the future.'] } }, tenant)
     if (method === 'POST' && path === '/api/v1/patients') {
       if (!has(REG_WRITE, rolesAt(String(body.registeredBranchId)))) return forbidden()
+      if (dobInFuture(body.dateOfBirth, String(body.registeredBranchId))) return dobProblem()
       const mrn = String(body.mrn).toUpperCase()
       if (this.patients.some((p) => p.tenantId === tenant && p.mrn === mrn)) return problem(409, 'duplicate_mrn')
       const created: MockPatient = { id: uuid('ab000000'), tenantId: tenant, mrn, firstName: String(body.firstName), lastName: String(body.lastName), dateOfBirth: (body.dateOfBirth as string) ?? null, sex: String(body.sex ?? 'unknown'), registeredBranchId: String(body.registeredBranchId), phone: (body.phone as string) ?? null, email: (body.email as string) ?? null, deletedAt: null }
@@ -445,6 +463,7 @@ export class MockBackend {
       if (method === 'PATCH') {
         if (!has(REG_WRITE, rolesAt(patient.registeredBranchId))) return forbidden()
         if ('mrn' in body) return reply(400, { title: 'Validation', status: 400, errors: { mrn: ['MRN is immutable.'] } }, tenant)
+        if (dobInFuture(body.dateOfBirth, String(body.registeredBranchId ?? patient.registeredBranchId))) return dobProblem()
         Object.assign(patient, body)
         return reply(200, detailDto(patient), tenant)
       }
@@ -467,8 +486,17 @@ export class MockBackend {
 
     // --- Sprint 2: practitioners, schedules, slots, appointments, queue ---------------------------
     const strip = <T extends { tenantId: string }>({ tenantId: _t, ...rest }: T) => rest
+    // API v2: embedded patient summary on appointment/queue rows (omitted when legacyApi).
+    const withPatient = <T extends { tenantId: string; patientId: string }>(row: T) => {
+      if (this.legacyApi) return strip(row)
+      const p = this.patients.find((x) => x.id === row.patientId)
+      return { ...strip(row), patient: p ? { id: p.id, mrn: p.mrn, firstName: p.firstName, lastName: p.lastName } : null }
+    }
     if (method === 'GET' && path === '/api/v1/practitioners') {
-      return reply(200, practitioners.filter((p) => p.tenantId === tenant && (url.searchParams.get('activeOnly') !== 'true' || p.isActive)).map(strip), tenant)
+      const branchId = url.searchParams.get('branchId')
+      if (branchId && this.legacyApi) return reply(400, { title: 'Validation', status: 400, errors: { branchId: ['Unknown parameter.'] } }, tenant)
+      const atBranch = branchId ? new Set(schedules.filter((s) => s.branchId === branchId && s.isActive).map((s) => s.practitionerId)) : null
+      return reply(200, practitioners.filter((p) => p.tenantId === tenant && (url.searchParams.get('activeOnly') !== 'true' || p.isActive) && (!atBranch || atBranch.has(p.id))).map(strip), tenant)
     }
     if (method === 'GET' && path === '/api/v1/schedules') {
       const branchId = url.searchParams.get('branchId')
@@ -500,7 +528,7 @@ export class MockBackend {
       const items = this.appointments
         .filter((a) => a.tenantId === tenant && (!q.get('branchId') || a.branchId === q.get('branchId')) && (!q.get('practitionerId') || a.practitionerId === q.get('practitionerId')) && (!q.get('from') || a.endsAt > new Date(q.get('from')!).toISOString()) && (!q.get('to') || a.startsAt < new Date(q.get('to')!).toISOString()))
         .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
-        .map(strip)
+        .map(withPatient)
       return reply(200, { items, page: 1, pageSize: Number(q.get('pageSize') ?? 25), totalCount: items.length }, tenant)
     }
     if (method === 'POST' && path === '/api/v1/appointments') {
@@ -515,7 +543,7 @@ export class MockBackend {
       }
       const created: MockAppointment = { id: uuid('a2000000'), tenantId: tenant, branchId, practitionerId: String(body.practitionerId), patientId: String(body.patientId), startsAt, endsAt, status: 'booked', reason: (body.reason as string) ?? null, cancelReason: null }
       this.appointments.push(created)
-      return reply(201, strip(created), tenant)
+      return reply(201, withPatient(created), tenant)
     }
     if (method === 'POST' && apptAction) {
       const appt = this.appointments.find((a) => a.tenantId === tenant && a.id === apptAction[1])
@@ -525,7 +553,7 @@ export class MockBackend {
         if (!['booked', 'checked_in'].includes(appt.status)) return problem(409, 'invalid_transition')
         appt.status = 'cancelled'
         appt.cancelReason = (body.reason as string) ?? null
-        return reply(200, strip(appt), tenant)
+        return reply(200, withPatient(appt), tenant)
       }
       if (!has(FRONT_DESK, rolesAt(appt.branchId))) return forbidden()
       if (appt.status !== 'booked') return problem(409, 'invalid_transition')
@@ -535,13 +563,13 @@ export class MockBackend {
       const entry = this.issueToken(appt.branchId, appt.patientId, appt.practitionerId)
       entry.appointmentId = appt.id
       appt.status = 'checked_in'
-      return reply(201, { queueEntryId: entry.id, tokenNo: entry.tokenNo, queueDate: entry.queueDate, entry: strip(entry) }, tenant)
+      return reply(201, { queueEntryId: entry.id, tokenNo: entry.tokenNo, queueDate: entry.queueDate, entry: withPatient(entry) }, tenant)
     }
     if (method === 'GET' && path === '/api/v1/queue') {
       const branchId = url.searchParams.get('branchId')!
       if (!has(REG_READ) || !canAccessBranch(branchId)) return forbidden()
       const date = url.searchParams.get('date') ?? branchToday()
-      return reply(200, this.queue.filter((q) => q.tenantId === tenant && q.branchId === branchId && q.queueDate === date).sort((a, b) => a.tokenNo - b.tokenNo).map(strip), tenant)
+      return reply(200, this.queue.filter((q) => q.tenantId === tenant && q.branchId === branchId && q.queueDate === date).sort((a, b) => a.tokenNo - b.tokenNo).map(withPatient), tenant)
     }
     if (method === 'POST' && path === '/api/v1/queue/walk-in') {
       const branchId = String(body.branchId)
@@ -549,7 +577,7 @@ export class MockBackend {
       if (!livePatients.some((p) => p.id === body.patientId)) return notFound()
       if (this.queue.some((q) => q.branchId === branchId && q.queueDate === branchToday() && q.patientId === body.patientId && ['waiting', 'in_consultation'].includes(q.status))) return problem(409, 'already_checked_in')
       const entry = this.issueToken(branchId, String(body.patientId), (body.practitionerId as string) ?? null)
-      return reply(201, { queueEntryId: entry.id, tokenNo: entry.tokenNo, queueDate: entry.queueDate, entry: strip(entry) }, tenant)
+      return reply(201, { queueEntryId: entry.id, tokenNo: entry.tokenNo, queueDate: entry.queueDate, entry: withPatient(entry) }, tenant)
     }
     const queueMatch = /^\/api\/v1\/queue\/([^/]+)$/.exec(path)
     if (method === 'PATCH' && queueMatch) {
@@ -567,11 +595,11 @@ export class MockBackend {
       if (next === 'cancelled') entry.cancelledAt = now
       const appt = this.appointments.find((a) => a.id === entry.appointmentId)
       if (appt) appt.status = next === 'done' ? 'completed' : next
-      return reply(200, strip(entry), tenant)
+      return reply(200, withPatient(entry), tenant)
     }
 
     if (method === 'GET' && path === '/api/v1/branches') {
-      return reply(200, tenants[tenant]!.branches.map((b) => ({ ...b, timezone: 'Asia/Kolkata', isActive: true })), tenant)
+      return reply(200, tenants[tenant]!.branches.map((b) => ({ ...b, timezone: this.branchZone(b.id), isActive: true })), tenant)
     }
     if (method === 'GET' && path === '/api/v1/members') {
       const rows = [...this.users.values()].flatMap((u) =>

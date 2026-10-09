@@ -1,10 +1,11 @@
 import { expect, test, type Page } from '@playwright/test'
-import { MockBackend, addDays, branchInstant, branchToday, ids, patientIds, practitionerIds, signIn } from './mock-backend'
+import { MockBackend, addDays, branchInstant, branchToday, ids, patientIds, practitionerIds, signIn, todayIn } from './mock-backend'
 
 /**
- * Sprint 2 UI against the mocked API (SPRINT2-CONTRACT.md, API v1): patient detail/edit/soft
- * delete/restore, phone + DOB search, duplicate warning, staff schedules, branch calendar with
- * booking and conflicts, reception check-in and the OPD queue board.
+ * Sprint 2 UI against the mocked API (SPRINT2-CONTRACT.md API v2 + CTO answers 2026-10-09):
+ * patient detail/edit/soft delete/restore, phone + DOB search, duplicate warning, branch-zone DOB
+ * checks, staff schedules, branch calendar with booking and conflicts, reception check-in and the
+ * OPD queue board. Patient names come from the embedded summary; `legacyApi` covers the fallbacks.
  */
 let backend: MockBackend
 
@@ -12,6 +13,9 @@ test.beforeEach(async ({ context }) => {
   backend = new MockBackend()
   await backend.install(context)
 })
+
+/** GET /patients/{id} calls — API v2 rows carry a patient summary, so screens should not make these. */
+const perPatientFetches = () => backend.calls.filter((c) => c.method === 'GET' && /^\/api\/v1\/patients\/[0-9a-f-]{36}$/.test(c.path))
 
 const nav = (page: Page, name: string) => page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name, exact: true })
 
@@ -92,6 +96,35 @@ test.describe('2.1 patients', () => {
     await warning.getByRole('button', { name: 'Register anyway' }).click()
     await expect(page.getByText('Patient ALP-0100 registered.')).toBeVisible()
   })
+
+  test.describe('workstation and branch in different time zones', () => {
+    // Workstation at UTC-11, Alpha Main at UTC+14: the branch is always at least a day ahead.
+    test.use({ timezoneId: 'Pacific/Pago_Pago' })
+
+    test('DOB "today" is the branch\'s date: a newborn born today at the branch registers', async ({ page }) => {
+      backend.branchTimeZones.set(ids.alphaMain, 'Pacific/Kiritimati')
+      const branchDay = todayIn('Pacific/Kiritimati')
+      expect(branchDay > todayIn('Pacific/Pago_Pago')).toBe(true)
+      await signIn(page, 'reception@alpha.example')
+      await page.goto('/patients/new')
+      const dob = page.getByLabel('Date of birth')
+      await expect(dob).toHaveAttribute('max', branchDay)
+
+      await page.getByLabel('MRN').fill('NB-0001')
+      await page.getByLabel('First name').fill('Baby')
+      await page.getByLabel('Last name').fill('Synthetic-Alpha')
+      // Tomorrow at the branch is rejected client-side (the API would 400 too)
+      await dob.fill(addDays(branchDay, 1))
+      await page.getByRole('button', { name: 'Register patient' }).click()
+      await expect(page.getByText('Date of birth must be between 1900-01-01 and today')).toBeVisible()
+      expect(backend.calls.some((c) => c.method === 'POST' && c.path === '/api/v1/patients')).toBe(false)
+
+      await dob.fill(branchDay)
+      await page.getByRole('button', { name: 'Register patient' }).click()
+      await expect(page.getByText('Patient NB-0001 registered.')).toBeVisible()
+      expect(backend.calls.find((c) => c.method === 'POST' && c.path === '/api/v1/patients')!.body).toMatchObject({ dateOfBirth: branchDay, registeredBranchId: ids.alphaMain })
+    })
+  })
 })
 
 test.describe('2.2 schedules and appointments', () => {
@@ -125,6 +158,9 @@ test.describe('2.2 schedules and appointments', () => {
     const tomorrow = addDays(branchToday(), 1)
     await page.getByRole('button', { name: 'Book appointment' }).click()
     const form = page.getByRole('form', { name: 'Book appointment' })
+    // GET /practitioners?branchId= (API v2): only Dr. Rao works at Alpha Main
+    await expect(form.getByLabel('Practitioner').getByRole('option')).toHaveText(['Select a practitioner…', 'Dr. Rao (synthetic) (General medicine)'])
+    expect(backend.calls.some((c) => c.path === '/api/v1/practitioners' && new URL(c.url).searchParams.get('branchId') === ids.alphaMain)).toBe(true)
     await form.getByLabel('Practitioner').selectOption(practitionerIds.rao)
     await form.getByLabel('Appointment date').fill(tomorrow)
     await form.getByLabel('Find patient').fill('Ravi')
@@ -144,6 +180,23 @@ test.describe('2.2 schedules and appointments', () => {
     await expect(page.getByTestId('appointment').filter({ hasText: 'Synthetic-Alpha, Ravi' })).toContainText('09:00–09:15')
     const post = backend.calls.filter((c) => c.method === 'POST' && c.path === '/api/v1/appointments').at(-1)!
     expect(post.body).toEqual({ branchId: ids.alphaMain, practitionerId: practitionerIds.rao, patientId: patientIds.ravi, startsAt: branchInstant(tomorrow, '09:00'), endsAt: branchInstant(tomorrow, '09:15') })
+    // names came from the embedded patient summary
+    expect(perPatientFetches()).toEqual([])
+  })
+
+  test('older API (no patient summary, ?branchId= → 400): names and practitioner list still work', async ({ page }) => {
+    backend.legacyApi = true
+    await signIn(page, 'reception@alpha.example')
+    await nav(page, 'Appointments').click()
+    await expect(page.getByTestId('appointment')).toContainText('Synthetic-Alpha, Asha')
+    expect(perPatientFetches().map((c) => c.path)).toEqual([`/api/v1/patients/${patientIds.asha}`])
+
+    await page.getByRole('button', { name: 'Book appointment' }).click()
+    const form = page.getByRole('form', { name: 'Book appointment' })
+    // schedule-based fallback: still only Dr. Rao at Alpha Main
+    await expect(form.getByLabel('Practitioner').getByRole('option')).toHaveText(['Select a practitioner…', 'Dr. Rao (synthetic) (General medicine)'])
+    expect(backend.calls.some((c) => c.path === '/api/v1/practitioners' && c.url.includes('branchId='))).toBe(true)
+    expect(backend.calls.some((c) => c.path === '/api/v1/schedules' && new URL(c.url).searchParams.get('branchId') === ids.alphaMain)).toBe(true)
   })
 })
 
@@ -166,6 +219,7 @@ test.describe('2.3 check-in and OPD queue', () => {
     await walkIn.getByRole('radio', { name: /Synthetic-Alpha, Ravi/ }).check()
     await walkIn.getByRole('button', { name: 'Issue walk-in token' }).click()
     await expect(page.getByRole('alert')).toContainText('already waiting or in consultation')
+    expect(perPatientFetches()).toEqual([])
   })
 
   test('queue board polls for new tokens; doctor calls in and finishes, cannot remove', async ({ page }) => {
@@ -189,6 +243,7 @@ test.describe('2.3 check-in and OPD queue', () => {
     await page.getByRole('button', { name: 'Mark done token 1' }).click()
     await expect(page.getByTestId('queue-done').getByTestId('queue-entry')).toHaveAttribute('data-token', '1')
     expect(backend.calls.filter((c) => c.method === 'PATCH').map((c) => c.body)).toEqual([{ status: 'in_consultation' }, { status: 'done' }])
+    expect(perPatientFetches()).toEqual([])
   })
 
   test('role-aware navigation: billing reads calendar and queue but cannot check in', async ({ page }) => {
