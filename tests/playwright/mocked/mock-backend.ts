@@ -10,6 +10,16 @@ import type { BrowserContext, Page, Request, Route } from '@playwright/test'
  *   are not listed in GET /api/v1/members;
  * - GET /api/v1/me/invitations -> [{membershipId, tenantId, tenantName, branchId, role, invitedAt}],
  *   POST /api/v1/me/invitations/{id}/accept -> 204 | 404; both work without a resolved tenant.
+ * Sprint 2 (/workspace/SPRINT2-CONTRACT.md, DB v2 + API v1):
+ * - patients: GET/PATCH/DELETE /patients/{id} (soft delete → 404; 409 invalid_state with open
+ *   appointments/queue), POST /patients/{id}/restore (admin), POST /patients/duplicates
+ *   {candidates}, search body {search, phone (≥ 7 digits, last 10 compared), dateOfBirth, includeDeleted};
+ * - GET /practitioners, GET /schedules?branchId (weekly), GET /slots (free + future only);
+ * - GET /appointments (Paged, from/to instants), POST /appointments (409 appointment_overlap),
+ *   POST /appointments/{id}/cancel, POST /appointments/{id}/check-in (today only);
+ * - GET /queue?branchId&date, POST /queue/walk-in, PATCH /queue/{id} (transition rules, doctor may
+ *   only call in / finish); one active entry per patient per branch-day (409 already_checked_in).
+ * Writes check the role held *at the row's branch*; branch-bound members only see their branches.
  * The resolved tenant is per USER (server-side), like identity.user_profiles, so a "switch on
  * another device" is simulated with `backend.setActiveTenant()`.
  */
@@ -37,11 +47,97 @@ const tenants: Record<string, { name: string; branches: { id: string; name: stri
   [ids.beta]: { name: 'Demo Beta Clinic (synthetic)', branches: [{ id: ids.betaMain, name: 'Beta Central', code: 'central' }] },
 }
 
-const patients = [
-  { id: 'aa000000-0000-4000-8000-000000000001', tenantId: ids.alpha, mrn: 'ALP-0001', firstName: 'Asha', lastName: 'Synthetic-Alpha', dateOfBirth: '1990-01-01', sex: 'female', registeredBranchId: ids.alphaMain },
-  { id: 'aa000000-0000-4000-8000-000000000002', tenantId: ids.alpha, mrn: 'ALP-0002', firstName: 'Ravi', lastName: 'Synthetic-Alpha', dateOfBirth: '1985-05-05', sex: 'male', registeredBranchId: ids.alphaEast },
-  { id: 'bb000000-0000-4000-8000-000000000001', tenantId: ids.beta, mrn: 'BET-0001', firstName: 'Meera', lastName: 'Synthetic-Beta', dateOfBirth: '1970-07-07', sex: 'female', registeredBranchId: ids.betaMain },
+export const patientIds = {
+  asha: 'aa000000-0000-4000-8000-000000000001',
+  ravi: 'aa000000-0000-4000-8000-000000000002',
+  meera: 'bb000000-0000-4000-8000-000000000001',
+}
+
+interface MockPatient {
+  id: string
+  tenantId: string
+  mrn: string
+  firstName: string
+  lastName: string
+  dateOfBirth: string | null
+  sex: string
+  registeredBranchId: string
+  phone: string | null
+  email: string | null
+  deletedAt: string | null
+}
+
+const seedPatients = (): MockPatient[] => [
+  { id: patientIds.asha, tenantId: ids.alpha, mrn: 'ALP-0001', firstName: 'Asha', lastName: 'Synthetic-Alpha', dateOfBirth: '1990-01-01', sex: 'female', registeredBranchId: ids.alphaMain, phone: '+91 98450 00001', email: null, deletedAt: null },
+  { id: patientIds.ravi, tenantId: ids.alpha, mrn: 'ALP-0002', firstName: 'Ravi', lastName: 'Synthetic-Alpha', dateOfBirth: '1985-05-05', sex: 'male', registeredBranchId: ids.alphaEast, phone: '+91 98450 00002', email: null, deletedAt: null },
+  { id: patientIds.meera, tenantId: ids.beta, mrn: 'BET-0001', firstName: 'Meera', lastName: 'Synthetic-Beta', dateOfBirth: '1970-07-07', sex: 'female', registeredBranchId: ids.betaMain, phone: null, email: null, deletedAt: null },
 ]
+
+/** All mock branches are in India: branch-local = UTC+05:30, no DST. */
+export const BRANCH_TZ = 'Asia/Kolkata'
+export const branchToday = (now = new Date()) =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: BRANCH_TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now)
+export const branchInstant = (date: string, time: string) => new Date(`${date}T${time}:00+05:30`).toISOString()
+export const addDays = (date: string, days: number) => {
+  const d = new Date(`${date}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+const isoWeekday = (date: string) => ((new Date(`${date}T00:00:00Z`).getUTCDay() + 6) % 7) + 1
+
+export const practitionerIds = {
+  rao: 'd0000000-0000-4000-8000-000000000001',
+  iyer: 'd0000000-0000-4000-8000-000000000002',
+  betaDoc: 'd0000000-0000-4000-8000-000000000003',
+}
+
+const practitioners = [
+  { id: practitionerIds.rao, tenantId: ids.alpha, userId: null, displayName: 'Dr. Rao (synthetic)', specialty: 'General medicine', isActive: true },
+  { id: practitionerIds.iyer, tenantId: ids.alpha, userId: null, displayName: 'Dr. Iyer (synthetic)', specialty: 'Paediatrics', isActive: true },
+  { id: practitionerIds.betaDoc, tenantId: ids.beta, userId: null, displayName: 'Dr. Beta (synthetic)', specialty: null, isActive: true },
+]
+
+/** Dr. Rao: every day 09:00–13:00 at Alpha Main (15 min). Dr. Iyer: every day 14:00–16:00 at Alpha East (20 min). */
+const schedules = [
+  ...[1, 2, 3, 4, 5, 6, 7].map((weekday) => ({ id: `5c000000-0000-4000-8000-00000000000${weekday}`, tenantId: ids.alpha, practitionerId: practitionerIds.rao, branchId: ids.alphaMain, weekday, startTime: '09:00', endTime: '13:00', slotMinutes: 15, validFrom: '2026-01-01', validTo: null, isActive: true })),
+  ...[1, 2, 3, 4, 5, 6, 7].map((weekday) => ({ id: `5c000000-0000-4000-8000-00000000010${weekday}`, tenantId: ids.alpha, practitionerId: practitionerIds.iyer, branchId: ids.alphaEast, weekday, startTime: '14:00', endTime: '16:00', slotMinutes: 20, validFrom: '2026-01-01', validTo: null, isActive: true })),
+]
+
+interface MockAppointment {
+  id: string
+  tenantId: string
+  branchId: string
+  practitionerId: string
+  patientId: string
+  startsAt: string
+  endsAt: string
+  status: string
+  reason: string | null
+  cancelReason: string | null
+}
+
+interface MockQueueEntry {
+  id: string
+  tenantId: string
+  branchId: string
+  queueDate: string
+  tokenNo: number
+  patientId: string
+  appointmentId: string | null
+  practitionerId: string | null
+  status: string
+  checkedInAt: string
+  calledAt: string | null
+  completedAt: string | null
+  cancelledAt: string | null
+}
+
+const BLOCKING = ['booked', 'checked_in', 'in_consultation', 'completed']
+const QUEUE_TRANSITIONS: Record<string, string[]> = { waiting: ['in_consultation', 'cancelled'], in_consultation: ['done', 'cancelled'], done: [], cancelled: [] }
+const normalizePhone = (p: string | null | undefined) => {
+  const digits = (p ?? '').replace(/\D/g, '')
+  return digits.length < 7 ? null : digits.slice(-10)
+}
 
 interface Membership {
   id: string
@@ -83,6 +179,35 @@ export class MockBackend {
     const consultant = this.addUser('consultant@shared.example')
     consultant.memberships.push(this.membership(ids.alpha, null, 'doctor', 'active'), this.membership(ids.beta, null, 'doctor', 'active'))
     this.addUser('newcomer@synthetic.example')
+    // Sprint 2 personas: branch-bound front desk, tenant-wide clinician.
+    this.addUser('reception@alpha.example').memberships.push(this.membership(ids.alpha, ids.alphaMain, 'receptionist', 'active'))
+    this.addUser('doctor@alpha.example').memberships.push(this.membership(ids.alpha, null, 'doctor', 'active'))
+    this.addUser('billing@alpha.example').memberships.push(this.membership(ids.alpha, null, 'billing', 'active'))
+    // Today's booked appointment for Asha with Dr. Rao (check-in flow).
+    const today = branchToday()
+    this.appointments.push({ id: 'a0000000-0000-4000-8000-000000000001', tenantId: ids.alpha, branchId: ids.alphaMain, practitionerId: practitionerIds.rao, patientId: patientIds.asha, startsAt: branchInstant(today, '09:30'), endsAt: branchInstant(today, '09:45'), status: 'booked', reason: null, cancelReason: null })
+  }
+
+  readonly patients: MockPatient[] = seedPatients()
+  readonly appointments: MockAppointment[] = []
+  readonly queue: MockQueueEntry[] = []
+  private tokenCounters = new Map<string, number>()
+
+  /** Another desk books directly (to provoke a 409 in the UI). */
+  bookDirectly(a: Omit<MockAppointment, 'id' | 'tenantId' | 'status' | 'reason' | 'cancelReason'>) {
+    this.appointments.push({ ...a, id: uuid('a1000000'), tenantId: ids.alpha, status: 'booked', reason: null, cancelReason: null })
+  }
+
+  /** Another desk issues a token (for live-refresh checks). */
+  issueToken(branchId: string, patientId: string, practitionerId: string | null = null): MockQueueEntry {
+    const today = branchToday()
+    const key = `${branchId}|${today}`
+    const tokenNo = (this.tokenCounters.get(key) ?? 0) + 1
+    this.tokenCounters.set(key, tokenNo)
+    const tenantId = Object.entries(tenants).find(([, t]) => t.branches.some((b) => b.id === branchId))![0]
+    const entry: MockQueueEntry = { id: uuid('9e000000'), tenantId, branchId, queueDate: today, tokenNo, patientId, appointmentId: null, practitionerId, status: 'waiting', checkedInAt: new Date().toISOString(), calledAt: null, completedAt: null, cancelledAt: null }
+    this.queue.push(entry)
+    return entry
   }
 
   addUser(email: string): MockUser {
@@ -204,7 +329,16 @@ export class MockBackend {
     const active = user.memberships.filter((m) => m.status === 'active')
     const inTenant = active.filter((m) => m.tenantId === tenant)
     const roles = [...new Set(inTenant.map((m) => m.role))]
-    const body = (request.postDataJSON() ?? {}) as Record<string, unknown>
+    // null = tenant-wide (some membership has no branch); else the set of bound branches.
+    const scopedBranches = inTenant.some((m) => m.branchId === null) ? null : new Set(inTenant.map((m) => m.branchId!))
+    const rolesAt = (branchId: string) => [...new Set(inTenant.filter((m) => m.branchId === null || m.branchId === branchId).map((m) => m.role))]
+    const canAccessBranch = (branchId: string) => !!tenant && tenants[tenant]!.branches.some((b) => b.id === branchId) && (!scopedBranches || scopedBranches.has(branchId))
+    let body: Record<string, unknown> = {}
+    try {
+      body = (request.postDataJSON() ?? {}) as Record<string, unknown>
+    } catch {
+      body = {}
+    }
 
     // Tenant-independent endpoints (work for a signed-in user with no tenant).
     if (method === 'GET' && path === '/api/v1/me') {
@@ -214,9 +348,9 @@ export class MockBackend {
           userId: user.id,
           email: user.email,
           activeTenantId: tenant,
-          activeBranchId: null,
+          activeBranchId: scopedBranches && scopedBranches.size === 1 ? [...scopedBranches][0] : null,
           roles,
-          accessibleBranches: tenant ? tenants[tenant]!.branches.map(({ id, name }) => ({ id, name })) : [],
+          accessibleBranches: tenant ? tenants[tenant]!.branches.filter((b) => !scopedBranches || scopedBranches.has(b.id)).map(({ id, name }) => ({ id, name })) : [],
           memberships: active.map((m) => ({ tenantId: m.tenantId, tenantName: tenants[m.tenantId]!.name, branchId: m.branchId, branchName: null, role: m.role })),
         },
         tenant,
@@ -242,21 +376,199 @@ export class MockBackend {
     }
 
     if (!tenant) return reply(403, { title: 'No active hospital', status: 403 })
-    const tenantPatients = patients.filter((p) => p.tenantId === tenant).map(({ tenantId: _t, ...p }) => p)
+    const REG_READ = ['tenant_admin', 'doctor', 'nurse', 'receptionist', 'billing']
+    const REG_WRITE = ['tenant_admin', 'doctor', 'nurse', 'receptionist']
+    const FRONT_DESK = ['tenant_admin', 'receptionist', 'nurse']
+    const has = (allowed: string[], held: string[] = roles) => held.some((r) => allowed.includes(r))
+    const problem = (status: number, code?: string, extra: Record<string, unknown> = {}) => reply(status, { title: code ?? 'Error', status, ...(code ? { code } : {}), ...extra }, tenant)
+    const notFound = () => problem(404, 'not_found')
+    const forbidden = () => problem(403, 'forbidden')
+
+    const livePatients = this.patients.filter((p) => p.tenantId === tenant && !p.deletedAt)
+    const dto = ({ tenantId: _t, email: _e, ...p }: MockPatient) => p
+    const detailDto = ({ tenantId: _t, ...p }: MockPatient) => p
     const page = (items: unknown[]) => ({ items, page: 1, pageSize: 25, totalCount: items.length })
+    const patientMatch = /^\/api\/v1\/patients\/([^/]+)$/.exec(path)
+    const restoreMatch = /^\/api\/v1\/patients\/([^/]+)\/restore$/.exec(path)
 
     if (method === 'GET' && path === '/api/v1/patients') {
       if (url.searchParams.has('search')) {
         return reply(400, { title: 'Validation', status: 400, errors: { search: ['The search query parameter is no longer supported. Use POST /api/v1/patients/search with a JSON body.'] } }, tenant)
       }
-      return reply(200, page(tenantPatients), tenant)
+      return reply(200, page(livePatients.map(dto)), tenant)
     }
     if (method === 'POST' && path === '/api/v1/patients/search') {
+      if (!has(REG_READ)) return forbidden()
       const term = String(body.search ?? '').trim()
       if (term.length > 100) return reply(400, { title: 'Validation', status: 400, errors: { search: ['Search term must be at most 100 characters.'] } }, tenant)
+      if (body.includeDeleted && !roles.includes('tenant_admin')) return forbidden()
+      if (body.phone !== undefined && !normalizePhone(String(body.phone))) return reply(400, { title: 'Validation', status: 400, errors: { phone: ['Enter at least 7 digits.'] } }, tenant)
       const t = term.toLowerCase()
-      return reply(200, page(tenantPatients.filter((p) => [p.mrn, p.firstName, p.lastName].some((v) => v.toLowerCase().includes(t)))), tenant)
+      const pool = this.patients.filter((p) => p.tenantId === tenant && (body.includeDeleted || !p.deletedAt))
+      const hits = pool.filter(
+        (p) =>
+          (!t || [p.mrn, p.firstName, p.lastName].some((v) => v.toLowerCase().includes(t))) &&
+          (body.phone === undefined || normalizePhone(p.phone) === normalizePhone(String(body.phone))) &&
+          (body.dateOfBirth === undefined || p.dateOfBirth === body.dateOfBirth),
+      )
+      return reply(200, page(hits.map(dto)), tenant)
     }
+    if (method === 'POST' && path === '/api/v1/patients/duplicates') {
+      if (!has(REG_WRITE)) return forbidden()
+      const norm = (v: unknown) => String(v ?? '').trim().toLowerCase()
+      const candidates = livePatients
+        .map((p) => {
+          const reasons: string[] = []
+          if (body.dateOfBirth && p.dateOfBirth === body.dateOfBirth && norm(p.firstName) === norm(body.firstName) && norm(p.lastName) === norm(body.lastName)) reasons.push('name_dob')
+          if (normalizePhone(p.phone) && normalizePhone(p.phone) === normalizePhone(body.phone as string)) reasons.push('phone')
+          return { p, reasons }
+        })
+        .filter((x) => x.reasons.length > 0 && x.p.id !== body.excludePatientId)
+        .map(({ p, reasons }) => ({ id: p.id, mrn: p.mrn, firstName: p.firstName, lastName: p.lastName, dateOfBirth: p.dateOfBirth, phone: p.phone, registeredBranchId: p.registeredBranchId, matchReasons: reasons }))
+      return reply(200, { candidates }, tenant)
+    }
+    if (method === 'POST' && path === '/api/v1/patients') {
+      if (!has(REG_WRITE, rolesAt(String(body.registeredBranchId)))) return forbidden()
+      const mrn = String(body.mrn).toUpperCase()
+      if (this.patients.some((p) => p.tenantId === tenant && p.mrn === mrn)) return problem(409, 'duplicate_mrn')
+      const created: MockPatient = { id: uuid('ab000000'), tenantId: tenant, mrn, firstName: String(body.firstName), lastName: String(body.lastName), dateOfBirth: (body.dateOfBirth as string) ?? null, sex: String(body.sex ?? 'unknown'), registeredBranchId: String(body.registeredBranchId), phone: (body.phone as string) ?? null, email: (body.email as string) ?? null, deletedAt: null }
+      this.patients.push(created)
+      return reply(201, { ...detailDto(created), duplicateWarnings: [] }, tenant)
+    }
+    if (patientMatch) {
+      const patient = livePatients.find((p) => p.id === patientMatch[1])
+      if (method === 'GET') {
+        if (!has(REG_READ)) return forbidden()
+        return patient ? reply(200, detailDto(patient), tenant) : notFound()
+      }
+      if (!patient) return notFound()
+      if (method === 'PATCH') {
+        if (!has(REG_WRITE, rolesAt(patient.registeredBranchId))) return forbidden()
+        if ('mrn' in body) return reply(400, { title: 'Validation', status: 400, errors: { mrn: ['MRN is immutable.'] } }, tenant)
+        Object.assign(patient, body)
+        return reply(200, detailDto(patient), tenant)
+      }
+      if (method === 'DELETE') {
+        const branchRoles = rolesAt(patient.registeredBranchId)
+        if (!branchRoles.includes('tenant_admin') && !branchRoles.includes('receptionist')) return forbidden()
+        const open = this.appointments.some((a) => a.patientId === patient.id && ['booked', 'checked_in', 'in_consultation'].includes(a.status)) || this.queue.some((q) => q.patientId === patient.id && ['waiting', 'in_consultation'].includes(q.status))
+        if (open) return problem(409, 'invalid_state', { detail: 'The patient has open appointments or queue entries.' })
+        patient.deletedAt = new Date().toISOString()
+        return reply(204, undefined, tenant)
+      }
+    }
+    if (method === 'POST' && restoreMatch) {
+      if (!roles.includes('tenant_admin')) return forbidden()
+      const patient = this.patients.find((p) => p.tenantId === tenant && p.id === restoreMatch[1] && p.deletedAt)
+      if (!patient) return notFound()
+      patient.deletedAt = null
+      return reply(204, undefined, tenant)
+    }
+
+    // --- Sprint 2: practitioners, schedules, slots, appointments, queue ---------------------------
+    const strip = <T extends { tenantId: string }>({ tenantId: _t, ...rest }: T) => rest
+    if (method === 'GET' && path === '/api/v1/practitioners') {
+      return reply(200, practitioners.filter((p) => p.tenantId === tenant && (url.searchParams.get('activeOnly') !== 'true' || p.isActive)).map(strip), tenant)
+    }
+    if (method === 'GET' && path === '/api/v1/schedules') {
+      const branchId = url.searchParams.get('branchId')
+      return reply(200, schedules.filter((s) => s.tenantId === tenant && (!branchId || s.branchId === branchId)).map(strip), tenant)
+    }
+    if (method === 'GET' && path === '/api/v1/slots') {
+      if (!has(REG_READ)) return forbidden()
+      const branchId = url.searchParams.get('branchId')!
+      const practitionerId = url.searchParams.get('practitionerId')
+      const from = url.searchParams.get('from')!
+      const to = url.searchParams.get('to')!
+      const slots: unknown[] = []
+      for (let d = from; d <= to; d = addDays(d, 1)) {
+        for (const s of schedules.filter((x) => x.tenantId === tenant && x.branchId === branchId && x.weekday === isoWeekday(d) && (!practitionerId || x.practitionerId === practitionerId))) {
+          for (let start = branchInstant(d, s.startTime); start < branchInstant(d, s.endTime); ) {
+            const end = new Date(Date.parse(start) + s.slotMinutes * 60_000).toISOString()
+            const taken = this.appointments.some((a) => a.practitionerId === s.practitionerId && BLOCKING.includes(a.status) && a.startsAt < end && a.endsAt > start)
+            if (!taken && Date.parse(start) > Date.now()) slots.push({ practitionerId: s.practitionerId, branchId, startsAt: start, endsAt: end })
+            start = end
+          }
+        }
+      }
+      return reply(200, slots, tenant)
+    }
+    const apptAction = /^\/api\/v1\/appointments\/([^/]+)\/(cancel|check-in)$/.exec(path)
+    if (method === 'GET' && path === '/api/v1/appointments') {
+      if (!has(REG_READ)) return forbidden()
+      const q = url.searchParams
+      const items = this.appointments
+        .filter((a) => a.tenantId === tenant && (!q.get('branchId') || a.branchId === q.get('branchId')) && (!q.get('practitionerId') || a.practitionerId === q.get('practitionerId')) && (!q.get('from') || a.startsAt >= new Date(q.get('from')!).toISOString()) && (!q.get('to') || a.startsAt < new Date(q.get('to')!).toISOString()))
+        .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
+        .map(strip)
+      return reply(200, { items, page: 1, pageSize: Number(q.get('pageSize') ?? 25), totalCount: items.length }, tenant)
+    }
+    if (method === 'POST' && path === '/api/v1/appointments') {
+      const branchId = String(body.branchId)
+      if (!canAccessBranch(branchId) || !has(REG_WRITE, rolesAt(branchId))) return forbidden()
+      if (!livePatients.some((p) => p.id === body.patientId) || !practitioners.some((p) => p.tenantId === tenant && p.id === body.practitionerId)) return problem(400, 'invalid_reference')
+      const startsAt = new Date(String(body.startsAt)).toISOString()
+      const endsAt = new Date(String(body.endsAt)).toISOString()
+      if (this.appointments.some((a) => a.practitionerId === body.practitionerId && BLOCKING.includes(a.status) && a.startsAt < endsAt && a.endsAt > startsAt)) {
+        return problem(409, 'appointment_overlap', { detail: 'The practitioner already has an appointment at that time.' })
+      }
+      const created: MockAppointment = { id: uuid('a2000000'), tenantId: tenant, branchId, practitionerId: String(body.practitionerId), patientId: String(body.patientId), startsAt, endsAt, status: 'booked', reason: (body.reason as string) ?? null, cancelReason: null }
+      this.appointments.push(created)
+      return reply(201, strip(created), tenant)
+    }
+    if (method === 'POST' && apptAction) {
+      const appt = this.appointments.find((a) => a.tenantId === tenant && a.id === apptAction[1])
+      if (!appt) return notFound()
+      if (apptAction[2] === 'cancel') {
+        if (!has(REG_WRITE, rolesAt(appt.branchId))) return forbidden()
+        if (!['booked', 'checked_in'].includes(appt.status)) return problem(409, 'invalid_transition')
+        appt.status = 'cancelled'
+        appt.cancelReason = (body.reason as string) ?? null
+        return reply(200, strip(appt), tenant)
+      }
+      if (!has(FRONT_DESK, rolesAt(appt.branchId))) return forbidden()
+      if (appt.status !== 'booked') return problem(409, 'invalid_transition')
+      const today = branchToday()
+      if (branchToday(new Date(appt.startsAt)) !== today) return problem(409, 'invalid_state')
+      if (this.queue.some((q) => q.branchId === appt.branchId && q.queueDate === today && q.patientId === appt.patientId && ['waiting', 'in_consultation'].includes(q.status))) return problem(409, 'already_checked_in')
+      const entry = this.issueToken(appt.branchId, appt.patientId, appt.practitionerId)
+      entry.appointmentId = appt.id
+      appt.status = 'checked_in'
+      return reply(201, { queueEntryId: entry.id, tokenNo: entry.tokenNo, queueDate: entry.queueDate, entry: strip(entry) }, tenant)
+    }
+    if (method === 'GET' && path === '/api/v1/queue') {
+      const branchId = url.searchParams.get('branchId')!
+      if (!has(REG_READ) || !canAccessBranch(branchId)) return forbidden()
+      const date = url.searchParams.get('date') ?? branchToday()
+      return reply(200, this.queue.filter((q) => q.tenantId === tenant && q.branchId === branchId && q.queueDate === date).sort((a, b) => a.tokenNo - b.tokenNo).map(strip), tenant)
+    }
+    if (method === 'POST' && path === '/api/v1/queue/walk-in') {
+      const branchId = String(body.branchId)
+      if (!canAccessBranch(branchId) || !has(FRONT_DESK, rolesAt(branchId))) return forbidden()
+      if (!livePatients.some((p) => p.id === body.patientId)) return notFound()
+      if (this.queue.some((q) => q.branchId === branchId && q.queueDate === branchToday() && q.patientId === body.patientId && ['waiting', 'in_consultation'].includes(q.status))) return problem(409, 'already_checked_in')
+      const entry = this.issueToken(branchId, String(body.patientId), (body.practitionerId as string) ?? null)
+      return reply(201, { queueEntryId: entry.id, tokenNo: entry.tokenNo, queueDate: entry.queueDate, entry: strip(entry) }, tenant)
+    }
+    const queueMatch = /^\/api\/v1\/queue\/([^/]+)$/.exec(path)
+    if (method === 'PATCH' && queueMatch) {
+      const entry = this.queue.find((q) => q.tenantId === tenant && q.id === queueMatch[1])
+      if (!entry || !canAccessBranch(entry.branchId)) return notFound()
+      const next = String(body.status)
+      const branchRoles = rolesAt(entry.branchId)
+      const allowed = has(FRONT_DESK, branchRoles) || (branchRoles.includes('doctor') && ['in_consultation', 'done'].includes(next))
+      if (!allowed) return forbidden()
+      if (!QUEUE_TRANSITIONS[entry.status]?.includes(next)) return problem(409, 'invalid_transition', { detail: `invalid_transition:${entry.status}->${next}` })
+      entry.status = next
+      const now = new Date().toISOString()
+      if (next === 'in_consultation') entry.calledAt = now
+      if (next === 'done') entry.completedAt = now
+      if (next === 'cancelled') entry.cancelledAt = now
+      const appt = this.appointments.find((a) => a.id === entry.appointmentId)
+      if (appt) appt.status = next === 'done' ? 'completed' : next
+      return reply(200, strip(entry), tenant)
+    }
+
     if (method === 'GET' && path === '/api/v1/branches') {
       return reply(200, tenants[tenant]!.branches.map((b) => ({ ...b, timezone: 'Asia/Kolkata', isActive: true })), tenant)
     }
