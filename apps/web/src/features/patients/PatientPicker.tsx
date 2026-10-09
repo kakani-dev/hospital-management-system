@@ -1,11 +1,11 @@
 import { useId, useState, type Ref } from 'react'
 import { useNavigate } from 'react-router'
 import clsx from 'clsx'
-import { Input } from '@tailux/components/ui'
+import { Badge, Input } from '@tailux/components/ui'
 import { PATIENT_SEARCH_DEBOUNCE_MS, PATIENT_SEARCH_MAX_LENGTH, usePatients } from '../../lib/api/hooks'
 import { useDebouncedValue } from '../../lib/useDebouncedValue'
 import { localToday } from '../../lib/dates'
-import { PATIENT_PICKER_MIN_CHARS, patientOptionLabel } from './patientLabel'
+import { exactMrnFirst, PATIENT_PICKER_MIN_CHARS, patientOptionLabel } from './patientLabel'
 import { can } from '../../lib/permissions'
 import type { PatientSummary } from '../../lib/api/types'
 import { useCurrentContext } from '../tenancy/useCurrentContext'
@@ -47,7 +47,8 @@ export function PatientPicker({
   const results = usePatients(debounced, { enabled: searching })
   // Results for the text actually in the box (not a previous term, not mid-debounce).
   const fresh = searching && debounced === term && !results.isPending && !results.isPlaceholderData && !results.isError
-  const items = searching ? (results.data?.items ?? []) : []
+  // Exact-MRN match first: typing a full MRN puts that patient at the top, and Enter picks it.
+  const { items, exact } = exactMrnFirst(searching ? (results.data?.items ?? []) : [], debounced)
   const canRegister = !!registerReturn && can(roles, 'patients.write')
   const offerRegister = canRegister && fresh && items.length === 0
   const optionCount = items.length + (offerRegister ? 1 : 0)
@@ -120,7 +121,7 @@ export function PatientPicker({
             e.preventDefault()
             if (!fresh) return // results still belong to an older term
             if (active >= 0) choose(active)
-            else if (optionCount === 1) choose(0)
+            else if (optionCount === 1 || exact) choose(0)
           } else if (e.key === 'Escape') {
             if (expanded) {
               e.preventDefault()
@@ -194,6 +195,11 @@ export function PatientPicker({
                 onClick={() => pick(p)}
               >
                 {patientOptionLabel(p, today)}
+                {p === exact && (
+                  <Badge color="primary" variant={i === active ? 'filled' : 'soft'} className="ml-2 align-middle text-tiny" data-testid="exact-mrn-badge">
+                    Exact MRN
+                  </Badge>
+                )}
               </li>
             ))}
           {expanded && offerRegister && (

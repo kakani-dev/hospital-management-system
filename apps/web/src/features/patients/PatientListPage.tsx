@@ -14,6 +14,7 @@ import { can } from '../../lib/permissions'
 import { localToday } from '../../lib/dates'
 import { useBranchTimeZones } from '../../lib/useBranchTimeZone'
 import { Button } from '../../components/ui/Button'
+import { exactMrnFirst } from './patientLabel'
 import type { PatientSummary } from '../../lib/api/types'
 
 export function PatientListPage() {
@@ -55,7 +56,16 @@ export function PatientListPage() {
       id: 'mrn',
       accessorKey: 'mrn',
       header: 'MRN',
-      cell: ({ row }) => <span className="font-mono font-medium text-gray-800 dark:text-dark-100">{row.original.mrn}</span>,
+      cell: ({ row }) => (
+        <span className="font-mono font-medium text-gray-800 dark:text-dark-100">
+          {row.original.mrn}
+          {row.original === exact && (
+            <Badge color="primary" variant="soft" className="ml-2 font-sans text-tiny" data-testid="exact-mrn-badge">
+              Exact MRN
+            </Badge>
+          )}
+        </span>
+      ),
     },
     {
       id: 'name',
@@ -110,6 +120,8 @@ export function PatientListPage() {
   }
 
   const totalCount = patients.data?.totalCount ?? 0
+  // Exact-MRN match first (the search box is "Name or MRN"); the rest keep the server's order.
+  const { items: rows, exact } = exactMrnFirst(patients.data?.items ?? [], debouncedCriteria.search)
 
   return (
     <div className="space-y-6">
@@ -188,7 +200,7 @@ export function PatientListPage() {
         )}
         <div className="mt-4">
           <DataTable
-            data={patients.data?.items ?? []}
+            data={rows}
             columns={columns}
             caption="Patients in the current hospital"
             isLoading={patients.isPending}

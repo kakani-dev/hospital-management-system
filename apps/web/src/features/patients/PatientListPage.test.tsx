@@ -176,3 +176,30 @@ describe('patient list paging (Tailux pagination, server-side)', () => {
     expect(screen.queryByRole('navigation', { name: 'Pagination' })).not.toBeInTheDocument()
   })
 })
+
+describe('patient list exact-MRN first', () => {
+  it('shows the patient whose MRN exactly matches the search at the top', async () => {
+    const others = [
+      { ...patient, id: 'p10', mrn: 'ALP-00010', firstName: 'Anil', lastName: 'Synthetic-A' },
+      { ...patient, id: 'p11', mrn: 'ALP-00011', firstName: 'Bina', lastName: 'Synthetic-B' },
+    ]
+    stubFetch({
+      'GET /api/v1/me': () => json(meFor({ roles: ['receptionist'] })),
+      'GET /api/v1/patients': () => json({ items: [], page: 1, pageSize: 25, totalCount: 0 }),
+      'POST /api/v1/patients/search': () => json({ items: [...others, patient], page: 1, pageSize: 25, totalCount: 3 }),
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: '/patients', auth: fakeAuthClient({ session: fakeSession() }) })
+    await screen.findByTestId('patients-empty')
+    await user.type(screen.getByLabelText('Search patients'), 'ALP-0001')
+    await waitFor(() => expect(screen.getAllByTestId('patient-row')).toHaveLength(3))
+    const rows = screen.getAllByTestId('patient-row')
+    expect(rows[0]).toHaveTextContent('ALP-0001')
+    expect(within(rows[0]!).getByTestId('exact-mrn-badge')).toBeInTheDocument()
+    expect(rows.map((r) => within(r).getByTestId('patient-link').textContent)).toEqual([
+      'Synthetic-Alpha, Asha',
+      'Synthetic-A, Anil',
+      'Synthetic-B, Bina',
+    ])
+  })
+})

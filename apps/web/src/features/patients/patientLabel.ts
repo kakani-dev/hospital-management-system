@@ -30,3 +30,20 @@ export function patientOptionLabel(p: PatientSummary, today = localToday()): str
     .join(' · ')
 }
 
+
+/** True when the term is exactly this patient's MRN (case-insensitive, surrounding spaces ignored). */
+export function isExactMrn(p: Pick<PatientSummary, 'mrn'>, term: string): boolean {
+  const t = term.trim()
+  return t.length >= PATIENT_PICKER_MIN_CHARS && p.mrn.toLowerCase() === t.toLowerCase()
+}
+
+/**
+ * Exact-MRN match first: when the search term is exactly a patient's MRN, that patient moves to the
+ * top (the rest keep the server's order). Below the minimum length nothing changes.
+ */
+export function exactMrnFirst<T extends Pick<PatientSummary, 'mrn'>>(items: T[], term: string): { items: T[]; exact: T | null } {
+  const index = items.findIndex((p) => isExactMrn(p, term))
+  if (index < 0) return { items, exact: null }
+  const exact = items[index]!
+  return { items: index === 0 ? items : [exact, ...items.slice(0, index), ...items.slice(index + 1)], exact }
+}

@@ -166,3 +166,41 @@ describe('picker helpers', () => {
     expect(label).not.toContain('98450')
   })
 })
+
+describe('PatientPicker exact-MRN first', () => {
+  const RAVI_10 = { ...RAVI, id: 'aa000000-0000-4000-8000-000000000010', mrn: 'ALP-00020', firstName: 'Anil' }
+
+  it('puts the exact MRN match at the top and Enter picks it even with several matches', async () => {
+    // Server order is by name: the exact match (ALP-0002, Ravi) comes last.
+    const calls = routes(['receptionist'], { 'POST /api/v1/patients/search': () => page([RAVI_10, patientDetail, RAVI]) })
+    const user = userEvent.setup()
+    render('/reception/check-in')
+    const form = await screen.findByRole('form', { name: 'Walk-in check-in' })
+    const box = within(form).getByRole('combobox', { name: 'Find walk-in patient' })
+
+    await user.type(box, 'alp-0002')
+    await waitFor(() => expect(within(form).getAllByTestId('patient-option')).toHaveLength(3))
+    const options = within(form).getAllByTestId('patient-option')
+    expect(options[0]).toHaveTextContent('Synthetic-Alpha, Ravi · ALP-0002 ')
+    expect(within(options[0]!).getByTestId('exact-mrn-badge')).toHaveTextContent('Exact MRN')
+    expect(within(form).getAllByTestId('exact-mrn-badge')).toHaveLength(1)
+    await user.keyboard('{Enter}')
+    expect(within(form).getByTestId('picked-patient')).toHaveTextContent('Synthetic-Alpha, Ravi ALP-0002')
+    // Still one POST search with the term in the body (2-character minimum and debounce unchanged).
+    expect(calls.filter((c) => c.path === '/api/v1/patients/search')).toHaveLength(1)
+  })
+
+  it('without an exact MRN match, Enter with several matches still waits for a choice', async () => {
+    routes(['receptionist'], { 'POST /api/v1/patients/search': () => page([RAVI_10, patientDetail, RAVI]) })
+    const user = userEvent.setup()
+    render('/reception/check-in')
+    const form = await screen.findByRole('form', { name: 'Walk-in check-in' })
+    const box = within(form).getByRole('combobox', { name: 'Find walk-in patient' })
+    await user.type(box, 'ALP-000')
+    await waitFor(() => expect(within(form).getAllByTestId('patient-option')).toHaveLength(3))
+    expect(within(form).queryByTestId('exact-mrn-badge')).not.toBeInTheDocument()
+    await user.keyboard('{Enter}')
+    expect(within(form).queryByTestId('picked-patient')).not.toBeInTheDocument()
+    expect(box).toHaveValue('ALP-000')
+  })
+})
