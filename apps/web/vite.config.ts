@@ -22,6 +22,11 @@ export default defineConfig({
           groups: [
             { name: 'vendor-supabase', test: /node_modules[\\/]@supabase[\\/]/ },
             { name: 'vendor-react', test: /node_modules[\\/](react|react-dom|scheduler|react-router)[\\/]/ },
+            // Tailux UI shell dependencies (Headless UI + Floating UI, TanStack Table, Sonner).
+            {
+              name: 'vendor-ui',
+              test: /node_modules[\\/](@headlessui|@floating-ui|@react-aria|@tanstack[\\/](react-table|table-core|react-virtual|virtual-core)|sonner|clsx)[\\/]/,
+            },
           ],
         },
       },
