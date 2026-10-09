@@ -126,7 +126,46 @@ create index appointments_tenant_practitioner_start_idx on appointment.appointme
 create index appointments_tenant_patient_start_idx on appointment.appointments (tenant_id, patient_id, starts_at);
 
 -- ------------------------------------------------------ status machine trigger ----
--- Practitioner must exist in the SAME tenant (else 23503) and be active (else 23514).
+-- Caller must belong to p_tenant_id (only checked for JWT callers) and the branch must be in it; else P0002.
+create or replace function appointment.assert_tenant_refs(p_tenant_id uuid, p_branch_id uuid)
+returns void
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+begin
+  if auth.uid() is not null and (p_tenant_id is null or p_tenant_id not in (select identity.current_tenant_ids())) then
+    raise exception 'tenant not found' using errcode = 'P0002';
+  end if;
+  if p_branch_id is not null and not exists (
+       select 1 from identity.branches b where b.tenant_id = p_tenant_id and b.id = p_branch_id) then
+    raise exception 'branch not found' using errcode = 'P0002';
+  end if;
+end;
+$$;
+revoke all on function appointment.assert_tenant_refs(uuid, uuid) from public, anon, authenticated;
+
+-- Schedules: same 404-not-403 reference checks ahead of RLS / FKs.
+create or replace function appointment.check_schedule_refs()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  perform appointment.assert_tenant_refs(new.tenant_id, new.branch_id);
+  if not exists (select 1 from appointment.practitioners pr
+                 where pr.tenant_id = new.tenant_id and pr.id = new.practitioner_id) then
+    raise exception 'practitioner not found' using errcode = 'P0002';
+  end if;
+  return new;
+end;
+$$;
+revoke all on function appointment.check_schedule_refs() from public, anon, authenticated;
+
+-- Practitioner must exist in the SAME tenant (else P0002, 404-not-403; the composite FK stays as a
+-- 23503 backstop) and be active (else 23514).
 create or replace function appointment.assert_practitioner_bookable(p_tenant_id uuid, p_practitioner_id uuid)
 returns void
 language plpgsql
@@ -140,7 +179,7 @@ begin
   select pr.is_active into v_active from appointment.practitioners pr
   where pr.tenant_id = p_tenant_id and pr.id = p_practitioner_id;
   if v_active is null then
-    raise exception 'practitioner not found in this tenant' using errcode = '23503';
+    raise exception 'practitioner not found' using errcode = 'P0002';
   elsif not v_active then
     raise exception 'practitioner_inactive' using errcode = '23514';
   end if;
@@ -166,9 +205,12 @@ begin
       raise exception 'invalid_transition:new->%', new.status using errcode = '23514';
     end if;
     new.checked_in_at := null; new.started_at := null; new.completed_at := null; new.cancelled_at := null;
+    -- 404-not-403: referenced rows of another tenant look unknown (P0002). Runs before RLS and the
+    -- composite FKs (23503 backstop). Same-tenant branch without access is left to RLS (42501).
+    perform appointment.assert_tenant_refs(new.tenant_id, new.branch_id);
     if not exists (select 1 from patient.patients p
                    where p.tenant_id = new.tenant_id and p.id = new.patient_id and p.deleted_at is null) then
-      raise exception 'patient not found or deleted' using errcode = '23503';
+      raise exception 'patient not found' using errcode = 'P0002';
     end if;
     perform appointment.assert_practitioner_bookable(new.tenant_id, new.practitioner_id);
     return new;
@@ -229,6 +271,8 @@ end;
 $$;
 revoke all on function appointment.enforce_appointment_transition() from public;
 
+create trigger schedules_refs before insert or update on appointment.schedules
+  for each row execute function appointment.check_schedule_refs();
 create trigger appointments_status_machine before insert or update on appointment.appointments
   for each row execute function appointment.enforce_appointment_transition();
 
@@ -272,6 +316,17 @@ declare
 begin
   if p_from is null or p_to is null or p_to < p_from or p_to - p_from > 31 then
     raise exception 'invalid date range (max 31 days)' using errcode = '22023';
+  end if;
+  -- 404-not-403: foreign tenant / branch / practitioner -> P0002; same-tenant branch without access -> 42501
+  if p_tenant_id is null or p_tenant_id not in (select identity.current_tenant_ids()) then
+    raise exception 'tenant not found' using errcode = 'P0002';
+  end if;
+  if not exists (select 1 from identity.branches b where b.tenant_id = p_tenant_id and b.id = p_branch_id) then
+    raise exception 'branch not found' using errcode = 'P0002';
+  end if;
+  if p_practitioner_id is not null and not exists (
+       select 1 from appointment.practitioners pr where pr.tenant_id = p_tenant_id and pr.id = p_practitioner_id) then
+    raise exception 'practitioner not found' using errcode = 'P0002';
   end if;
   if not identity.can_access_branch(p_tenant_id, p_branch_id) then
     raise exception 'not permitted for this branch' using errcode = '42501';

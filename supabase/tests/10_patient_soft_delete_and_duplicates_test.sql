@@ -30,24 +30,50 @@ select tests.ok(
      '11111111-1111-4111-8111-111111111111', 'Asha', 'Synthetic-Alpha', '1985-04-12', null,
      'aa000000-0000-4000-8000-000000000001')),
   'p_exclude_id excludes the patient being edited');
-select tests.ok(
-  not exists (select 1 from patient.find_duplicate_patients(
-     '22222222-2222-4222-8222-222222222222', 'John', 'Synthetic-Beta', '1965-09-21', '+1-555-0201')),
-  'cross-tenant: Alpha reception gets no Beta matches even with exact Beta data');
+select tests.throws_ok(
+  $$select * from patient.find_duplicate_patients(
+     '22222222-2222-4222-8222-222222222222', 'John', 'Synthetic-Beta', '1965-09-21', '+1-555-0201')$$,
+  'P0002', 'cross-tenant: Alpha reception searching Beta -> P0002 (404-not-403)');
+select tests.throws_ok(
+  $$select * from patient.find_duplicate_patients(gen_random_uuid(), 'A', 'B', '2000-01-01', null)$$,
+  'P0002', 'unknown tenant -> P0002');
 select tests.authenticate_as('admin@beta.example');
+select tests.throws_ok(
+  $$select * from patient.find_duplicate_patients(
+     '11111111-1111-4111-8111-111111111111', 'Asha', 'Synthetic-Alpha', '1985-04-12', '+1-555-0101')$$,
+  'P0002', 'cross-tenant: Beta admin searching Alpha -> P0002');
 select tests.ok(
   not exists (select 1 from patient.find_duplicate_patients(
-     '11111111-1111-4111-8111-111111111111', 'Asha', 'Synthetic-Alpha', '1985-04-12', '+1-555-0101')),
-  'cross-tenant: Beta admin gets no Alpha matches');
+     '22222222-2222-4222-8222-222222222222', 'Asha', 'Synthetic-Alpha', '1985-04-12', '+1-555-0101')),
+  'Beta admin searching Beta with Alpha patient data gets 0 rows (no cross-tenant match)');
+select tests.authenticate_as('outsider@example.test');
+select tests.throws_ok(
+  $$select * from patient.find_duplicate_patients(
+     '11111111-1111-4111-8111-111111111111', 'Asha', 'Synthetic-Alpha', '1985-04-12', null)$$,
+  'P0002', 'user with no membership -> P0002');
+select tests.authenticate_as('admin@beta.example');
 select tests.ok(
   (select count(*) from patient.find_duplicate_patients(
      '22222222-2222-4222-8222-222222222222', 'Kiran', 'Synthetic-Beta', '1990-06-15', null)) = 1,
   'Beta admin finds the Beta duplicate only (same MRN/name exists in Alpha)');
 select tests.authenticate_as('lab@alpha.example');
-select tests.ok(
-  not exists (select 1 from patient.find_duplicate_patients(
-     '11111111-1111-4111-8111-111111111111', 'Asha', 'Synthetic-Alpha', '1985-04-12', null)),
-  'lab technician (no registry read) gets no matches');
+select tests.throws_ok(
+  $$select * from patient.find_duplicate_patients(
+     '11111111-1111-4111-8111-111111111111', 'Asha', 'Synthetic-Alpha', '1985-04-12', null)$$,
+  '42501', 'same-tenant lab technician (no registry read) -> 42501');
+select tests.throws_ok(
+  $$select patient.soft_delete_patient('aa000000-0000-4000-8000-000000000001')$$,
+  '42501', 'same-tenant lab technician deleting a patient -> 42501 (was P0002)');
+select tests.throws_ok(
+  $$select patient.soft_delete_patient('bb000000-0000-4000-8000-000000000001')$$,
+  'P0002', 'lab technician deleting a Beta patient -> P0002');
+select tests.authenticate_as('outsider@example.test');
+select tests.throws_ok(
+  $$select patient.soft_delete_patient('aa000000-0000-4000-8000-000000000001')$$,
+  'P0002', 'user with no membership deleting -> P0002');
+select tests.throws_ok(
+  $$select patient.restore_patient('aa000000-0000-4000-8000-000000000001')$$,
+  'P0002', 'user with no membership restoring -> P0002');
 
 -- ---------- privileges ----------
 select tests.ok(
@@ -86,7 +112,10 @@ select tests.ok(
   'deleted patients are not reported as duplicates');
 select tests.throws_ok(
   $$select patient.soft_delete_patient('aa000000-0000-4000-8000-000000000002')$$,
-  'P0002', 'deleting again (now invisible to reception) -> P0002');
+  'P0002', 'deleting again (already deleted) -> P0002');
+select tests.throws_ok(
+  $$select patient.restore_patient('aa000000-0000-4000-8000-000000000002')$$,
+  '42501', 'same-tenant reception restoring a deleted patient -> 42501');
 
 select tests.authenticate_as('consultant@shared.example');
 select tests.throws_ok(

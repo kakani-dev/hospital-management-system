@@ -124,6 +124,13 @@ declare
   v_tz text;
   v_practitioner uuid := p_practitioner_id;
 begin
+  -- 404-not-403: a tenant the caller is not in, or a branch of another tenant -> P0002
+  if p_tenant_id is null or p_tenant_id not in (select identity.current_tenant_ids()) then
+    raise exception 'tenant not found' using errcode = 'P0002';
+  end if;
+  if not exists (select 1 from identity.branches b where b.tenant_id = p_tenant_id and b.id = p_branch_id) then
+    raise exception 'branch not found' using errcode = 'P0002';
+  end if;
   if not identity.has_tenant_role(p_tenant_id, array['tenant_admin', 'receptionist', 'nurse'])
      or not identity.can_access_branch(p_tenant_id, p_branch_id) then
     raise exception 'not permitted to check in at this branch' using errcode = '42501';
@@ -229,12 +236,14 @@ begin
   from appointment.queue_entries q where q.id = p_queue_entry_id
   for update;
 
-  if v_q.id is null
-     or not identity.has_tenant_role(v_q.tenant_id, array['tenant_admin', 'doctor', 'nurse', 'receptionist', 'billing'])
-     or not identity.can_access_branch(v_q.tenant_id, v_q.branch_id) then
+  -- 404-not-403: unknown or another tenant's entry -> P0002; same tenant without branch access/role -> 42501
+  if v_q.id is null or v_q.tenant_id not in (select identity.current_tenant_ids()) then
     raise exception 'queue entry not found' using errcode = 'P0002';
   end if;
 
+  if not identity.can_access_branch(v_q.tenant_id, v_q.branch_id) then
+    raise exception 'not permitted for this branch' using errcode = '42501';
+  end if;
   if not (identity.has_tenant_role(v_q.tenant_id, array['tenant_admin', 'receptionist', 'nurse'])
           or (p_status in ('in_consultation', 'done') and identity.has_tenant_role(v_q.tenant_id, array['doctor']))) then
     raise exception 'not permitted to set queue status %', p_status using errcode = '42501';

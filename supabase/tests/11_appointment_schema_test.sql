@@ -45,7 +45,18 @@ select tests.ok(true, 'adjacent schedule (14:00 after 10:00-14:00) is accepted')
 select tests.throws_ok(
   $$insert into appointment.schedules (tenant_id, practitioner_id, branch_id, weekday, start_time, end_time, valid_from)
     values ('11111111-1111-4111-8111-111111111111', 'c1111111-0000-4000-8000-000000000002', 'b2222222-0000-4000-8000-000000000001', 5, '09:00', '10:00', '2026-01-01')$$,
-  '42501', 'cross-tenant: schedule at a Beta branch -> 42501');
+  'P0002', 'cross-tenant: schedule at a Beta branch -> P0002 (404-not-403)');
+select tests.throws_ok(
+  $$insert into appointment.schedules (tenant_id, practitioner_id, branch_id, weekday, start_time, end_time, valid_from)
+    values ('11111111-1111-4111-8111-111111111111', 'c2222222-0000-4000-8000-000000000001', 'a1111111-0000-4000-8000-000000000001', 5, '09:00', '10:00', '2026-01-01')$$,
+  'P0002', 'cross-tenant: schedule for a Beta practitioner -> P0002');
+select tests.throws_ok(
+  $$insert into appointment.schedules (tenant_id, practitioner_id, branch_id, weekday, start_time, end_time, valid_from)
+    values ('22222222-2222-4222-8222-222222222222', 'c2222222-0000-4000-8000-000000000001', 'b2222222-0000-4000-8000-000000000001', 5, '09:00', '10:00', '2026-01-01')$$,
+  'P0002', 'cross-tenant: schedule inside Beta (all-Beta row) -> P0002');
+select tests.throws_ok(
+  $$update appointment.schedules set branch_id = 'b2222222-0000-4000-8000-000000000001' where id = 'd1111111-0000-4000-8000-000000000003'$$,
+  'P0002', 'cross-tenant: moving a schedule to a Beta branch -> P0002');
 select tests.throws_ok(
   $$insert into appointment.schedules (tenant_id, practitioner_id, branch_id, weekday, start_time, end_time, valid_from)
     values ('11111111-1111-4111-8111-111111111111', 'c1111111-0000-4000-8000-000000000002', 'a1111111-0000-4000-8000-000000000001', 5, '10:00', '09:00', '2026-01-01')$$,
@@ -54,7 +65,13 @@ select tests.as_superuser();
 select tests.throws_ok(
   $$insert into appointment.schedules (tenant_id, practitioner_id, branch_id, weekday, start_time, end_time, valid_from)
     values ('11111111-1111-4111-8111-111111111111', 'c2222222-0000-4000-8000-000000000001', 'a1111111-0000-4000-8000-000000000001', 5, '09:00', '10:00', '2026-01-01')$$,
-  '23503', 'composite FK: a schedule cannot reference another tenant''s practitioner (even bypassing RLS)');
+  'P0002', 'reference trigger rejects another tenant''s practitioner even for superuser -> P0002');
+alter table appointment.schedules disable trigger schedules_refs;
+select tests.throws_ok(
+  $$insert into appointment.schedules (tenant_id, practitioner_id, branch_id, weekday, start_time, end_time, valid_from)
+    values ('11111111-1111-4111-8111-111111111111', 'c2222222-0000-4000-8000-000000000001', 'a1111111-0000-4000-8000-000000000001', 5, '09:00', '10:00', '2026-01-01')$$,
+  '23503', 'backstop: with the trigger disabled the composite FK still rejects it -> 23503');
+alter table appointment.schedules enable trigger schedules_refs;
 
 -- ---------- booking ----------
 select tests.authenticate_as('reception@alpha.example');
@@ -94,22 +111,22 @@ select tests.throws_ok(
   $$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at)
     values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'c1111111-0000-4000-8000-000000000002',
             'bb000000-0000-4000-8000-000000000001', '2030-01-09 10:00+05:30', '2030-01-09 10:30+05:30')$$,
-  '23503', 'cross-tenant: Alpha booking for a Beta patient -> 23503');
+  'P0002', 'cross-tenant: Alpha booking for a Beta patient -> P0002');
 select tests.throws_ok(
   $$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at)
     values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'c2222222-0000-4000-8000-000000000001',
             'aa000000-0000-4000-8000-000000000004', '2030-01-09 10:00+05:30', '2030-01-09 10:30+05:30')$$,
-  '23503', 'cross-tenant: Alpha booking with a Beta practitioner -> 23503');
+  'P0002', 'cross-tenant: Alpha booking with a Beta practitioner -> P0002 (was 23503)');
 select tests.throws_ok(
   $$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at)
     values ('11111111-1111-4111-8111-111111111111', 'b2222222-0000-4000-8000-000000000001', 'c1111111-0000-4000-8000-000000000002',
             'aa000000-0000-4000-8000-000000000004', '2030-01-09 10:00+05:30', '2030-01-09 10:30+05:30')$$,
-  '42501', 'cross-tenant: Alpha booking at a Beta branch -> 42501');
+  'P0002', 'cross-tenant: Alpha booking at a Beta branch -> P0002 (was 42501)');
 select tests.throws_ok(
   $$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at)
     values ('22222222-2222-4222-8222-222222222222', 'b2222222-0000-4000-8000-000000000001', 'c2222222-0000-4000-8000-000000000001',
             'bb000000-0000-4000-8000-000000000001', '2030-01-09 10:00+05:30', '2030-01-09 10:30+05:30')$$,
-  '42501', 'cross-tenant: Alpha reception cannot book inside Beta (all-Beta row) -> 42501');
+  'P0002', 'cross-tenant: Alpha reception booking inside Beta (all-Beta row) -> P0002 (was 42501)');
 select tests.throws_ok(
   $$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at)
     values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000002', 'c1111111-0000-4000-8000-000000000001',
@@ -122,7 +139,26 @@ select tests.throws_ok(
   $$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at)
     values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'c1111111-0000-4000-8000-000000000002',
             'aa000000-0000-4000-8000-000000000003', '2030-01-09 10:00+05:30', '2030-01-09 10:30+05:30')$$,
-  '23503', 'booking a soft-deleted patient -> 23503');
+  'P0002', 'booking a soft-deleted patient -> P0002 (was 23503)');
+select tests.throws_ok(
+  $$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at)
+    values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', gen_random_uuid(),
+            'aa000000-0000-4000-8000-000000000004', '2030-01-09 10:00+05:30', '2030-01-09 10:30+05:30')$$,
+  'P0002', 'booking an unknown practitioner -> P0002');
+select tests.authenticate_as('lab@alpha.example');
+select tests.throws_ok(
+  $$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at)
+    values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'c1111111-0000-4000-8000-000000000002',
+            'aa000000-0000-4000-8000-000000000004', '2030-01-09 10:00+05:30', '2030-01-09 10:30+05:30')$$,
+  '42501', 'same-tenant lab technician booking -> 42501 (RLS)');
+select tests.as_superuser();
+alter table appointment.appointments disable trigger appointments_status_machine;
+select tests.throws_ok(
+  $$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at)
+    values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'c2222222-0000-4000-8000-000000000001',
+            'aa000000-0000-4000-8000-000000000004', '2030-01-09 10:00+05:30', '2030-01-09 10:30+05:30')$$,
+  '23503', 'backstop: with the trigger disabled the composite FK rejects a Beta practitioner -> 23503');
+alter table appointment.appointments enable trigger appointments_status_machine;
 select tests.as_superuser();
 select tests.throws_ok(
   $$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at, status)
@@ -161,6 +197,9 @@ select tests.throws_ok(
 select tests.throws_ok(
   $$update appointment.appointments set status = 'completed' where id = 'e1111111-0000-4000-8000-0000000000a1'$$,
   '23514', 'booked -> completed -> 23514');
+select tests.throws_ok(
+  $$update appointment.appointments set practitioner_id = 'c2222222-0000-4000-8000-000000000001' where id = 'e1111111-0000-4000-8000-0000000000a1'$$,
+  'P0002', 'cross-tenant: re-assigning to a Beta practitioner -> P0002 (was 23503)');
 update appointment.appointments set starts_at = '2030-01-08 12:00+05:30', ends_at = '2030-01-08 12:30+05:30'
 where id = 'e1111111-0000-4000-8000-0000000000a1';
 select tests.ok(
@@ -250,10 +289,18 @@ select tests.throws_ok(
   '42501', 'reception (Main only) asking for Alpha East slots -> 42501');
 select tests.throws_ok(
   $$select * from appointment.available_slots('22222222-2222-4222-8222-222222222222', 'b2222222-0000-4000-8000-000000000001', '2030-01-07', '2030-01-07')$$,
-  '42501', 'cross-tenant: Alpha reception asking for Beta slots -> 42501');
+  'P0002', 'cross-tenant: Alpha reception asking for Beta slots -> P0002 (was 42501)');
 select tests.throws_ok(
   $$select * from appointment.available_slots('11111111-1111-4111-8111-111111111111', 'b2222222-0000-4000-8000-000000000001', '2030-01-07', '2030-01-07')$$,
-  '42501', 'cross-tenant: Alpha tenant id with a Beta branch id -> 42501');
+  'P0002', 'cross-tenant: Alpha tenant id with a Beta branch id -> P0002 (was 42501)');
+select tests.throws_ok(
+  $$select * from appointment.available_slots('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', '2030-01-07', '2030-01-07',
+      'c2222222-0000-4000-8000-000000000001')$$,
+  'P0002', 'cross-tenant: Beta practitioner filter on Alpha slots -> P0002');
+select tests.authenticate_as('outsider@example.test');
+select tests.throws_ok(
+  $$select * from appointment.available_slots('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', '2030-01-07', '2030-01-07')$$,
+  'P0002', 'user with no membership -> P0002');
 
 -- ---------- practitioner deletion ----------
 select tests.authenticate_as('admin@alpha.example');
