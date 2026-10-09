@@ -25,7 +25,7 @@ export function Sideblock({
     <BreakpointProvider>
       <SidebarProvider>
         <Header start={headerStart} end={headerEnd} />
-        <main id="main-content" tabIndex={-1} className="main-content transition-content grid grid-cols-1 outline-hidden">
+        <main id="main-content" tabIndex={-1} className="main-content transition-content grid grid-cols-1 content-start outline-hidden">
           {children}
         </main>
         <Sidebar navigation={navigation} appName={appName} />

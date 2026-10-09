@@ -91,13 +91,20 @@ export function normalizePatientCriteria(input: string | PatientSearchCriteria):
  * are PHI and must never appear in a URL); no criteria pages through GET /api/v1/patients.
  * Callers debounce.
  */
-export function usePatients(input: string | PatientSearchCriteria, { enabled = true }: { enabled?: boolean } = {}) {
+export const PATIENT_PAGE_SIZE = 25
+
+export function usePatients(
+  input: string | PatientSearchCriteria,
+  { enabled = true, page = 1 }: { enabled?: boolean; page?: number } = {},
+) {
   const criteria = normalizePatientCriteria(input)
   // includeDeleted alone still needs the POST search route (GET /patients never returns deleted rows).
   const hasCriteria = Object.keys(criteria).length > 0
+  // Page 1 keeps the original request/key shape; later pages add `page` (server-side paging).
+  const paging = page > 1 ? { page, pageSize: PATIENT_PAGE_SIZE } : { pageSize: PATIENT_PAGE_SIZE }
   return useQuery({
-    queryKey: queryKeys.patients(criteria),
-    queryFn: () => (hasCriteria ? apiClient.patients.search({ ...criteria, pageSize: 25 }) : apiClient.patients.list({ pageSize: 25 })),
+    queryKey: page > 1 ? ([...queryKeys.patients(criteria), { page }] as const) : queryKeys.patients(criteria),
+    queryFn: () => (hasCriteria ? apiClient.patients.search({ ...criteria, ...paging }) : apiClient.patients.list(paging)),
     retry: false,
     enabled,
     // Keep the last results on screen (dimmed) while the next search runs, instead of blanking.
