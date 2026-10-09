@@ -1,13 +1,23 @@
 namespace Hms.SharedKernel.Time;
 
 /// <summary>
-/// Branch-local calendar helpers. Branch time zones are IANA ids (identity.branches.timezone);
-/// an unknown/invalid id falls back to UTC.
+/// Branch-local calendar helpers. Zones are IANA ids: the branch override or the tenant zone
+/// (ITenantContext.TimeZoneFor). There is no fallback: a missing or unknown zone throws
+/// (DB review S7) instead of silently computing "today" in some other zone.
 /// </summary>
 public static class BranchTime
 {
-    public static TimeZoneInfo Zone(string? ianaTimeZone) =>
-        !string.IsNullOrWhiteSpace(ianaTimeZone) && TimeZoneInfo.TryFindSystemTimeZoneById(ianaTimeZone, out var tz) ? tz : TimeZoneInfo.Utc;
+    public static TimeZoneInfo Zone(string? ianaTimeZone)
+    {
+        if (string.IsNullOrWhiteSpace(ianaTimeZone))
+        {
+            throw new MissingTimeZoneException();
+        }
+
+        return TimeZoneInfo.TryFindSystemTimeZoneById(TenantTimeZones.Canonicalize(ianaTimeZone)!, out var tz)
+            ? tz
+            : throw new InvalidOperationException($"Unknown IANA time zone '{ianaTimeZone}'.");
+    }
 
     /// <summary>"Today" in the branch's time zone.</summary>
     public static DateOnly Today(TimeProvider timeProvider, string? ianaTimeZone) => LocalDate(timeProvider.GetUtcNow(), ianaTimeZone);

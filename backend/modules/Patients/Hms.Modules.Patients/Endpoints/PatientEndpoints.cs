@@ -212,7 +212,7 @@ public static class PatientEndpoints
             return HmsProblems.Forbidden();
         }
 
-        tenant.BranchTimeZones.TryGetValue(request.RegisteredBranchId, out var branchTimeZone);
+        var branchTimeZone = tenant.TimeZoneFor(request.RegisteredBranchId);
         var errors = CreatePatientValidator.Validate(request, BranchClock.Today(timeProvider, branchTimeZone));
         if (errors.Count > 0)
         {
@@ -314,7 +314,7 @@ public static class PatientEndpoints
             patch.Phone.Or(patient.Phone),
             patch.Email.Or(patient.Email));
 
-        tenant.BranchTimeZones.TryGetValue(targetBranch, out var branchTimeZone);
+        var branchTimeZone = tenant.TimeZoneFor(targetBranch);
         errors = CreatePatientValidator.Validate(merged, BranchClock.Today(timeProvider, branchTimeZone));
         errors.Remove("mrn"); // legacy rows may predate the MRN rule; the MRN is immutable here anyway
         if (errors.Count > 0)

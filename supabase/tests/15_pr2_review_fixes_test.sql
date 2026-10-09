@@ -5,7 +5,7 @@ begin;
 
 select tests.as_superuser();
 create temporary table t_ctx on commit drop as
-  select (now() at time zone b.timezone)::date as today, b.timezone as tz
+  select identity.branch_local_date_v1(b.id) as today, identity.branch_time_zone_v1(b.id) as tz
   from identity.branches b where b.id = 'a1111111-0000-4000-8000-000000000001';
 grant select on t_ctx to public;
 

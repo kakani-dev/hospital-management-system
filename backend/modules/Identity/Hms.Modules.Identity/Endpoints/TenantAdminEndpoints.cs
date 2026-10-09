@@ -3,6 +3,7 @@ using Hms.Modules.Identity.Persistence;
 using Hms.SharedKernel.Http;
 using Hms.SharedKernel.Persistence;
 using Hms.SharedKernel.Tenancy;
+using Hms.SharedKernel.Time;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -24,11 +25,18 @@ public static class TenantAdminEndpoints
         branches.MapGet("/", ListBranchesAsync).WithName("ListBranches");
         branches.MapPost("/", CreateBranchAsync).WithName("CreateBranch");
         branches.MapPatch("/{id:guid}", UpdateBranchAsync).WithName("UpdateBranch");
+        branches.MapDelete("/{id:guid}", DeleteBranchAsync).WithName("DeleteBranch")
+            .WithSummary("Soft delete (identity.soft_delete_branch). 409 for the last branch or one with open appointments/queue entries.");
+        branches.MapPost("/{id:guid}/restore", RestoreBranchAsync).WithName("RestoreBranch")
+            .WithSummary("Restore a soft-deleted branch (comes back inactive).");
 
         var members = api.MapGroup("/members").WithTags("Tenant admin").RequireTenant().WithDbTransaction<IdentityDbContext>();
         members.MapGet("/", ListMembersAsync).WithName("ListMembers");
         members.MapPost("/", AddMemberAsync).WithName("AddMember");
         members.MapPatch("/{id:guid}", UpdateMemberAsync).WithName("UpdateMember");
+        members.MapDelete("/{id:guid}", DeleteMemberAsync).WithName("DeleteMember")
+            .WithSummary("Soft delete (identity.soft_delete_membership): the membership grants nothing afterwards.");
+        members.MapPost("/{id:guid}/restore", RestoreMemberAsync).WithName("RestoreMember");
 
         return api;
     }
@@ -36,17 +44,65 @@ public static class TenantAdminEndpoints
     private static ProblemHttpResult AdminOnly() =>
         TypedResults.Problem(title: "Forbidden", detail: "Only tenant admins can manage branches and members.", statusCode: StatusCodes.Status403Forbidden);
 
-    private static BranchDto ToDto(Branch b) => new(b.Id, b.Code, b.Name, b.Timezone, b.IsActive);
+    private static BranchDto ToDto(Branch b, string tenantZone) =>
+        new(b.Id, b.Code, b.Name, TenantTimeZones.Effective(b.Timezone, tenantZone), b.IsActive, b.Timezone, b.IsDeleted);
 
-    // Any member may list branches of their tenant (needed for forms); admins see inactive ones too.
-    private static async Task<Ok<List<BranchDto>>> ListBranchesAsync(IdentityDbContext db, ITenantContext tenant, CancellationToken ct)
+    // Any member may list branches of their tenant (needed for forms); admins see inactive ones too,
+    // and deleted ones with ?includeDeleted=true (to restore them).
+    private static async Task<Ok<List<BranchDto>>> ListBranchesAsync(IdentityDbContext db, ITenantContext tenant, bool? includeDeleted, CancellationToken ct)
     {
         var isAdmin = tenant.HasAnyRole(HmsRoles.TenantAdmin);
-        var rows = await db.Branches.AsNoTracking()
+        var query = db.Branches.AsNoTracking();
+        if (isAdmin && includeDeleted == true)
+        {
+            query = query.IgnoreQueryFilters();
+        }
+
+        var rows = await query
             .Where(b => b.TenantId == tenant.TenantId && (isAdmin || b.IsActive))
             .OrderBy(b => b.Name)
             .ToListAsync(ct);
-        return TypedResults.Ok(rows.Select(ToDto).ToList());
+        var zone = await TenantZoneAsync(db, tenant, ct);
+        return TypedResults.Ok(rows.Select(b => ToDto(b, zone)).ToList());
+    }
+
+    private static async Task<string> TenantZoneAsync(IdentityDbContext db, ITenantContext tenant, CancellationToken ct) =>
+        await db.Tenants.AsNoTracking().Where(t => t.Id == tenant.TenantId).Select(t => t.TimeZone).FirstOrDefaultAsync(ct)
+        ?? tenant.TenantTimeZone;
+
+    private static async Task<Results<NoContent, ProblemHttpResult>> DeleteBranchAsync(Guid id, IdentityDbContext db, ITenantContext tenant, CancellationToken ct) =>
+        await SoftDeleteAsync(db, tenant, "select identity.soft_delete_branch(@id)", id, "Only tenant admins can manage branches and members.", ct);
+
+    private static async Task<Results<NoContent, ProblemHttpResult>> RestoreBranchAsync(Guid id, IdentityDbContext db, ITenantContext tenant, CancellationToken ct) =>
+        await SoftDeleteAsync(db, tenant, "select identity.restore_branch(@id)", id, "Only tenant admins can manage branches and members.", ct);
+
+    private static async Task<Results<NoContent, ProblemHttpResult>> DeleteMemberAsync(Guid id, IdentityDbContext db, ITenantContext tenant, CancellationToken ct) =>
+        await SoftDeleteAsync(db, tenant, "select identity.soft_delete_membership(@id)", id, "Only tenant admins can manage branches and members.", ct);
+
+    private static async Task<Results<NoContent, ProblemHttpResult>> RestoreMemberAsync(Guid id, IdentityDbContext db, ITenantContext tenant, CancellationToken ct) =>
+        await SoftDeleteAsync(db, tenant, "select identity.restore_membership(@id)", id, "Only tenant admins can manage branches and members.", ct);
+
+    /// <summary>
+    /// Soft delete / restore through the SQL functions (they own is_deleted). The DB decides
+    /// 404 (unknown / other tenant / wrong state), 403 (not admin) and 409 (business conflict).
+    /// </summary>
+    internal static async Task<Results<NoContent, ProblemHttpResult>> SoftDeleteAsync(
+        DbContext db, ITenantContext tenant, string sql, Guid id, string forbiddenDetail, CancellationToken ct)
+    {
+        if (!tenant.HasAnyRole(HmsRoles.TenantAdmin))
+        {
+            return HmsProblems.Forbidden(forbiddenDetail);
+        }
+
+        try
+        {
+            await RawSql.ScalarAsync(db, sql, ct, ("id", id));
+            return TypedResults.NoContent();
+        }
+        catch (Exception ex) when (HmsProblems.FromDatabase(ex, uniqueDetail: "A live record with the same key already exists.") is { } problem)
+        {
+            return problem;
+        }
     }
 
     private static async Task<Results<Created<BranchDto>, ValidationProblem, ProblemHttpResult>> CreateBranchAsync(
@@ -69,7 +125,8 @@ public static class TenantAdminEndpoints
         }
 
         // TenantId is set by TenantSaveChangesInterceptor; RLS (branches_insert_admin) re-checks it.
-        var branch = new Branch { Code = request.Code!, Name = request.Name!.Trim(), Timezone = request.Timezone ?? "Asia/Kolkata" };
+        // Timezone null = inherit the tenant zone (no override).
+        var branch = new Branch { Code = request.Code!, Name = request.Name!.Trim(), Timezone = TenantTimeZones.Canonicalize(request.Timezone) };
         db.Branches.Add(branch);
         try
         {
@@ -80,7 +137,7 @@ public static class TenantAdminEndpoints
             return problem;
         }
 
-        return TypedResults.Created($"/api/v1/branches/{branch.Id}", ToDto(branch));
+        return TypedResults.Created($"/api/v1/branches/{branch.Id}", ToDto(branch, await TenantZoneAsync(db, tenant, ct)));
     }
 
     private static async Task<Results<Ok<BranchDto>, NotFound, ValidationProblem, ProblemHttpResult>> UpdateBranchAsync(
@@ -109,9 +166,13 @@ public static class TenantAdminEndpoints
             branch.Name = request.Name.Trim();
         }
 
-        if (request.Timezone is not null)
+        if (request.InheritTimezone == true)
         {
-            branch.Timezone = request.Timezone;
+            branch.Timezone = null;
+        }
+        else if (request.Timezone is not null)
+        {
+            branch.Timezone = TenantTimeZones.Canonicalize(request.Timezone);
         }
 
         if (request.IsActive is { } active)
@@ -119,8 +180,17 @@ public static class TenantAdminEndpoints
             branch.IsActive = active;
         }
 
-        await db.SaveChangesAsync(ct);
-        return TypedResults.Ok(ToDto(branch));
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (Exception ex) when (HmsProblems.FromDatabase(ex) is { } problem)
+        {
+            // 55000 time_zone_locked: today's queue at this branch already has entries -> 409
+            return problem;
+        }
+
+        return TypedResults.Ok(ToDto(branch, await TenantZoneAsync(db, tenant, ct)));
     }
 
     private static async Task<Results<Ok<List<MemberDto>>, ProblemHttpResult>> ListMembersAsync(

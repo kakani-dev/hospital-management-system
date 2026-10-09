@@ -27,18 +27,23 @@ public sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> option
         {
             e.ToTable("tenants");
             e.HasIndex(x => x.Code).IsUnique();
+            e.HasQueryFilter(x => !x.IsDeleted);
         });
 
         modelBuilder.Entity<Branch>(e =>
         {
             e.ToTable("branches");
             e.HasIndex(x => new { x.TenantId, x.Code }).IsUnique();
+            // soft-deleted branches are invisible unless a query opts out (admin includeDeleted)
+            e.HasQueryFilter(x => !x.IsDeleted);
         });
 
         modelBuilder.Entity<Membership>(e =>
         {
             e.ToTable("memberships");
             e.HasIndex(x => new { x.UserId, x.TenantId });
+            // a soft-deleted membership grants nothing (the RLS helpers agree)
+            e.HasQueryFilter(x => !x.IsDeleted);
         });
 
         modelBuilder.Entity<UserProfile>(e => e.ToTable("user_profiles"));

@@ -32,6 +32,67 @@ public static partial class IdentityValidators
         return errors;
     }
 
+    public static Dictionary<string, string[]> Validate(UpdateTenantRequest r)
+    {
+        var errors = new Dictionary<string, string[]>();
+        if (r.Name is null && r.TimeZone is null)
+        {
+            errors["request"] = ["Provide name and/or timeZone."];
+        }
+
+        if (r.Name is not null)
+        {
+            ValidateName(r.Name, errors, required: true);
+        }
+
+        ValidateTimezone(r.TimeZone, errors, "timeZone");
+        return errors;
+    }
+
+    public static Dictionary<string, string[]> Validate(CreateTenantRequest r)
+    {
+        var errors = new Dictionary<string, string[]>();
+        if (r.Code is null || !CodePattern().IsMatch(r.Code))
+        {
+            errors["code"] = ["Code must be 2-40 lowercase letters, digits or hyphens, starting with a letter or digit."];
+        }
+
+        ValidateName(r.Name, errors, required: true);
+        if (string.IsNullOrWhiteSpace(r.TimeZone))
+        {
+            errors["timeZone"] = ["A time zone is required (IANA id, e.g. Asia/Kolkata)."];
+        }
+        else
+        {
+            ValidateTimezone(r.TimeZone, errors, "timeZone");
+        }
+
+        if (r.AdminEmail is not null && (!r.AdminEmail.Contains('@', StringComparison.Ordinal) || r.AdminEmail.Length > 254))
+        {
+            errors["adminEmail"] = ["adminEmail must be a valid email."];
+        }
+
+        if (r.BranchCode is not null && !CodePattern().IsMatch(r.BranchCode))
+        {
+            errors["branchCode"] = ["Branch code must be 2-40 lowercase letters, digits or hyphens."];
+        }
+
+        if (r.BranchName is not null)
+        {
+            var branchErrors = new Dictionary<string, string[]>();
+            ValidateName(r.BranchName, branchErrors, required: true);
+            if (branchErrors.Count > 0)
+            {
+                errors["branchName"] = branchErrors["name"];
+            }
+        }
+
+        return errors;
+    }
+
+    /// <summary>True for an IANA id this runtime knows (the database re-checks against pg_timezone_names).</summary>
+    public static bool IsIanaTimeZone(string? timezone) => Hms.SharedKernel.Time.TenantTimeZones.IsValidIana(timezone);
+
     public static Dictionary<string, string[]> Validate(AddMemberRequest r)
     {
         var errors = new Dictionary<string, string[]>();
@@ -85,14 +146,11 @@ public static partial class IdentityValidators
         }
     }
 
-    private static void ValidateTimezone(string? timezone, Dictionary<string, string[]> errors)
+    private static void ValidateTimezone(string? timezone, Dictionary<string, string[]> errors, string field = "timezone")
     {
-        // HasIanaId: on ICU runtimes Windows ids ("India Standard Time") resolve too, but PostgreSQL
-        // AT TIME ZONE only understands IANA names, and the stored value must round-trip there.
-        if (timezone is not null
-            && !(TimeZoneInfo.TryFindSystemTimeZoneById(timezone, out var tz) && tz.HasIanaId && string.Equals(tz.Id, timezone, StringComparison.Ordinal)))
+        if (timezone is not null && !IsIanaTimeZone(timezone))
         {
-            errors["timezone"] = ["Unknown IANA timezone."];
+            errors[field] = ["Unknown IANA timezone."];
         }
     }
 

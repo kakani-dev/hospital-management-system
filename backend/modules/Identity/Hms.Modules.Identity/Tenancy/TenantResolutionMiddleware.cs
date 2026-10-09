@@ -62,7 +62,7 @@ public sealed partial class TenantResolutionMiddleware(RequestDelegate next, ILo
             return;
         }
 
-        tenantContext.Resolve(tenantId, userId, branchId, grant.Roles, grant.AccessibleBranchIds, grant.RolesByBranch, grant.BranchTimeZones);
+        tenantContext.Resolve(tenantId, userId, branchId, grant.Roles, grant.AccessibleBranchIds, grant.RolesByBranch, grant.BranchTimeZones, grant.TenantTimeZone);
         dbSession.SetTenant(tenantId, branchId);
 
         // Tell the client which tenant the server acted in (review M3 option b). OnStarting so the

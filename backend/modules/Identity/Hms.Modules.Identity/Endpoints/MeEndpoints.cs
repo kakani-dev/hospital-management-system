@@ -2,6 +2,7 @@ using Hms.Modules.Identity.Persistence;
 using Hms.SharedKernel.Http;
 using Hms.SharedKernel.Persistence;
 using Hms.SharedKernel.Tenancy;
+using Hms.SharedKernel.Time;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -50,6 +51,22 @@ public static class MeEndpoints
             .WithTags("Identity")
             .WithName("GetCurrentTenant");
 
+        api.MapPatch("/tenants/current", UpdateCurrentTenantAsync)
+            .RequireTenant()
+            .WithDbTransaction<IdentityDbContext>()
+            .WithTags("Identity")
+            .WithName("UpdateCurrentTenant")
+            .WithSummary("Tenant settings (tenant_admin): name and the REQUIRED IANA time zone. 409 time_zone_locked while today's queue has entries.");
+
+        // Platform-level: no tenant is resolved (the caller is not a member of the new tenant).
+        // identity.create_tenant() itself enforces platform-admin (42501 -> 403).
+        api.MapPost("/platform/tenants", CreateTenantAsync)
+            .RequireAuthorization()
+            .WithDbTransaction<IdentityDbContext>()
+            .WithTags("Platform")
+            .WithName("CreateTenant")
+            .WithSummary("Create a tenant with its required time zone and a default branch; invites the admin email if that account exists.");
+
         return api;
     }
 
@@ -71,11 +88,12 @@ public static class MeEndpoints
         if (tenant.IsResolved)
         {
             var ids = tenant.AccessibleBranchIds.ToList();
-            branches = await db.Branches.AsNoTracking()
+            var rows = await db.Branches.AsNoTracking()
                 .Where(b => ids.Contains(b.Id))
                 .OrderBy(b => b.Name)
-                .Select(b => new BranchOptionDto(b.Id, b.Name))
+                .Select(b => new { b.Id, b.Name })
                 .ToListAsync(ct);
+            branches = [.. rows.Select(b => new BranchOptionDto(b.Id, b.Name, tenant.TimeZoneFor(b.Id)))];
         }
 
         return TypedResults.Ok(new CurrentUserDto(
@@ -85,7 +103,9 @@ public static class MeEndpoints
             tenant.IsResolved ? tenant.BranchId : null,
             tenant.IsResolved ? [.. tenant.Roles.Order(StringComparer.Ordinal)] : [],
             branches,
-            memberships));
+            memberships,
+            // effective zone of the active branch (else the tenant zone): what "today" means for this user
+            tenant.IsResolved ? tenant.TimeZoneFor(tenant.BranchId) : null));
     }
 
     private static async Task<Results<NoContent, ProblemHttpResult>> SwitchContextAsync(
@@ -141,6 +161,85 @@ public static class MeEndpoints
         var row = await db.Tenants.AsNoTracking().SingleOrDefaultAsync(t => t.Id == tenant.TenantId, ct);
         return row is null
             ? TypedResults.NotFound()
-            : TypedResults.Ok(new CurrentTenantDto(row.Id, row.Code, row.Name, tenant.BranchId, [.. tenant.Roles.Order(StringComparer.Ordinal)]));
+            : TypedResults.Ok(new CurrentTenantDto(row.Id, row.Code, row.Name, tenant.BranchId, [.. tenant.Roles.Order(StringComparer.Ordinal)], row.TimeZone));
+    }
+
+    private static async Task<Results<Ok<CurrentTenantDto>, NotFound, ValidationProblem, ProblemHttpResult>> UpdateCurrentTenantAsync(
+        UpdateTenantRequest request, IdentityDbContext db, ITenantContext tenant, CancellationToken ct)
+    {
+        if (!tenant.HasAnyRole(HmsRoles.TenantAdmin))
+        {
+            return HmsProblems.Forbidden("Only tenant admins can change hospital settings.");
+        }
+
+        var errors = IdentityValidators.Validate(request);
+        if (errors.Count > 0)
+        {
+            return TypedResults.ValidationProblem(errors);
+        }
+
+        var row = await db.Tenants.SingleOrDefaultAsync(t => t.Id == tenant.TenantId, ct);
+        if (row is null)
+        {
+            return TypedResults.NotFound();
+        }
+
+        if (request.Name is not null)
+        {
+            row.Name = request.Name.Trim();
+        }
+
+        if (request.TimeZone is not null)
+        {
+            row.TimeZone = TenantTimeZones.Canonicalize(request.TimeZone)!; // Asia/Calcutta -> Asia/Kolkata
+        }
+
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (Exception ex) when (HmsProblems.FindDbError(ex)?.SqlState == HmsProblems.SqlStates.ObjectNotInPrerequisiteState)
+        {
+            return HmsProblems.Conflict("time_zone_locked", "Today's queue already has entries in a branch that follows the hospital time zone; change it after the day closes.");
+        }
+        catch (Exception ex) when (HmsProblems.FromDatabase(ex) is { } problem)
+        {
+            return problem;
+        }
+
+        return TypedResults.Ok(new CurrentTenantDto(row.Id, row.Code, row.Name, tenant.BranchId, [.. tenant.Roles.Order(StringComparer.Ordinal)], row.TimeZone));
+    }
+
+    private static async Task<Results<Created<TenantDto>, ValidationProblem, ProblemHttpResult>> CreateTenantAsync(
+        CreateTenantRequest request, IdentityDbContext db, CancellationToken ct)
+    {
+        var errors = IdentityValidators.Validate(request);
+        if (errors.Count > 0)
+        {
+            return TypedResults.ValidationProblem(errors);
+        }
+
+        try
+        {
+            var id = (Guid)(await RawSql.ScalarAsync(
+                db,
+                "select identity.create_tenant(@code::text, @name::text, @zone::text, @email::text, coalesce(@branch_code::text, 'main'), coalesce(@branch_name::text, 'Main'))",
+                ct,
+                ("code", request.Code),
+                ("name", request.Name!.Trim()),
+                ("zone", TenantTimeZones.Canonicalize(request.TimeZone)),
+                ("email", request.AdminEmail?.Trim()),
+                ("branch_code", request.BranchCode),
+                ("branch_name", request.BranchName?.Trim())))!;
+            return TypedResults.Created($"/api/v1/platform/tenants/{id}", new TenantDto(id, request.Code!, request.Name.Trim(), TenantTimeZones.Canonicalize(request.TimeZone)!));
+        }
+        catch (Exception ex) when (HmsProblems.FindDbError(ex)?.SqlState == HmsProblems.SqlStates.InsufficientPrivilege)
+        {
+            return HmsProblems.Forbidden("Only platform administrators can create hospitals.");
+        }
+        catch (Exception ex) when (HmsProblems.FromDatabase(ex, uniqueDetail: "A hospital with this code already exists.") is { } problem)
+        {
+            return problem;
+        }
     }
 }

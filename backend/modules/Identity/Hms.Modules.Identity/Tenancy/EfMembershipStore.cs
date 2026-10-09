@@ -34,9 +34,11 @@ internal sealed class EfMembershipStore(IdentityDbContext db) : IMembershipStore
 
     private async Task<MembershipGrant?> FindGrantCoreAsync(Guid userId, Guid tenantId, Guid? branchId, CancellationToken cancellationToken)
     {
-        var tenantActive = await db.Tenants.AsNoTracking()
-            .AnyAsync(t => t.Id == tenantId && t.Status == TenantStatus.Active, cancellationToken);
-        if (!tenantActive)
+        var tenantZone = await db.Tenants.AsNoTracking()
+            .Where(t => t.Id == tenantId && t.Status == TenantStatus.Active)
+            .Select(t => t.TimeZone)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (tenantZone is null)
         {
             return null;
         }
@@ -86,9 +88,10 @@ internal sealed class EfMembershipStore(IdentityDbContext db) : IMembershipStore
             .Distinct(StringComparer.Ordinal)
             .ToList();
 
-        var timeZones = tenantBranches.Where(b => rolesByBranch.ContainsKey(b.Id)).ToDictionary(b => b.Id, b => b.Timezone);
+        // Effective zone: branch override, else the tenant zone (identity.branch_time_zone()).
+        var timeZones = tenantBranches.Where(b => rolesByBranch.ContainsKey(b.Id)).ToDictionary(b => b.Id, b => Hms.SharedKernel.Time.TenantTimeZones.Effective(b.Timezone, tenantZone));
 
-        return new MembershipGrant(roles, accessible, rolesByBranch, timeZones);
+        return new MembershipGrant(roles, accessible, rolesByBranch, timeZones, tenantZone);
     }
 
     private async Task<T?> InTransactionAsync<T>(Func<CancellationToken, Task<T?>> work, CancellationToken ct)

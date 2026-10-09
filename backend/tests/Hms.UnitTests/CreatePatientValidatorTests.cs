@@ -78,10 +78,11 @@ public class CreatePatientValidatorTests
     [InlineData(null)]
     [InlineData("")]
     [InlineData("Mars/Olympus")]
-    public void Unknown_branch_time_zone_falls_back_to_utc(string? tz)
+    public void Missing_or_unknown_branch_time_zone_fails_loudly(string? tz)
     {
+        // DB review S7: never silently compute "today" in UTC (that was the original bug).
         var clock = new FixedClock(new DateTimeOffset(2026, 10, 6, 20, 0, 0, TimeSpan.Zero));
-        Assert.Equal(new DateOnly(2026, 10, 6), BranchClock.Today(clock, tz));
+        Assert.ThrowsAny<InvalidOperationException>(() => BranchClock.Today(clock, tz));
     }
 }
 

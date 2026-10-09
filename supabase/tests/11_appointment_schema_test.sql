@@ -79,7 +79,7 @@ insert into appointment.appointments (id, tenant_id, branch_id, practitioner_id,
 values ('e1111111-0000-4000-8000-0000000000a1', '11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001',
         'c1111111-0000-4000-8000-000000000002', 'aa000000-0000-4000-8000-000000000002', '2030-01-08 10:00+05:30', '2030-01-08 10:30+05:30', 'Synthetic');
 select tests.ok(
-  (select status = 'booked' and created_at is not null and during = tstzrange(starts_at, ends_at, '[)')
+  (select status = 'booked' and created_on is not null and during = tstzrange(starts_at, ends_at, '[)')
    from appointment.appointments where id = 'e1111111-0000-4000-8000-0000000000a1'),
   'reception books an appointment: status booked, during generated');
 select tests.throws_ok(
@@ -305,14 +305,18 @@ select tests.throws_ok(
 -- ---------- practitioner deletion ----------
 select tests.authenticate_as('admin@alpha.example');
 select tests.throws_ok(
-  $$delete from appointment.practitioners where id = 'c1111111-0000-4000-8000-000000000002'$$,
-  '23503', 'deleting a practitioner with appointments -> 23503 (deactivate instead)');
+  $$delete from appointment.practitioners where id = 'c1111111-0000-4000-8000-0000000000ff'$$,
+  '42501', 'hard DELETE of practitioners is no longer granted (soft delete only)');
+select tests.throws_ok(
+  $$select appointment.soft_delete_practitioner('c1111111-0000-4000-8000-000000000002')$$,
+  '55000', 'soft-deleting a practitioner with open appointments -> 55000 (cancel them first)');
+select appointment.soft_delete_practitioner('c1111111-0000-4000-8000-0000000000ff');
 select tests.ok(
-  tests.affected_rows($$delete from appointment.practitioners where id = 'c1111111-0000-4000-8000-0000000000ff'$$) = 1,
-  'tenant_admin deletes a practitioner without appointments');
+  (select is_deleted and not is_active from appointment.practitioners where id = 'c1111111-0000-4000-8000-0000000000ff'),
+  'tenant_admin soft-deletes a practitioner without appointments');
 select tests.authenticate_as('admin@beta.example');
-select tests.ok(
-  tests.affected_rows($$delete from appointment.schedules where tenant_id = '11111111-1111-4111-8111-111111111111'$$) = 0,
-  'cross-tenant: Beta admin cannot delete Alpha schedules (0 rows)');
+select tests.throws_ok(
+  $$select appointment.soft_delete_schedule('d1111111-0000-4000-8000-000000000001')$$,
+  'P0002', 'cross-tenant: Beta admin cannot delete an Alpha schedule (not found)');
 
 rollback;

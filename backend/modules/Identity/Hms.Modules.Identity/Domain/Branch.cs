@@ -8,6 +8,7 @@ public sealed class Branch : AuditableEntity, ITenantOwned
     public Guid TenantId { get; set; }
     public required string Code { get; set; }
     public required string Name { get; set; }
-    public string Timezone { get; set; } = "Asia/Kolkata";
+    /// <summary>Optional IANA override of the tenant zone; null = inherit identity.tenants.time_zone.</summary>
+    public string? Timezone { get; set; }
     public bool IsActive { get; set; } = true;
 }

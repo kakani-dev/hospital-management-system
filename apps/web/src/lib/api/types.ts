@@ -78,6 +78,8 @@ export interface MembershipDto {
 export interface BranchOption {
   id: Guid
   name: string
+  /** Effective IANA zone of the branch (its override, else the tenant zone). */
+  timeZone?: string | null
 }
 
 export interface CurrentUser {
@@ -88,6 +90,8 @@ export interface CurrentUser {
   roles: string[]
   accessibleBranches: BranchOption[]
   memberships: MembershipDto[]
+  /** Effective zone of the active branch (else the tenant zone); null without a resolved tenant. */
+  timeZone?: string | null
 }
 
 export interface SwitchContextRequest {
@@ -99,19 +103,26 @@ export interface Branch {
   id: Guid
   code: string
   name: string
+  /** EFFECTIVE zone: the branch override, else the tenant's required zone. */
   timezone: string
   isActive: boolean
+  /** The branch's own override; null = inherits the tenant zone. */
+  timezoneOverride?: string | null
+  isDeleted?: boolean
 }
 
 export interface CreateBranchRequest {
   code: string
   name: string
-  timezone: string
+  /** Optional override; omit to inherit the tenant zone. */
+  timezone?: string
 }
 
 export interface UpdateBranchRequest {
   name?: string
   timezone?: string
+  /** true clears the override so the branch follows the tenant zone again. */
+  inheritTimezone?: boolean
   isActive?: boolean
 }
 
@@ -180,8 +191,8 @@ export interface UpdateMemberRequest {
 /** GET /api/v1/patients/{id} (PatientDetailDto). Deleted patients are 404 for everyone, admins included. */
 export interface PatientDetail extends PatientSummary {
   email: string | null
-  createdAt?: string
-  updatedAt?: string
+  createdOn?: string
+  updatedOn?: string
 }
 
 /**

@@ -286,7 +286,7 @@ public sealed class InProcessApiTests : IClassFixture<InProcessApiTests.ApiFacto
             var roles = map.Values.SelectMany(r => r).Distinct(StringComparer.Ordinal).ToList();
             var branches = map.Keys.ToList();
             return Task.FromResult<MembershipGrant?>(new MembershipGrant(
-                roles, branches, map, branches.ToDictionary(b => b, b => TimeZones[b])));
+                roles, branches, map, branches.ToDictionary(b => b, b => TimeZones[b]), "Asia/Kolkata"));
         }
 
         public Task<ActiveContext?> FindDefaultContextAsync(CancellationToken cancellationToken) =>

@@ -37,11 +37,11 @@ public sealed record SlotDto(Guid PractitionerId, Guid BranchId, DateTimeOffset 
 public sealed record AppointmentDto(
     Guid Id, Guid BranchId, Guid PractitionerId, Guid PatientId, DateTimeOffset StartsAt, DateTimeOffset EndsAt, string Status,
     string? Reason, string? CancelReason, DateTimeOffset? CheckedInAt, DateTimeOffset? StartedAt, DateTimeOffset? CompletedAt,
-    DateTimeOffset? CancelledAt, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, PatientRefDto? Patient)
+    DateTimeOffset? CancelledAt, DateTimeOffset CreatedOn, DateTimeOffset UpdatedOn, PatientRefDto? Patient)
 {
     public static AppointmentDto From(Appointment a, PatientRef? patient) => new(
         a.Id, a.BranchId, a.PractitionerId, a.PatientId, a.StartsAt.ToUniversalTime(), a.EndsAt.ToUniversalTime(), a.Status, a.Reason, a.CancelReason,
-        a.CheckedInAt, a.StartedAt, a.CompletedAt, a.CancelledAt, a.CreatedAt, a.UpdatedAt, PatientRefDto.From(patient));
+        a.CheckedInAt, a.StartedAt, a.CompletedAt, a.CancelledAt, a.CreatedOn, a.UpdatedOn, PatientRefDto.From(patient));
 }
 
 /// <summary>Embedded patient; null when the caller cannot read the patient (RLS) or it is soft-deleted.</summary>

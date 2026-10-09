@@ -58,7 +58,7 @@ public static class QueueEndpoints
             return await BranchScope.DenyAsync(db, tenant, branch, "You cannot view the queue of this branch.", ct);
         }
 
-        tenant.BranchTimeZones.TryGetValue(branch, out var tz);
+        var tz = tenant.TimeZoneFor(branch);
         var day = date ?? BranchTime.Today(clock, tz);
         var query = db.QueueEntries.AsNoTracking().Where(q => q.BranchId == branch && q.QueueDate == day);
         if (status is not null)

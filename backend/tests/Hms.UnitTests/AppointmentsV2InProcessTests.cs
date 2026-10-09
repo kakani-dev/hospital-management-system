@@ -37,7 +37,7 @@ public sealed class AppointmentsV2InProcessTests(ApiFactory factory) : IClassFix
         {
             Assert.Contains("LEFT JOIN", sql, StringComparison.Ordinal);
             Assert.Contains("FROM patient.patients", sql, StringComparison.Ordinal);
-            Assert.Contains("deleted_at IS NULL", sql, StringComparison.Ordinal);
+            Assert.Contains("NOT (p.is_deleted)", sql, StringComparison.Ordinal); // single predicate, matches the partial indexes
             Assert.DoesNotContain(";", sql.TrimEnd().TrimEnd(';'), StringComparison.Ordinal); // a single statement
         }
     }
@@ -64,7 +64,7 @@ public sealed class AppointmentsV2InProcessTests(ApiFactory factory) : IClassFix
             .Resolve(Alpha, Admin, null, [HmsRoles.TenantAdmin], [Main, East]);
         var db = scope.ServiceProvider.GetRequiredService<AppointmentsDbContext>();
         var live = new PatientRef { Id = Guid.NewGuid(), TenantId = Alpha, Mrn = "V2-LIVE", FirstName = "Asha", LastName = "Rao" };
-        var deleted = new PatientRef { Id = Guid.NewGuid(), TenantId = Alpha, Mrn = "V2-DEL", FirstName = "Old", LastName = "Gone", DeletedAt = Now };
+        var deleted = new PatientRef { Id = Guid.NewGuid(), TenantId = Alpha, Mrn = "V2-DEL", FirstName = "Old", LastName = "Gone", IsDeleted = true };
         db.Set<PatientRef>().AddRange(live, deleted);
         await db.SaveChangesAsync();
         return (live.Id, deleted.Id);
