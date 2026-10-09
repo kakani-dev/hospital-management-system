@@ -77,6 +77,9 @@ select tests.ok(
   identity.my_tenant_grant_v1('11111111-1111-4111-8111-111111111111') -> 'branches'
     @> '[{"id": "a1111111-0000-4000-8000-000000000001", "timezone": "Asia/Dubai"}]'::jsonb,
   'branches list the EFFECTIVE zone (tenant zone when the branch has no override)');
+select tests.ok(
+  identity.my_tenant_grant_v1('11111111-1111-4111-8111-111111111111') ->> 'tenant_time_zone' = 'Asia/Dubai',
+  'grant document carries the tenant zone');
 select tests.as_superuser();
 update identity.tenants set time_zone = 'Asia/Kolkata' where id = '11111111-1111-4111-8111-111111111111';
 update identity.branches set timezone = 'Asia/Kolkata' where id = 'a1111111-0000-4000-8000-000000000001';

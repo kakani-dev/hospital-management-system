@@ -34,7 +34,7 @@ Callers without a user (`service_role` jobs, triggers) skip the membership check
 
 Details:
 
-- `my_tenant_grant_v1` returns `{"memberships":[{"role","branch_id"}],"branches":[{"id","timezone"}]}`
+- `my_tenant_grant_v1` returns `{"tenant_time_zone","memberships":[{"role","branch_id"}],"branches":[{"id","timezone"}]}`
   for the caller's active, non-deleted memberships in an active, non-deleted tenant; `timezone` is the
   **effective** zone (branch override, else the tenant zone). `null` when there is no live membership.
 - `patient_summary_v1` returns only `id, tenant_id, mrn, first_name, last_name, is_deleted` (no phone,

@@ -28,7 +28,7 @@
 -- ---------------------------------------------------------------- identity ----
 -- The calling user's ACTIVE, non-deleted memberships in an ACTIVE, non-deleted tenant plus that
 -- tenant's live branches with their EFFECTIVE zone (branch override, else the tenant zone):
---   {"memberships":[{"role","branch_id"}],"branches":[{"id","timezone"}]}
+--   {"tenant_time_zone", "memberships":[{"role","branch_id"}],"branches":[{"id","timezone"}]}
 -- NULL when the tenant is not live or the caller has no live membership in it. Definer, but scoped
 -- to auth.uid() explicitly.
 create or replace function identity.my_tenant_grant_v1(p_tenant_id uuid)
@@ -46,6 +46,7 @@ as $$
                  where m.user_id = (select auth.uid()) and m.tenant_id = p_tenant_id
                    and m.status = 'active' and not m.is_deleted) then
       jsonb_build_object(
+        'tenant_time_zone', (select t.time_zone from identity.tenants t where t.id = p_tenant_id),
         'memberships', coalesce((
           select jsonb_agg(jsonb_build_object('role', m.role, 'branch_id', m.branch_id) order by m.role, m.branch_id)
           from identity.memberships m
