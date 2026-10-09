@@ -55,7 +55,7 @@ public static class QueueEndpoints
         var branch = branchId!.Value;
         if (!tenant.CanAccessBranch(branch))
         {
-            return HmsProblems.Forbidden("You cannot view the queue of this branch.");
+            return await BranchScope.DenyAsync(db, tenant, branch, "You cannot view the queue of this branch.", ct);
         }
 
         tenant.BranchTimeZones.TryGetValue(branch, out var tz);
@@ -96,7 +96,7 @@ public static class QueueEndpoints
 
         if (!tenant.HasRoleAtBranch(request.BranchId, AppointmentRoles.FrontDesk))
         {
-            return HmsProblems.Forbidden("You cannot check patients in at this branch.");
+            return await BranchScope.DenyAsync(db, tenant, request.BranchId, "You cannot check patients in at this branch.", ct);
         }
 
         IssuedToken token;
@@ -133,6 +133,17 @@ public static class QueueEndpoints
         var entry = await db.QueueEntries.AsNoTracking().SingleOrDefaultAsync(q => q.Id == id, ct);
         if (entry is null || !tenant.CanAccessBranch(entry.BranchId))
         {
+            // Not visible to us: let the DB tell foreign/unknown (P0002 -> 404) from same-tenant out of scope (42501 -> 403).
+            // The function is expected to raise here; any write is rolled back by the 4xx below.
+            try
+            {
+                await functions.SetQueueStatusAsync(id, request.Status, ct);
+            }
+            catch (Exception ex) when (HmsProblems.FromDatabase(ex) is { } scopeProblem)
+            {
+                return scopeProblem;
+            }
+
             return HmsProblems.NotFound("Queue entry not found.");
         }
 

@@ -164,7 +164,7 @@ public static class AppointmentEndpoints
 
         if (!tenant.HasRoleAtBranch(request.BranchId, AppointmentRoles.RegWrite))
         {
-            return HmsProblems.Forbidden("You cannot book appointments at this branch.");
+            return await BranchScope.DenyAsync(db, tenant, request.BranchId, "You cannot book appointments at this branch.", ct);
         }
 
         var startsAt = request.StartsAt!.Value.ToUniversalTime();

@@ -113,7 +113,7 @@ public sealed class PatientsSprint2InProcessTests(ApiFactory factory) : IClassFi
         Assert.Equal(HttpStatusCode.Forbidden, (await PatchAsync(mixed, atMain.Id, new { lastName = "Nope" })).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await PatchAsync(mixed, atEast.Id, new { lastName = "Yes" })).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await PatchAsync(mixed, atEast.Id, new { registeredBranchId = Main })).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await PatchAsync(mixed, atEast.Id, new { registeredBranchId = BetaMain })).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await PatchAsync(mixed, atEast.Id, new { registeredBranchId = BetaMain })).StatusCode); // foreign branch (v4)
 
         using var billing = factory.ClientAs(BillingOnly);
         Assert.Equal(HttpStatusCode.Forbidden, (await PatchAsync(billing, atEast.Id, new { lastName = "Nope" })).StatusCode);

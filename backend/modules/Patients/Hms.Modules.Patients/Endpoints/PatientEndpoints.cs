@@ -176,9 +176,17 @@ public static class PatientEndpoints
             return TypedResults.ValidationProblem(errors);
         }
 
-        var candidates = await FindDuplicatesAsync(
-            registry, tenant, request.FirstName, request.LastName, request.DateOfBirth, request.Phone, request.ExcludePatientId, ct);
-        return TypedResults.Ok(new DuplicateCheckResponse(candidates));
+        try
+        {
+            var candidates = await FindDuplicatesAsync(
+                registry, tenant, request.FirstName, request.LastName, request.DateOfBirth, request.Phone, request.ExcludePatientId, ct);
+            return TypedResults.Ok(new DuplicateCheckResponse(candidates));
+        }
+        catch (Exception ex) when (HmsProblems.FromDatabase(ex) is { } problem)
+        {
+            // contract v4: foreign tenant -> P0002 (404), member without registry read -> 42501 (403)
+            return problem;
+        }
     }
 
     private static async Task<Results<Ok<PatientDetailDto>, ProblemHttpResult>> GetAsync(
@@ -287,7 +295,7 @@ public static class PatientEndpoints
         var targetBranch = patch.RegisteredBranchId.Or(patient.RegisteredBranchId) ?? patient.RegisteredBranchId;
         if (targetBranch != patient.RegisteredBranchId && !CanWritePatientAt(tenant, targetBranch))
         {
-            return HmsProblems.Forbidden("You cannot move patients to that branch.");
+            return await BranchScope.DenyAsync(db, tenant, targetBranch, "You cannot move patients to that branch.", ct);
         }
 
         if (patch.Mrn.IsSet && (patch.Mrn.Value is null || CreatePatientValidator.NormalizeMrn(patch.Mrn.Value) != patient.Mrn))

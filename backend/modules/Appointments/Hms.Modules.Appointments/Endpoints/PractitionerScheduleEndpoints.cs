@@ -212,7 +212,7 @@ public static class PractitionerScheduleEndpoints
 
         if (!tenant.HasRoleAtBranch(request.BranchId, AppointmentRoles.Admin))
         {
-            return HmsProblems.Forbidden("You cannot manage schedules at this branch.");
+            return await BranchScope.DenyAsync(db, tenant, request.BranchId, "You cannot manage schedules at this branch.", ct);
         }
 
         db.Schedules.Add(schedule);
@@ -376,7 +376,7 @@ public static class PractitionerScheduleEndpoints
 
     // --------------------------------------------------------------------- slots
     private static async Task<Results<Ok<List<SlotDto>>, ValidationProblem, ProblemHttpResult>> SlotsAsync(
-        Guid? branchId, DateOnly? from, DateOnly? to, Guid? practitionerId, ITenantContext tenant, TimeProvider clock,
+        Guid? branchId, DateOnly? from, DateOnly? to, Guid? practitionerId, AppointmentsDbContext db, ITenantContext tenant, TimeProvider clock,
         IAppointmentFunctions functions, CancellationToken ct)
     {
         if (!tenant.HasAnyRole(AppointmentRoles.RegRead))
@@ -391,7 +391,7 @@ public static class PractitionerScheduleEndpoints
 
         if (!tenant.CanAccessBranch(branch))
         {
-            return HmsProblems.Forbidden("You cannot view slots at this branch.");
+            return await BranchScope.DenyAsync(db, tenant, branch, "You cannot view slots at this branch.", ct);
         }
 
         tenant.BranchTimeZones.TryGetValue(branch, out var tz);
