@@ -1,16 +1,26 @@
-@import 'tailwindcss';
+/* Inter, self-hosted (no Google Fonts request from a clinical app). */
+@import '@fontsource-variable/inter';
+
+/* Tailux starter theme: tokens (@theme), colour schemes, Sideblock layout, base and component
+   classes. Ported from js/starter/src/styles; see src/tailux/NOTICE.md. */
+@import './tailux/styles/index.css';
 
 @theme {
-  --color-brand-50: #f0fdfa;
-  --color-brand-100: #ccfbf1;
-  --color-brand-600: #0d9488;
-  --color-brand-700: #0f766e;
-  --color-brand-800: #115e59;
+  --font-sans: 'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
+    'Segoe UI Symbol', 'Noto Color Emoji';
+
+  /* Legacy HMS brand-* utilities now follow the template primary palette. */
+  --color-brand-50: var(--color-primary-50);
+  --color-brand-100: var(--color-primary-100);
+  --color-brand-600: var(--color-primary-600);
+  --color-brand-700: var(--color-primary-700);
+  --color-brand-800: var(--color-primary-800);
 }
 
-/* Visible focus for keyboard users everywhere. */
+/* Visible focus for keyboard users everywhere. Unlayered, so it wins over the template's
+   outline-hidden utilities (WCAG 2.4.7). */
 :focus-visible {
-  outline: 3px solid var(--color-brand-600);
+  outline: 3px solid var(--color-primary-600);
   outline-offset: 2px;
 }
 

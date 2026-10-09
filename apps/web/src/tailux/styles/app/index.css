@@ -1,0 +1,17 @@
+/* Vendors Styles */
+@import "./vendors/sonner.css";
+
+/* Forms Styles */
+@import "./forms/input.css";
+@import "./forms/select.css";
+@import "./forms/checkbox.css";
+@import "./forms/radio.css";
+
+/* Components Styles */
+@import "./components/pagination.css";
+@import "./components/table.css";
+@import "./components/button.css";
+@import "./components/badge.css";
+@import "./components/spinner.css";
+@import "./components/avatar.css";
+@import "./components/skeleton.css";

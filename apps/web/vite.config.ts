@@ -2,6 +2,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import { fileURLToPath } from 'node:url'
 
 // https://vite.dev/config/
 const apiTarget = process.env.VITE_DEV_API_PROXY ?? 'http://localhost:8080'
@@ -13,6 +14,8 @@ const apiProxy = {
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  // Ported Tailux starter modules live in src/tailux and import each other as @tailux/...
+  resolve: { alias: { '@tailux': fileURLToPath(new URL('./src/tailux', import.meta.url)) } },
   build: {
     rolldownOptions: {
       output: {
