@@ -31,11 +31,12 @@ public class AuditColumnConventionsTests
     }
 
     [Fact]
-    public void Deleted_at_is_ignored_on_insert_but_soft_delete_still_works_on_update()
+    public void Patient_deleted_at_is_never_sent_because_soft_delete_goes_through_the_rpc()
     {
+        // Sprint 2 D1: patient.soft_delete_patient / restore_patient own deleted_at (update grant revoked).
         var property = PatientsModel().FindEntityType(typeof(Patient))!.FindProperty(nameof(Patient.DeletedAt))!;
         Assert.Equal(PropertySaveBehavior.Ignore, property.GetBeforeSaveBehavior());
-        Assert.Equal(PropertySaveBehavior.Save, property.GetAfterSaveBehavior());
+        Assert.Equal(PropertySaveBehavior.Ignore, property.GetAfterSaveBehavior());
     }
 
     [Theory]

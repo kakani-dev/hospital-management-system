@@ -2,9 +2,12 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
+using Hms.Modules.Appointments.Functions;
+using Hms.Modules.Appointments.Persistence;
 using Hms.Modules.Identity.Persistence;
 using Hms.Modules.Identity.Tenancy;
 using Hms.Modules.Patients.Persistence;
+using Hms.Modules.Patients.Registry;
 using Hms.SharedKernel.Persistence;
 using Hms.SharedKernel.Tenancy;
 using Microsoft.AspNetCore.Authentication;
@@ -39,6 +42,9 @@ public sealed class InProcessApiTests : IClassFixture<InProcessApiTests.ApiFacto
     internal static readonly Guid Admin = Guid.Parse("0d000000-0000-4000-8000-000000000003");
     internal static readonly Guid LabTech = Guid.Parse("0d000000-0000-4000-8000-000000000004");
 
+    /// <summary>doctor at Main + receptionist at East (Sprint 2 edit/delete matrix).</summary>
+    internal static readonly Guid DoctorMainReceptionEast = Guid.Parse("0d000000-0000-4000-8000-000000000005");
+
     /// <summary>2026-10-06 20:00 UTC = 2026-10-07 01:30 in Asia/Kolkata.</summary>
     internal static readonly DateTimeOffset Now = new(2026, 10, 6, 20, 0, 0, TimeSpan.Zero);
 
@@ -72,7 +78,10 @@ public sealed class InProcessApiTests : IClassFixture<InProcessApiTests.ApiFacto
         Assert.Equal(HttpStatusCode.Forbidden, (await billing.PostAsJsonAsync("/api/v1/patients", NewPatient(Main))).StatusCode);
 
         using var admin = _factory.ClientAs(Admin);
-        Assert.Equal(HttpStatusCode.Forbidden, (await admin.PostAsJsonAsync("/api/v1/patients", NewPatient(BetaMain))).StatusCode);
+        // 404-not-403 (CTO 16:49): another tenant's branch is 404; a same-tenant branch without a write role stays 403.
+        Assert.Equal(HttpStatusCode.NotFound, (await admin.PostAsJsonAsync("/api/v1/patients", NewPatient(BetaMain))).StatusCode);
+        using var mixed = _factory.ClientAs(MixedUser); // billing @Main, nurse @East
+        Assert.Equal(HttpStatusCode.Forbidden, (await mixed.PostAsJsonAsync("/api/v1/patients", NewPatient(Main))).StatusCode);
         Assert.Equal(HttpStatusCode.Created, (await admin.PostAsJsonAsync("/api/v1/patients", NewPatient(Main))).StatusCode);
     }
 
@@ -220,6 +229,11 @@ public sealed class InProcessApiTests : IClassFixture<InProcessApiTests.ApiFacto
             {
                 ReplaceWithInMemory<PatientsDbContext>(services, _db + "-patients");
                 ReplaceWithInMemory<IdentityDbContext>(services, _db + "-identity");
+                ReplaceWithInMemory<AppointmentsDbContext>(services, _db + "-appointments");
+                services.RemoveAll<IAppointmentFunctions>();
+                services.AddSingleton<IAppointmentFunctions, UnavailableAppointmentFunctions>();
+                services.RemoveAll<IPatientRegistryFunctions>();
+                services.AddScoped<IPatientRegistryFunctions, InMemoryPatientRegistryFunctions>();
                 services.RemoveAll<IMembershipStore>();
                 services.AddSingleton<IMembershipStore, FakeMembershipStore>();
                 services.RemoveAll<TimeProvider>();
@@ -262,6 +276,7 @@ public sealed class InProcessApiTests : IClassFixture<InProcessApiTests.ApiFacto
                 : userId == BillingOnly ? new() { [Main] = [HmsRoles.Billing], [East] = [HmsRoles.Billing] }
                 : userId == Admin ? new() { [Main] = [HmsRoles.TenantAdmin], [East] = [HmsRoles.TenantAdmin] }
                 : userId == LabTech ? new() { [Main] = [HmsRoles.LabTechnician] }
+                : userId == DoctorMainReceptionEast ? new() { [Main] = [HmsRoles.Doctor], [East] = [HmsRoles.Receptionist] }
                 : null;
             if (map is null)
             {

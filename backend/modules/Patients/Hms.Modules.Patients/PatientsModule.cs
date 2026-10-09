@@ -1,4 +1,5 @@
 using Hms.Modules.Patients.Persistence;
+using Hms.Modules.Patients.Registry;
 using Hms.SharedKernel.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -22,6 +23,7 @@ public static class PatientsModule
             .AddInterceptors(
                 sp.GetRequiredService<RlsTransactionInterceptor>(),
                 sp.GetRequiredService<TenantSaveChangesInterceptor>()));
+        services.TryAddScoped<IPatientRegistryFunctions, PostgresPatientRegistryFunctions>();
         return services;
     }
 }

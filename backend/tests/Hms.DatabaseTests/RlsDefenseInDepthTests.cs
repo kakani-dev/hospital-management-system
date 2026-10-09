@@ -25,6 +25,8 @@ public sealed class RlsDefenseInDepthTests
     private static readonly Guid AlphaMain = Guid.Parse("a1111111-0000-4000-8000-000000000001");
     private static readonly Guid BetaMain = Guid.Parse("b2222222-0000-4000-8000-000000000001");
     private static readonly Guid AlphaAdmin = Guid.Parse("0a000000-0000-4000-8000-000000000001");
+    private static readonly Guid AlphaReceptionMain = Guid.Parse("0a000000-0000-4000-8000-000000000002");
+    private static readonly Guid AlphaEastPatient = Guid.Parse("aa000000-0000-4000-8000-000000000003");
     private static readonly Guid BetaPatient = Guid.Parse("bb000000-0000-4000-8000-000000000001");
 
     private static (PatientsDbContext Db, DbSessionContext Session) PatientsAs(Guid user, Guid tenant, Guid tenantForAppFilter)
@@ -156,5 +158,23 @@ public sealed class RlsDefenseInDepthTests
         await using var cmd = new NpgsqlCommand("select identity.custom_access_token_hook('{\"user_id\":\"0a000000-0000-4000-8000-000000000001\",\"claims\":{}}'::jsonb)", conn, tx);
         var ex = await Assert.ThrowsAsync<PostgresException>(() => cmd.ExecuteScalarAsync());
         Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, ex.SqlState);
+    }
+
+    [Fact]
+    public async Task Branch_scoped_writer_cannot_edit_or_move_another_branchs_patient_even_bypassing_the_api()
+    {
+        // PR #2 review MIN-3 (PoC D4): receptionist@Main, raw UPDATE of an Alpha East patient as hms_api_login.
+        // The patients UPDATE policy's row filter requires access to the CURRENT branch, so 0 rows change.
+        var (db, _) = PatientsAs(AlphaReceptionMain, Alpha, Alpha);
+        await using var _db = db;
+        await using var tx = await db.Database.BeginTransactionAsync();
+
+        var edited = await db.Database.ExecuteSqlRawAsync(
+            "update patient.patients set first_name = 'Edited' where id = {0}", AlphaEastPatient);
+        var moved = await db.Database.ExecuteSqlRawAsync(
+            "update patient.patients set registered_branch_id = {0}, first_name = 'Moved' where id = {1}", AlphaMain, AlphaEastPatient);
+        Assert.Equal(0, edited);
+        Assert.Equal(0, moved);
+        await tx.RollbackAsync();
     }
 }

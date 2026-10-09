@@ -3,6 +3,9 @@
     <Project Path="gateway/Hms.Gateway/Hms.Gateway.csproj" />
   </Folder>
   <Folder Name="/modules/" />
+  <Folder Name="/modules/Appointments/">
+    <Project Path="modules/Appointments/Hms.Modules.Appointments/Hms.Modules.Appointments.csproj" />
+  </Folder>
   <Folder Name="/modules/Identity/">
     <Project Path="modules/Identity/Hms.Modules.Identity/Hms.Modules.Identity.csproj" />
   </Folder>
