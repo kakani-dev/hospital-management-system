@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { Session, SupabaseClient } from '@supabase/supabase-js'
 import { useQueryClient } from '@tanstack/react-query'
-import { configureApiAuth, configureResolvedTenantListener } from '../../lib/api/client'
+import { apiClient, configureApiAuth, configureResolvedTenantListener, configureUnauthorizedHandler } from '../../lib/api/client'
 import { queryKeys } from '../../lib/api/hooks'
 import type { CurrentUser } from '../../lib/api/types'
 import { openAuthChannel, type AuthChannel } from '../../lib/auth/authChannel'
@@ -57,11 +57,14 @@ export function AuthProvider({
   client,
   children,
   idleTimeoutMs = configuredIdleTimeoutMs,
+  warmup = apiClient.warmup,
 }: {
   client: AuthClient | null
   children: ReactNode
   /** Idle auto-logoff; defaults to VITE_IDLE_TIMEOUT_MINUTES (15 min). */
   idleTimeoutMs?: number
+  /** Fire-and-forget wake-up of the edge after each successful sign-in (GET /api/v1/warmup). */
+  warmup?: () => void | Promise<void>
 }) {
   const queryClient = useQueryClient()
   const [session, setSession] = useState<Session | null>(null)
@@ -191,6 +194,35 @@ export function AuthProvider({
     configureApiAuth(client ? async () => (await client.getSession()).data.session?.access_token ?? null : () => null)
   }, [client])
 
+  /*
+   * A 401 from the API refreshes the session once (shared by concurrent requests) and the request
+   * is replayed. A failed refresh does NOT sign out from here: if the refresh token is really dead,
+   * supabase-js emits SIGNED_OUT itself; a cold server (5xx/timeout) never ends the session.
+   */
+  const refreshInFlightRef = useRef<Promise<boolean> | null>(null)
+  useEffect(() => {
+    if (!client) {
+      configureUnauthorizedHandler(null)
+      return
+    }
+    configureUnauthorizedHandler(() => {
+      refreshInFlightRef.current ??= (async () => {
+        try {
+          const { data: current } = await client.getSession()
+          if (!current.session) return false
+          const { data, error } = await client.refreshSession()
+          return !error && !!data.session
+        } catch {
+          return false
+        } finally {
+          setTimeout(() => (refreshInFlightRef.current = null), 0)
+        }
+      })()
+      return refreshInFlightRef.current
+    })
+    return () => configureUnauthorizedHandler(null)
+  }, [client])
+
   // Every API response's X-Hms-Tenant header is checked against the tenant on screen.
   useEffect(() => {
     configureResolvedTenantListener((tenantId, requestStartedAt) => checkResolvedTenant(tenantId, 'header', requestStartedAt))
@@ -207,9 +239,10 @@ export function AuthProvider({
       setSignedOutReason(null)
       setTenantNotice(null)
       setSession(data.session)
+      void warmup()
       return { error: null }
     },
-    [client, queryClient],
+    [client, queryClient, warmup],
   )
 
   const signOut = useCallback(
