@@ -1,17 +1,18 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from './client'
 import type {
   AddMemberRequest,
-  AppointmentRangeQuery,
-  CheckInRequest,
+  AppointmentQuery,
   CreateAppointmentRequest,
   CreateBranchRequest,
   CreatePatientRequest,
+  PatientDetail,
   QueueStatus,
-  UpdatePatientRequest,
   SwitchContextRequest,
   UpdateBranchRequest,
   UpdateMemberRequest,
+  UpdatePatientRequest,
+  WalkInRequest,
 } from './types'
 import { ADD_MEMBER_GENERIC_MESSAGE } from './types'
 
@@ -21,9 +22,9 @@ export const queryKeys = {
   invitations: ['me', 'invitations'] as const,
   patients: (criteria: PatientSearchCriteria) => ['patients', criteria] as const,
   patient: (id: string) => ['patients', 'detail', id] as const,
-  practitioners: (branchId: string) => ['practitioners', branchId] as const,
-  schedules: (branchId: string, from: string, to: string) => ['schedules', branchId, from, to] as const,
-  appointments: (q: AppointmentRangeQuery) => ['appointments', q] as const,
+  practitioners: ['practitioners'] as const,
+  schedules: (branchId: string) => ['schedules', branchId] as const,
+  appointments: (q: AppointmentQuery) => ['appointments', q] as const,
   slots: (branchId: string, practitionerId: string, date: string) => ['appointments', 'slots', branchId, practitionerId, date] as const,
   queue: (branchId: string, date: string) => ['queue', branchId, date] as const,
   branches: ['branches'] as const,
@@ -47,7 +48,12 @@ export interface PatientSearchCriteria {
   search?: string
   phone?: string
   dateOfBirth?: string
+  /** tenant_admin only. */
+  includeDeleted?: boolean
 }
+
+/** The API matches phones on the last 10 digits and rejects fewer than 7 digits (400). */
+export const PHONE_SEARCH_MIN_DIGITS = 7
 
 /** Trimmed, capped criteria with empty fields dropped (so they never reach the request body or query key). */
 export function normalizePatientCriteria(input: string | PatientSearchCriteria): PatientSearchCriteria {
@@ -58,7 +64,10 @@ export function normalizePatientCriteria(input: string | PatientSearchCriteria):
   const dateOfBirth = raw.dateOfBirth?.trim()
   if (search) out.search = search
   if (phone) out.phone = phone
+  if (phone && phone.replace(/\D/g, '').length >= PHONE_SEARCH_MIN_DIGITS) out.phone = phone
+  else delete out.phone
   if (dateOfBirth && /^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)) out.dateOfBirth = dateOfBirth
+  if (raw.includeDeleted) out.includeDeleted = true
   return out
 }
 
@@ -69,6 +78,7 @@ export function normalizePatientCriteria(input: string | PatientSearchCriteria):
  */
 export function usePatients(input: string | PatientSearchCriteria, { enabled = true }: { enabled?: boolean } = {}) {
   const criteria = normalizePatientCriteria(input)
+  // includeDeleted alone still needs the POST search route (GET /patients never returns deleted rows).
   const hasCriteria = Object.keys(criteria).length > 0
   return useQuery({
     queryKey: queryKeys.patients(criteria),
@@ -97,12 +107,39 @@ export function useUpdatePatient(id: string) {
 export function useDeletePatient(id: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: () => apiClient.patients.remove(id),
+    mutationFn: (reason?: string) => apiClient.patients.remove(id, { reason: reason?.trim() || undefined }),
     onSuccess: () => {
       qc.removeQueries({ queryKey: queryKeys.patient(id) })
       return qc.invalidateQueries({ queryKey: ['patients'] })
     },
   })
+}
+
+export function useRestorePatient() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => apiClient.patients.restore(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['patients'] }),
+  })
+}
+
+/**
+ * Patient names for ids (appointments and queue entries carry only patientId). One cached
+ * GET /patients/{id} per distinct id; a 404 (deleted / other tenant) resolves to null.
+ */
+export function usePatientLookup(ids: readonly string[]): (id: string) => PatientDetail | null | undefined {
+  const unique = [...new Set(ids)]
+  const results = useQueries({
+    queries: unique.map((id) => ({
+      queryKey: queryKeys.patient(id),
+      queryFn: () => apiClient.patients.get(id),
+      retry: false,
+      staleTime: 5 * 60_000,
+    })),
+  })
+  const byId = new Map<string, PatientDetail | null | undefined>()
+  unique.forEach((id, i) => byId.set(id, results[i]?.isError ? null : results[i]?.data))
+  return (id) => byId.get(id)
 }
 
 export function useCreatePatient() {
@@ -203,29 +240,38 @@ export function useUpdateMember() {
 
 // ----------------------------------------------------------------- Sprint 2: scheduling + OPD
 
-export function usePractitioners(branchId: string | null) {
+export function usePractitioners() {
+  return useQuery({ queryKey: queryKeys.practitioners, queryFn: () => apiClient.practitioners.list(), retry: false, staleTime: 60_000 })
+}
+
+export function useSchedules(branchId: string | null) {
   return useQuery({
-    queryKey: queryKeys.practitioners(branchId ?? ''),
-    queryFn: () => apiClient.practitioners.list(branchId!),
+    queryKey: queryKeys.schedules(branchId ?? ''),
+    queryFn: () => apiClient.schedules.list({ branchId: branchId! }),
     enabled: !!branchId,
     retry: false,
     staleTime: 60_000,
   })
 }
 
-export function useSchedules(branchId: string | null, from: string, to: string) {
-  return useQuery({
-    queryKey: queryKeys.schedules(branchId ?? '', from, to),
-    queryFn: () => apiClient.schedules.list({ branchId: branchId!, from, to }),
-    enabled: !!branchId,
-    retry: false,
-  })
-}
+/** Max page size the API allows. */
+const MAX_PAGE_SIZE = 100
+/** Safety cap on pages fetched for one calendar range. */
+const MAX_PAGES = 10
 
-export function useAppointments(query: AppointmentRangeQuery | null, options: { refetchInterval?: number } = {}) {
+/** All appointments in [from, to) for a branch (pages through Paged<AppointmentDto>). */
+export function useAppointments(query: AppointmentQuery | null, options: { refetchInterval?: number | false } = {}) {
   return useQuery({
     queryKey: queryKeys.appointments(query ?? { branchId: '', from: '', to: '' }),
-    queryFn: () => apiClient.appointments.list(query!),
+    queryFn: async () => {
+      const items = []
+      for (let page = 1; page <= MAX_PAGES; page++) {
+        const result = await apiClient.appointments.list({ ...query!, page, pageSize: MAX_PAGE_SIZE })
+        items.push(...result.items)
+        if (items.length >= result.totalCount || result.items.length === 0) break
+      }
+      return items
+    },
     enabled: !!query?.branchId,
     retry: false,
     refetchInterval: options.refetchInterval,
@@ -235,7 +281,7 @@ export function useAppointments(query: AppointmentRangeQuery | null, options: { 
 export function useSlots(branchId: string | null, practitionerId: string, date: string) {
   return useQuery({
     queryKey: queryKeys.slots(branchId ?? '', practitionerId, date),
-    queryFn: () => apiClient.appointments.slots({ branchId: branchId!, practitionerId, date }),
+    queryFn: () => apiClient.slots({ branchId: branchId!, practitionerId, from: date, to: date }),
     enabled: !!branchId && !!practitionerId && !!date,
     retry: false,
   })
@@ -245,7 +291,7 @@ export function useCreateAppointment() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (body: CreateAppointmentRequest) => apiClient.appointments.create(body),
-    // Refetch on conflicts too: the slot list is stale either way.
+    // Refetch on conflicts too: the calendar and the slot list are stale either way.
     onSettled: () => qc.invalidateQueries({ queryKey: ['appointments'] }),
   })
 }
@@ -253,7 +299,7 @@ export function useCreateAppointment() {
 export function useCancelAppointment() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (id: string) => apiClient.appointments.cancel(id),
+    mutationFn: ({ id, reason }: { id: string; reason?: string }) => apiClient.appointments.cancel(id, reason ? { reason } : {}),
     onSettled: () => qc.invalidateQueries({ queryKey: ['appointments'] }),
   })
 }
@@ -272,18 +318,31 @@ export function useQueue(branchId: string | null, date: string, { refetchInterva
   })
 }
 
-export function useCheckIn() {
+const invalidateQueueAndAppointments = (qc: ReturnType<typeof useQueryClient>) =>
+  Promise.all([qc.invalidateQueries({ queryKey: ['queue'] }), qc.invalidateQueries({ queryKey: ['appointments'] })])
+
+/** Check in a booked appointment (POST /appointments/{id}/check-in). */
+export function useCheckInAppointment() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (body: CheckInRequest) => apiClient.queue.checkIn(body),
-    onSettled: () => Promise.all([qc.invalidateQueries({ queryKey: ['queue'] }), qc.invalidateQueries({ queryKey: ['appointments'] })]),
+    mutationFn: (appointmentId: string) => apiClient.appointments.checkIn(appointmentId),
+    onSettled: () => invalidateQueueAndAppointments(qc),
+  })
+}
+
+/** Walk-in token without an appointment (POST /queue/walk-in). */
+export function useWalkIn() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: WalkInRequest) => apiClient.queue.walkIn(body),
+    onSettled: () => invalidateQueueAndAppointments(qc),
   })
 }
 
 export function useUpdateQueueStatus() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, status }: { id: string; status: QueueStatus }) => apiClient.queue.updateStatus(id, { status }),
-    onSettled: () => qc.invalidateQueries({ queryKey: ['queue'] }),
+    mutationFn: ({ id, status }: { id: string; status: Exclude<QueueStatus, 'waiting'> }) => apiClient.queue.updateStatus(id, { status }),
+    onSettled: () => invalidateQueueAndAppointments(qc),
   })
 }

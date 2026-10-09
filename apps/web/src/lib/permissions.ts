@@ -1,30 +1,39 @@
 /**
- * UX-only role gates for Sprint 2 screens (the API and RLS enforce the real rules; a hidden
- * button is a convenience, never a control). Keep in sync with SPRINT2-CONTRACT.md.
+ * UX-only role gates for Sprint 2 screens, mirroring SPRINT2-CONTRACT.md (API v1 §A.2–A.6).
+ * The API and RLS enforce the real rules; a hidden button is a convenience, never a control.
+ * Writes need the role *at the row's branch* — pass the roles held at that branch
+ * (rolesAtBranch) for write capabilities; tenant_admin is tenant-wide.
  */
 export type Capability =
   | 'patients.view'
   | 'patients.write'
   | 'patients.delete'
+  | 'patients.restore'
   | 'schedules.view'
   | 'appointments.view'
   | 'appointments.book'
   | 'queue.checkIn'
   | 'queue.view'
   | 'queue.advance'
+  | 'queue.cancel'
+
+const REG_READ = ['tenant_admin', 'doctor', 'nurse', 'receptionist', 'billing'] as const
+const REG_WRITE = ['tenant_admin', 'doctor', 'nurse', 'receptionist'] as const
+const FRONT_DESK = ['tenant_admin', 'receptionist', 'nurse'] as const
+const ANY_MEMBER = ['tenant_admin', 'doctor', 'nurse', 'receptionist', 'billing', 'pharmacist', 'lab_technician', 'viewer'] as const
 
 const CAPABILITIES: Record<Capability, readonly string[]> = {
-  'patients.view': ['tenant_admin', 'doctor', 'nurse', 'receptionist', 'billing'],
-  'patients.write': ['tenant_admin', 'doctor', 'nurse', 'receptionist'],
-  // Soft delete is an administrative correction (e.g. duplicate registration).
-  'patients.delete': ['tenant_admin'],
-  'schedules.view': ['tenant_admin', 'doctor', 'nurse', 'receptionist'],
-  'appointments.view': ['tenant_admin', 'doctor', 'nurse', 'receptionist'],
-  'appointments.book': ['tenant_admin', 'receptionist'],
-  'queue.checkIn': ['tenant_admin', 'receptionist', 'nurse'],
-  'queue.view': ['tenant_admin', 'doctor', 'nurse', 'receptionist'],
-  // Calling a patient in / finishing a consult is done by clinicians.
-  'queue.advance': ['tenant_admin', 'doctor', 'nurse'],
+  'patients.view': REG_READ,
+  'patients.write': REG_WRITE,
+  'patients.delete': ['tenant_admin', 'receptionist'], // D1
+  'patients.restore': ['tenant_admin'],
+  'schedules.view': ANY_MEMBER,
+  'appointments.view': REG_READ,
+  'appointments.book': REG_WRITE,
+  'queue.checkIn': FRONT_DESK,
+  'queue.view': REG_READ,
+  'queue.advance': [...FRONT_DESK, 'doctor'], // in_consultation / done
+  'queue.cancel': FRONT_DESK,
 }
 
 export function can(roles: readonly string[], capability: Capability): boolean {

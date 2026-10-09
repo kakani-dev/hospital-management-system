@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { Link } from 'react-router'
 import { Button } from '../../components/ui/Button'
-import type { DuplicateMatchReason, PossibleDuplicate } from '../../lib/api/types'
+import type { DuplicateMatchReason, DuplicateCandidate } from '../../lib/api/types'
 
 const REASON_LABEL: Record<DuplicateMatchReason, string> = {
   name_dob: 'same name and date of birth',
@@ -15,7 +15,7 @@ export function DuplicateWarning({
   onProceed,
   onDismiss,
 }: {
-  matches: PossibleDuplicate[]
+  matches: DuplicateCandidate[]
   busy: boolean
   onProceed: () => void
   onDismiss: () => void

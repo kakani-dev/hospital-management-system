@@ -63,6 +63,7 @@ describe('RegisterPatientPage duplicate warning', () => {
     lastName: 'Synthetic',
     dateOfBirth: '1990-01-01',
     sex: 'female',
+    phone: '+91 98450 00001',
     registeredBranchId: ALPHA_MAIN,
     matchReasons: ['name_dob', 'phone'],
   }
@@ -79,7 +80,7 @@ describe('RegisterPatientPage duplicate warning', () => {
   it('checks for possible matches at submit and lets the user register anyway', async () => {
     const calls = stubFetch({
       'GET /api/v1/me': () => json(meFor({ activeBranchId: ALPHA_MAIN })),
-      'POST /api/v1/patients/duplicates': () => json([match]),
+      'POST /api/v1/patients/duplicates': () => json({ candidates: [match] }),
       'POST /api/v1/patients': (_u, init) => json({ id: 'p2', ...JSON.parse(String(init.body)) }, 201),
       'GET /api/v1/patients': () => json(listPage),
     })
@@ -107,8 +108,8 @@ describe('RegisterPatientPage duplicate warning', () => {
   it('opens the existing record instead of registering', async () => {
     const calls = stubFetch({
       'GET /api/v1/me': () => json(meFor({ activeBranchId: ALPHA_MAIN })),
-      'POST /api/v1/patients/duplicates': () => json([match]),
-      [`GET /api/v1/patients/${match.id}`]: () => json({ ...match, phone: null, email: null }),
+      'POST /api/v1/patients/duplicates': () => json({ candidates: [match] }),
+      [`GET /api/v1/patients/${match.id}`]: () => json({ ...match, email: null }),
     })
     const user = userEvent.setup()
     renderWithProviders(<App />, { path: '/patients/new', auth: fakeAuthClient({ session: fakeSession() }) })
@@ -121,7 +122,7 @@ describe('RegisterPatientPage duplicate warning', () => {
   it('registers straight away when there are no matches', async () => {
     const calls = stubFetch({
       'GET /api/v1/me': () => json(meFor({ activeBranchId: ALPHA_MAIN })),
-      'POST /api/v1/patients/duplicates': () => json([]),
+      'POST /api/v1/patients/duplicates': () => json({ candidates: [] }),
       'POST /api/v1/patients': (_u, init) => json({ id: 'p2', ...JSON.parse(String(init.body)) }, 201),
       'GET /api/v1/patients': () => json(listPage),
     })

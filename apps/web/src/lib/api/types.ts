@@ -15,6 +15,8 @@ export interface ProblemDetails {
   status?: number
   detail?: string
   traceId?: string
+  /** Sprint 2 machine-readable reason, e.g. appointment_overlap, already_checked_in, invalid_state. */
+  code?: string
   errors?: Record<string, string[]>
 }
 
@@ -36,6 +38,10 @@ export interface PatientSummary {
   dateOfBirth: string | null
   sex: Sex
   registeredBranchId: Guid
+  /** Sprint 2: part of PatientSummaryDto. */
+  phone?: string | null
+  /** Sprint 2: only ever non-null for admins searching with includeDeleted. */
+  deletedAt?: string | null
 }
 
 export interface CreatePatientRequest {
@@ -152,10 +158,12 @@ export interface Invitation {
 export interface PatientSearchRequest {
   /** Name or MRN fragment. */
   search?: string
-  /** Sprint 2 (2.1): phone fragment — digits compared server-side. */
+  /** Sprint 2: exact match on the normalized phone (last 10 digits; fewer than 7 digits is a 400). */
   phone?: string
-  /** Sprint 2 (2.1): exact date of birth, YYYY-MM-DD. */
+  /** Sprint 2: exact date of birth, YYYY-MM-DD. */
   dateOfBirth?: string
+  /** Sprint 2: tenant_admin only (403 otherwise); deleted rows come back with deletedAt set. */
+  includeDeleted?: boolean
   page?: number
   pageSize?: number
 }
@@ -166,20 +174,20 @@ export interface UpdateMemberRequest {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Sprint 2 — see /workspace/SPRINT2-CONTRACT.md. Where a route had not landed when this was
-// written, the shape follows SPRINT2-PLAN.md and is listed in docs/sprint-2-web-assumptions.md.
+// Sprint 2 — /workspace/SPRINT2-CONTRACT.md (DB v2 + API v1, 2026-10-09 16:35 IST).
 // ---------------------------------------------------------------------------------------------
 
-/** GET /api/v1/patients/{id}. Deleted patients are 404 (hidden); `deletedAt` is shown if ever returned. */
+/** GET /api/v1/patients/{id} (PatientDetailDto). Deleted patients are 404 for everyone, admins included. */
 export interface PatientDetail extends PatientSummary {
-  phone: string | null
   email: string | null
-  deletedAt?: string | null
   createdAt?: string
   updatedAt?: string
 }
 
-/** PATCH /api/v1/patients/{id}: MRN and tenant are immutable; omitted fields are unchanged. */
+/**
+ * PATCH /api/v1/patients/{id}: merge-patch. Absent = unchanged, explicit null clears
+ * dateOfBirth/phone/email. MRN is immutable; unknown properties are a 400.
+ */
 export interface UpdatePatientRequest {
   firstName?: string
   lastName?: string
@@ -190,74 +198,95 @@ export interface UpdatePatientRequest {
   email?: string | null
 }
 
-/** POST /api/v1/patients/duplicates: possible matches in the same tenant (name+DOB or phone). */
+/** POST /api/v1/patients/duplicates (advisory, D3). */
 export interface DuplicateCheckRequest {
-  firstName: string
-  lastName: string
+  firstName?: string
+  lastName?: string
   dateOfBirth?: string | null
   phone?: string | null
+  excludePatientId?: Guid
 }
 
 export type DuplicateMatchReason = 'name_dob' | 'phone'
 
-export interface PossibleDuplicate extends PatientSummary {
+/** DuplicateCandidateDto. */
+export interface DuplicateCandidate {
+  id: Guid
+  mrn: string
+  firstName: string
+  lastName: string
+  dateOfBirth: string | null
+  phone: string | null
+  registeredBranchId: Guid
   matchReasons: DuplicateMatchReason[]
 }
 
-/** Clinicians that can be booked at a branch (GET /api/v1/practitioners?branchId=). */
-export interface Practitioner {
-  id: Guid
-  displayName: string
-  role: string
-  /** null = tenant-wide practitioner. */
-  branchId: Guid | null
+/** DELETE /api/v1/patients/{id} optional body (reason is audited, ≤ 500). */
+export interface DeletePatientRequest {
+  reason?: string
 }
 
-/** One working block of a practitioner on a branch-local date (GET /api/v1/schedules). */
-export interface ScheduleEntry {
+/** GET /api/v1/practitioners (tenant-wide; branch association comes from schedules). */
+export interface Practitioner {
+  id: Guid
+  userId: Guid | null
+  displayName: string
+  specialty: string | null
+  isActive: boolean
+}
+
+/** Weekly recurring working hours at a branch (ScheduleDto). Times are branch-local wall clock. */
+export interface Schedule {
   id: Guid
   practitionerId: Guid
-  practitionerName: string
   branchId: Guid
-  /** Branch-local calendar date, YYYY-MM-DD. */
-  date: string
-  /** Branch-local wall-clock time, HH:mm. */
+  /** ISO weekday, 1 = Monday … 7 = Sunday. */
+  weekday: number
   startTime: string
   endTime: string
   slotMinutes: number
+  validFrom: string
+  validTo: string | null
+  isActive: boolean
 }
 
-/** GET /api/v1/appointments/slots: bookable slots for one practitioner on one branch-local date. */
+/** GET /api/v1/slots: only free, future slots. */
 export interface Slot {
+  practitionerId: Guid
+  branchId: Guid
   startsAt: string
   endsAt: string
-  available: boolean
 }
 
-export const APPOINTMENT_STATUSES = ['booked', 'checked_in', 'completed', 'cancelled', 'no_show'] as const
+export const APPOINTMENT_STATUSES = ['booked', 'checked_in', 'in_consultation', 'completed', 'cancelled', 'no_show'] as const
 export type AppointmentStatus = (typeof APPOINTMENT_STATUSES)[number]
 
+/** AppointmentDto. Names are not embedded: resolve practitioner/patient by id. */
 export interface Appointment {
   id: Guid
   branchId: Guid
   practitionerId: Guid
-  practitionerName: string
   patientId: Guid
-  patientName: string
-  patientMrn: string
-  /** ISO-8601 instants (with offset); render in the branch time zone. */
+  /** Instants (UTC …Z); render in the branch time zone. */
   startsAt: string
   endsAt: string
   status: AppointmentStatus
-  reason?: string | null
+  reason: string | null
+  cancelReason?: string | null
+  checkedInAt?: string | null
+  startedAt?: string | null
+  completedAt?: string | null
+  cancelledAt?: string | null
 }
 
-export interface AppointmentRangeQuery {
+/** GET /api/v1/appointments query (subset the UI uses). `from`/`to` are instants. */
+export interface AppointmentQuery {
   branchId: Guid
-  /** Branch-local dates, inclusive (YYYY-MM-DD). */
   from: string
   to: string
   practitionerId?: Guid
+  page?: number
+  pageSize?: number
 }
 
 export interface CreateAppointmentRequest {
@@ -266,45 +295,55 @@ export interface CreateAppointmentRequest {
   patientId: Guid
   startsAt: string
   endsAt: string
-  reason?: string | null
+  reason?: string
 }
 
-export const QUEUE_STATUSES = ['waiting', 'in_consult', 'done'] as const
+export interface CancelAppointmentRequest {
+  reason?: string
+}
+
+export const QUEUE_STATUSES = ['waiting', 'in_consultation', 'done', 'cancelled'] as const
 export type QueueStatus = (typeof QUEUE_STATUSES)[number]
 
-/** Allowed OPD queue transitions (anything else is a 409 from the API). */
+/** Allowed OPD queue transitions (DB §3.1); anything else is a 409 invalid_transition. */
 export const QUEUE_TRANSITIONS: Record<QueueStatus, QueueStatus[]> = {
-  waiting: ['in_consult'],
-  in_consult: ['done'],
+  waiting: ['in_consultation', 'cancelled'],
+  in_consultation: ['done', 'cancelled'],
   done: [],
+  cancelled: [],
 }
 
-/** One OPD queue token for a branch and branch-local day. */
+/** QueueEntryDto: one OPD token for a branch and branch-local day. */
 export interface QueueEntry {
   id: Guid
   branchId: Guid
-  /** Branch-local date the token belongs to. */
   queueDate: string
-  /** Per branch per day, starting at 1. */
-  tokenNumber: number
+  /** Per tenant + branch + branch-local day, from 1. */
+  tokenNo: number
   patientId: Guid
-  patientName: string
-  patientMrn: string
   appointmentId: Guid | null
   practitionerId: Guid | null
-  practitionerName: string | null
   status: QueueStatus
   checkedInAt: string
+  calledAt?: string | null
+  completedAt?: string | null
+  cancelledAt?: string | null
 }
 
-/** POST /api/v1/queue/check-in. Same patient twice in a branch-day is a 409. */
-export interface CheckInRequest {
+/** 201 from POST /appointments/{id}/check-in and POST /queue/walk-in. */
+export interface CheckInResult {
+  queueEntryId: Guid
+  tokenNo: number
+  queueDate: string
+  entry: QueueEntry
+}
+
+export interface WalkInRequest {
   branchId: Guid
   patientId: Guid
-  appointmentId?: Guid | null
-  practitionerId?: Guid | null
+  practitionerId?: Guid
 }
 
 export interface UpdateQueueStatusRequest {
-  status: QueueStatus
+  status: Exclude<QueueStatus, 'waiting'>
 }

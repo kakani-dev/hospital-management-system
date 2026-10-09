@@ -13,13 +13,13 @@ import { ApiError, fieldErrors } from '../../lib/api/client'
 import { SEXES, type PatientDetail } from '../../lib/api/types'
 import { localToday } from '../../lib/dates'
 import { can } from '../../lib/permissions'
-import { useCurrentContext } from '../tenancy/useCurrentContext'
+import { rolesAtBranch, useCurrentContext } from '../tenancy/useCurrentContext'
 import { patientEditSchema, toUpdatePatientRequest, type PatientEditValues } from './patientSchema'
 
 export function PatientDetailPage() {
   const { patientId = '' } = useParams()
   const patient = usePatient(patientId)
-  const { roles, branches } = useCurrentContext()
+  const { me, branches } = useCurrentContext()
   const [editing, setEditing] = useState(false)
   const [saved, setSaved] = useState(false)
 
@@ -46,8 +46,10 @@ export function PatientDetailPage() {
   const p = patient.data
   const deleted = !!p.deletedAt
   const branchName = branches.find((b) => b.id === p.registeredBranchId)?.name ?? '—'
-  const canWrite = can(roles, 'patients.write') && !deleted
-  const canDelete = can(roles, 'patients.delete') && !deleted
+  // Writes need the role at the patient's registered branch (tenant_admin is tenant-wide).
+  const branchRoles = rolesAtBranch(me.data, p.registeredBranchId)
+  const canWrite = can(branchRoles, 'patients.write') && !deleted
+  const canDelete = can(branchRoles, 'patients.delete') && !deleted
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -220,6 +222,7 @@ function EditPatientForm({
 function DeletePatientButton({ patient }: { patient: PatientDetail }) {
   const [open, setOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [reason, setReason] = useState('')
   const remove = useDeletePatient(patient.id)
   const navigate = useNavigate()
 
@@ -238,24 +241,29 @@ function DeletePatientButton({ patient }: { patient: PatientDetail }) {
         onConfirm={async () => {
           setError(null)
           try {
-            await remove.mutateAsync()
+            await remove.mutateAsync(reason)
             navigate('/patients', { replace: true, state: { deleted: patient.mrn } })
           } catch (e) {
             setOpen(false)
             setError(
               e instanceof ApiError && e.status === 403
-                ? 'Only tenant admins can delete patients.'
-                : e instanceof ApiError && e.status === 409
-                  ? 'This patient has upcoming appointments or is in today’s queue. Cancel those first.'
-                  : 'Could not delete the patient. Try again.',
+                ? 'You are not allowed to delete patients registered at this branch.'
+                : e instanceof ApiError && e.status === 404
+                  ? 'This patient no longer exists (it may already have been deleted).'
+                  : e instanceof ApiError && e.status === 409
+                    ? 'This patient has open appointments or is in today’s queue. Cancel those first.'
+                    : fieldErrors(e).reason ?? 'Could not delete the patient. Try again.',
             )
           }
         }}
       >
         <p>
           {patient.firstName} {patient.lastName} ({patient.mrn}) will be hidden from patient lists, search and booking. The record is
-          kept for the audit trail (soft delete).
+          kept for the audit trail (soft delete) and a tenant admin can restore it.
         </p>
+        <div className="mt-3">
+          <FormField label="Reason (optional)" maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />
+        </div>
       </ConfirmDialog>
     </>
   )

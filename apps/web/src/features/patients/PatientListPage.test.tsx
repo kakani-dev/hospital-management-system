@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { App } from '../../App'
 import { useDebouncedValue } from '../../lib/useDebouncedValue'
 import { PATIENT_SEARCH_DEBOUNCE_MS } from '../../lib/api/hooks'
-import { ALPHA_MAIN, fakeAuthClient, fakeSession, json, meFor, renderWithProviders, stubFetch } from '../../test/fakes'
+import { ALPHA_MAIN, fakeAuthClient, fakeSession, json, meFor, meWithRoles, renderWithProviders, stubFetch } from '../../test/fakes'
 
 afterEach(() => {
   vi.useRealTimers()
@@ -108,13 +108,42 @@ describe('patient search by phone and date of birth', () => {
 
     await user.type(screen.getByLabelText('Phone'), '98450')
     await user.type(screen.getByLabelText('Date of birth'), '1990-01-01')
+    // Fewer than 7 digits is a 400 from the API: the phone is held back until it is long enough.
+    await waitFor(() => expect(calls.filter((c) => c.path === '/api/v1/patients/search').at(-1)?.body).toEqual({ dateOfBirth: '1990-01-01', pageSize: 25 }))
+    expect(screen.queryByLabelText('Include deleted patients')).not.toBeInTheDocument()
+    await user.type(screen.getByLabelText('Phone'), '00001')
     const row = await screen.findByTestId('patient-row')
     expect(within(row).getByRole('link', { name: 'Synthetic-Alpha, Asha' })).toHaveAttribute('href', '/patients/p1')
 
     await waitFor(() => {
       const last = calls.filter((c) => c.path === '/api/v1/patients/search').at(-1)!
-      expect(last.body).toEqual({ phone: '98450', dateOfBirth: '1990-01-01', pageSize: 25 })
+      expect(last.body).toEqual({ phone: '9845000001', dateOfBirth: '1990-01-01', pageSize: 25 })
     })
     expect(calls.every((c) => !c.url.includes('98450') && !c.url.includes('1990-01-01'))).toBe(true)
+  })
+
+  it('lets a tenant admin include deleted patients (flagged) and restore one', async () => {
+    let deletedAt: string | null = '2026-10-09T05:00:00Z'
+    const calls = stubFetch({
+      'GET /api/v1/me': () => json(meWithRoles(['tenant_admin'])),
+      'GET /api/v1/patients': () => json({ items: [], page: 1, pageSize: 25, totalCount: 0 }),
+      'POST /api/v1/patients/search': () => json({ items: [{ ...patient, deletedAt }], page: 1, pageSize: 25, totalCount: 1 }),
+      'POST /api/v1/patients/p1/restore': () => {
+        deletedAt = null
+        return json(undefined, 204)
+      },
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: '/patients', auth: fakeAuthClient({ session: fakeSession() }) })
+    await screen.findByTestId('patients-empty')
+    await user.click(screen.getByLabelText('Include deleted patients'))
+
+    expect(await screen.findByTestId('patient-deleted-badge')).toBeInTheDocument()
+    expect(calls.find((c) => c.path === '/api/v1/patients/search')!.body).toEqual({ includeDeleted: true, pageSize: 25 })
+    expect(within(screen.getByTestId('patient-row')).queryByRole('link')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Restore ALP-0001' }))
+    await waitFor(() => expect(screen.queryByTestId('patient-deleted-badge')).not.toBeInTheDocument())
+    expect(within(screen.getByTestId('patient-row')).getByText('Active')).toBeInTheDocument()
   })
 })

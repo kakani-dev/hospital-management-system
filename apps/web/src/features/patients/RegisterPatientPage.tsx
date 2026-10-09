@@ -9,7 +9,7 @@ import { FormField } from '../../components/ui/FormField'
 import { SelectField } from '../../components/ui/SelectField'
 import { useCreatePatient } from '../../lib/api/hooks'
 import { ApiError, apiClient, fieldErrors } from '../../lib/api/client'
-import { SEXES, type PossibleDuplicate } from '../../lib/api/types'
+import { SEXES, type DuplicateCandidate } from '../../lib/api/types'
 import { DuplicateWarning } from './DuplicateWarning'
 import { useCurrentContext } from '../tenancy/useCurrentContext'
 import { localToday } from '../../lib/dates'
@@ -20,7 +20,7 @@ export function RegisterPatientPage() {
   const { branches, activeBranchId, activeTenant } = useCurrentContext()
   const createPatient = useCreatePatient()
   const [formError, setFormError] = useState<string | null>(null)
-  const [duplicates, setDuplicates] = useState<{ matches: PossibleDuplicate[]; values: PatientFormValues } | null>(null)
+  const [duplicates, setDuplicates] = useState<{ matches: DuplicateCandidate[]; values: PatientFormValues } | null>(null)
   const [creatingAnyway, setCreatingAnyway] = useState(false)
   const {
     register,
@@ -73,7 +73,7 @@ export function RegisterPatientPage() {
     setFormError(null)
     setDuplicates(null)
     const request = toCreatePatientRequest(values)
-    let matches: PossibleDuplicate[] = []
+    let matches: DuplicateCandidate[] = []
     try {
       matches = await apiClient.patients.duplicates({
         firstName: request.firstName,
