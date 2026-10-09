@@ -1,8 +1,29 @@
-# Local development stack: PostgreSQL (with Supabase shim + migrations + synthetic seed), API, web.
+# Local development stack (microservices, docs/architecture/microservices.md):
 #   docker compose up --build
-# Web: http://localhost:8081   API: http://localhost:8080 (Swagger: /swagger)   DB: localhost:5432
-# DEV ONLY: default credentials below must never be used anywhere else.
+# Web: http://localhost:8081   API (YARP edge, the single base URL): http://localhost:8080   DB: localhost:5432
+#
+# The edge is the only API port published. identity / patients / scheduling listen on the compose
+# network only and answer 404 to anything without the shared X-Hms-Edge-Key (same as the internal
+# ingress in Azure Container Apps). Each service logs in with its own low-privilege role
+# (supabase/scripts/local-api-login-role.sql); every transaction still switches to `authenticated`
+# + JWT claims, so RLS applies.
+#
+# Legacy all-in-one API (monolith, on hold) for comparison, on http://localhost:8090:
+#   docker compose --profile monolith up --build
+# DEV ONLY: the default credentials and edge key below must never be used anywhere else.
 name: hms
+
+x-auth-env: &auth-env
+  # Point at your Supabase project (JWKS is fetched from <url>/auth/v1/.well-known/jwks.json),
+  # or at the local mock auth server (`npm run mock-auth`, then HMS_AUTH_ALLOW_HTTP=true):
+  Auth__Supabase__ProjectUrl: "${HMS_AUTH_URL:-}"
+  Auth__Supabase__AllowInsecureHttp: "${HMS_AUTH_ALLOW_HTTP:-false}"
+
+x-service-env: &service-env
+  <<: *auth-env
+  ASPNETCORE_ENVIRONMENT: Development
+  Edge__Key: "${HMS_EDGE_KEY:-local-dev-edge-key}"
+  Database__MaxPoolSize: "5"
 
 services:
   postgres:
@@ -23,22 +44,59 @@ services:
       timeout: 5s
       retries: 20
 
-  api:
+  # ------------------------------------------------------------------------ edge (public) ----
+  edge:
     build:
       context: .
-      dockerfile: infra/docker/api.Dockerfile
+      dockerfile: backend/edge/Dockerfile
     environment:
+      <<: *auth-env
       ASPNETCORE_ENVIRONMENT: Development
-      # Low-privilege login role (local password from supabase/scripts/local-api-login-role.sql):
-      # every API transaction switches to `authenticated` + JWT claims, so RLS applies.
-      ConnectionStrings__HmsDatabase: "Host=postgres;Port=5432;Database=hms;Username=hms_api_login;Password=hms_api_local_only"
+      Edge__Key: "${HMS_EDGE_KEY:-local-dev-edge-key}"
       Cors__AllowedOrigins__0: "http://localhost:8081"
-      # Point at your Supabase project (JWKS is fetched from <url>/auth/v1/.well-known/jwks.json),
-      # or at the local mock auth server (`npm run mock-auth`, then AllowInsecureHttp=true):
-      Auth__Supabase__ProjectUrl: "${HMS_AUTH_URL:-}"
-      Auth__Supabase__AllowInsecureHttp: "${HMS_AUTH_ALLOW_HTTP:-false}"
+      ReverseProxy__Clusters__identity__Destinations__primary__Address: "http://identity:8080/"
+      ReverseProxy__Clusters__patients__Destinations__primary__Address: "http://patients:8080/"
+      ReverseProxy__Clusters__scheduling__Destinations__primary__Address: "http://scheduling:8080/"
     ports:
       - "127.0.0.1:8080:8080"
+    depends_on:
+      - identity
+      - patients
+      - scheduling
+
+  # ------------------------------------------------------------- services (internal only) ----
+  identity:
+    build:
+      context: .
+      dockerfile: backend/services/identity/Dockerfile
+    environment:
+      <<: *service-env
+      ConnectionStrings__HmsDatabase: "Host=postgres;Port=5432;Database=hms;Username=hms_identity_login;Password=hms_identity_local_only"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  patients:
+    build:
+      context: .
+      dockerfile: backend/services/patients/Dockerfile
+    environment:
+      <<: *service-env
+      ConnectionStrings__HmsDatabase: "Host=postgres;Port=5432;Database=hms;Username=hms_patients_login;Password=hms_patients_local_only"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  scheduling:
+    build:
+      context: .
+      dockerfile: backend/services/scheduling/Dockerfile
+    environment:
+      <<: *service-env
+      ConnectionStrings__HmsDatabase: "Host=postgres;Port=5432;Database=hms;Username=hms_scheduling_login;Password=hms_scheduling_local_only"
+      # Scheduling is the only outbox publisher and the only role granted hms_dispatcher.
+      # Off by default until a consumer exists (MICROSERVICES-PLAN.md Phase 3).
+      Outbox__Dispatcher__Enabled: "${HMS_OUTBOX_DISPATCHER:-false}"
     depends_on:
       postgres:
         condition: service_healthy
@@ -54,7 +112,24 @@ services:
     ports:
       - "127.0.0.1:8081:8080"
     depends_on:
-      - api
+      - edge
+
+  # ------------------------------------------------------ legacy monolith (profile, on hold) ----
+  api:
+    profiles: ["monolith"]
+    build:
+      context: .
+      dockerfile: infra/docker/api.Dockerfile
+    environment:
+      <<: *auth-env
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__HmsDatabase: "Host=postgres;Port=5432;Database=hms;Username=hms_api_login;Password=hms_api_local_only"
+      Cors__AllowedOrigins__0: "http://localhost:8081"
+    ports:
+      - "127.0.0.1:8090:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 volumes:
   pgdata:

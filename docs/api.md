@@ -89,6 +89,10 @@ Errors use RFC 7807 problem details with an optional machine-readable `code`:
 | 403 | No membership, role not allowed, or a **same-tenant** branch outside your scope (or rejected by RLS) | `forbidden` |
 | 404 | Unknown id, **another tenant's** id (patient, practitioner, appointment, queue entry, schedule or branch, in the path or body), or a soft-deleted patient. These are indistinguishable. | `not_found` |
 | 409 | Duplicate, overlap, wrong state or invalid transition | `duplicate_mrn`, `already_checked_in`, `schedule_overlap`, `appointment_overlap`, `invalid_transition`, `invalid_state` |
-| 429 | Rate limited | |
+| 429 | Rate limited (`Retry-After`) | `rate_limited` |
+| 503 | A service is cold/unreachable, or the signing keys (JWKS) cannot be fetched. Retry after `Retry-After` (5 s). | `service_unavailable` |
+| 504 | A service took longer than 30 s | `upstream_timeout` |
+
+All of these come through the single edge (`docs/architecture/microservices.md`). `GET /api/v1/warmup` (anonymous, 10/min per IP) wakes every service and returns 200, or 503 while one is still starting.
 
 **Tenant selection.** There is no tenant header. The tenant comes from the validated token's `tenant_id` claim (set by the access token hook), or from the server-side stored context when the token has none. Either way it must match an active membership, and PostgreSQL RLS enforces the same rule again for every query.

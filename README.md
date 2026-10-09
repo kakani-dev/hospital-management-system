@@ -20,9 +20,13 @@ A multi-tenant Hospital Management System, built as a **modular monolith**: one 
 ```text
 apps/web/                 React SPA (Supabase Auth sign-in, tenant/branch switcher, dashboard, patients, admin)
 backend/
-  gateway/Hms.Gateway     API host: auth, tenant resolution, rate limiting, health, OpenAPI
+  edge/Hms.Edge           YARP edge: the single public base URL (/api/v1/*), CORS, JWT, rate limits, 503 contract
+  services/*/Hms.*.Api    Microservices: identity, patients, scheduling (docs/architecture/microservices.md)
+  gateway/Hms.Gateway     Legacy modular-monolith host (on hold; still the live Azure API until the Phase 1 cutover)
+  platform/Hms.Platform   Shared host plumbing: JWT auth, tenant resolution, problem mapping, Npgsql setup, health, outbox
   modules/Identity        Identity & Tenant module (/me, context switch, branches, members)
   modules/Patients        Patient module (patient registry, /api/v1/patients)
+  modules/Appointments    Scheduling module (practitioners, appointments, queue)
   shared/Hms.SharedKernel Tenant context, DB session (RLS role + claims per transaction), EF interceptors
   tests/                  Hms.UnitTests, Hms.IntegrationTests (real Postgres + signed JWTs), Hms.DatabaseTests (RLS)
 supabase/
