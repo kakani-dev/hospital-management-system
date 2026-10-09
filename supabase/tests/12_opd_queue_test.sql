@@ -79,7 +79,23 @@ select tests.throws_ok(
 select tests.throws_ok(
   $$select * from appointment.check_in('22222222-2222-4222-8222-222222222222', 'b2222222-0000-4000-8000-000000000001',
       'bb000000-0000-4000-8000-000000000001', 'e2222222-0000-4000-8000-000000000001')$$,
-  '42501', 'cross-tenant: Alpha reception checking in a Beta appointment -> 42501');
+  'P0002', 'cross-tenant: Alpha reception checking in a Beta appointment (Beta tenant) -> P0002 (was 42501)');
+select tests.throws_ok(
+  $$select * from appointment.check_in('11111111-1111-4111-8111-111111111111', 'b2222222-0000-4000-8000-000000000001',
+      'aa000000-0000-4000-8000-000000000001')$$,
+  'P0002', 'cross-tenant: Alpha tenant with a Beta branch -> P0002 (was 42501)');
+select tests.throws_ok(
+  $$select * from appointment.check_in('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001',
+      'aa000000-0000-4000-8000-000000000001', 'e2222222-0000-4000-8000-000000000001')$$,
+  'P0002', 'cross-tenant: a Beta appointment id in an Alpha check-in -> P0002');
+select tests.throws_ok(
+  $$select * from appointment.check_in('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001',
+      'aa000000-0000-4000-8000-000000000001', null, 'c2222222-0000-4000-8000-000000000001')$$,
+  'P0002', 'cross-tenant: a Beta practitioner in an Alpha check-in -> P0002');
+select tests.throws_ok(
+  $$select * from appointment.check_in('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001',
+      'aa000000-0000-4000-8000-0000000000de')$$,
+  'P0002', 'check_in of a soft-deleted patient -> P0002');
 select tests.throws_ok(
   $$select * from appointment.check_in('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001',
       'bb000000-0000-4000-8000-000000000001')$$,
@@ -134,7 +150,19 @@ select tests.throws_ok(
 select tests.throws_ok(
   $$select * from appointment.check_in_walk_in('a1111111-0000-4000-8000-000000000002', 'aa000000-0000-4000-8000-000000000003')$$,
   '42501', 'D11: reception (Main only) at Alpha East -> 42501');
+select tests.authenticate_as('outsider@example.test');
+select tests.throws_ok(
+  $$select * from appointment.check_in_walk_in('a1111111-0000-4000-8000-000000000001', 'aa000000-0000-4000-8000-000000000003')$$,
+  'P0002', 'D11: user with no membership -> P0002');
+select tests.throws_ok(
+  $$select * from appointment.check_in('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001',
+      'aa000000-0000-4000-8000-000000000003')$$,
+  'P0002', 'check_in by a user with no membership -> P0002');
 select tests.authenticate_as('lab@alpha.example');
+select tests.throws_ok(
+  $$select * from appointment.check_in('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001',
+      'aa000000-0000-4000-8000-000000000003')$$,
+  '42501', 'check_in by a same-tenant lab technician -> 42501');
 select tests.throws_ok(
   $$select * from appointment.check_in_walk_in('a1111111-0000-4000-8000-000000000001', 'aa000000-0000-4000-8000-000000000003')$$,
   '42501', 'D11: lab technician (not front desk) -> 42501');
@@ -186,7 +214,18 @@ select tests.throws_ok(
 select tests.authenticate_as('consultant@shared.example');
 select tests.throws_ok(
   format($$select appointment.set_queue_status(%L, 'in_consultation')$$, (select queue_entry_id from t2)),
-  'P0002', 'doctor without access to the branch -> P0002');
+  '42501', 'same-tenant doctor without access to the branch -> 42501 (was P0002)');
+select tests.authenticate_as('lab@alpha.example');
+select tests.throws_ok(
+  format($$select appointment.set_queue_status(%L, 'cancelled')$$, (select queue_entry_id from t2)),
+  '42501', 'same-tenant lab technician -> 42501 (was P0002)');
+select tests.authenticate_as('outsider@example.test');
+select tests.throws_ok(
+  format($$select appointment.set_queue_status(%L, 'cancelled')$$, (select queue_entry_id from t2)),
+  'P0002', 'user with no membership -> P0002');
+select tests.throws_ok(
+  $$select appointment.set_queue_status(gen_random_uuid(), 'cancelled')$$,
+  'P0002', 'unknown queue entry -> P0002');
 select tests.authenticate_as('doctor-main@alpha.example');
 select tests.throws_ok(
   format($$select appointment.set_queue_status(%L, 'cancelled')$$, (select queue_entry_id from t2)),

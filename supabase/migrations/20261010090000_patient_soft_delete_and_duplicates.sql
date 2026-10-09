@@ -87,8 +87,8 @@ begin
   from patient.patients p where p.id = p_patient_id
   for update;
 
-  if v_p.id is null or v_p.deleted_at is not null
-     or not identity.has_tenant_role(v_p.tenant_id, array['tenant_admin', 'doctor', 'nurse', 'receptionist', 'billing']) then
+  -- 404-not-403: unknown, another tenant's, or already deleted -> P0002; same tenant but not permitted -> 42501
+  if v_p.id is null or v_p.tenant_id not in (select identity.current_tenant_ids()) or v_p.deleted_at is not null then
     raise exception 'patient not found' using errcode = 'P0002';
   end if;
 
@@ -128,8 +128,7 @@ begin
   from patient.patients p where p.id = p_patient_id
   for update;
 
-  if v_p.id is null
-     or not identity.has_tenant_role(v_p.tenant_id, array['tenant_admin', 'doctor', 'nurse', 'receptionist', 'billing']) then
+  if v_p.id is null or v_p.tenant_id not in (select identity.current_tenant_ids()) then
     raise exception 'patient not found' using errcode = 'P0002';
   end if;
   if not identity.has_tenant_role(v_p.tenant_id, array['tenant_admin']) then
@@ -162,11 +161,22 @@ returns table (
   phone text,
   registered_branch_id uuid,
   match_reasons text[])
-language sql
+language plpgsql
 stable
 security invoker
 set search_path = ''
 as $$
+#variable_conflict use_column
+begin
+  -- 404-not-403: a tenant the caller is not a member of -> P0002; member without registry read -> 42501
+  if p_tenant_id is null or p_tenant_id not in (select identity.current_tenant_ids()) then
+    raise exception 'tenant not found' using errcode = 'P0002';
+  end if;
+  if not identity.has_tenant_role(p_tenant_id, array['tenant_admin', 'doctor', 'nurse', 'receptionist', 'billing']) then
+    raise exception 'not permitted to search patients' using errcode = '42501';
+  end if;
+
+  return query
   select p.id, p.mrn, p.first_name, p.last_name, p.date_of_birth, p.phone, p.registered_branch_id,
          array_remove(array[case when m.by_name then 'name_dob' end, case when m.by_phone then 'phone' end], null)
   from patient.patients p
@@ -182,7 +192,8 @@ as $$
     and (p_exclude_id is null or p.id <> p_exclude_id)
     and (m.by_name or m.by_phone)
   order by (m.by_name and m.by_phone) desc, p.last_name, p.first_name, p.mrn
-  limit 20
+  limit 20;
+end;
 $$;
 
 revoke all on function patient.normalize_phone(text) from public, anon;
