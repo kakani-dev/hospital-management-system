@@ -5,6 +5,9 @@ import { Card } from '../../components/ui/Card'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
 import { FormField } from '../../components/ui/FormField'
+import { Badge } from '@tailux/components/ui'
+import { DataTable, type ColumnDef } from '../../components/table/DataTable'
+import type { Branch } from '../../lib/api/types'
 import { useBranches, useCreateBranch, useUpdateBranch } from '../../lib/api/hooks'
 import { ApiError, fieldErrors } from '../../lib/api/client'
 import { branchSchema, type BranchFormValues } from './adminSchemas'
@@ -36,13 +39,50 @@ export function BranchesPage() {
       for (const [field, msg] of Object.entries(fieldErrors(error))) {
         if (field in values) setError(field as keyof BranchFormValues, { message: msg })
       }
-      setMessage({ tone: 'error', text: error instanceof ApiError && error.status === 403 ? 'Only tenant admins can manage branches.' : 'Could not create the branch.' })
+      setMessage({
+        tone: 'error',
+        text: error instanceof ApiError && error.status === 403 ? 'Only tenant admins can manage branches.' : 'Could not create the branch.',
+      })
     }
   }
 
+  const columns: ColumnDef<Branch, unknown>[] = [
+    { id: 'code', accessorKey: 'code', header: 'Code', cell: ({ row }) => <span className="font-mono">{row.original.code}</span> },
+    { id: 'name', accessorKey: 'name', header: 'Name' },
+    { id: 'timezone', accessorKey: 'timezone', header: 'Time zone' },
+    {
+      id: 'status',
+      accessorFn: (b) => (b.isActive ? 'Active' : 'Inactive'),
+      header: 'Status',
+      cell: ({ row: { original: b } }) => (
+        <Badge color={b.isActive ? 'success' : 'neutral'} variant="soft">
+          {b.isActive ? 'Active' : 'Inactive'}
+        </Badge>
+      ),
+    },
+    {
+      id: 'actions',
+      enableSorting: false,
+      header: () => <span className="sr-only">Actions</span>,
+      cell: ({ row: { original: b } }) => (
+        <div className="text-right">
+          <Button
+            variant="secondary"
+            className="h-8"
+            disabled={updateBranch.isPending}
+            aria-label={`${b.isActive ? 'Deactivate' : 'Activate'} ${b.name}`}
+            onClick={() => updateBranch.mutate({ id: b.id, body: { isActive: !b.isActive } })}
+          >
+            {b.isActive ? 'Deactivate' : 'Activate'}
+          </Button>
+        </div>
+      ),
+    },
+  ]
+
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold">Branches</h1>
+      <h1 className="text-xl font-semibold text-gray-800 dark:text-dark-50">Branches</h1>
       {message && <Alert tone={message.tone}>{message.text}</Alert>}
       <Card title="Add branch">
         <form noValidate aria-label="Add branch" onSubmit={handleSubmit(onSubmit)} className="grid gap-4 sm:grid-cols-4 sm:items-end">
@@ -56,38 +96,15 @@ export function BranchesPage() {
       </Card>
       <Card>
         {branches.isError && <Alert tone="error">Could not load branches.</Alert>}
-        <table className="min-w-full divide-y divide-slate-200 text-sm">
-          <caption className="sr-only">Branches of this hospital</caption>
-          <thead className="bg-slate-50 text-left">
-            <tr>
-              <th scope="col" className="px-3 py-2">Code</th>
-              <th scope="col" className="px-3 py-2">Name</th>
-              <th scope="col" className="px-3 py-2">Time zone</th>
-              <th scope="col" className="px-3 py-2">Status</th>
-              <th scope="col" className="px-3 py-2"><span className="sr-only">Actions</span></th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {branches.data?.map((b) => (
-              <tr key={b.id} data-testid="branch-row">
-                <td className="px-3 py-2 font-mono">{b.code}</td>
-                <td className="px-3 py-2">{b.name}</td>
-                <td className="px-3 py-2">{b.timezone}</td>
-                <td className="px-3 py-2">{b.isActive ? 'Active' : 'Inactive'}</td>
-                <td className="px-3 py-2 text-right">
-                  <Button
-                    variant="secondary"
-                    disabled={updateBranch.isPending}
-                    aria-label={`${b.isActive ? 'Deactivate' : 'Activate'} ${b.name}`}
-                    onClick={() => updateBranch.mutate({ id: b.id, body: { isActive: !b.isActive } })}
-                  >
-                    {b.isActive ? 'Deactivate' : 'Activate'}
-                  </Button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <DataTable
+          data={branches.data ?? []}
+          columns={columns}
+          caption="Branches of this hospital"
+          isLoading={branches.isPending}
+          empty="No branches yet."
+          getRowId={(b) => b.id}
+          getRowProps={() => ({ 'data-testid': 'branch-row' })}
+        />
       </Card>
     </div>
   )

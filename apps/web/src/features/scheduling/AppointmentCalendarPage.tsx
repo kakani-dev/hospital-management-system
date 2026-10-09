@@ -17,6 +17,7 @@ import { BranchNotice } from '../tenancy/BranchNotice'
 import { useCalendarParams } from './useCalendarParams'
 import { useBookablePractitioners } from './useBookablePractitioners'
 import { BookingPanel, type BookingDraft } from './BookingPanel'
+import { Drawer } from '@tailux/components/shared/Drawer'
 import type { ReturnedPatientState } from '../patients/registerReturn'
 
 /** Calendar refresh while open (other desks book too). */
@@ -64,13 +65,12 @@ export function AppointmentCalendarPage() {
   for (const a of appointments.data ?? []) byDay.get(dateInZone(a.startsAt, timeZone))?.push(a)
   for (const list of byDay.values()) list.sort((a, b) => a.startsAt.localeCompare(b.startsAt))
 
-  const rangeLabel =
-    cal.view === 'week' ? `${formatDayLabel(cal.rangeStart)} – ${formatDayLabel(addDays(cal.rangeEnd, -1))}` : formatDayLabel(cal.date)
+  const rangeLabel = cal.view === 'week' ? `${formatDayLabel(cal.rangeStart)} – ${formatDayLabel(addDays(cal.rangeEnd, -1))}` : formatDayLabel(cal.date)
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <h1 className="text-2xl font-semibold">Appointments</h1>
+        <h1 className="text-xl font-semibold text-gray-800 dark:text-dark-50">Appointments</h1>
         {canBook && !booking && (
           <Button
             data-shortcut="open-booking"
@@ -108,20 +108,23 @@ export function AppointmentCalendarPage() {
       />
       {notice && <Alert tone="info">{notice}</Alert>}
       {booking && branchId && (
-        <BookingPanel
-          branchId={branchId}
-          timeZone={timeZone}
-          initialDate={cal.date < cal.today ? cal.today : cal.date}
-          minDate={cal.today}
-          practitioners={bookable}
-          initial={restored ?? undefined}
-          onCancel={() => setBooking(false)}
-          onBooked={(appointment, label) => {
-            setBooking(false)
-            setNotice(label)
-            cal.setDate(dateInZone(appointment.startsAt, timeZone))
-          }}
-        />
+        // Mounted only while open (so closing removes it at once); the Tailux right drawer slides it in.
+        <Drawer open onClose={() => setBooking(false)} title="Book appointment" closeLabel="Close booking" testId="booking-drawer" className="max-w-2xl!">
+          <BookingPanel
+            branchId={branchId}
+            timeZone={timeZone}
+            initialDate={cal.date < cal.today ? cal.today : cal.date}
+            minDate={cal.today}
+            practitioners={bookable}
+            initial={restored ?? undefined}
+            onCancel={() => setBooking(false)}
+            onBooked={(appointment, label) => {
+              setBooking(false)
+              setNotice(label)
+              cal.setDate(dateInZone(appointment.startsAt, timeZone))
+            }}
+          />
+        </Drawer>
       )}
       <BranchNotice branchId={branchId} />
       {appointments.isError && <Alert tone="warning">Appointments are unavailable right now.</Alert>}
@@ -131,19 +134,23 @@ export function AppointmentCalendarPage() {
         aria-busy={appointments.isFetching}
       >
         {days.map((d) => (
-          <Card key={d} className={d === cal.today ? 'ring-2 ring-brand-600' : ''}>
+          <Card key={d} className={d === cal.today ? 'ring-2 ring-primary-600 dark:ring-primary-400' : ''}>
             <section aria-label={formatDayLabel(d)} data-testid="calendar-day" data-date={d}>
               <h2 className="mb-2 text-sm font-semibold">
                 {formatDayLabel(d)}
-                {d === cal.today && <span className="ml-1 text-xs font-normal text-brand-800">today</span>}
+                {d === cal.today && <span className="ml-1 text-xs font-normal text-primary-600 dark:text-primary-400">today</span>}
               </h2>
-              {(appointments.isPending || appointments.isPlaceholderData) && !!branchId && (byDay.get(d)?.length ?? 0) === 0 && <p className="text-sm text-slate-600">Loading…</p>}
-              {!appointments.isPending && !appointments.isPlaceholderData && (byDay.get(d)?.length ?? 0) === 0 && <p className="text-sm text-slate-500">No appointments</p>}
+              {(appointments.isPending || appointments.isPlaceholderData) && !!branchId && (byDay.get(d)?.length ?? 0) === 0 && (
+                <p className="text-sm text-gray-600 dark:text-dark-200">Loading…</p>
+              )}
+              {!appointments.isPending && !appointments.isPlaceholderData && (byDay.get(d)?.length ?? 0) === 0 && (
+                <p className="text-sm text-gray-500 dark:text-dark-300">No appointments</p>
+              )}
               <ul className="space-y-2">
                 {byDay.get(d)?.map((a) => {
                   const p = patient(a)
                   return (
-                    <li key={a.id} data-testid="appointment" data-status={a.status} className="rounded border border-slate-200 p-2 text-sm">
+                    <li key={a.id} data-testid="appointment" data-status={a.status} className="rounded border border-gray-200 dark:border-dark-500 p-2 text-sm">
                       <div className="flex flex-wrap items-center justify-between gap-1">
                         <span className="font-mono">
                           {formatTime(a.startsAt, timeZone)}–{formatTime(a.endsAt, timeZone)}
@@ -156,13 +163,13 @@ export function AppointmentCalendarPage() {
                         ) : p === null ? (
                           'Patient unavailable'
                         ) : (
-                          <Link to={`/patients/${p.id}`} className="text-brand-800 underline">
+                          <Link to={`/patients/${p.id}`} className="text-primary-600 dark:text-primary-400 underline">
                             {p.lastName}, {p.firstName}
                           </Link>
                         )}
-                        {p && <span className="ml-1 font-mono text-xs text-slate-600">{p.mrn}</span>}
+                        {p && <span className="ml-1 font-mono text-xs text-gray-600 dark:text-dark-200">{p.mrn}</span>}
                       </div>
-                      <div className="text-xs text-slate-600">{practitionerName(a.practitionerId)}</div>
+                      <div className="text-xs text-gray-600 dark:text-dark-200">{practitionerName(a.practitionerId)}</div>
                       {canBook && a.status === 'booked' && <CancelAppointmentButton appointment={a} />}
                     </li>
                   )
@@ -182,14 +189,14 @@ function CancelAppointmentButton({ appointment }: { appointment: Appointment }) 
     <div className="mt-1">
       <button
         type="button"
-        className="text-xs text-red-800 underline disabled:text-slate-400"
+        className="text-xs font-medium text-error underline disabled:text-gray-400 dark:text-error-lighter dark:disabled:text-dark-400"
         disabled={cancel.isPending}
         onClick={() => cancel.mutate({ id: appointment.id })}
       >
         Cancel appointment
       </button>
       {cancel.isError && (
-        <p role="alert" className="text-xs text-red-700">
+        <p role="alert" className="text-xs text-error dark:text-error-lighter">
           Could not cancel (it may have been checked in already).
         </p>
       )}

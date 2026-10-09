@@ -110,10 +110,10 @@ export function CheckInPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold">Reception check-in</h1>
+      <h1 className="text-xl font-semibold text-gray-800 dark:text-dark-50">Reception check-in</h1>
       <div className="flex flex-wrap items-end gap-4">
         <BranchPicker branches={branches} value={branchId} onChange={setBranchId} />
-        <p className="text-sm text-slate-700">
+        <p className="text-sm text-gray-700 dark:text-dark-200">
           Today at this branch: <strong>{formatDayLabel(today)}</strong> ({timeZone})
         </p>
       </div>
@@ -121,7 +121,7 @@ export function CheckInPage() {
       {branchId && !canCheckIn && me.data && <Alert tone="warning">Your role at this branch cannot check patients in.</Alert>}
       <div aria-live="polite">
         {issued && (
-          <div ref={tokenRef} tabIndex={-1} data-testid="token-issued" className="rounded-md border border-emerald-300 bg-emerald-50 p-4 text-emerald-950 focus:outline-2 focus:outline-emerald-600">
+          <div ref={tokenRef} tabIndex={-1} data-testid="token-issued" className="this:success rounded-lg border border-this/30 bg-this-darker/10 p-4 text-this-darker focus:outline-2 focus:outline-this dark:border-this-lighter/30 dark:bg-this-lighter/10 dark:text-this-lighter">
             <p className="text-sm">Checked in {issued.name}.</p>
             <p className="text-3xl font-bold">
               Token <span data-testid="token-number">{issued.result.tokenNo}</span>
@@ -137,10 +137,10 @@ export function CheckInPage() {
         ))}
       <div className="grid gap-6 lg:grid-cols-2">
         <Card title="Today’s appointments">
-          {appointments.isPending && !!branchId && <p className="text-sm text-slate-600">Loading…</p>}
+          {appointments.isPending && !!branchId && <p className="text-sm text-gray-600 dark:text-dark-200">Loading…</p>}
           {appointments.isError && <Alert tone="warning">Appointments are unavailable right now.</Alert>}
-          {!appointments.isPending && todays.length === 0 && <p className="text-sm text-slate-600">No appointments today.</p>}
-          <ul className="divide-y divide-slate-100" data-shortcut="checkin-list">
+          {!appointments.isPending && todays.length === 0 && <p className="text-sm text-gray-600 dark:text-dark-200">No appointments today.</p>}
+          <ul className="divide-y divide-gray-200 dark:divide-dark-500" data-shortcut="checkin-list">
             {todays.map((a) => {
               const p = patient(a)
               const name = p ? `${p.firstName} ${p.lastName}` : 'patient'
@@ -151,7 +151,7 @@ export function CheckInPage() {
                     <span className="font-mono">{formatTime(a.startsAt, timeZone)}</span> ·{' '}
                     <strong>{p === undefined ? 'Loading…' : p === null ? 'Patient unavailable' : `${p.lastName}, ${p.firstName}`}</strong>
                     {p && <span className="ml-1 font-mono text-xs">{p.mrn}</span>}
-                    <span className="block text-xs text-slate-600">{practitionerName(a.practitionerId)}</span>
+                    <span className="block text-xs text-gray-600 dark:text-dark-200">{practitionerName(a.practitionerId)}</span>
                   </span>
                   <span className="flex items-center gap-2">
                     <StatusBadge status={a.status} />
@@ -224,7 +224,7 @@ function WalkInCard({
       >
         <PatientPicker value={picked} onChange={setPicked} label="Find walk-in patient" shortcut="walk-in" registerReturn={{ to: registerReturnTo }} />
         {missing && (
-          <p role="alert" className="text-sm text-red-700">
+          <p role="alert" className="text-sm text-error dark:text-error-lighter">
             Choose a patient first.
           </p>
         )}

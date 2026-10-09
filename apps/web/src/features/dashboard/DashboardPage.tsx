@@ -20,25 +20,25 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold">Dashboard</h1>
+      <h1 className="text-xl font-semibold text-gray-800 dark:text-dark-50">Dashboard</h1>
       <PendingInvitations />
       <div className="grid gap-4 md:grid-cols-3">
         <Card title="Context">
           <dl className="space-y-1 text-sm">
             <div>
-              <dt className="inline text-slate-600">Hospital: </dt>
+              <dt className="inline text-gray-600 dark:text-dark-200">Hospital: </dt>
               <dd className="inline" data-testid="dashboard-tenant">
                 {activeTenant?.name ?? '—'}
               </dd>
             </div>
             <div>
-              <dt className="inline text-slate-600">Branch: </dt>
+              <dt className="inline text-gray-600 dark:text-dark-200">Branch: </dt>
               <dd className="inline" data-testid="dashboard-branch">
                 {branchName}
               </dd>
             </div>
             <div>
-              <dt className="inline text-slate-600">Roles: </dt>
+              <dt className="inline text-gray-600 dark:text-dark-200">Roles: </dt>
               <dd className="inline">{roles.join(', ') || '—'}</dd>
             </div>
           </dl>
@@ -52,26 +52,26 @@ export function DashboardPage() {
           <ul className="space-y-1 text-sm" data-testid="dashboard-today">
             {can(roles, 'appointments.view') && (
               <li>
-                <Link className="text-brand-800 underline" to="/appointments">
+                <Link className="text-primary-600 dark:text-primary-400 underline" to="/appointments">
                   Today’s appointments
                 </Link>
               </li>
             )}
             {can(roles, 'queue.checkIn') && (
               <li>
-                <Link className="text-brand-800 underline" to="/reception/check-in">
+                <Link className="text-primary-600 dark:text-primary-400 underline" to="/reception/check-in">
                   Reception check-in
                 </Link>
               </li>
             )}
             {can(roles, 'queue.view') && (
               <li>
-                <Link className="text-brand-800 underline" to="/queue">
+                <Link className="text-primary-600 dark:text-primary-400 underline" to="/queue">
                   OPD queue board
                 </Link>
               </li>
             )}
-            {!can(roles, 'appointments.view') && !can(roles, 'queue.view') && <li className="text-slate-600">Nothing scheduled for your role.</li>}
+            {!can(roles, 'appointments.view') && !can(roles, 'queue.view') && <li className="text-gray-600 dark:text-dark-200">Nothing scheduled for your role.</li>}
           </ul>
         </Card>
       </div>

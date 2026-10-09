@@ -16,7 +16,7 @@ export function TenantChangedBanner() {
   // was still reloaded, so say so without claiming a change that this tab does not see (yet).
   const sameAsBefore = current === previous
   return (
-    <div role="alert" data-testid="tenant-switched-banner" className="border-b border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900">
+    <div role="alert" data-testid="tenant-switched-banner" className="this:error bg-this-darker/10 text-this-darker dark:bg-this-lighter/10 dark:text-this-lighter border-b border-this/30 px-(--margin-x) py-3 text-sm">
       <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3">
         <p>
           <strong>Hospital changed:</strong>{' '}

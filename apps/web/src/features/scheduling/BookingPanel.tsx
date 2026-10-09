@@ -2,7 +2,6 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { useLocation } from 'react-router'
 import { RetryAlert } from '../../components/ui/RetryAlert'
 import { transientWriteMessage } from '../../lib/api/errors'
-import { Card } from '../../components/ui/Card'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
 import { SelectField } from '../../components/ui/SelectField'
@@ -103,90 +102,88 @@ export function BookingPanel({
   }
 
   return (
-    <Card title="Book appointment">
-      <form
-        aria-label="Book appointment"
-        noValidate
-        className="grid gap-4 md:grid-cols-2"
-        onSubmit={(e) => {
-          e.preventDefault()
-          void submit()
-        }}
-      >
-        <div className="space-y-4">
-          <SelectField
-            label="Practitioner"
-            value={practitionerId}
-            onChange={(e) => {
-              setPractitionerId(e.target.value)
-              setSlot(null)
-            }}
-          >
-            <option value="">Select a practitioner…</option>
-            {practitioners.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.displayName}
-                {p.specialty ? ` (${p.specialty})` : ''}
-              </option>
-            ))}
-          </SelectField>
-          <FormField
-            label="Appointment date"
-            type="date"
-            min={minDate}
-            value={date}
-            onChange={(e) => {
-              if (e.target.value) setDate(e.target.value)
-              setSlot(null)
-            }}
-          />
-          <fieldset aria-describedby={`${slotGroup}-tz`} data-testid="slot-list">
-            <legend className="text-sm font-medium text-slate-800">Free slots</legend>
-            <p id={`${slotGroup}-tz`} className="text-xs text-slate-600">
-              Times in {timeZone}
-            </p>
-            {!practitionerId && <p className="text-sm text-slate-600">Choose a practitioner first.</p>}
-            {practitionerId && slots.isPending && <p className="text-sm text-slate-600">Loading slots…</p>}
-            {slots.isError && <p className="text-sm text-red-700">Slots are unavailable right now.</p>}
-            {slots.data?.length === 0 && !slots.isPlaceholderData && <p className="text-sm text-slate-600">No free slots on this day.</p>}
-            <div className={`mt-2 flex flex-wrap gap-2 ${slots.isPlaceholderData ? 'opacity-50' : ''}`} aria-busy={slots.isFetching}>
-              {slots.data?.map((s) => {
-                const checked = slot?.startsAt === s.startsAt
-                return (
-                  <label
-                    key={s.startsAt}
-                    className={`cursor-pointer rounded border px-2 py-1 text-sm font-mono ${checked ? 'border-brand-700 bg-brand-50' : 'border-slate-300'}`}
-                  >
-                    <input type="radio" name={slotGroup} className="sr-only" checked={checked} disabled={slots.isPlaceholderData} onChange={() => setSlot(s)} />
-                    {formatTime(s.startsAt, timeZone)}
-                  </label>
-                )
-              })}
-            </div>
-          </fieldset>
-        </div>
-        <div className="space-y-4">
-          <PatientPicker
-            value={patient}
-            onChange={setPatient}
-            registerReturn={{ to: `${location.pathname}${location.search}`, state: { booking: { practitionerId, date, slot } satisfies BookingDraft } }}
-          />
-          <FormField label="Reason (optional)" maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />
-        </div>
-        {error && (
-          <div className="md:col-span-2">
-            {retryable ? <RetryAlert message={error} onRetry={() => void submit()} busy={create.isPending} /> : <Alert tone="error">{error}</Alert>}
+    <form
+      aria-label="Book appointment"
+      noValidate
+      className="grid gap-4 md:grid-cols-2"
+      onSubmit={(e) => {
+        e.preventDefault()
+        void submit()
+      }}
+    >
+      <div className="space-y-4">
+        <SelectField
+          label="Practitioner"
+          value={practitionerId}
+          onChange={(e) => {
+            setPractitionerId(e.target.value)
+            setSlot(null)
+          }}
+        >
+          <option value="">Select a practitioner…</option>
+          {practitioners.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.displayName}
+              {p.specialty ? ` (${p.specialty})` : ''}
+            </option>
+          ))}
+        </SelectField>
+        <FormField
+          label="Appointment date"
+          type="date"
+          min={minDate}
+          value={date}
+          onChange={(e) => {
+            if (e.target.value) setDate(e.target.value)
+            setSlot(null)
+          }}
+        />
+        <fieldset aria-describedby={`${slotGroup}-tz`} data-testid="slot-list">
+          <legend className="text-sm font-medium text-gray-800 dark:text-dark-100">Free slots</legend>
+          <p id={`${slotGroup}-tz`} className="text-xs text-gray-600 dark:text-dark-200">
+            Times in {timeZone}
+          </p>
+          {!practitionerId && <p className="text-sm text-gray-600 dark:text-dark-200">Choose a practitioner first.</p>}
+          {practitionerId && slots.isPending && <p className="text-sm text-gray-600 dark:text-dark-200">Loading slots…</p>}
+          {slots.isError && <p className="text-sm text-error dark:text-error-lighter">Slots are unavailable right now.</p>}
+          {slots.data?.length === 0 && !slots.isPlaceholderData && <p className="text-sm text-gray-600 dark:text-dark-200">No free slots on this day.</p>}
+          <div className={`mt-2 flex flex-wrap gap-2 ${slots.isPlaceholderData ? 'opacity-50' : ''}`} aria-busy={slots.isFetching}>
+            {slots.data?.map((s) => {
+              const checked = slot?.startsAt === s.startsAt
+              return (
+                <label
+                  key={s.startsAt}
+                  className={`cursor-pointer rounded border px-2 py-1 text-sm font-mono ${checked ? 'border-primary-600 dark:border-primary-400 bg-primary-50 dark:bg-primary-500/15' : 'border-gray-300 dark:border-dark-450'}`}
+                >
+                  <input type="radio" name={slotGroup} className="sr-only" checked={checked} disabled={slots.isPlaceholderData} onChange={() => setSlot(s)} />
+                  {formatTime(s.startsAt, timeZone)}
+                </label>
+              )
+            })}
           </div>
-        )}
-        <div className="flex gap-2 md:col-span-2">
-          <Button ref={confirmRef} type="submit" disabled={create.isPending}>
-            {create.isPending ? 'Booking…' : 'Confirm booking'}
-          </Button>
-          <Button variant="secondary" onClick={onCancel}>
-            Close
-          </Button>
+        </fieldset>
+      </div>
+      <div className="space-y-4">
+        <PatientPicker
+          value={patient}
+          onChange={setPatient}
+          registerReturn={{ to: `${location.pathname}${location.search}`, state: { booking: { practitionerId, date, slot } satisfies BookingDraft } }}
+        />
+        <FormField label="Reason (optional)" maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />
+      </div>
+      {error && (
+        <div className="md:col-span-2">
+          {retryable ? <RetryAlert message={error} onRetry={() => void submit()} busy={create.isPending} /> : <Alert tone="error">{error}</Alert>}
         </div>
-      </form>
-    </Card>
+      )}
+      <div className="flex gap-2 md:col-span-2">
+        <Button ref={confirmRef} type="submit" disabled={create.isPending}>
+          {create.isPending ? 'Booking…' : 'Confirm booking'}
+        </Button>
+        <Button variant="secondary" onClick={onCancel}>
+          Close
+        </Button>
+      </div>
+    </form>
   )
 }

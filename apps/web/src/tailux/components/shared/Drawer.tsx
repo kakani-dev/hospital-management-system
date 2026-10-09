@@ -15,6 +15,7 @@ export function Drawer({
   footer,
   className,
   testId,
+  closeLabel = 'Close',
 }: {
   open: boolean
   onClose: () => void
@@ -23,6 +24,8 @@ export function Drawer({
   footer?: ReactNode
   className?: string
   testId?: string
+  /** Accessible name of the X button (distinct from any Close button in the body). */
+  closeLabel?: string
 }) {
   return (
     <Transition appear show={open} as={Fragment}>
@@ -59,7 +62,7 @@ export function Drawer({
               <DialogTitle as="h2" className="text-base font-medium text-gray-800 dark:text-dark-50">
                 {title}
               </DialogTitle>
-              <Button onClick={onClose} variant="flat" isIcon className="size-7 rounded-full ltr:-mr-1.5" aria-label="Close">
+              <Button onClick={onClose} variant="flat" isIcon className="size-7 rounded-full ltr:-mr-1.5" aria-label={closeLabel}>
                 <XMarkIcon className="size-4.5" aria-hidden="true" />
               </Button>
             </div>

@@ -10,7 +10,7 @@ export function ContextErrorBanner() {
   const { me } = useCurrentContext()
   if (!me.isError || me.data) return null
   return (
-    <div role="alert" data-testid="context-error" className="border-b border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+    <div role="alert" data-testid="context-error" className="this:warning bg-this-darker/10 text-this-darker dark:bg-this-lighter/10 dark:text-this-lighter border-b border-this/30 px-(--margin-x) py-3 text-sm">
       <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3">
         <p>
           We could not load your hospital context

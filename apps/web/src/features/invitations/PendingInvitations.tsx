@@ -58,12 +58,12 @@ export function PendingInvitations() {
         {message && <Alert tone={message.tone}>{message.text}</Alert>}
         {loadFailed && <Alert tone="warning">Could not load your invitations.</Alert>}
         {items.length > 0 && (
-          <ul className="divide-y divide-slate-100">
+          <ul className="divide-y divide-gray-200 dark:divide-dark-500">
             {items.map((invitation) => (
               <li key={invitation.membershipId} className="flex flex-wrap items-center justify-between gap-3 py-2" data-testid="invitation-row">
                 <div className="text-sm">
-                  <p className="font-medium text-slate-900">{invitation.tenantName}</p>
-                  <p className="text-slate-600">
+                  <p className="font-medium text-gray-800 dark:text-dark-50">{invitation.tenantName}</p>
+                  <p className="text-gray-600 dark:text-dark-200">
                     <span className="capitalize">{roleLabel(invitation.role)}</span> ·{' '}
                     {invitation.branchId ? (invitation.branchName ?? 'One branch') : 'All branches'} · invited {formatInvitedAt(invitation.invitedAt)}
                   </p>

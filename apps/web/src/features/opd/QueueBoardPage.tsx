@@ -68,8 +68,8 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <h1 className="text-2xl font-semibold">OPD queue</h1>
-        <p className="text-sm text-slate-600" data-testid="queue-updated">
+        <h1 className="text-xl font-semibold text-gray-800 dark:text-dark-50">OPD queue</h1>
+        <p className="text-sm text-gray-600 dark:text-dark-200" data-testid="queue-updated">
           {formatDayLabel(today)} · {queue.dataUpdatedAt ? `updated ${formatTime(new Date(queue.dataUpdatedAt), timeZone)}` : 'loading'} · refreshes
           every {Math.round(refreshMs / 1000)} s
         </p>
@@ -89,16 +89,16 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
             <Card key={col.status}>
               <section aria-labelledby={`queue-col-${col.status}`} data-testid={`queue-${col.status}`} aria-live={col.status === 'in_consultation' ? 'polite' : undefined}>
                 <h2 id={`queue-col-${col.status}`} className="mb-3 text-base font-semibold">
-                  {col.title} <span className="text-sm font-normal text-slate-600">({items.length})</span>
+                  {col.title} <span className="text-sm font-normal text-gray-600 dark:text-dark-200">({items.length})</span>
                 </h2>
-                {items.length === 0 && <p className="text-sm text-slate-500">None</p>}
+                {items.length === 0 && <p className="text-sm text-gray-500 dark:text-dark-300">None</p>}
                 <ol className="space-y-2">
                   {items.map((e) => {
                     const p = patient(e)
                     return (
                       <li
                         key={e.id}
-                        className={`rounded border p-2 ${saving.includes(e.id) ? 'border-brand-300 bg-brand-50' : 'border-slate-200'}`}
+                        className={`rounded border p-2 ${saving.includes(e.id) ? 'border-primary-300 dark:border-primary-500/50 bg-primary-50 dark:bg-primary-500/15' : 'border-gray-200 dark:border-dark-500'}`}
                         data-testid="queue-entry"
                         data-token={e.tokenNo}
                         aria-busy={saving.includes(e.id)}
@@ -108,13 +108,13 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
                             {e.tokenNo}
                           </span>
                           {saving.includes(e.id) && (
-                            <span className="text-xs font-medium text-brand-800" data-testid="queue-entry-saving">
+                            <span className="text-xs font-medium text-primary-600 dark:text-primary-400" data-testid="queue-entry-saving">
                               Saving…
                             </span>
                           )}
                           <span className="text-sm">
                             <strong>{p === undefined ? 'Loading…' : p === null ? 'Patient unavailable' : `${p.lastName}, ${p.firstName}`}</strong>
-                            <span className="block text-xs text-slate-600">
+                            <span className="block text-xs text-gray-600 dark:text-dark-200">
                               {practitionerName(e.practitionerId)} · {e.appointmentId ? 'appointment' : 'walk-in'} · in at{' '}
                               {formatTime(e.checkedInAt, timeZone)}
                             </span>
@@ -146,7 +146,7 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
         })}
       </div>
       {cancelledCount > 0 && (
-        <p className="text-sm text-slate-600" data-testid="queue-cancelled-count">
+        <p className="text-sm text-gray-600 dark:text-dark-200" data-testid="queue-cancelled-count">
           {cancelledCount} token{cancelledCount === 1 ? '' : 's'} removed from the queue today.
         </p>
       )}

@@ -12,7 +12,7 @@ export function BranchNotice({ branchId }: { branchId: string | null }) {
     return (
       <div role="status" data-testid="branches-loading" className="space-y-2">
         <span className="sr-only">Loading your branches…</span>
-        <div aria-hidden="true" className="h-4 w-64 animate-pulse rounded bg-slate-200" />
+        <div aria-hidden="true" className="h-4 w-64 animate-pulse rounded bg-gray-200 dark:bg-dark-600" />
       </div>
     )
   }

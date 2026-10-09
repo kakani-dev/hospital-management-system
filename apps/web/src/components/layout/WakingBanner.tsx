@@ -18,9 +18,9 @@ export function WakingBanner({ afterMs, stillAfterMs }: { afterMs?: number; stil
         <div
           data-testid="waking-banner"
           data-phase={phase}
-          className="pointer-events-auto flex max-w-xl flex-wrap items-center gap-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 shadow-lg"
+          className="this:warning pointer-events-auto flex max-w-xl flex-wrap items-center gap-3 rounded-lg border border-this/30 bg-white px-4 py-3 text-sm text-gray-800 shadow-lg shadow-gray-200/50 dark:border-this-lighter/30 dark:bg-dark-750 dark:text-dark-100 dark:shadow-none"
         >
-          <span aria-hidden="true" className="inline-block h-3 w-3 animate-pulse rounded-full bg-amber-500" />
+          <span aria-hidden="true" className="inline-block h-3 w-3 animate-pulse rounded-full bg-this" />
           {phase === 'waking' ? (
             <span>Waking the server… this can take up to a minute on the free plan. Your work is safe.</span>
           ) : (

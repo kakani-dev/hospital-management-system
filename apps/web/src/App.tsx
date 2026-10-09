@@ -42,7 +42,7 @@ function Lazy({ children }: { children: ReactNode }) {
   return (
     <Suspense
       fallback={
-        <p role="status" className="p-6 text-sm text-slate-600">
+        <p role="status" className="p-6 text-sm text-gray-600 dark:text-dark-200">
           Loading…
         </p>
       }

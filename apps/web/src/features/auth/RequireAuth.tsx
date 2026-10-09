@@ -6,7 +6,7 @@ export function RequireAuth() {
   const location = useLocation()
   if (loading) {
     return (
-      <p role="status" className="p-8 text-center text-slate-600">
+      <p role="status" className="p-8 text-center text-gray-600 dark:text-dark-200">
         Loading session…
       </p>
     )
