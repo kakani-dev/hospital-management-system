@@ -5,6 +5,7 @@ import { CalendarToolbar } from '../../components/scheduling/CalendarToolbar'
 import { usePractitioners, useSchedules } from '../../lib/api/hooks'
 import { formatDayLabel, weekDates } from '../../lib/dates'
 import { useBranchSelection } from '../tenancy/useBranchSelection'
+import { BranchNotice } from '../tenancy/BranchNotice'
 import { useCalendarParams } from './useCalendarParams'
 import { hhmm, schedulesOn } from './scheduleUtils'
 
@@ -36,7 +37,7 @@ export function StaffSchedulePage() {
           />
         </div>
       </div>
-      {!branchId && <Alert tone="warning">You do not have access to any branch in this hospital.</Alert>}
+      <BranchNotice branchId={branchId} />
       {(schedules.isError || practitioners.isError) && <Alert tone="warning">Schedules are unavailable right now.</Alert>}
       <Card>
         <div className="overflow-x-auto">

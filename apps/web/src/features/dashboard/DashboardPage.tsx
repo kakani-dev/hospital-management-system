@@ -2,13 +2,20 @@ import { Link } from 'react-router'
 import { Card } from '../../components/ui/Card'
 import { can } from '../../lib/permissions'
 import { useApiHealth } from '../../lib/api/hooks'
+import { isTransientError } from '../../lib/api/client'
 import { useCurrentContext } from '../tenancy/useCurrentContext'
 import { PendingInvitations } from '../invitations/PendingInvitations'
 
 export function DashboardPage() {
   const { activeTenant, branches, activeBranchId, roles } = useCurrentContext()
   const health = useApiHealth()
-  const apiStatus = health.isPending ? 'Checking…' : health.isError ? 'Unreachable' : health.data.status
+  const apiStatus = health.isPending
+    ? 'Checking…'
+    : health.isError
+      ? isTransientError(health.error)
+        ? 'Waking up… try again in a moment'
+        : 'Unreachable'
+      : health.data.status
   const branchName = branches.find((b) => b.id === activeBranchId)?.name ?? 'All my branches'
 
   return (

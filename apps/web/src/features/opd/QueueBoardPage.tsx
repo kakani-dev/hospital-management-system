@@ -10,6 +10,7 @@ import { ApiError, problemCode } from '../../lib/api/client'
 import { QUEUE_TRANSITIONS, type QueueEntry, type QueueStatus } from '../../lib/api/types'
 import { rolesAtBranch, useCurrentContext } from '../tenancy/useCurrentContext'
 import { useBranchSelection } from '../tenancy/useBranchSelection'
+import { BranchNotice } from '../tenancy/BranchNotice'
 
 const COLUMNS: { status: QueueStatus; title: string }[] = [
   { status: 'waiting', title: 'Waiting' },
@@ -65,7 +66,7 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
         </p>
       </div>
       <BranchPicker branches={branches} value={branchId} onChange={setBranchId} />
-      {!branchId && <Alert tone="warning">You do not have access to any branch in this hospital.</Alert>}
+      <BranchNotice branchId={branchId} />
       {queue.isError && (
         <Alert tone="warning">
           {queue.error instanceof ApiError && queue.error.status === 403 ? 'You cannot view the queue of this branch.' : 'The queue is unavailable right now.'}

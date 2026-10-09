@@ -17,6 +17,7 @@ import { can } from '../../lib/permissions'
 import type { CheckInResult, PatientSummary } from '../../lib/api/types'
 import { rolesAtBranch, useCurrentContext } from '../tenancy/useCurrentContext'
 import { useBranchSelection } from '../tenancy/useBranchSelection'
+import { BranchNotice } from '../tenancy/BranchNotice'
 import { useBookablePractitioners } from '../scheduling/useBookablePractitioners'
 import { PatientPicker } from '../patients/PatientPicker'
 import { checkInErrorMessage } from './checkInErrors'
@@ -59,7 +60,7 @@ export function CheckInPage() {
           Today at this branch: <strong>{formatDayLabel(today)}</strong> ({timeZone})
         </p>
       </div>
-      {!branchId && <Alert tone="warning">You do not have access to any branch in this hospital.</Alert>}
+      <BranchNotice branchId={branchId} />
       {branchId && !canCheckIn && <Alert tone="warning">Your role at this branch cannot check patients in.</Alert>}
       <div aria-live="polite">
         {issued && (

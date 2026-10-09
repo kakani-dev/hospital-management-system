@@ -3,6 +3,7 @@ import { useAuth } from '../../features/auth/AuthProvider'
 import { TenantSwitcher } from '../../features/tenancy/TenantSwitcher'
 import { useCurrentContext } from '../../features/tenancy/useCurrentContext'
 import { TenantChangedBanner } from '../../features/tenancy/TenantChangedBanner'
+import { ContextErrorBanner } from '../../features/tenancy/ContextErrorBanner'
 import { Button } from '../ui/Button'
 import { can } from '../../lib/permissions'
 
@@ -82,6 +83,7 @@ export function AppShell() {
         Demonstration build — synthetic data only. Not for clinical use.
       </div>
       <TenantChangedBanner />
+      <ContextErrorBanner />
       <main id="main-content" tabIndex={-1} className="mx-auto max-w-7xl px-4 py-6">
         <Outlet />
       </main>

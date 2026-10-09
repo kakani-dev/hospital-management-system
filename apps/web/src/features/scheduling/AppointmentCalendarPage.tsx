@@ -13,6 +13,7 @@ import { can } from '../../lib/permissions'
 import type { Appointment } from '../../lib/api/types'
 import { rolesAtBranch, useCurrentContext } from '../tenancy/useCurrentContext'
 import { useBranchSelection } from '../tenancy/useBranchSelection'
+import { BranchNotice } from '../tenancy/BranchNotice'
 import { useCalendarParams } from './useCalendarParams'
 import { useBookablePractitioners } from './useBookablePractitioners'
 import { BookingPanel } from './BookingPanel'
@@ -108,7 +109,7 @@ export function AppointmentCalendarPage() {
           }}
         />
       )}
-      {!branchId && <Alert tone="warning">You do not have access to any branch in this hospital.</Alert>}
+      <BranchNotice branchId={branchId} />
       {appointments.isError && <Alert tone="warning">Appointments are unavailable right now.</Alert>}
       <div className={cal.view === 'week' ? 'grid gap-3 md:grid-cols-7' : ''} data-testid={`calendar-${cal.view}`}>
         {days.map((d) => (

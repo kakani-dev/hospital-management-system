@@ -13,6 +13,7 @@ import { BranchesPage } from "./features/admin/BranchesPage";
 import { MembersPage } from "./features/admin/MembersPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { RequireCapability } from "./features/auth/RequireCapability";
+import { WakingBanner } from "./components/layout/WakingBanner";
 
 // Scheduling and OPD screens are split into their own chunks: most sessions (billing, patient
 // registration) never open them, and together they pushed the entry chunk past 500 kB.
@@ -56,6 +57,8 @@ export function App() {
   // components never keep rendering data from a removed cache entry.
   const { cacheEpoch } = useAuth();
   return (
+    <>
+    <WakingBanner />
     <Routes key={cacheEpoch}>
       <Route path="/login" element={<LoginPage />} />
       <Route element={<RequireAuth />}>
@@ -112,5 +115,6 @@ export function App() {
         </Route>
       </Route>
     </Routes>
+    </>
   );
 }
