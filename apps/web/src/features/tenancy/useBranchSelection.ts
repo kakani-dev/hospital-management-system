@@ -32,5 +32,8 @@ export function useBranchSelection() {
       { replace: true },
     )
 
-  return { branches, branchId, branch, timeZone, setBranchId, loading: me.isPending }
+  // Branch-local ranges must not be computed in the wrong zone: wait for /branches (or its failure).
+  const timeZoneReady = !branchDetails.isPending
+
+  return { branches, branchId, branch, timeZone, timeZoneReady, setBranchId, loading: me.isPending }
 }

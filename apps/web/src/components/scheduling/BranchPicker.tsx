@@ -12,7 +12,7 @@ export function BranchPicker({
 }) {
   return (
     <div className="w-60">
-      <SelectField label="Branch" data-testid="branch-picker" value={value ?? ''} onChange={(e) => onChange(e.target.value)} disabled={branches.length <= 1}>
+      <SelectField label="Showing branch" data-testid="branch-picker" value={value ?? ''} onChange={(e) => onChange(e.target.value)} disabled={branches.length <= 1}>
         {branches.length === 0 && <option value="">No branch access</option>}
         {branches.map((b) => (
           <option key={b.id} value={b.id}>

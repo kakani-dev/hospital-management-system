@@ -76,3 +76,15 @@ describe('calendar helpers', () => {
     expect(formatDayLabel('2026-10-09')).toMatch(/Fri.*9.*Oct/)
   })
 })
+
+describe('zone conversion', () => {
+  it('maps branch-local wall-clock times to UTC instants (incl. DST zones)', async () => {
+    const { zonedTimeToInstant, isoWeekday } = await import('./dates')
+    expect(zonedTimeToInstant('2026-10-09', '00:00', 'Asia/Kolkata')).toBe('2026-10-08T18:30:00.000Z')
+    expect(zonedTimeToInstant('2026-10-09', '09:15', 'Asia/Kolkata')).toBe('2026-10-09T03:45:00.000Z')
+    expect(zonedTimeToInstant('2026-07-01', '00:00', 'America/New_York')).toBe('2026-07-01T04:00:00.000Z')
+    expect(zonedTimeToInstant('2026-12-01', '00:00', 'America/New_York')).toBe('2026-12-01T05:00:00.000Z')
+    expect(isoWeekday('2026-10-05')).toBe(1)
+    expect(isoWeekday('2026-10-11')).toBe(7)
+  })
+})

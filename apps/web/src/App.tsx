@@ -11,6 +11,9 @@ import { RequireAdmin } from './features/admin/RequireAdmin'
 import { BranchesPage } from './features/admin/BranchesPage'
 import { MembersPage } from './features/admin/MembersPage'
 import { NotFoundPage } from './pages/NotFoundPage'
+import { RequireCapability } from './features/auth/RequireCapability'
+import { AppointmentCalendarPage } from './features/scheduling/AppointmentCalendarPage'
+import { StaffSchedulePage } from './features/scheduling/StaffSchedulePage'
 
 export function App() {
   // Remount every page whenever the query cache is cleared (tenant switch/mismatch, sign-out), so
@@ -25,6 +28,12 @@ export function App() {
           <Route path="patients" element={<PatientListPage />} />
           <Route path="patients/new" element={<RegisterPatientPage />} />
           <Route path="patients/:patientId" element={<PatientDetailPage />} />
+          <Route element={<RequireCapability capability="appointments.view" />}>
+            <Route path="appointments" element={<AppointmentCalendarPage />} />
+          </Route>
+          <Route element={<RequireCapability capability="schedules.view" />}>
+            <Route path="schedules" element={<StaffSchedulePage />} />
+          </Route>
           <Route path="admin" element={<RequireAdmin />}>
             <Route path="branches" element={<BranchesPage />} />
             <Route path="members" element={<MembersPage />} />

@@ -4,15 +4,18 @@ import { TenantSwitcher } from '../../features/tenancy/TenantSwitcher'
 import { useCurrentContext } from '../../features/tenancy/useCurrentContext'
 import { TenantChangedBanner } from '../../features/tenancy/TenantChangedBanner'
 import { Button } from '../ui/Button'
+import { can } from '../../lib/permissions'
 
 export function AppShell() {
   const { email, signOut } = useAuth()
-  const { isAdmin } = useCurrentContext()
+  const { isAdmin, roles } = useCurrentContext()
   const navigate = useNavigate()
 
   const navItems = [
     { to: '/', label: 'Dashboard', end: true },
     { to: '/patients', label: 'Patients', end: false },
+    ...(can(roles, 'appointments.view') ? [{ to: '/appointments', label: 'Appointments', end: false }] : []),
+    ...(can(roles, 'schedules.view') ? [{ to: '/schedules', label: 'Schedules', end: false }] : []),
     ...(isAdmin
       ? [
           { to: '/admin/branches', label: 'Branches', end: false },
