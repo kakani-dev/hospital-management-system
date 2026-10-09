@@ -99,7 +99,8 @@ describe('PatientDetailPage', () => {
     await user.click(await screen.findByRole('button', { name: 'Delete patient' }))
     await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Delete patient' }))
     expect(await screen.findByText(/open appointments or is in today’s queue/)).toBeInTheDocument()
-    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    // The Tailux modal fades out (Headless UI Transition) before it unmounts.
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
   })
 
   it('soft-deletes after confirmation (cancel first does nothing), sends the reason and returns to the list', async () => {
@@ -116,7 +117,8 @@ describe('PatientDetailPage', () => {
     let dialog = screen.getByRole('alertdialog', { name: 'Delete this patient?' })
     expect(within(dialog).getByRole('button', { name: 'Cancel' })).toHaveFocus()
     await user.keyboard('{Escape}')
-    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    // The Tailux modal fades out (Headless UI Transition) before it unmounts.
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
     expect(calls.some((c) => c.method === 'DELETE')).toBe(false)
 
     await user.click(screen.getByRole('button', { name: 'Delete patient' }))
