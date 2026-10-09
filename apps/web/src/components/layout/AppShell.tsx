@@ -57,7 +57,7 @@ export function AppShell() {
                 path: '/appointments',
                 title: 'Appointments',
                 Icon: CalendarDaysIcon,
-                keys: can(roles, 'appointments.book') ? 'Alt+B' : undefined,
+                keys: can(roles, 'appointments.book') ? 'Alt+K' : undefined,
               },
             ]
           : []),

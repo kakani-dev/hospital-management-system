@@ -55,7 +55,7 @@ test('a doctor gets only the shortcuts of their role', async ({ page }) => {
   await signIn(page, 'doctor@alpha.example')
   await page.keyboard.press('Alt+KeyC')
   await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible()
-  await page.keyboard.press('Alt+KeyB')
+  await page.keyboard.press('Alt+KeyK')
   await expect(page.getByRole('form', { name: 'Book appointment' })).toBeVisible()
   await expect(page.getByRole('form', { name: 'Book appointment' }).getByLabel('Practitioner')).toBeFocused()
 })

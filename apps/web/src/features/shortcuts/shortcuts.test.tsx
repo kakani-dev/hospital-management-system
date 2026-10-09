@@ -53,16 +53,24 @@ describe('reception keyboard shortcuts', () => {
     expect(search).toHaveValue('a/b')
   })
 
-  it('Alt+B opens the booking panel with the practitioner select focused', async () => {
+  it('Alt+B no longer books (the booking shortcut moved to Alt+K)', async () => {
     const user = setup(['receptionist'])
     await screen.findByRole('link', { name: 'Check-in' })
     await user.keyboard('{Alt>}b{/Alt}')
+    expect(screen.queryByRole('form', { name: 'Book appointment' })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Appointments' })).toHaveAttribute('aria-keyshortcuts', 'Alt+K')
+  })
+
+  it('Alt+K opens the booking panel with the practitioner select focused', async () => {
+    const user = setup(['receptionist'])
+    await screen.findByRole('link', { name: 'Check-in' })
+    await user.keyboard('{Alt>}k{/Alt}')
     const form = await screen.findByRole('form', { name: 'Book appointment' })
     await waitFor(() => expect(within(form).getByLabelText('Practitioner')).toHaveFocus())
-    // Already on the page: Alt+B again keeps the one panel and refocuses it
+    // Already on the page: Alt+K again keeps the one panel and refocuses it
     await user.click(within(form).getByRole('button', { name: 'Close' }))
     expect(screen.queryByRole('form', { name: 'Book appointment' })).not.toBeInTheDocument()
-    await user.keyboard('{Alt>}b{/Alt}')
+    await user.keyboard('{Alt>}k{/Alt}')
     await waitFor(() => expect(within(screen.getByRole('form', { name: 'Book appointment' })).getByLabelText('Practitioner')).toHaveFocus())
     expect(screen.getAllByRole('form', { name: 'Book appointment' })).toHaveLength(1)
   })
@@ -73,7 +81,7 @@ describe('reception keyboard shortcuts', () => {
     await user.keyboard('?')
     const dialog = await screen.findByRole('dialog', { name: 'Keyboard shortcuts' })
     expect(dialog).toHaveTextContent('Alt+Q')
-    expect(dialog).toHaveTextContent('Alt+B') // doctors may book
+    expect(dialog).toHaveTextContent('Alt+K') // doctors may book
     expect(dialog).not.toHaveTextContent('Alt+C') // but not check in
     await user.keyboard('{Escape}')
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()

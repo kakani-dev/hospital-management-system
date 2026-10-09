@@ -30,7 +30,7 @@ export function AppointmentCalendarPage() {
   const [practitionerFilter, setPractitionerFilter] = useState('')
   const location = useLocation()
   const navigate = useNavigate()
-  // Alt+B ({ openBooking }) or the way back from "Register new patient" ({ booking, pickedPatient }).
+  // Alt+K ({ openBooking }) or the way back from "Register new patient" ({ booking, pickedPatient }).
   const [restored] = useState(() => {
     const st = location.state as (ReturnedPatientState & { booking?: BookingDraft; openBooking?: boolean }) | null
     return st && (st.openBooking || st.booking) ? { ...st.booking, patient: st.pickedPatient ?? null } : null
@@ -74,7 +74,7 @@ export function AppointmentCalendarPage() {
         {canBook && !booking && (
           <Button
             data-shortcut="open-booking"
-            aria-keyshortcuts="Alt+B"
+            aria-keyshortcuts="Alt+K"
             onClick={() => {
               setNotice(null)
               setBooking(true)

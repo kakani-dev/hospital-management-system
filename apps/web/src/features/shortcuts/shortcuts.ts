@@ -19,7 +19,7 @@ export const SHORTCUTS: Shortcut[] = [
   { id: 'check-in', keys: 'Alt+C', description: 'Reception check-in', capability: 'queue.checkIn' },
   { id: 'walk-in', keys: 'Alt+W', description: 'Walk-in: focus the walk-in patient search', capability: 'queue.checkIn' },
   { id: 'queue', keys: 'Alt+Q', description: 'OPD queue board', capability: 'queue.view' },
-  { id: 'book', keys: 'Alt+B', description: 'Book an appointment', capability: 'appointments.book' },
+  { id: 'book', keys: 'Alt+K', description: 'Book an appointment', capability: 'appointments.book' },
   { id: 'help', keys: '?', description: 'Show this list' },
 ]
 
@@ -28,7 +28,7 @@ export const ALT_CODES: Record<string, Shortcut['id']> = {
   KeyC: 'check-in',
   KeyW: 'walk-in',
   KeyQ: 'queue',
-  KeyB: 'book',
+  KeyK: 'book',
 }
 
 /** True when the key press is text entry (inputs, textareas, selects, contenteditable). */
