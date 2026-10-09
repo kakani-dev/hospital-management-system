@@ -13,6 +13,7 @@
     <ProjectReference Include="../../shared/Hms.SharedKernel/Hms.SharedKernel.csproj" />
     <ProjectReference Include="../../modules/Identity/Hms.Modules.Identity/Hms.Modules.Identity.csproj" />
     <ProjectReference Include="../../modules/Patients/Hms.Modules.Patients/Hms.Modules.Patients.csproj" />
+    <ProjectReference Include="../../modules/Appointments/Hms.Modules.Appointments/Hms.Modules.Appointments.csproj" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Hms.UnitTests" />
