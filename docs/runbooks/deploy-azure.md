@@ -138,4 +138,4 @@ az group delete -n rg-medicore-hms-dev --yes
 ## 10. Not done here / pending approvals
 - Hosted migration `20261009090000` (N1, in main) is **not applied**. It needs Mohith's separate approval.
   The smoke flow (sign-in, /me, create + search patient) passed without it.
-- SPA deep-link rewrites (`vercel.json`) aren't on `main`, so refreshing `/patients` on Vercel still returns 404.
+- SPA deep-link rewrites: `apps/web/vercel.json` (copy of `infra/vercel/vercel.json`; Vercel root directory = `apps/web`) is added on this branch. Deep links work once it is merged and production is redeployed.
