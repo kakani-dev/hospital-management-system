@@ -16,6 +16,8 @@ export function AppShell() {
     { to: '/patients', label: 'Patients', end: false },
     ...(can(roles, 'appointments.view') ? [{ to: '/appointments', label: 'Appointments', end: false }] : []),
     ...(can(roles, 'schedules.view') ? [{ to: '/schedules', label: 'Schedules', end: false }] : []),
+    ...(can(roles, 'queue.checkIn') ? [{ to: '/reception/check-in', label: 'Check-in', end: false }] : []),
+    ...(can(roles, 'queue.view') ? [{ to: '/queue', label: 'OPD queue', end: false }] : []),
     ...(isAdmin
       ? [
           { to: '/admin/branches', label: 'Branches', end: false },

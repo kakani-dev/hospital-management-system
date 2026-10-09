@@ -14,6 +14,8 @@ import { NotFoundPage } from './pages/NotFoundPage'
 import { RequireCapability } from './features/auth/RequireCapability'
 import { AppointmentCalendarPage } from './features/scheduling/AppointmentCalendarPage'
 import { StaffSchedulePage } from './features/scheduling/StaffSchedulePage'
+import { CheckInPage } from './features/opd/CheckInPage'
+import { QueueBoardPage } from './features/opd/QueueBoardPage'
 
 export function App() {
   // Remount every page whenever the query cache is cleared (tenant switch/mismatch, sign-out), so
@@ -33,6 +35,12 @@ export function App() {
           </Route>
           <Route element={<RequireCapability capability="schedules.view" />}>
             <Route path="schedules" element={<StaffSchedulePage />} />
+          </Route>
+          <Route element={<RequireCapability capability="queue.checkIn" />}>
+            <Route path="reception/check-in" element={<CheckInPage />} />
+          </Route>
+          <Route element={<RequireCapability capability="queue.view" />}>
+            <Route path="queue" element={<QueueBoardPage />} />
           </Route>
           <Route path="admin" element={<RequireAdmin />}>
             <Route path="branches" element={<BranchesPage />} />

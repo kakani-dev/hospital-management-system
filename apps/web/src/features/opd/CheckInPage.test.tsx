@@ -1,0 +1,102 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { App } from '../../App'
+import { ALPHA_EAST, ALPHA_MAIN, fakeAuthClient, fakeSession, json, meWithRoles, renderWithProviders, stubFetch } from '../../test/fakes'
+import { DR_RAO, PATIENT_ID, appointment, branchesResponse, paged, patientDetail, practitioners, schedules } from '../../test/schedulingFixtures'
+
+afterEach(() => vi.unstubAllGlobals())
+
+const APPT = 'ap000000-0000-4000-8000-000000000001'
+const entry = (overrides = {}) => ({
+  id: 'q1',
+  branchId: ALPHA_MAIN,
+  queueDate: '2026-10-09',
+  tokenNo: 7,
+  patientId: PATIENT_ID,
+  appointmentId: APPT,
+  practitionerId: DR_RAO,
+  status: 'waiting',
+  checkedInAt: new Date().toISOString(),
+  ...overrides,
+})
+
+function routes(roles: string[], extra: Parameters<typeof stubFetch>[0] = {}, branchId: string | null = ALPHA_MAIN) {
+  return stubFetch({
+    'GET /api/v1/me': () => json(meWithRoles(roles, branchId)),
+    'GET /api/v1/branches': () => json(branchesResponse),
+    'GET /api/v1/practitioners': () => json(practitioners),
+    'GET /api/v1/schedules': () => json(schedules),
+    'GET /api/v1/appointments': () => json(paged([appointment()])),
+    [`GET /api/v1/patients/${PATIENT_ID}`]: () => json(patientDetail),
+    ...extra,
+  })
+}
+
+describe('CheckInPage', () => {
+  it('checks in a booked appointment and shows the issued token', async () => {
+    const calls = routes(['receptionist'], {
+      [`POST /api/v1/appointments/${APPT}/check-in`]: () => json({ queueEntryId: 'q1', tokenNo: 7, queueDate: '2026-10-09', entry: entry() }, 201),
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: '/reception/check-in', auth: fakeAuthClient({ session: fakeSession() }) })
+
+    const row = await screen.findByTestId('checkin-appointment')
+    await waitFor(() => expect(row).toHaveTextContent('Synthetic-Alpha, Asha'))
+    await user.click(within(row).getByRole('button', { name: /^Check in Asha Synthetic-Alpha at 09:30$/ }))
+
+    expect(await screen.findByTestId('token-number')).toHaveTextContent('7')
+    expect(screen.getByTestId('token-issued')).toHaveTextContent('Checked in Asha Synthetic-Alpha.')
+    expect(calls.filter((c) => c.path === `/api/v1/appointments/${APPT}/check-in`)).toHaveLength(1)
+    // the list refreshes after a check-in
+    await waitFor(() => expect(calls.filter((c) => c.path === '/api/v1/appointments').length).toBeGreaterThan(1))
+  })
+
+  it.each([
+    ['already_checked_in', 'already waiting or in consultation'],
+    ['invalid_state', 'Only appointments for today'],
+    ['invalid_transition', 'no longer booked'],
+  ])('maps 409 %s to a clear message', async (code, message) => {
+    routes(['nurse'], { [`POST /api/v1/appointments/${APPT}/check-in`]: () => json({ title: 'Conflict', status: 409, code }, 409) })
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: '/reception/check-in', auth: fakeAuthClient({ session: fakeSession() }) })
+    await user.click(await screen.findByRole('button', { name: /^Check in/ }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(message)
+    expect(screen.queryByTestId('token-issued')).not.toBeInTheDocument()
+  })
+
+  it('issues a walk-in token for a searched patient with an optional doctor', async () => {
+    const calls = routes(['receptionist'], {
+      'POST /api/v1/patients/search': () => json({ items: [patientDetail], page: 1, pageSize: 25, totalCount: 1 }),
+      'POST /api/v1/queue/walk-in': () => json({ queueEntryId: 'q2', tokenNo: 8, queueDate: '2026-10-09', entry: entry({ id: 'q2', tokenNo: 8, appointmentId: null }) }, 201),
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: '/reception/check-in', auth: fakeAuthClient({ session: fakeSession() }) })
+    const form = await screen.findByRole('form', { name: 'Walk-in check-in' })
+    await user.click(within(form).getByRole('button', { name: 'Issue walk-in token' }))
+    expect(within(form).getByRole('alert')).toHaveTextContent('Choose a patient first.')
+
+    await user.type(within(form).getByLabelText('Find walk-in patient'), 'ALP-0001')
+    await user.click(await within(form).findByRole('radio', { name: /Synthetic-Alpha, Asha/ }))
+    await waitFor(() => expect(within(within(form).getByLabelText('Doctor (optional)')).getAllByRole('option')).toHaveLength(3))
+    await user.selectOptions(within(form).getByLabelText('Doctor (optional)'), DR_RAO)
+    await user.click(within(form).getByRole('button', { name: 'Issue walk-in token' }))
+
+    expect(await screen.findByTestId('token-number')).toHaveTextContent('8')
+    expect(calls.find((c) => c.path === '/api/v1/queue/walk-in')!.body).toEqual({ branchId: ALPHA_MAIN, patientId: PATIENT_ID, practitionerId: DR_RAO })
+  })
+
+  it('hides check-in actions where the role is not held at the selected branch; doctors cannot open the page', async () => {
+    routes(['receptionist'], {}, ALPHA_EAST)
+    const { unmount } = renderWithProviders(<App />, { path: `/reception/check-in?branch=${ALPHA_MAIN}`, auth: fakeAuthClient({ session: fakeSession() }) })
+    // ALPHA_MAIN is not accessible: the picker falls back to the receptionist's own branch
+    expect(await screen.findByLabelText('Showing branch')).toHaveValue(ALPHA_EAST)
+    unmount()
+
+    routes(['doctor'])
+    renderWithProviders(<App />, { path: '/reception/check-in', auth: fakeAuthClient({ session: fakeSession() }) })
+    expect(await screen.findByTestId('forbidden')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Check-in' })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'OPD queue' })).toBeInTheDocument()
+  })
+})
