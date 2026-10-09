@@ -200,6 +200,10 @@ select tests.ok(
   'with the transaction-local flag for that row, a non-owner writer may change is_deleted');
 select set_config('hms.soft_delete', '', true);
 reset role;
+-- Become the actual table owner: on the Supabase stack the tests run as supabase_admin
+-- (a superuser that does NOT own the tables), and superuser alone must not bypass the guard.
+select set_config('role', pg_catalog.pg_get_userbyid(relowner)::text, true)
+  from pg_catalog.pg_class where oid = 'appointment.practitioners'::regclass;
 select tests.ok(
   tests.affected_rows($$update appointment.practitioners set is_deleted = false where id = 'c1111111-0000-4000-8000-0000000000f1'$$) = 1,
   'the table owner (what SECURITY DEFINER functions run as) may change is_deleted');
@@ -214,6 +218,7 @@ select tests.ok(
      ('appointments_never_deleted', 'queue_entries_never_deleted', 'queue_counters_never_deleted', 'tenants_never_deleted')
      and contype = 'c' and pg_get_constraintdef(oid) ilike '%NOT is_deleted%') = 4,
   'appointments / queue_entries / queue_counters / tenants all carry CHECK (not is_deleted)');
+reset role;
 
 -- ======================================================== patients: one predicate (S5) ==
 select tests.ok(
