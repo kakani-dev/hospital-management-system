@@ -190,7 +190,7 @@ public static class AppointmentEndpoints
         {
             await db.SaveChangesAsync(ct);
         }
-        catch (DbUpdateException ex) when (AppointmentProblem(ex) is { } problem)
+        catch (Exception ex) when (BookingProblem(ex) is { } problem)
         {
             return problem;
         }
@@ -368,7 +368,7 @@ public static class AppointmentEndpoints
         {
             return HmsProblems.NotFound("Appointment not found.");
         }
-        catch (DbUpdateException ex) when (AppointmentProblem(ex) is { } problem)
+        catch (Exception ex) when (AppointmentProblem(ex) is { } problem)
         {
             return problem;
         }
@@ -376,6 +376,17 @@ public static class AppointmentEndpoints
         // fresh read: trigger-owned timestamps + embedded patient in one statement
         return TypedResults.Ok(await PatientEmbedding.LoadAppointmentAsync(db, appointment.Id, ct));
     }
+
+    // Booking insert: concurrent overlapping inserts can deadlock (40P01) inside the exclusion-constraint
+    // check instead of raising 23P01; either way the slot was taken by the concurrent booking.
+    // Npgsql's default execution strategy wraps transient errors (40P01 / 40001) in an
+    // InvalidOperationException ("likely due to a transient failure"), not a DbUpdateException, so the
+    // callers catch Exception and let FindDbError walk the inner-exception chain.
+    private static ProblemHttpResult? BookingProblem(Exception ex) =>
+        HmsProblems.FromDatabase(ex, exclusionCode: HmsProblems.Codes.AppointmentOverlap,
+            exclusionDetail: "The practitioner is already booked for part of that time.",
+            concurrencyCode: HmsProblems.Codes.AppointmentOverlap,
+            concurrencyDetail: "The practitioner is already booked for part of that time.");
 
     private static ProblemHttpResult? AppointmentProblem(Exception ex) =>
         HmsProblems.FromDatabase(ex, exclusionCode: HmsProblems.Codes.AppointmentOverlap,

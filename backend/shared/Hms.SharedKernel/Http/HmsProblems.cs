@@ -7,7 +7,8 @@ namespace Hms.SharedKernel.Http;
 /// <summary>
 /// RFC 7807 problem results with a machine-readable <c>code</c> extension, plus the Sprint 2
 /// PostgreSQL SQLSTATE → HTTP mapping (SPRINT2-CONTRACT.md §0 and API §A.1):
-/// 42501→403, P0002→404, 23505/23P01/55000/23514(invalid_transition:)→409, 22023/23503/23514→400.
+/// 42501→403, P0002→404, 23505/23P01/55000/23514(invalid_transition:)→409, 22023/23503/23514→400,
+/// 40P01 (deadlock) / 40001 (serialization failure)→409 (the transaction was rolled back; the caller may retry).
 /// </summary>
 public static class HmsProblems
 {
@@ -37,6 +38,8 @@ public static class HmsProblems
         public const string ForeignKeyViolation = "23503";
         public const string ObjectNotInPrerequisiteState = "55000";
         public const string InvalidParameterValue = "22023";
+        public const string DeadlockDetected = "40P01";
+        public const string SerializationFailure = "40001";
     }
 
     public static ProblemHttpResult Forbidden(string? detail = null) =>
@@ -68,10 +71,13 @@ public static class HmsProblems
     /// <summary>
     /// Maps a database error to a problem result, or null when it is not a mapped SQLSTATE (rethrow).
     /// <paramref name="uniqueCode"/> / <paramref name="exclusionCode"/> name the 409 <c>code</c> for
-    /// 23505 / 23P01 on this endpoint.
+    /// 23505 / 23P01 on this endpoint. <paramref name="concurrencyCode"/> names the 409 <c>code</c> for
+    /// 40P01 / 40001: PostgreSQL aborted the transaction because of a concurrent one (e.g. two overlapping
+    /// inserts deadlocking while checking an exclusion constraint), so nothing was written.
     /// </summary>
     public static ProblemHttpResult? FromDatabase(
-        Exception ex, string uniqueCode = Codes.Conflict, string exclusionCode = Codes.Conflict, string? uniqueDetail = null, string? exclusionDetail = null)
+        Exception ex, string uniqueCode = Codes.Conflict, string exclusionCode = Codes.Conflict, string? uniqueDetail = null, string? exclusionDetail = null,
+        string concurrencyCode = Codes.Conflict, string? concurrencyDetail = null)
     {
         var db = FindDbError(ex);
         if (db is null)
@@ -92,6 +98,8 @@ public static class HmsProblems
             SqlStates.CheckViolation => BadRequest(Codes.CheckViolation, "A value violates a database rule."),
             SqlStates.ForeignKeyViolation => BadRequest(Codes.InvalidReference, "A referenced record does not exist in this hospital (or was deleted)."),
             SqlStates.InvalidParameterValue => BadRequest(Codes.InvalidParameter, Sanitize(message) ?? "A parameter value is invalid."),
+            SqlStates.DeadlockDetected or SqlStates.SerializationFailure =>
+                Conflict(concurrencyCode, concurrencyDetail ?? "A concurrent change conflicted with this request. Reload and try again."),
             _ => null,
         };
     }

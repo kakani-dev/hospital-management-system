@@ -91,7 +91,7 @@ public static class PractitionerScheduleEndpoints
         {
             await db.SaveChangesAsync(ct);
         }
-        catch (DbUpdateException ex) when (HmsProblems.FromDatabase(ex, uniqueDetail: "That staff account is already linked to a practitioner.") is { } problem)
+        catch (Exception ex) when (HmsProblems.FromDatabase(ex, uniqueDetail: "That staff account is already linked to a practitioner.") is { } problem)
         {
             return problem;
         }
@@ -147,7 +147,7 @@ public static class PractitionerScheduleEndpoints
         {
             await db.SaveChangesAsync(ct);
         }
-        catch (DbUpdateException ex) when (HmsProblems.FromDatabase(ex, uniqueDetail: "That staff account is already linked to a practitioner.") is { } problem)
+        catch (Exception ex) when (HmsProblems.FromDatabase(ex, uniqueDetail: "That staff account is already linked to a practitioner.") is { } problem)
         {
             return problem;
         }
@@ -236,7 +236,7 @@ public static class PractitionerScheduleEndpoints
         {
             await db.SaveChangesAsync(ct);
         }
-        catch (DbUpdateException ex) when (ScheduleProblem(ex) is { } problem)
+        catch (Exception ex) when (ScheduleProblem(ex) is { } problem)
         {
             return problem;
         }
@@ -304,7 +304,7 @@ public static class PractitionerScheduleEndpoints
         {
             await db.SaveChangesAsync(ct);
         }
-        catch (DbUpdateException ex) when (ScheduleProblem(ex) is { } problem)
+        catch (Exception ex) when (ScheduleProblem(ex) is { } problem)
         {
             return problem;
         }

@@ -44,10 +44,32 @@ public class Sprint2PrimitivesTests
         Assert.Contains("completed->booked", problem.ProblemDetails.Detail, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("40P01")] // deadlock detected (e.g. concurrent overlapping booking inserts on the exclusion constraint)
+    [InlineData("40001")] // serialization failure
+    public void Concurrency_aborts_are_409_with_the_endpoint_code(string sqlState)
+    {
+        var booking = HmsProblems.FromDatabase(
+            // shape Npgsql's execution strategy throws for transient errors: IOE -> DbUpdateException -> PostgresException
+            new InvalidOperationException(
+                "An exception has been raised that is likely due to a transient failure.",
+                new Microsoft.EntityFrameworkCore.DbUpdateException("save failed", new FakeDbException(sqlState))),
+            exclusionCode: HmsProblems.Codes.AppointmentOverlap,
+            concurrencyCode: HmsProblems.Codes.AppointmentOverlap,
+            concurrencyDetail: "The practitioner is already booked for part of that time.")!;
+        Assert.Equal(409, booking.StatusCode);
+        Assert.Equal("appointment_overlap", booking.ProblemDetails.Extensions["code"]);
+        Assert.Equal("The practitioner is already booked for part of that time.", booking.ProblemDetails.Detail);
+
+        var generic = HmsProblems.FromDatabase(new FakeDbException(sqlState))!;
+        Assert.Equal(409, generic.StatusCode);
+        Assert.Equal("conflict", generic.ProblemDetails.Extensions["code"]);
+    }
+
     [Fact]
     public void Unmapped_errors_are_not_swallowed()
     {
-        Assert.Null(HmsProblems.FromDatabase(new FakeDbException("40001")));
+        Assert.Null(HmsProblems.FromDatabase(new FakeDbException("XX000")));
         Assert.Null(HmsProblems.FromDatabase(new InvalidOperationException("no db")));
     }
 

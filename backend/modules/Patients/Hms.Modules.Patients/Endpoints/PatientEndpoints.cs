@@ -258,7 +258,7 @@ public static class PatientEndpoints
         {
             await db.SaveChangesAsync(ct);
         }
-        catch (DbUpdateException ex) when (HmsProblems.FromDatabase(ex, HmsProblems.Codes.DuplicateMrn, uniqueDetail: DuplicateMrnDetail) is { } problem)
+        catch (Exception ex) when (HmsProblems.FromDatabase(ex, HmsProblems.Codes.DuplicateMrn, uniqueDetail: DuplicateMrnDetail) is { } problem)
         {
             return problem;
         }
@@ -339,7 +339,7 @@ public static class PatientEndpoints
             // 0 rows: deleted concurrently, or RLS USING hid it (deleted_at is not null).
             return HmsProblems.NotFound("Patient not found.");
         }
-        catch (DbUpdateException ex) when (HmsProblems.FromDatabase(ex) is { } problem)
+        catch (Exception ex) when (HmsProblems.FromDatabase(ex) is { } problem)
         {
             return problem;
         }

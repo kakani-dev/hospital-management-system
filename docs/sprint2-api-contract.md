@@ -22,7 +22,7 @@ ValidationProblem{ type, title: "One or more validation errors occurred.", statu
 | 401 | no / invalid / expired token (empty body) | — |
 | 403 | role not allowed, same-tenant branch not allowed, SQLSTATE `42501` | `forbidden` |
 | 404 | not found / other tenant (any id, incl. branch) / soft-deleted, SQLSTATE `P0002` | `not_found` |
-| 409 | `23505` unique, `23P01` overlap, `23514 invalid_transition:*`, `55000` wrong state | `duplicate_mrn`, `already_checked_in`, `schedule_overlap`, `appointment_overlap`, `invalid_transition`, `invalid_state` |
+| 409 | `23505` unique, `23P01` overlap, `23514 invalid_transition:*`, `55000` wrong state, `40P01` deadlock / `40001` serialization failure | `duplicate_mrn`, `already_checked_in`, `schedule_overlap`, `appointment_overlap`, `invalid_transition`, `invalid_state`, `conflict` (`appointment_overlap` for `40P01`/`40001` on booking) |
 | 429 | rate limited | — |
 
 ### A.2 Role shorthand (same as DB §0)
@@ -109,7 +109,7 @@ AppointmentSearch (query)    branchId?, practitionerId?, patientId?, date?: date
 
 **Embedded patient (v2).** Every `AppointmentDto` and `QueueEntryDto` (list, detail, create/book, reschedule/cancel/no-show, check-in / walk-in `entry`, queue PATCH) carries `patient: { id, mrn, firstName, lastName }`. It is loaded in the **same SQL statement** (LEFT JOIN on `patient.patients`; no per-row lookups) under the caller's RLS, so it only appears for patients the caller can already read through `GET /patients/{id}`. `patient` is **null** when the patient is soft-deleted or not readable; `patientId` is always present. No extra fields (DOB, phone, email) are embedded.
 
-Overlap: same practitioner, half-open `[startsAt, endsAt)`, blocking statuses booked/checked_in/in_consultation/completed. Back-to-back is fine. Enforced by DB `23P01` → 409.
+Overlap: same practitioner, half-open `[startsAt, endsAt)`, blocking statuses booked/checked_in/in_consultation/completed. Back-to-back is fine. Enforced by DB `23P01` → 409. Concurrent overlapping inserts can instead deadlock inside the constraint check (`40P01`); booking maps that to the same 409 `appointment_overlap`.
 
 ### A.6 Check-in & OPD queue (2.3)
 ```ts
