@@ -39,3 +39,20 @@ export function toCreatePatientRequest(v: PatientFormValues) {
     email: v.email || null,
   }
 }
+
+/** Edit form: MRN is immutable after registration (PATCH never sends it). */
+export const patientEditSchema = patientSchema.omit({ mrn: true })
+export type PatientEditValues = z.infer<typeof patientEditSchema>
+
+/** Full replacement of the editable fields; cleared optional fields are sent as null. */
+export function toUpdatePatientRequest(v: PatientEditValues) {
+  return {
+    firstName: v.firstName.trim(),
+    lastName: v.lastName.trim(),
+    dateOfBirth: v.dateOfBirth || null,
+    sex: v.sex,
+    registeredBranchId: v.registeredBranchId,
+    phone: v.phone.trim() || null,
+    email: v.email || null,
+  }
+}

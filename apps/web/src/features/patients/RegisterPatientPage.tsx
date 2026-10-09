@@ -8,8 +8,9 @@ import { Button } from '../../components/ui/Button'
 import { FormField } from '../../components/ui/FormField'
 import { SelectField } from '../../components/ui/SelectField'
 import { useCreatePatient } from '../../lib/api/hooks'
-import { ApiError, fieldErrors } from '../../lib/api/client'
-import { SEXES } from '../../lib/api/types'
+import { ApiError, apiClient, fieldErrors } from '../../lib/api/client'
+import { SEXES, type PossibleDuplicate } from '../../lib/api/types'
+import { DuplicateWarning } from './DuplicateWarning'
 import { useCurrentContext } from '../tenancy/useCurrentContext'
 import { localToday } from '../../lib/dates'
 import { patientSchema, toCreatePatientRequest, type PatientFormValues } from './patientSchema'
@@ -19,6 +20,8 @@ export function RegisterPatientPage() {
   const { branches, activeBranchId, activeTenant } = useCurrentContext()
   const createPatient = useCreatePatient()
   const [formError, setFormError] = useState<string | null>(null)
+  const [duplicates, setDuplicates] = useState<{ matches: PossibleDuplicate[]; values: PatientFormValues } | null>(null)
+  const [creatingAnyway, setCreatingAnyway] = useState(false)
   const {
     register,
     handleSubmit,
@@ -39,12 +42,13 @@ export function RegisterPatientPage() {
     }
   }, [activeBranchId, branches, getValues, setValue])
 
-  const onSubmit = async (values: PatientFormValues) => {
+  const create = async (values: PatientFormValues) => {
     setFormError(null)
     try {
       const created = await createPatient.mutateAsync(toCreatePatientRequest(values))
       navigate('/patients', { replace: true, state: { registered: created.mrn } })
     } catch (error) {
+      setDuplicates(null)
       if (error instanceof ApiError && error.status === 409) {
         setError('mrn', { message: 'This MRN already exists in this hospital' })
         return
@@ -63,6 +67,30 @@ export function RegisterPatientPage() {
     }
   }
 
+  // Possible-match check at submit (same tenant: name + DOB, or phone). Advisory only: if the
+  // check itself fails, registration goes ahead and the API's own constraints still apply.
+  const onSubmit = async (values: PatientFormValues) => {
+    setFormError(null)
+    setDuplicates(null)
+    const request = toCreatePatientRequest(values)
+    let matches: PossibleDuplicate[] = []
+    try {
+      matches = await apiClient.patients.duplicates({
+        firstName: request.firstName,
+        lastName: request.lastName,
+        dateOfBirth: request.dateOfBirth,
+        phone: request.phone,
+      })
+    } catch {
+      matches = []
+    }
+    if (matches.length > 0) {
+      setDuplicates({ matches, values })
+      return
+    }
+    await create(values)
+  }
+
   return (
     <div className="max-w-2xl space-y-6">
       <div className="flex items-center justify-between">
@@ -78,6 +106,23 @@ export function RegisterPatientPage() {
         {formError && (
           <div className="mb-4">
             <Alert tone="error">{formError}</Alert>
+          </div>
+        )}
+        {duplicates && (
+          <div className="mb-4">
+            <DuplicateWarning
+              matches={duplicates.matches}
+              busy={creatingAnyway}
+              onProceed={async () => {
+                setCreatingAnyway(true)
+                try {
+                  await create(duplicates.values)
+                } finally {
+                  setCreatingAnyway(false)
+                }
+              }}
+              onDismiss={() => setDuplicates(null)}
+            />
           </div>
         )}
         <form noValidate aria-label="Register patient" onSubmit={handleSubmit(onSubmit)} className="grid gap-4 sm:grid-cols-2">
@@ -110,7 +155,7 @@ export function RegisterPatientPage() {
           <FormField label="Phone (optional)" type="tel" autoComplete="off" error={errors.phone?.message} {...register('phone')} />
           <FormField label="Email (optional)" type="email" autoComplete="off" error={errors.email?.message} {...register('email')} />
           <div className="sm:col-span-2">
-            <Button type="submit" disabled={isSubmitting}>
+            <Button type="submit" disabled={isSubmitting || creatingAnyway}>
               {isSubmitting ? 'Registering…' : 'Register patient'}
             </Button>
           </div>

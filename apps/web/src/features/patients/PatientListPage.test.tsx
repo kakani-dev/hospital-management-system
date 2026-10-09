@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { act, renderHook, screen, waitFor } from '@testing-library/react'
+import { act, renderHook, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { App } from '../../App'
 import { useDebouncedValue } from '../../lib/useDebouncedValue'
@@ -92,5 +92,29 @@ describe('useDebouncedValue', () => {
     expect(result.current).toBe('')
     act(() => void vi.advanceTimersByTime(1))
     expect(result.current).toBe('ab')
+  })
+})
+
+describe('patient search by phone and date of birth', () => {
+  it('sends phone and DOB in the POST body (never the URL) and links rows to the detail page', async () => {
+    const calls = stubFetch({
+      'GET /api/v1/me': () => json(meFor({ roles: ['receptionist'] })),
+      'GET /api/v1/patients': () => json({ items: [], page: 1, pageSize: 25, totalCount: 0 }),
+      'POST /api/v1/patients/search': () => json({ items: [patient], page: 1, pageSize: 25, totalCount: 1 }),
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: '/patients', auth: fakeAuthClient({ session: fakeSession() }) })
+    await screen.findByTestId('patients-empty')
+
+    await user.type(screen.getByLabelText('Phone'), '98450')
+    await user.type(screen.getByLabelText('Date of birth'), '1990-01-01')
+    const row = await screen.findByTestId('patient-row')
+    expect(within(row).getByRole('link', { name: 'Synthetic-Alpha, Asha' })).toHaveAttribute('href', '/patients/p1')
+
+    await waitFor(() => {
+      const last = calls.filter((c) => c.path === '/api/v1/patients/search').at(-1)!
+      expect(last.body).toEqual({ phone: '98450', dateOfBirth: '1990-01-01', pageSize: 25 })
+    })
+    expect(calls.every((c) => !c.url.includes('98450') && !c.url.includes('1990-01-01'))).toBe(true)
   })
 })

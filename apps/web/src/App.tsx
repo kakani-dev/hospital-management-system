@@ -6,6 +6,7 @@ import { RequireAuth } from './features/auth/RequireAuth'
 import { DashboardPage } from './features/dashboard/DashboardPage'
 import { PatientListPage } from './features/patients/PatientListPage'
 import { RegisterPatientPage } from './features/patients/RegisterPatientPage'
+import { PatientDetailPage } from './features/patients/PatientDetailPage'
 import { RequireAdmin } from './features/admin/RequireAdmin'
 import { BranchesPage } from './features/admin/BranchesPage'
 import { MembersPage } from './features/admin/MembersPage'
@@ -23,6 +24,7 @@ export function App() {
           <Route index element={<DashboardPage />} />
           <Route path="patients" element={<PatientListPage />} />
           <Route path="patients/new" element={<RegisterPatientPage />} />
+          <Route path="patients/:patientId" element={<PatientDetailPage />} />
           <Route path="admin" element={<RequireAdmin />}>
             <Route path="branches" element={<BranchesPage />} />
             <Route path="members" element={<MembersPage />} />
