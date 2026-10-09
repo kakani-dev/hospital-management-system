@@ -1,4 +1,6 @@
+import { Link } from 'react-router'
 import { Card } from '../../components/ui/Card'
+import { can } from '../../lib/permissions'
 import { useApiHealth } from '../../lib/api/hooks'
 import { useCurrentContext } from '../tenancy/useCurrentContext'
 import { PendingInvitations } from '../invitations/PendingInvitations'
@@ -40,7 +42,30 @@ export function DashboardPage() {
           </p>
         </Card>
         <Card title="Today">
-          <p className="text-sm text-slate-600">Appointments, OPD queue and bed occupancy widgets arrive in Sprint 2.</p>
+          <ul className="space-y-1 text-sm" data-testid="dashboard-today">
+            {can(roles, 'appointments.view') && (
+              <li>
+                <Link className="text-brand-800 underline" to="/appointments">
+                  Today’s appointments
+                </Link>
+              </li>
+            )}
+            {can(roles, 'queue.checkIn') && (
+              <li>
+                <Link className="text-brand-800 underline" to="/reception/check-in">
+                  Reception check-in
+                </Link>
+              </li>
+            )}
+            {can(roles, 'queue.view') && (
+              <li>
+                <Link className="text-brand-800 underline" to="/queue">
+                  OPD queue board
+                </Link>
+              </li>
+            )}
+            {!can(roles, 'appointments.view') && !can(roles, 'queue.view') && <li className="text-slate-600">Nothing scheduled for your role.</li>}
+          </ul>
         </Card>
       </div>
     </div>

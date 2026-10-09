@@ -140,6 +140,30 @@ describe('AppointmentCalendarPage', () => {
     expect(within(form).getByRole('radio', { name: '23:00' })).not.toBeChecked()
   })
 
+  it('a 404 on booking (patient deleted meanwhile, contract v4) explains instead of failing silently', async () => {
+    const d = today()
+    routes(
+      ['receptionist'],
+      {
+        'GET /api/v1/slots': () => json([{ practitionerId: DR_RAO, branchId: ALPHA_MAIN, startsAt: at(d, '23:00'), endsAt: at(d, '23:15') }]),
+        'POST /api/v1/patients/search': () => json({ items: [patientDetail], page: 1, pageSize: 25, totalCount: 1 }),
+        'POST /api/v1/appointments': () => json({ title: 'Not found', status: 404, code: 'not_found' }, 404),
+      },
+      ALPHA_MAIN,
+    )
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: '/appointments', auth: fakeAuthClient({ session: fakeSession() }) })
+    await user.click(await screen.findByRole('button', { name: 'Book appointment' }))
+    const form = screen.getByRole('form', { name: 'Book appointment' })
+    await waitFor(() => expect(within(form).getAllByRole('option').length).toBeGreaterThan(1))
+    await user.selectOptions(within(form).getByLabelText('Practitioner'), DR_RAO)
+    await user.click(await within(form).findByRole('radio', { name: '23:00' }))
+    await user.type(within(form).getByLabelText('Find patient'), 'Asha')
+    await user.click(await within(form).findByRole('radio', { name: /Synthetic-Alpha/ }))
+    await user.click(within(form).getByRole('button', { name: 'Confirm booking' }))
+    expect(await within(form).findByRole('alert')).toHaveTextContent('can no longer be booked')
+  })
+
   it('requires practitioner, slot and patient before posting', async () => {
     const calls = routes(['receptionist'], {}, ALPHA_MAIN)
     const user = userEvent.setup()

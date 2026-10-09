@@ -65,7 +65,7 @@ export function BookingPanel({
       setError(
         status === 409 || code === 'appointment_overlap'
           ? 'That slot was just booked for this practitioner. Pick another slot.'
-          : code === 'invalid_reference'
+          : code === 'invalid_reference' || status === 404
             ? 'The patient or practitioner can no longer be booked (deleted or inactive).'
             : status === 403
               ? 'You are not allowed to book appointments at this branch.'

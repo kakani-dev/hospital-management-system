@@ -498,7 +498,7 @@ export class MockBackend {
       if (!has(REG_READ)) return forbidden()
       const q = url.searchParams
       const items = this.appointments
-        .filter((a) => a.tenantId === tenant && (!q.get('branchId') || a.branchId === q.get('branchId')) && (!q.get('practitionerId') || a.practitionerId === q.get('practitionerId')) && (!q.get('from') || a.startsAt >= new Date(q.get('from')!).toISOString()) && (!q.get('to') || a.startsAt < new Date(q.get('to')!).toISOString()))
+        .filter((a) => a.tenantId === tenant && (!q.get('branchId') || a.branchId === q.get('branchId')) && (!q.get('practitionerId') || a.practitionerId === q.get('practitionerId')) && (!q.get('from') || a.endsAt > new Date(q.get('from')!).toISOString()) && (!q.get('to') || a.startsAt < new Date(q.get('to')!).toISOString()))
         .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
         .map(strip)
       return reply(200, { items, page: 1, pageSize: Number(q.get('pageSize') ?? 25), totalCount: items.length }, tenant)
@@ -506,7 +506,8 @@ export class MockBackend {
     if (method === 'POST' && path === '/api/v1/appointments') {
       const branchId = String(body.branchId)
       if (!canAccessBranch(branchId) || !has(REG_WRITE, rolesAt(branchId))) return forbidden()
-      if (!livePatients.some((p) => p.id === body.patientId) || !practitioners.some((p) => p.tenantId === tenant && p.id === body.practitionerId)) return problem(400, 'invalid_reference')
+      // Contract v4: foreign/unknown/soft-deleted patient or practitioner → 404 (was 400 invalid_reference).
+      if (!livePatients.some((p) => p.id === body.patientId) || !practitioners.some((p) => p.tenantId === tenant && p.id === body.practitionerId)) return notFound()
       const startsAt = new Date(String(body.startsAt)).toISOString()
       const endsAt = new Date(String(body.endsAt)).toISOString()
       if (this.appointments.some((a) => a.practitionerId === body.practitionerId && BLOCKING.includes(a.status) && a.startsAt < endsAt && a.endsAt > startsAt)) {
