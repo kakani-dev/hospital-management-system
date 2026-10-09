@@ -46,6 +46,8 @@ public sealed class AppointmentsDbContext(DbContextOptions<AppointmentsDbContext
             e.HasQueryFilter(x => x.TenantId == CurrentTenantId);
             // status: DB default on INSERT (not in the insert grant), updatable afterwards.
             e.Property(x => x.Status).Metadata.SetBeforeSaveBehavior(PropertySaveBehavior.Ignore);
+            // cancel_reason: update-only (not in the insert grant); a new booking never has one.
+            e.Property(x => x.CancelReason).Metadata.SetBeforeSaveBehavior(PropertySaveBehavior.Ignore);
             // never updatable (no update grant): the trigger rejects identity changes once not booked anyway
             ReadOnlyAfterInsert(e.Property(x => x.PatientId));
             ReadOnlyAfterInsert(e.Property(x => x.BranchId));
