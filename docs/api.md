@@ -60,7 +60,7 @@ Statuses: `booked` → `checked_in` (only via check-in) → `in_consultation` �
 | GET | `/api/v1/appointments/{id}` | REG_READ | `AppointmentDto` `{id, branchId, practitionerId, patientId, patient, startsAt, endsAt, status, reason, cancelReason, checkedInAt, startedAt, completedAt, cancelledAt, createdAt, updatedAt}`. `patient` = `{id, mrn, firstName, lastName}`, or `null` when the patient is soft-deleted or not readable. |
 | POST | `/api/v1/appointments` | REG_WRITE @branchId | `{branchId, practitionerId, patientId, startsAt, endsAt (> startsAt, ≤ 8 h), reason? (≤ 500)}` → 201 `booked`. **409 `appointment_overlap`** when the practitioner already has a booked/checked-in/in-consultation/completed appointment overlapping `[startsAt, endsAt)` (back-to-back is fine; cancelled and no-show free the time; patient-side overlap is allowed). 400 for an inactive practitioner. |
 | POST | `/api/v1/appointments/{id}/reschedule` | REG_WRITE @its branch | `{startsAt, endsAt, practitionerId?}`, only while booked. 409 `appointment_overlap` / `invalid_transition`. |
-| POST | `/api/v1/appointments/{id}/cancel` | REG_WRITE @its branch | `{reason?}` → 200 `cancelled` |
+| POST | `/api/v1/appointments/{id}/cancel` | REG_WRITE @its branch | `{reason?}` → 200 `cancelled`. Cancelling a `checked_in` appointment also cancels its OPD queue entry (DB trigger, migration `20261010090400`), so it leaves the active board and no longer blocks patient delete. |
 | POST | `/api/v1/appointments/{id}/no-show` | REG_WRITE @its branch | 200 `no_show`; 409 `invalid_transition` before the start or when not booked |
 
 ### Check-in and OPD queue (2.3)
