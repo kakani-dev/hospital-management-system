@@ -99,7 +99,7 @@ describe('CheckInPage', () => {
     expect(within(form).getByRole('alert')).toHaveTextContent('Choose a patient first.')
 
     await user.type(within(form).getByLabelText('Find walk-in patient'), 'ALP-0001')
-    await user.click(await within(form).findByRole('radio', { name: /Synthetic-Alpha, Asha/ }))
+    await user.click(await within(form).findByRole('option', { name: /Synthetic-Alpha, Asha/ }))
     // GET /practitioners?branchId=: only doctors working at Alpha Main
     await waitFor(() => expect(within(within(form).getByLabelText('Doctor (optional)')).getAllByRole('option').map((o) => o.textContent)).toEqual([expect.any(String), expect.stringContaining('Dr. Rao')]))
     await user.selectOptions(within(form).getByLabelText('Doctor (optional)'), DR_RAO)

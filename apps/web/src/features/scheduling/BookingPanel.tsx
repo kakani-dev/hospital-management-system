@@ -1,4 +1,7 @@
-import { useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
+import { useLocation } from 'react-router'
+import { RetryAlert } from '../../components/ui/RetryAlert'
+import { transientWriteMessage } from '../../lib/api/errors'
 import { Card } from '../../components/ui/Card'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
@@ -10,6 +13,13 @@ import { formatDayLabel, formatTime } from '../../lib/dates'
 import type { Appointment, PatientSummary, Practitioner, Slot } from '../../lib/api/types'
 import { PatientPicker } from '../patients/PatientPicker'
 
+/** Booking panel fields that survive a round trip through "Register new patient" (router state). */
+export interface BookingDraft {
+  practitionerId?: string
+  date?: string
+  slot?: Slot | null
+}
+
 /** Book: pick practitioner → date → free slot → patient. Conflicts (409) refresh the slots. */
 export function BookingPanel({
   branchId,
@@ -19,6 +29,7 @@ export function BookingPanel({
   practitioners,
   onCancel,
   onBooked,
+  initial,
 }: {
   branchId: string
   timeZone: string
@@ -27,19 +38,29 @@ export function BookingPanel({
   practitioners: Practitioner[]
   onCancel: () => void
   onBooked: (appointment: Appointment, message: string) => void
+  /** Restored panel state, e.g. after "Register new patient" came back with the new patient. */
+  initial?: BookingDraft & { patient?: PatientSummary | null }
 }) {
-  const [practitionerId, setPractitionerId] = useState('')
-  const [date, setDate] = useState(initialDate)
-  const [slot, setSlot] = useState<Slot | null>(null)
-  const [patient, setPatient] = useState<PatientSummary | null>(null)
+  const location = useLocation()
+  const [practitionerId, setPractitionerId] = useState(initial?.practitionerId ?? '')
+  const [date, setDate] = useState(initial?.date ?? initialDate)
+  const [slot, setSlot] = useState<Slot | null>(initial?.slot ?? null)
+  const [patient, setPatient] = useState<PatientSummary | null>(initial?.patient ?? null)
   const [reason, setReason] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [retryable, setRetryable] = useState(false)
+  const confirmRef = useRef<HTMLButtonElement>(null)
+  // Back from registration with everything filled in: Enter confirms.
+  useEffect(() => {
+    if (initial?.patient) confirmRef.current?.focus()
+  }, [initial?.patient])
   const slots = useSlots(branchId, practitionerId, date)
   const create = useCreateAppointment()
   const slotGroup = useId()
 
   const submit = async () => {
     setError(null)
+    setRetryable(false)
     if (!practitionerId || !slot || !patient) {
       setError('Choose a practitioner, a free slot and a patient.')
       return
@@ -59,6 +80,13 @@ export function BookingPanel({
         `Booked ${patient.firstName} ${patient.lastName} with ${doctor} on ${formatDayLabel(date)} at ${formatTime(slot.startsAt, timeZone)}.`,
       )
     } catch (e) {
+      // Cold server / timeout: keep the form as it is and offer Retry (writes are never auto-retried).
+      const transient = transientWriteMessage(e, 'book the appointment')
+      if (transient) {
+        setError(transient)
+        setRetryable(true)
+        return
+      }
       setSlot(null)
       const code = problemCode(e)
       const status = e instanceof ApiError ? e.status : 0
@@ -138,16 +166,20 @@ export function BookingPanel({
           </fieldset>
         </div>
         <div className="space-y-4">
-          <PatientPicker value={patient} onChange={setPatient} />
+          <PatientPicker
+            value={patient}
+            onChange={setPatient}
+            registerReturn={{ to: `${location.pathname}${location.search}`, state: { booking: { practitionerId, date, slot } satisfies BookingDraft } }}
+          />
           <FormField label="Reason (optional)" maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />
         </div>
         {error && (
           <div className="md:col-span-2">
-            <Alert tone="error">{error}</Alert>
+            {retryable ? <RetryAlert message={error} onRetry={() => void submit()} busy={create.isPending} /> : <Alert tone="error">{error}</Alert>}
           </div>
         )}
         <div className="flex gap-2 md:col-span-2">
-          <Button type="submit" disabled={create.isPending}>
+          <Button ref={confirmRef} type="submit" disabled={create.isPending}>
             {create.isPending ? 'Booking…' : 'Confirm booking'}
           </Button>
           <Button variant="secondary" onClick={onCancel}>

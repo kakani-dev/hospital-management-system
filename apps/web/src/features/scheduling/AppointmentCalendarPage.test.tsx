@@ -134,7 +134,7 @@ describe('AppointmentCalendarPage', () => {
     await user.selectOptions(practitionerSelect, DR_RAO)
     await user.click(await within(form).findByRole('radio', { name: '23:00' }))
     await user.type(within(form).getByLabelText('Find patient'), 'Asha')
-    await user.click(await within(form).findByRole('radio', { name: /Synthetic-Alpha, Asha/ }))
+    await user.click(await within(form).findByRole('option', { name: /Synthetic-Alpha, Asha/ }))
     await user.type(within(form).getByLabelText('Reason (optional)'), 'Follow-up')
     await user.click(within(form).getByRole('button', { name: 'Confirm booking' }))
 
@@ -169,7 +169,7 @@ describe('AppointmentCalendarPage', () => {
     await user.selectOptions(within(form).getByLabelText('Practitioner'), DR_RAO)
     await user.click(await within(form).findByRole('radio', { name: '23:00' }))
     await user.type(within(form).getByLabelText('Find patient'), 'Asha')
-    await user.click(await within(form).findByRole('radio', { name: /Synthetic-Alpha/ }))
+    await user.click(await within(form).findByRole('option', { name: /Synthetic-Alpha/ }))
     const slotFetches = calls.filter((c) => c.path === '/api/v1/slots').length
     await user.click(within(form).getByRole('button', { name: 'Confirm booking' }))
 
@@ -197,7 +197,7 @@ describe('AppointmentCalendarPage', () => {
     await user.selectOptions(within(form).getByLabelText('Practitioner'), DR_RAO)
     await user.click(await within(form).findByRole('radio', { name: '23:00' }))
     await user.type(within(form).getByLabelText('Find patient'), 'Asha')
-    await user.click(await within(form).findByRole('radio', { name: /Synthetic-Alpha/ }))
+    await user.click(await within(form).findByRole('option', { name: /Synthetic-Alpha/ }))
     await user.click(within(form).getByRole('button', { name: 'Confirm booking' }))
     expect(await within(form).findByRole('alert')).toHaveTextContent('can no longer be booked')
   })

@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Link } from 'react-router'
+import { useEffect, useState } from 'react'
+import { Link, useLocation, useNavigate } from 'react-router'
 import { Card } from '../../components/ui/Card'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
@@ -16,7 +16,8 @@ import { useBranchSelection } from '../tenancy/useBranchSelection'
 import { BranchNotice } from '../tenancy/BranchNotice'
 import { useCalendarParams } from './useCalendarParams'
 import { useBookablePractitioners } from './useBookablePractitioners'
-import { BookingPanel } from './BookingPanel'
+import { BookingPanel, type BookingDraft } from './BookingPanel'
+import type { ReturnedPatientState } from '../patients/registerReturn'
 
 /** Calendar refresh while open (other desks book too). */
 export const CALENDAR_REFRESH_MS = 30_000
@@ -26,7 +27,17 @@ export function AppointmentCalendarPage() {
   const { branches, branchId, timeZone, timeZoneReady, setBranchId } = useBranchSelection()
   const cal = useCalendarParams(timeZone, 'day')
   const [practitionerFilter, setPractitionerFilter] = useState('')
-  const [booking, setBooking] = useState(false)
+  const location = useLocation()
+  const navigate = useNavigate()
+  // Alt+B ({ openBooking }) or the way back from "Register new patient" ({ booking, pickedPatient }).
+  const [restored] = useState(() => {
+    const st = location.state as (ReturnedPatientState & { booking?: BookingDraft; openBooking?: boolean }) | null
+    return st && (st.openBooking || st.booking) ? { ...st.booking, patient: st.pickedPatient ?? null } : null
+  })
+  const [booking, setBooking] = useState(restored !== null)
+  useEffect(() => {
+    if (location.state) navigate(`${location.pathname}${location.search}`, { replace: true, state: null })
+  }, [location, navigate])
   const [notice, setNotice] = useState<string | null>(null)
 
   // Tenant-wide list for names; the branch list for the filter and the booking picker.
@@ -62,6 +73,8 @@ export function AppointmentCalendarPage() {
         <h1 className="text-2xl font-semibold">Appointments</h1>
         {canBook && !booking && (
           <Button
+            data-shortcut="open-booking"
+            aria-keyshortcuts="Alt+B"
             onClick={() => {
               setNotice(null)
               setBooking(true)
@@ -101,6 +114,7 @@ export function AppointmentCalendarPage() {
           initialDate={cal.date < cal.today ? cal.today : cal.date}
           minDate={cal.today}
           practitioners={bookable}
+          initial={restored ?? undefined}
           onCancel={() => setBooking(false)}
           onBooked={(appointment, label) => {
             setBooking(false)
