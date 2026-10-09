@@ -2,6 +2,8 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
+using Hms.Modules.Appointments.Functions;
+using Hms.Modules.Appointments.Persistence;
 using Hms.Modules.Identity.Persistence;
 using Hms.Modules.Identity.Tenancy;
 using Hms.Modules.Patients.Persistence;
@@ -224,6 +226,9 @@ public sealed class InProcessApiTests : IClassFixture<InProcessApiTests.ApiFacto
             {
                 ReplaceWithInMemory<PatientsDbContext>(services, _db + "-patients");
                 ReplaceWithInMemory<IdentityDbContext>(services, _db + "-identity");
+                ReplaceWithInMemory<AppointmentsDbContext>(services, _db + "-appointments");
+                services.RemoveAll<IAppointmentFunctions>();
+                services.AddSingleton<IAppointmentFunctions, UnavailableAppointmentFunctions>();
                 services.RemoveAll<IPatientRegistryFunctions>();
                 services.AddScoped<IPatientRegistryFunctions, InMemoryPatientRegistryFunctions>();
                 services.RemoveAll<IMembershipStore>();

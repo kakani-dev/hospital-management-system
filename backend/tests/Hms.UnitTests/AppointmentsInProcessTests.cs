@@ -1,0 +1,116 @@
+using System.Net;
+using System.Net.Http.Json;
+using System.Text.Json;
+using static Hms.UnitTests.InProcessApiTests;
+
+namespace Hms.UnitTests;
+
+/// <summary>Sprint 2.2/2.3 endpoint guards through the real pipeline (EF InMemory; DB RPCs faked as P0002).</summary>
+public sealed class AppointmentsInProcessTests(ApiFactory factory) : IClassFixture<ApiFactory>
+{
+    private sealed record Practitioner(Guid Id, string DisplayName, bool IsActive);
+
+    private sealed record Appointment(Guid Id, string Status, DateTimeOffset StartsAt, DateTimeOffset EndsAt);
+
+    private static readonly DateTimeOffset Slot = new(2031, 3, 3, 10, 0, 0, TimeSpan.FromHours(5.5));
+
+    private static async Task<string?> CodeOf(HttpResponseMessage response)
+    {
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return doc.RootElement.TryGetProperty("code", out var code) ? code.GetString() : null;
+    }
+
+    private async Task<Practitioner> CreatePractitionerAsync()
+    {
+        using var admin = factory.ClientAs(Admin);
+        var response = await admin.PostAsJsonAsync("/api/v1/practitioners", new { displayName = "Dr. Synthetic", specialty = "GP" });
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<Practitioner>())!;
+    }
+
+    private static Task<HttpResponseMessage> BookAsync(HttpClient client, Guid branch, Guid practitioner, DateTimeOffset start, int minutes = 15) =>
+        client.PostAsJsonAsync("/api/v1/appointments", new
+        {
+            branchId = branch, practitionerId = practitioner, patientId = Guid.NewGuid(), startsAt = start, endsAt = start.AddMinutes(minutes),
+        });
+
+    [Fact]
+    public async Task Practitioners_are_admin_managed_and_validated()
+    {
+        using var nurse = factory.ClientAs(MixedUser);
+        Assert.Equal(HttpStatusCode.Forbidden, (await nurse.PostAsJsonAsync("/api/v1/practitioners", new { displayName = "X" })).StatusCode);
+        using var admin = factory.ClientAs(Admin);
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PostAsJsonAsync("/api/v1/practitioners", new { displayName = "  " })).StatusCode);
+
+        var pr = await CreatePractitionerAsync();
+        Assert.True(pr.IsActive);
+        Assert.Equal(HttpStatusCode.Forbidden, (await nurse.PatchAsJsonAsync($"/api/v1/practitioners/{pr.Id}", new { isActive = false })).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await admin.PatchAsJsonAsync($"/api/v1/practitioners/{Guid.NewGuid()}", new { isActive = false })).StatusCode);
+    }
+
+    [Fact]
+    public async Task Schedules_validate_times_and_bind_to_branch()
+    {
+        var pr = await CreatePractitionerAsync();
+        using var admin = factory.ClientAs(Admin);
+        var inverted = await admin.PostAsJsonAsync("/api/v1/schedules", new { practitionerId = pr.Id, branchId = Main, weekday = 1, startTime = "12:00", endTime = "09:00" });
+        Assert.Equal(HttpStatusCode.BadRequest, inverted.StatusCode);
+
+        using var nurse = factory.ClientAs(MixedUser);
+        Assert.Equal(HttpStatusCode.Forbidden, (await nurse.PostAsJsonAsync("/api/v1/schedules", new { practitionerId = pr.Id, branchId = East, weekday = 1, startTime = "09:00", endTime = "12:00" })).StatusCode);
+        // contract v4: another tenant's branch is 404, never 403
+        Assert.Equal(HttpStatusCode.NotFound, (await admin.PostAsJsonAsync("/api/v1/schedules", new { practitionerId = pr.Id, branchId = BetaMain, weekday = 1, startTime = "09:00", endTime = "12:00" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Created, (await admin.PostAsJsonAsync("/api/v1/schedules", new { practitionerId = pr.Id, branchId = Main, weekday = 1, startTime = "09:00", endTime = "12:00" })).StatusCode);
+    }
+
+    [Fact]
+    public async Task Booking_checks_role_branch_times_and_overlap()
+    {
+        var pr = await CreatePractitionerAsync();
+        using var admin = factory.ClientAs(Admin);
+        using var lab = factory.ClientAs(LabTech);
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await BookAsync(lab, Main, pr.Id, Slot)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await BookAsync(admin, BetaMain, pr.Id, Slot)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await BookAsync(admin, Main, pr.Id, Slot, minutes: 0)).StatusCode);
+
+        var first = await BookAsync(admin, Main, pr.Id, Slot, 30);
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+        var booked = (await first.Content.ReadFromJsonAsync<Appointment>())!;
+        Assert.Equal("booked", booked.Status);
+
+        var overlap = await BookAsync(admin, Main, pr.Id, Slot.AddMinutes(15));
+        Assert.Equal(HttpStatusCode.Conflict, overlap.StatusCode);
+        Assert.Equal("appointment_overlap", await CodeOf(overlap));
+        Assert.Equal(HttpStatusCode.Created, (await BookAsync(admin, Main, pr.Id, Slot.AddMinutes(30))).StatusCode); // back-to-back
+
+        var cancel = await admin.PostAsJsonAsync($"/api/v1/appointments/{booked.Id}/cancel", new { reason = "patient request" });
+        Assert.Equal(HttpStatusCode.OK, cancel.StatusCode);
+        Assert.Equal("cancelled", (await cancel.Content.ReadFromJsonAsync<Appointment>())!.Status);
+        Assert.Equal(HttpStatusCode.Created, (await BookAsync(admin, Main, pr.Id, Slot.AddMinutes(10))).StatusCode);
+
+        var again = await admin.PostAsJsonAsync($"/api/v1/appointments/{booked.Id}/cancel", new { reason = "twice" });
+        Assert.Equal(HttpStatusCode.Conflict, again.StatusCode);
+    }
+
+    [Fact]
+    public async Task Slots_and_queue_validate_and_scope_branches()
+    {
+        using var admin = factory.ClientAs(Admin);
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.GetAsync($"/api/v1/slots?branchId={Main}&from=2031-03-01&to=2031-05-01")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await admin.GetAsync($"/api/v1/slots?branchId={Main}&from=2031-03-01")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await admin.GetAsync($"/api/v1/slots?branchId={BetaMain}&from=2031-03-01")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await admin.GetAsync($"/api/v1/queue?branchId={BetaMain}")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await admin.GetAsync($"/api/v1/queue?branchId={Main}")).StatusCode);
+
+        using var lab = factory.ClientAs(LabTech);
+        Assert.Equal(HttpStatusCode.Forbidden, (await lab.GetAsync($"/api/v1/queue?branchId={Main}")).StatusCode);
+
+        var badStatus = await admin.PatchAsJsonAsync($"/api/v1/queue/{Guid.NewGuid()}", new { status = "waiting" });
+        Assert.Equal(HttpStatusCode.BadRequest, badStatus.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await admin.PatchAsJsonAsync($"/api/v1/queue/{Guid.NewGuid()}", new { status = "done" })).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await admin.PostAsJsonAsync("/api/v1/queue/walk-in", new { branchId = BetaMain, patientId = Guid.NewGuid() })).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await admin.PostAsJsonAsync("/api/v1/queue/walk-in", new { branchId = Main, patientId = Guid.NewGuid() })).StatusCode); // RPC P0002
+        Assert.Equal(HttpStatusCode.NotFound, (await admin.PostAsync($"/api/v1/appointments/{Guid.NewGuid()}/check-in", null)).StatusCode);
+    }
+}
