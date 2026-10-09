@@ -33,20 +33,75 @@ import type {
   UpdateQueueStatusRequest,
   WalkInRequest,
 } from './types'
+import { resilience as defaultResilience, type ResilienceConfig } from '../config'
+import { beginPending, type PendingHandle } from './pending'
 
 export class ApiError extends Error {
   readonly status: number
   readonly problem: ProblemDetails | null
+  /** Parsed Retry-After header (ms from now), or null when absent/invalid. */
+  readonly retryAfterMs: number | null
 
-  constructor(status: number, problem: ProblemDetails | null, message?: string) {
+  constructor(status: number, problem: ProblemDetails | null, message?: string, retryAfterMs: number | null = null) {
     super(message ?? problem?.title ?? `Request failed with status ${status}`)
     this.name = 'ApiError'
     this.status = status
     this.problem = problem
+    this.retryAfterMs = retryAfterMs
   }
 }
 
+/**
+ * The request never produced an HTTP response: the network failed (offline, DNS, CORS-less error
+ * from a proxy) or the client timeout fired. For a write, the server MAY still have processed it.
+ */
+export class ApiTransportError extends Error {
+  readonly kind: 'network' | 'timeout'
+
+  constructor(kind: 'network' | 'timeout', message?: string, options?: { cause?: unknown }) {
+    super(message ?? (kind === 'timeout' ? 'The server did not answer in time.' : 'The server could not be reached.'), options)
+    this.name = 'ApiTransportError'
+    this.kind = kind
+  }
+}
+
+/** Status codes that mean "try again later" (cold start, proxy timeout, overload, rate limit). */
+export const TRANSIENT_STATUSES: readonly number[] = [429, 502, 503, 504]
+
+/** True for network errors, client timeouts and 429/502/503/504: worth a retry, never a sign-out. */
+export function isTransientError(error: unknown): boolean {
+  if (error instanceof ApiTransportError) return true
+  return error instanceof ApiError && TRANSIENT_STATUSES.includes(error.status)
+}
+
+/** Retry-After as seconds or an HTTP date → ms from now (≥ 0), or null. */
+export function parseRetryAfter(value: string | null | undefined, now: number = Date.now()): number | null {
+  if (!value) return null
+  const trimmed = value.trim()
+  if (/^\d+(\.\d+)?$/.test(trimmed)) return Math.round(Number(trimmed) * 1000)
+  const at = Date.parse(trimmed)
+  return Number.isNaN(at) ? null : Math.max(0, at - now)
+}
+
+/**
+ * Wait before retry number `attempt` (0 = first retry): the server's Retry-After when given,
+ * otherwise base × factor^attempt with ±25 % jitter; always capped at `maxDelayMs`.
+ */
+export function retryDelayMs(
+  attempt: number,
+  error: unknown,
+  cfg: Pick<ResilienceConfig, 'retryBaseDelayMs' | 'retryFactor' | 'retryMaxDelayMs'>,
+  random: () => number = Math.random,
+): number {
+  const retryAfter = error instanceof ApiError ? error.retryAfterMs : null
+  const computed = retryAfter ?? cfg.retryBaseDelayMs * cfg.retryFactor ** attempt * (0.75 + random() * 0.5)
+  return Math.max(0, Math.min(Math.round(computed), cfg.retryMaxDelayMs))
+}
+
 export type TokenProvider = () => string | null | Promise<string | null>
+
+/** Asked once per request after a 401: refresh the session; true = replay with the new token. */
+export type UnauthorizedHandler = () => Promise<boolean>
 
 /** Response header carrying the tenant the API resolved for the request (M3 option b). */
 export const TENANT_HEADER = 'X-Hms-Tenant'
@@ -64,54 +119,191 @@ export interface ApiClientOptions {
   getAccessToken?: TokenProvider
   fetchImpl?: typeof fetch
   onResolvedTenant?: ResolvedTenantListener
+  onUnauthorized?: UnauthorizedHandler
+  /** Timeouts/retries; defaults to lib/config.ts `resilience` (VITE_* build settings). */
+  resilience?: Partial<ResilienceConfig>
+  /** Jitter source (tests pin it). */
+  random?: () => number
+  /** Track requests for the "waking" banner (lib/api/pending.ts). Default true. */
+  trackPending?: boolean
 }
 
+export interface RequestOptions extends RequestInit {
+  /** Overrides the GET/write timeout for this call (ms). */
+  timeoutMs?: number
+  /** false = never retry this GET automatically. Writes are never retried regardless. */
+  retry?: boolean
+  /** false = no Authorization header and no 401 refresh (public endpoints such as warm-up). */
+  auth?: boolean
+  /** false = not shown as "waiting" in the waking banner (fire-and-forget calls). */
+  track?: boolean
+}
+
+const READ_METHODS = ['GET', 'HEAD']
+
 /**
- * Typed HTTP client for the HMS gateway.
+ * Typed HTTP client for the HMS edge gateway.
  *
  * SECURITY: this client deliberately never sends a tenant id header. The backend derives
  * the tenant from the authenticated (signed) token claims and validates membership server-side.
  * Any tenant/branch selection in the UI is a UX hint only.
+ *
+ * RESILIENCE (free hosting, cold starts): every attempt has a client timeout; GETs are retried on
+ * network errors, timeouts and 429/502/503/504 with backoff (honouring Retry-After); writes are
+ * never retried automatically (the screen offers a Retry button). A 401 triggers one session
+ * refresh and one replay. Nothing here ever signs the user out.
  */
 export class ApiClient {
   private readonly baseUrl: string
   private readonly getAccessToken?: TokenProvider
   private readonly fetchImpl: typeof fetch
   private readonly onResolvedTenant?: ResolvedTenantListener
+  private readonly onUnauthorized?: UnauthorizedHandler
+  private readonly cfg: ResilienceConfig
+  private readonly random: () => number
+  private readonly trackPending: boolean
 
   constructor(options: ApiClientOptions = {}) {
     this.baseUrl = (options.baseUrl ?? '').replace(/\/+$/, '')
     this.getAccessToken = options.getAccessToken
     this.onResolvedTenant = options.onResolvedTenant
+    this.onUnauthorized = options.onUnauthorized
+    this.cfg = { ...defaultResilience, ...options.resilience }
+    this.random = options.random ?? Math.random
+    this.trackPending = options.trackPending ?? true
     // Resolved per call (not captured at construction) so polyfills/test stubs installed later apply.
     this.fetchImpl = options.fetchImpl ?? ((input, init) => globalThis.fetch(input, init))
   }
 
-  async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  async request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+    const method = (options.method ?? 'GET').toUpperCase()
+    const isRead = READ_METHODS.includes(method)
+    const maxRetries = isRead && options.retry !== false ? this.cfg.retryCount : 0
+    const pending = this.trackPending && options.track !== false ? beginPending() : null
+    let retries = 0
+    let replayed = false
+    try {
+      for (;;) {
+        try {
+          return await this.attempt<T>(path, options, method, isRead)
+        } catch (error) {
+          if (options.signal?.aborted) throw error
+          if (error instanceof ApiError && error.status === 401 && options.auth !== false && !replayed && this.onUnauthorized) {
+            replayed = true
+            let ok = false
+            try {
+              ok = await this.onUnauthorized()
+            } catch {
+              ok = false
+            }
+            if (ok) continue
+            throw error
+          }
+          if (retries >= maxRetries || !isTransientError(error)) throw error
+          await this.backoff(retryDelayMs(retries, error, this.cfg, this.random), options.signal, pending)
+          retries++
+        }
+      }
+    } finally {
+      pending?.end()
+    }
+  }
+
+  /** Waits `ms`, or less when the user presses "Retry now"; rejects if the caller aborts. */
+  private backoff(ms: number, signal: AbortSignal | null | undefined, pending: PendingHandle | null): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const done = () => {
+        clearTimeout(timer)
+        signal?.removeEventListener('abort', onAbort)
+        pending?.setKick(null)
+        resolve()
+      }
+      const onAbort = () => {
+        clearTimeout(timer)
+        pending?.setKick(null)
+        reject(signal?.reason ?? new DOMException('Aborted', 'AbortError'))
+      }
+      const timer = setTimeout(done, ms)
+      signal?.addEventListener('abort', onAbort, { once: true })
+      pending?.setKick(done)
+    })
+  }
+
+  private async attempt<T>(path: string, options: RequestOptions, method: string, isRead: boolean): Promise<T> {
+    const { timeoutMs, auth, signal: callerSignal, ...rest } = options
+    const init: RequestInit = { ...rest }
+    delete (init as RequestOptions).retry
+    delete (init as RequestOptions).track
     const headers = new Headers(init.headers)
     headers.set('Accept', 'application/json')
     if (init.body !== undefined && !headers.has('Content-Type')) {
       headers.set('Content-Type', 'application/json')
     }
-    const token = await this.getAccessToken?.()
-    if (token) headers.set('Authorization', `Bearer ${token}`)
+    if (auth !== false) {
+      const token = await this.getAccessToken?.()
+      if (token) headers.set('Authorization', `Bearer ${token}`)
+    }
+
+    const controller = new AbortController()
+    let timedOut = false
+    const timer = setTimeout(
+      () => {
+        timedOut = true
+        controller.abort()
+      },
+      timeoutMs ?? (isRead ? this.cfg.getTimeoutMs : this.cfg.writeTimeoutMs),
+    )
+    const onCallerAbort = () => controller.abort(callerSignal?.reason)
+    if (callerSignal?.aborted) controller.abort(callerSignal.reason)
+    else callerSignal?.addEventListener('abort', onCallerAbort, { once: true })
 
     const startedAt = clock()
-    const response = await this.fetchImpl(`${this.baseUrl}${path}`, { ...init, headers })
-    const resolvedTenant = response.headers.get(TENANT_HEADER)?.trim()
-    if (resolvedTenant) this.onResolvedTenant?.(resolvedTenant, startedAt)
-    if (!response.ok) {
-      let problem: ProblemDetails | null = null
+    try {
+      let response: Response
       try {
-        problem = (await response.json()) as ProblemDetails
-      } catch {
-        problem = null
+        response = await this.fetchImpl(`${this.baseUrl}${path}`, { ...init, method, headers, signal: controller.signal })
+      } catch (cause) {
+        if (timedOut) throw new ApiTransportError('timeout', undefined, { cause })
+        if (callerSignal?.aborted) throw cause
+        throw new ApiTransportError('network', undefined, { cause })
       }
-      throw new ApiError(response.status, problem)
+      const resolvedTenant = response.headers.get(TENANT_HEADER)?.trim()
+      if (resolvedTenant) this.onResolvedTenant?.(resolvedTenant, startedAt)
+      if (!response.ok) {
+        let problem: ProblemDetails | null = null
+        try {
+          problem = (await response.json()) as ProblemDetails
+        } catch {
+          problem = null
+        }
+        if (timedOut) throw new ApiTransportError('timeout')
+        throw new ApiError(response.status, problem, undefined, parseRetryAfter(response.headers.get('Retry-After')))
+      }
+      if (response.status === 204) return undefined as T
+      let text: string
+      try {
+        text = await response.text()
+      } catch (cause) {
+        if (timedOut) throw new ApiTransportError('timeout', undefined, { cause })
+        throw cause
+      }
+      return (text ? JSON.parse(text) : undefined) as T
+    } finally {
+      clearTimeout(timer)
+      callerSignal?.removeEventListener('abort', onCallerAbort)
     }
-    if (response.status === 204) return undefined as T
-    const text = await response.text()
-    return (text ? JSON.parse(text) : undefined) as T
+  }
+
+  /**
+   * Fire-and-forget wake-up of the edge and services (CTO contract: unauthenticated
+   * GET /api/v1/warmup, result ignored). Never retried, never shown in the waking banner.
+   */
+  warmup = async (): Promise<void> => {
+    try {
+      await this.request<void>('/api/v1/warmup', { auth: false, retry: false, track: false })
+    } catch {
+      /* ignored by design */
+    }
   }
 
   health = {
@@ -239,6 +431,7 @@ function qs(params: object): string {
 
 let currentTokenProvider: TokenProvider = () => null
 let currentTenantListener: ResolvedTenantListener | null = null
+let currentUnauthorizedHandler: UnauthorizedHandler | null = null
 
 /** Called by AuthProvider: the API client asks Supabase for the current access token per request. */
 export function configureApiAuth(provider: TokenProvider) {
@@ -250,10 +443,16 @@ export function configureResolvedTenantListener(listener: ResolvedTenantListener
   currentTenantListener = listener
 }
 
+/** Called by AuthProvider: after a 401 the client refreshes the session once and replays. */
+export function configureUnauthorizedHandler(handler: UnauthorizedHandler | null) {
+  currentUnauthorizedHandler = handler
+}
+
 export const apiClient = new ApiClient({
   baseUrl: import.meta.env.VITE_API_BASE_URL ?? '',
   getAccessToken: () => currentTokenProvider(),
   onResolvedTenant: (tenantId, startedAt) => currentTenantListener?.(tenantId, startedAt),
+  onUnauthorized: async () => (currentUnauthorizedHandler ? currentUnauthorizedHandler() : false),
 })
 
 /** Field errors from a 400 ValidationProblem, keyed by camelCase field name. */

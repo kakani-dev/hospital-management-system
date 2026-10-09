@@ -34,5 +34,11 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./src/test/setup.ts'],
     include: ['src/**/*.test.{ts,tsx}'],
+    // Component tests use the real retry policy with tiny waits (Retry-After is capped by the max);
+    // the policy itself is unit-tested with fake timers and explicit values (client.resilience.test.ts).
+    env: {
+      VITE_API_RETRY_BASE_DELAY_MS: '10',
+      VITE_API_RETRY_MAX_DELAY_MS: '40',
+    },
   },
 })
