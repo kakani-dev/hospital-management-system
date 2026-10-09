@@ -1,5 +1,16 @@
-import { useCallback, useState } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router'
+import { useCallback, useMemo, useState } from 'react'
+import { Outlet, useNavigate } from 'react-router'
+import {
+  BuildingOffice2Icon,
+  CalendarDaysIcon,
+  ClipboardDocumentCheckIcon,
+  ClockIcon,
+  HomeIcon,
+  QueueListIcon,
+  UserGroupIcon,
+  UsersIcon,
+} from '@heroicons/react/24/outline'
+import { ArrowLeftStartOnRectangleIcon, CommandLineIcon } from '@heroicons/react/24/outline'
 import { ShortcutHelp } from '../../features/shortcuts/ShortcutHelp'
 import { useReceptionShortcuts } from '../../features/shortcuts/useReceptionShortcuts'
 import { useAuth } from '../../features/auth/AuthProvider'
@@ -7,9 +18,22 @@ import { TenantSwitcher } from '../../features/tenancy/TenantSwitcher'
 import { useCurrentContext } from '../../features/tenancy/useCurrentContext'
 import { TenantChangedBanner } from '../../features/tenancy/TenantChangedBanner'
 import { ContextErrorBanner } from '../../features/tenancy/ContextErrorBanner'
-import { Button } from '../ui/Button'
 import { can } from '../../lib/permissions'
+import { Sideblock, type NavGroup } from '../../tailux/layouts/Sideblock'
+import { ThemeModeSwitch } from '../../tailux/components/shared/ThemeModeSwitch'
+import { Avatar, Button } from '@tailux/components/ui'
 
+function initialsSource(email: string | null | undefined) {
+  const local = (email ?? '').split('@')[0] ?? ''
+  const name = local.replace(/[._-]+/g, ' ').trim()
+  return /\w/.test(name) ? name : undefined
+}
+
+/**
+ * Authenticated shell on the Tailux "Sideblock" layout: fixed sidebar with the permission-filtered
+ * primary navigation, sticky header (hospital/branch context, theme, shortcuts, account) and the
+ * page column with the cross-cutting banners above the routed page.
+ */
 export function AppShell() {
   const { email, signOut } = useAuth()
   const { isAdmin, roles } = useCurrentContext()
@@ -19,86 +43,109 @@ export function AppShell() {
   const closeHelp = useCallback(() => setHelpOpen(false), [])
   useReceptionShortcuts({ roles, onHelp: openHelp })
 
-  const navItems: { to: string; label: string; end: boolean; keys?: string }[] = [
-    { to: '/', label: 'Dashboard', end: true },
-    { to: '/patients', label: 'Patients', end: false, keys: '/' },
-    ...(can(roles, 'appointments.view') ? [{ to: '/appointments', label: 'Appointments', end: false, keys: can(roles, 'appointments.book') ? 'Alt+B' : undefined }] : []),
-    ...(can(roles, 'schedules.view') ? [{ to: '/schedules', label: 'Schedules', end: false }] : []),
-    ...(can(roles, 'queue.checkIn') ? [{ to: '/reception/check-in', label: 'Check-in', end: false, keys: 'Alt+C' }] : []),
-    ...(can(roles, 'queue.view') ? [{ to: '/queue', label: 'OPD queue', end: false, keys: 'Alt+Q' }] : []),
-    ...(isAdmin
-      ? [
-          { to: '/admin/branches', label: 'Branches', end: false },
-          { to: '/admin/members', label: 'Members', end: false },
-        ]
-      : []),
-  ]
+  const navigation = useMemo<NavGroup[]>(() => {
+    const clinical: NavGroup = {
+      id: 'clinical',
+      title: 'Clinical',
+      childs: [
+        { id: 'dashboard', path: '/', title: 'Dashboard', end: true, Icon: HomeIcon },
+        { id: 'patients', path: '/patients', title: 'Patients', Icon: UsersIcon, keys: '/' },
+        ...(can(roles, 'appointments.view')
+          ? [
+              {
+                id: 'appointments',
+                path: '/appointments',
+                title: 'Appointments',
+                Icon: CalendarDaysIcon,
+                keys: can(roles, 'appointments.book') ? 'Alt+B' : undefined,
+              },
+            ]
+          : []),
+        ...(can(roles, 'schedules.view') ? [{ id: 'schedules', path: '/schedules', title: 'Schedules', Icon: ClockIcon }] : []),
+      ],
+    }
+    const reception: NavGroup = {
+      id: 'reception',
+      title: 'Reception',
+      childs: [
+        ...(can(roles, 'queue.checkIn')
+          ? [{ id: 'check-in', path: '/reception/check-in', title: 'Check-in', Icon: ClipboardDocumentCheckIcon, keys: 'Alt+C' }]
+          : []),
+        ...(can(roles, 'queue.view') ? [{ id: 'queue', path: '/queue', title: 'OPD queue', Icon: QueueListIcon, keys: 'Alt+Q' }] : []),
+      ],
+    }
+    const admin: NavGroup = {
+      id: 'admin',
+      title: 'Administration',
+      childs: isAdmin
+        ? [
+            { id: 'branches', path: '/admin/branches', title: 'Branches', Icon: BuildingOffice2Icon },
+            { id: 'members', path: '/admin/members', title: 'Members', Icon: UserGroupIcon },
+          ]
+        : [],
+    }
+    return [clinical, reception, admin].filter((g) => g.childs.length > 0)
+  }, [roles, isAdmin])
+
+  const avatarName = initialsSource(email)
 
   return (
-    <div className="min-h-screen">
+    <>
       <a
         href="#main-content"
-        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded focus:bg-white focus:px-4 focus:py-2"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-100 focus:rounded-lg focus:bg-white focus:px-4 focus:py-2 dark:focus:bg-dark-700"
       >
         Skip to main content
       </a>
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-3">
-          <div className="flex items-center gap-3">
-            <span aria-hidden="true" className="flex h-8 w-8 items-center justify-center rounded-md bg-brand-700 font-bold text-white">
-              +
-            </span>
-            <span className="text-lg font-semibold">HMS</span>
-          </div>
-          <TenantSwitcher />
-          <div className="flex items-center gap-3 text-sm">
-            <span className="hidden text-slate-600 sm:inline" data-testid="user-email">
-              {email}
-            </span>
-            <Button variant="ghost" aria-keyshortcuts="?" onClick={openHelp} data-testid="shortcut-help-button">
-              Keyboard shortcuts
-            </Button>
+      <Sideblock
+        appName="HMS"
+        navigation={navigation}
+        headerStart={<TenantSwitcher />}
+        headerEnd={
+          <>
+            <ThemeModeSwitch className="max-sm:hidden" />
             <Button
-              variant="secondary"
+              variant="flat"
+              isIcon
+              className="size-9 rounded-full"
+              aria-label="Keyboard shortcuts"
+              title="Keyboard shortcuts (?)"
+              aria-keyshortcuts="?"
+              onClick={openHelp}
+              data-testid="shortcut-help-button"
+            >
+              <CommandLineIcon className="size-5" aria-hidden="true" />
+            </Button>
+            <div className="flex items-center gap-2">
+              <Avatar size={8} name={avatarName} initialColor="primary" initialVariant="soft" className="max-sm:hidden" aria-hidden="true" />
+              <span className="hidden max-w-48 truncate text-xs-plus text-gray-600 dark:text-dark-200 md:inline" data-testid="user-email">
+                {email}
+              </span>
+            </div>
+            <Button
+              variant="outlined"
+              className="h-8 gap-2 px-3 text-xs-plus"
               onClick={async () => {
                 await signOut()
                 navigate('/login', { replace: true })
               }}
             >
-              Sign out
+              <ArrowLeftStartOnRectangleIcon className="size-4" aria-hidden="true" />
+              <span>Sign out</span>
             </Button>
-          </div>
+          </>
+        }
+      >
+        <div role="note" className="this:warning bg-this-darker/10 px-4 py-1 text-center text-xs text-this-darker dark:bg-this-lighter/10 dark:text-this-lighter">
+          Demonstration build — synthetic data only. Not for clinical use.
         </div>
-        <nav aria-label="Primary" className="mx-auto max-w-7xl px-4">
-          <ul className="flex flex-wrap gap-1">
-            {navItems.map((item) => (
-              <li key={item.to}>
-                <NavLink
-                  to={item.to}
-                  end={item.end}
-                  aria-keyshortcuts={item.keys}
-                  className={({ isActive }) =>
-                    `inline-block border-b-2 px-3 py-2 text-sm font-medium ${
-                      isActive ? 'border-brand-700 text-brand-800' : 'border-transparent text-slate-600 hover:text-slate-900'
-                    }`
-                  }
-                >
-                  {item.label}
-                </NavLink>
-              </li>
-            ))}
-          </ul>
-        </nav>
-      </header>
-      <div role="note" className="bg-amber-50 px-4 py-1 text-center text-xs text-amber-900">
-        Demonstration build — synthetic data only. Not for clinical use.
-      </div>
-      <TenantChangedBanner />
-      <ContextErrorBanner />
-      <main id="main-content" tabIndex={-1} className="mx-auto max-w-7xl px-4 py-6">
-        <Outlet />
-      </main>
+        <TenantChangedBanner />
+        <ContextErrorBanner />
+        <div className="transition-content w-full px-(--margin-x) pb-8 pt-5 lg:pt-6">
+          <Outlet />
+        </div>
+      </Sideblock>
       {helpOpen && <ShortcutHelp roles={roles} onClose={closeHelp} />}
-    </div>
+    </>
   )
 }

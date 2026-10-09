@@ -1,10 +1,12 @@
-import { useId, type InputHTMLAttributes } from 'react'
+import { useId, type InputHTMLAttributes, type ReactNode } from 'react'
 import { Input } from '@tailux/components/ui'
 
 interface FormFieldProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'prefix'> {
   label: string
   error?: string
   hint?: string
+  /** Tailux input prefix (icon). */
+  prefix?: ReactNode
 }
 
 /** Labelled text input: the Tailux Input with HMS error/hint wiring (aria-describedby, role="alert"). */
