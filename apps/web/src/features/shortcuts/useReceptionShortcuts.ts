@@ -5,7 +5,7 @@ import { ALT_CODES, focusWhenReady, isTypingTarget, SHORTCUTS, type Shortcut } f
 
 const SEARCH = '[data-shortcut="patient-search"]'
 const WALK_IN = '[data-shortcut="walk-in"]'
-const HEADING = 'main h1'
+const MAIN = 'main#main-content'
 const BOOKING = 'form[aria-label="Book appointment"] select'
 
 /** Global keyboard shortcuts for the signed-in shell (see shortcuts.ts). */
@@ -23,10 +23,16 @@ export function useReceptionShortcuts({ roles, onHelp }: { roles: string[]; onHe
       const s = SHORTCUTS.find((x) => x.id === id)!
       return !s.capability || can(latest.current.roles, s.capability)
     }
-    const go = (path: string, focusSelector: string, state?: unknown) => {
+    const go = (path: string, focusSelector: string, state?: unknown, fallback?: string) => {
       cancelFocus?.()
       if (latest.current.pathname !== path || state) latest.current.navigate(path, state ? { state } : undefined)
-      cancelFocus = focusWhenReady(focusSelector)
+      // Focus is set after React renders the new route (the old page's elements may still match now).
+      let cancelPoll: (() => void) | null = null
+      const timer = setTimeout(() => (cancelPoll = focusWhenReady(focusSelector, { fallback })), 0)
+      cancelFocus = () => {
+        clearTimeout(timer)
+        cancelPoll?.()
+      }
     }
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.ctrlKey || e.metaKey) return
@@ -35,9 +41,9 @@ export function useReceptionShortcuts({ roles, onHelp }: { roles: string[]; onHe
         if (!id || !allowed(id)) return
         e.preventDefault()
         if (id === 'register') go('/patients/new', 'form[aria-label="Register patient"] input[name="mrn"]')
-        else if (id === 'check-in') go('/reception/check-in', `[data-shortcut="checkin-list"] button:not([disabled]), ${HEADING}`)
+        else if (id === 'check-in') go('/reception/check-in', '[data-shortcut="checkin-list"] button:not([disabled])', undefined, MAIN)
         else if (id === 'walk-in') go('/reception/check-in', WALK_IN)
-        else if (id === 'queue') go('/queue', HEADING)
+        else if (id === 'queue') go('/queue', MAIN)
         else if (id === 'book') {
           const open = document.querySelector<HTMLButtonElement>('[data-shortcut="open-booking"]')
           if (open && latest.current.pathname === '/appointments') {

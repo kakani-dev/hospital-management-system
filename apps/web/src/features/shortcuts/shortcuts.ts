@@ -42,19 +42,32 @@ export function isTypingTarget(target: EventTarget | null): boolean {
   return !['button', 'checkbox', 'radio', 'submit', 'reset', 'file', 'color', 'range'].includes(type)
 }
 
+const visible = (selector: string) =>
+  [...document.querySelectorAll<HTMLElement>(selector)].find((e) => !e.closest('[hidden], .hidden') && !(e as HTMLInputElement).disabled)
+
 /**
  * Focuses the first visible element matching `selector`, waiting for it to render (lazy routes,
- * data loading) up to `timeoutMs`. Returns a cancel function.
+ * data loading) up to `timeoutMs`. With a `fallback`, that is focused as soon as it exists and is
+ * upgraded to `selector` when it appears, unless the user has moved focus meanwhile.
+ * Returns a cancel function.
  */
-export function focusWhenReady(selector: string, timeoutMs = 3_000): () => void {
+export function focusWhenReady(selector: string, { fallback, timeoutMs = 3_000 }: { fallback?: string; timeoutMs?: number } = {}): () => void {
   const started = Date.now()
   let timer: ReturnType<typeof setTimeout> | undefined
+  let fallbackEl: HTMLElement | null = null
   const tryFocus = () => {
-    const el = [...document.querySelectorAll<HTMLElement>(selector)].find((e) => !e.closest('[hidden], .hidden') && !(e as HTMLInputElement).disabled)
+    const el = visible(selector)
     if (el) {
-      el.focus()
-      if (el instanceof HTMLInputElement) el.select?.()
+      const userMoved = fallbackEl && document.activeElement !== fallbackEl && document.activeElement !== document.body
+      if (!userMoved) {
+        el.focus()
+        if (el instanceof HTMLInputElement) el.select?.()
+      }
       return
+    }
+    if (fallback && !fallbackEl) {
+      fallbackEl = visible(fallback) ?? null
+      fallbackEl?.focus()
     }
     if (Date.now() - started < timeoutMs) timer = setTimeout(tryFocus, 50)
   }

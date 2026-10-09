@@ -164,7 +164,7 @@ test.describe('2.2 schedules and appointments', () => {
     await form.getByLabel('Practitioner').selectOption(practitionerIds.rao)
     await form.getByLabel('Appointment date').fill(tomorrow)
     await form.getByLabel('Find patient').fill('Ravi')
-    await form.getByRole('radio', { name: /Synthetic-Alpha, Ravi/ }).check()
+    await form.getByRole('option', { name: /Synthetic-Alpha, Ravi/ }).click()
 
     // Conflict: another desk takes 09:15 between picking and confirming.
     await form.getByText('09:15', { exact: true }).click()
@@ -210,13 +210,13 @@ test.describe('2.3 check-in and OPD queue', () => {
 
     const walkIn = page.getByRole('form', { name: 'Walk-in check-in' })
     await walkIn.getByLabel('Find walk-in patient').fill('ALP-0002')
-    await walkIn.getByRole('radio', { name: /Synthetic-Alpha, Ravi/ }).check()
+    await walkIn.getByRole('option', { name: /Synthetic-Alpha, Ravi/ }).click()
     await walkIn.getByRole('button', { name: 'Issue walk-in token' }).click()
     await expect(page.getByTestId('token-number')).toHaveText('2')
 
     // Same walk-in again while still waiting → 409 already_checked_in
     await walkIn.getByLabel('Find walk-in patient').fill('ALP-0002')
-    await walkIn.getByRole('radio', { name: /Synthetic-Alpha, Ravi/ }).check()
+    await walkIn.getByRole('option', { name: /Synthetic-Alpha, Ravi/ }).click()
     await walkIn.getByRole('button', { name: 'Issue walk-in token' }).click()
     await expect(page.getByRole('alert')).toContainText('already waiting or in consultation')
     expect(perPatientFetches()).toEqual([])

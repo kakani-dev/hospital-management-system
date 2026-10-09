@@ -34,6 +34,13 @@ export default defineConfig({
       VITE_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_mocked_e2e_placeholder',
       VITE_API_BASE_URL: '',
       VITE_IDLE_TIMEOUT_MINUTES: '15',
+      // Resilience knobs shrunk so cold-start specs run in seconds (defaults: lib/config.ts, .env.example).
+      VITE_WAKING_BANNER_AFTER_MS: '1000',
+      VITE_WAKING_STILL_AFTER_MS: '60000',
+      VITE_API_GET_TIMEOUT_MS: '10000',
+      VITE_API_WRITE_TIMEOUT_MS: '3000',
+      VITE_API_RETRY_BASE_DELAY_MS: '200',
+      VITE_API_RETRY_MAX_DELAY_MS: '1000',
     },
   },
 })

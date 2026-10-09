@@ -169,6 +169,32 @@ export interface RecordedCall {
   headers: Record<string, string>
 }
 
+/**
+ * Injected failure for one matching API request (cold-start / gateway behaviour):
+ * - status: answer with this status instead (e.g. 503 + Retry-After, like the YARP edge for a cold service)
+ * - delayMs: answer late (then normally, unless status/abort/hang is set)
+ * - abort: network error; hang: never answer (the client's own timeout fires)
+ */
+export interface Fault {
+  method?: string
+  path: string | RegExp
+  /** How many matching requests to affect (default 1). */
+  times?: number
+  delayMs?: number
+  status?: number
+  headers?: Record<string, string>
+  body?: unknown
+  abort?: boolean
+  hang?: boolean
+}
+
+/** The edge's answer for a cold or unreachable service (CTO decision). */
+export const SERVICE_UNAVAILABLE: Pick<Fault, 'status' | 'headers' | 'body'> = {
+  status: 503,
+  headers: { 'Retry-After': '5' },
+  body: { type: 'about:blank', title: 'Service Unavailable', status: 503, code: 'service_unavailable' },
+}
+
 let seq = 0
 const uuid = (prefix: string) => `${prefix}${String(++seq).padStart(12, '0')}`.replace(/^(.{8})(.{4})(.{4})(.{4})(.{12}).*$/, '$1-$2-$3-$4-$5')
 
@@ -176,6 +202,10 @@ const b64url = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('
 
 export class MockBackend {
   readonly calls: RecordedCall[] = []
+  /** Pending injected faults, consumed in order (see Fault). */
+  readonly faults: (Fault & { remaining: number })[] = []
+  /** Number of GET /api/v1/warmup calls received. */
+  warmups = 0
   readonly users = new Map<string, MockUser>()
   private refreshTokens = new Map<string, string>() // refresh token -> user id
 
@@ -278,6 +308,18 @@ export class MockBackend {
     return [...this.users.values()].find((u) => u.id === sub) ?? null
   }
 
+  /** Injects a failure for the next `times` (default 1) matching requests. */
+  fault(fault: Fault) {
+    this.faults.push({ ...fault, remaining: fault.times ?? 1 })
+  }
+
+  private takeFault(method: string, path: string): Fault | null {
+    const f = this.faults.find((x) => x.remaining > 0 && (!x.method || x.method === method) && (typeof x.path === 'string' ? x.path === path : x.path.test(path)))
+    if (!f) return null
+    f.remaining -= 1
+    return f
+  }
+
   /** Installs on the whole browser context so tabs opened later are mocked too. */
   async install(target: BrowserContext | Page) {
     await target.route(`${MOCK_AUTH_URL}/**`, (route) => this.handleAuth(route))
@@ -329,6 +371,17 @@ export class MockBackend {
     const url = new URL(request.url())
     const method = request.method()
     const path = url.pathname
+    const fault = this.takeFault(method, path)
+    if (fault) {
+      if (fault.delayMs) await new Promise((resolve) => setTimeout(resolve, fault.delayMs))
+      if (fault.hang) return // never answered: the client times out
+      if (fault.abort) return route.abort('connectionrefused').catch(() => {})
+      if (fault.status) {
+        return route
+          .fulfill({ status: fault.status, headers: { 'content-type': 'application/problem+json', ...fault.headers }, body: fault.body === undefined ? '' : JSON.stringify(fault.body) })
+          .catch(() => {}) // the client may have given up already
+      }
+    }
     const reply = (status: number, body?: unknown, tenant?: string | null) =>
       route.fulfill({
         status,
@@ -337,6 +390,11 @@ export class MockBackend {
       })
 
     if (path === '/health/live') return reply(200, { status: 'Healthy' })
+    // Dedicated, unauthenticated warm-up (wakes the edge and services); the client ignores the result.
+    if (method === 'GET' && path === '/api/v1/warmup') {
+      this.warmups += 1
+      return reply(204)
+    }
     const user = this.userFromRequest(request)
     if (!user) return reply(401, { title: 'Unauthorized', status: 401 })
     const tenant = this.resolvedTenant(user)
