@@ -1,0 +1,40 @@
+using Hms.Modules.Patients.Endpoints;
+using Hms.Modules.Patients.Persistence;
+using Hms.SharedKernel.Persistence;
+
+namespace Hms.Modules.Patients.Registry;
+
+public sealed class PostgresPatientRegistryFunctions(PatientsDbContext db) : IPatientRegistryFunctions
+{
+    internal const string FindDuplicatesSql =
+        "select patient_id, mrn, first_name, last_name, date_of_birth, phone, registered_branch_id, match_reasons " +
+        "from patient.find_duplicate_patients(@tenant::uuid, @first::text, @last::text, @dob::date, @phone::text, @exclude::uuid)";
+
+    public async Task<IReadOnlyList<DuplicateCandidateDto>> FindDuplicatesAsync(
+        Guid tenantId, string? firstName, string? lastName, DateOnly? dateOfBirth, string? phone, Guid? excludePatientId, CancellationToken ct) =>
+        await RawSql.QueryAsync(
+            db,
+            FindDuplicatesSql,
+            r => new DuplicateCandidateDto(
+                r.GetGuid(0),
+                r.GetString(1),
+                r.GetString(2),
+                r.GetString(3),
+                r.IsDBNull(4) ? null : r.GetFieldValue<DateOnly>(4),
+                r.IsDBNull(5) ? null : r.GetString(5),
+                r.GetGuid(6),
+                r.IsDBNull(7) ? [] : r.GetFieldValue<string[]>(7)),
+            ct,
+            ("tenant", tenantId),
+            ("first", firstName),
+            ("last", lastName),
+            ("dob", dateOfBirth),
+            ("phone", phone),
+            ("exclude", excludePatientId));
+
+    public Task SoftDeleteAsync(Guid patientId, string? reason, CancellationToken ct) =>
+        RawSql.ScalarAsync(db, "select patient.soft_delete_patient(@id::uuid, @reason::text)", ct, ("id", patientId), ("reason", reason));
+
+    public Task RestoreAsync(Guid patientId, CancellationToken ct) =>
+        RawSql.ScalarAsync(db, "select patient.restore_patient(@id::uuid)", ct, ("id", patientId));
+}

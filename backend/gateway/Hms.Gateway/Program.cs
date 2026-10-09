@@ -1,5 +1,6 @@
 using System.Threading.RateLimiting;
 using Hms.Gateway.Infrastructure;
+using Hms.Modules.Appointments;
 using Hms.Modules.Identity;
 using Hms.Modules.Patients;
 using Hms.Modules.Patients.Endpoints;
@@ -27,6 +28,10 @@ builder.Services.AddHmsHealthChecks();
 // ---- Modules (each owns its schema, endpoints and DbContext)
 builder.Services.AddIdentityModule(builder.Configuration);
 builder.Services.AddPatientsModule(builder.Configuration);
+builder.Services.AddAppointmentsModule(builder.Configuration);
+
+// ---- Transactional outbox consumer (events are written by DB triggers; Sprint 2 publisher = log only)
+builder.Services.AddHmsOutboxDispatcher(builder.Configuration);
 
 // ---- Rate limiting: per authenticated user, else per client IP.
 builder.Services.AddRateLimiter(options =>
@@ -88,6 +93,7 @@ app.MapHmsHealthChecks();
 var v1 = app.MapGroup("/api/v1");
 v1.MapIdentityEndpoints();
 v1.MapPatientEndpoints();
+v1.MapAppointmentsModule();
 
 app.Run();
 

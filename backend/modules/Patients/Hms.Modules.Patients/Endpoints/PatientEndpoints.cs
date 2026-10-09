@@ -1,10 +1,14 @@
+using System.Text.Json;
 using Hms.Modules.Patients.Domain;
 using Hms.Modules.Patients.Persistence;
+using Hms.Modules.Patients.Registry;
 using Hms.SharedKernel.Http;
 using Hms.SharedKernel.Tenancy;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 
@@ -18,18 +22,30 @@ public static class PatientEndpoints
     internal static readonly string[] ReadRoles = [HmsRoles.TenantAdmin, HmsRoles.Doctor, HmsRoles.Nurse, HmsRoles.Receptionist, HmsRoles.Billing];
     internal static readonly string[] WriteRoles = [HmsRoles.TenantAdmin, HmsRoles.Doctor, HmsRoles.Nurse, HmsRoles.Receptionist];
 
+    /// <summary>Soft delete (D1): tenant_admin (tenant-wide) or receptionist AT the patient's branch.</summary>
+    internal static readonly string[] DeleteRoles = [HmsRoles.TenantAdmin, HmsRoles.Receptionist];
+
     internal const int SearchMaxLength = 100;
+    internal const int DeletionReasonMaxLength = 500;
 
     public static RouteGroupBuilder MapPatientEndpoints(this RouteGroupBuilder api)
     {
         var group = api.MapGroup("/patients").WithTags("Patients").RequireTenant().WithDbTransaction<PatientsDbContext>();
 
         group.MapGet("/", ListAsync).WithName("ListPatients")
-            .WithSummary("Page through the registry. Searching moved to POST /patients/search (no PHI in URLs).");
+            .WithSummary("Page through the registry (soft-deleted patients excluded). Searching is POST /patients/search (no PHI in URLs).");
         group.MapPost("/search", SearchAsync).WithName("SearchPatients")
-            .WithSummary("Search by MRN / first / last name; the term is sent in the JSON body.");
+            .WithSummary("Search by MRN / name, phone (normalized) and/or date of birth; terms are sent in the JSON body.");
+        group.MapPost("/duplicates", DuplicatesAsync).WithName("FindDuplicatePatients")
+            .WithSummary("Advisory duplicate check (name + DOB, or phone) before registering or editing a patient.");
         group.MapGet("/{id:guid}", GetAsync).WithName("GetPatient");
         group.MapPost("/", CreateAsync).WithName("CreatePatient");
+        group.MapPatch("/{id:guid}", UpdateAsync).WithName("UpdatePatient")
+            .WithSummary("Merge-patch edit. Needs a writer role at the patient's branch (and at the new branch when it changes).");
+        group.MapDelete("/{id:guid}", DeleteAsync).WithName("DeletePatient")
+            .WithSummary("Soft delete (patient.soft_delete_patient). tenant_admin, or receptionist at the patient's branch.");
+        group.MapPost("/{id:guid}/restore", RestoreAsync).WithName("RestorePatient")
+            .WithSummary("Restore a soft-deleted patient (tenant_admin only).");
 
         return api;
     }
@@ -39,7 +55,7 @@ public static class PatientEndpoints
     {
         if (!tenant.HasAnyRole(ReadRoles))
         {
-            return Forbidden();
+            return HmsProblems.Forbidden();
         }
 
         // ?search= was removed (PHI in URLs ends up in access logs). Fail loudly instead of silently
@@ -52,7 +68,7 @@ public static class PatientEndpoints
             });
         }
 
-        return TypedResults.Ok(await PageAsync(db, null, page, pageSize, ct));
+        return TypedResults.Ok(await PageAsync(db.Patients.AsNoTracking(), page, pageSize, ct));
     }
 
     private static async Task<Results<Ok<PagedResult<PatientSummaryDto>>, ValidationProblem, ProblemHttpResult>> SearchAsync(
@@ -60,35 +76,67 @@ public static class PatientEndpoints
     {
         if (!tenant.HasAnyRole(ReadRoles))
         {
-            return Forbidden();
+            return HmsProblems.Forbidden();
         }
 
+        // Deleted rows are visible to tenant_admin only (D1; RLS enforces the same).
+        if (request.IncludeDeleted == true && !tenant.HasAnyRole(HmsRoles.TenantAdmin))
+        {
+            return HmsProblems.Forbidden("Only tenant admins can search deleted patients.");
+        }
+
+        var errors = new Dictionary<string, string[]>();
         if (request.Search is { Length: > SearchMaxLength })
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["search"] = [$"Search term must be at most {SearchMaxLength} characters."],
-            });
+            errors["search"] = [$"Search term must be at most {SearchMaxLength} characters."];
         }
 
-        return TypedResults.Ok(await PageAsync(db, request.Search, request.Page, request.PageSize, ct));
-    }
-
-    private static async Task<PagedResult<PatientSummaryDto>> PageAsync(
-        PatientsDbContext db, string? search, int? page, int? pageSize, CancellationToken ct)
-    {
-        var p = Math.Max(page ?? 1, 1);
-        var size = Math.Clamp(pageSize ?? 25, 1, 100);
-
-        var query = db.Patients.AsNoTracking();
-        if (!string.IsNullOrWhiteSpace(search))
+        string? phone = null;
+        if (!string.IsNullOrWhiteSpace(request.Phone))
         {
-            var term = search.Trim().ToLowerInvariant();
+            phone = request.Phone.Length > CreatePatientValidator.PhoneMaxLength ? null : PatientPhone.Normalize(request.Phone);
+            if (phone is null)
+            {
+                errors["phone"] = [$"Phone must contain at least {PatientPhone.MinDigits} digits (max {CreatePatientValidator.PhoneMaxLength} characters)."];
+            }
+        }
+
+        if (errors.Count > 0)
+        {
+            return TypedResults.ValidationProblem(errors);
+        }
+
+        IQueryable<Patient> query = request.IncludeDeleted == true
+            ? db.Patients.IgnoreQueryFilters().AsNoTracking().Where(x => x.TenantId == tenant.TenantId)
+            : db.Patients.AsNoTracking();
+
+        if (!string.IsNullOrWhiteSpace(request.Search))
+        {
+            var term = request.Search.Trim().ToLowerInvariant();
 #pragma warning disable CA1862 // must stay an EF-translatable expression (lower(x) LIKE %term%) across providers
             query = query.Where(x =>
                 x.Mrn.ToLower().Contains(term) || x.FirstName.ToLower().Contains(term) || x.LastName.ToLower().Contains(term));
 #pragma warning restore CA1862
         }
+
+        if (phone is not null)
+        {
+            // normalize_phone(phone) = @normalized: hits patients_tenant_phone_norm_idx.
+            query = query.Where(x => PatientsDbContext.NormalizePhone(x.Phone) == phone);
+        }
+
+        if (request.DateOfBirth is { } dob)
+        {
+            query = query.Where(x => x.DateOfBirth == dob);
+        }
+
+        return TypedResults.Ok(await PageAsync(query, request.Page, request.PageSize, ct));
+    }
+
+    private static async Task<PagedResult<PatientSummaryDto>> PageAsync(IQueryable<Patient> query, int? page, int? pageSize, CancellationToken ct)
+    {
+        var p = Math.Max(page ?? 1, 1);
+        var size = Math.Clamp(pageSize ?? 25, 1, 100);
 
         var total = await query.CountAsync(ct);
         var items = await query
@@ -99,26 +147,69 @@ public static class PatientEndpoints
         return new PagedResult<PatientSummaryDto>([.. items.Select(PatientSummaryDto.From)], p, size, total);
     }
 
-    private static async Task<Results<Ok<PatientSummaryDto>, NotFound, ProblemHttpResult>> GetAsync(
+    private static async Task<Results<Ok<DuplicateCheckResponse>, ValidationProblem, ProblemHttpResult>> DuplicatesAsync(
+        DuplicateCheckRequest request, ITenantContext tenant, IPatientRegistryFunctions registry, CancellationToken ct)
+    {
+        if (!CanWriteAtAnyBranch(tenant))
+        {
+            return HmsProblems.Forbidden();
+        }
+
+        var errors = new Dictionary<string, string[]>();
+        if (request.FirstName is { Length: > 100 })
+        {
+            errors["firstName"] = ["First name must be at most 100 characters."];
+        }
+
+        if (request.LastName is { Length: > 100 })
+        {
+            errors["lastName"] = ["Last name must be at most 100 characters."];
+        }
+
+        if (request.Phone is { Length: > CreatePatientValidator.PhoneMaxLength })
+        {
+            errors["phone"] = [$"Phone must be at most {CreatePatientValidator.PhoneMaxLength} characters."];
+        }
+
+        if (errors.Count > 0)
+        {
+            return TypedResults.ValidationProblem(errors);
+        }
+
+        try
+        {
+            var candidates = await FindDuplicatesAsync(
+                registry, tenant, request.FirstName, request.LastName, request.DateOfBirth, request.Phone, request.ExcludePatientId, ct);
+            return TypedResults.Ok(new DuplicateCheckResponse(candidates));
+        }
+        catch (Exception ex) when (HmsProblems.FromDatabase(ex) is { } problem)
+        {
+            // contract v4: foreign tenant -> P0002 (404), member without registry read -> 42501 (403)
+            return problem;
+        }
+    }
+
+    private static async Task<Results<Ok<PatientDetailDto>, ProblemHttpResult>> GetAsync(
         Guid id, PatientsDbContext db, ITenantContext tenant, CancellationToken ct)
     {
         if (!tenant.HasAnyRole(ReadRoles))
         {
-            return Forbidden();
+            return HmsProblems.Forbidden();
         }
 
-        // Another tenant's id is indistinguishable from a non-existent one (404, no existence leak).
+        // Another tenant's id / a soft-deleted patient is indistinguishable from a non-existent one.
         var patient = await db.Patients.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct);
-        return patient is null ? TypedResults.NotFound() : TypedResults.Ok(PatientSummaryDto.From(patient));
+        return patient is null ? HmsProblems.NotFound("Patient not found.") : TypedResults.Ok(PatientDetailDto.From(patient));
     }
 
-    private static async Task<Results<Created<PatientSummaryDto>, ValidationProblem, ProblemHttpResult>> CreateAsync(
-        CreatePatientRequest request, PatientsDbContext db, ITenantContext tenant, TimeProvider timeProvider, CancellationToken ct)
+    private static async Task<Results<Created<PatientCreatedDto>, ValidationProblem, ProblemHttpResult>> CreateAsync(
+        CreatePatientRequest request, PatientsDbContext db, ITenantContext tenant, TimeProvider timeProvider,
+        IPatientRegistryFunctions registry, CancellationToken ct)
     {
         // Cheap early 403 for users who cannot write anywhere; the authoritative check is per branch below.
         if (!CanWriteAtAnyBranch(tenant))
         {
-            return Forbidden();
+            return HmsProblems.Forbidden();
         }
 
         tenant.BranchTimeZones.TryGetValue(request.RegisteredBranchId, out var branchTimeZone);
@@ -132,16 +223,22 @@ public static class PatientEndpoints
         // "some branch somewhere"). Branches of other tenants are never in the map.
         if (!CanWritePatientAt(tenant, request.RegisteredBranchId))
         {
-            return Forbidden("You cannot register patients at this branch.");
+            // 404-not-403: another tenant's branch is 404; a same-tenant branch without the role stays 403.
+            return await BranchScope.DenyAsync(db, tenant, request.RegisteredBranchId, "You cannot register patients at this branch.", ct);
         }
 
         var mrn = CreatePatientValidator.NormalizeMrn(request.Mrn!);
 #pragma warning disable CA1862 // must translate to upper(mrn) = @mrn (matches the unique upper(mrn) index; catches legacy mixed-case rows)
-        if (await db.Patients.AnyAsync(x => x.Mrn.ToUpper() == mrn, ct))
+        // IgnoreQueryFilters (tenant re-applied): a soft-deleted patient's MRN stays reserved (D1).
+        if (await db.Patients.IgnoreQueryFilters().AnyAsync(x => x.TenantId == tenant.TenantId && x.Mrn.ToUpper() == mrn, ct))
 #pragma warning restore CA1862
         {
             return DuplicateMrn();
         }
+
+        // Advisory duplicate detection (D3). Runs before the insert so the new row never matches itself.
+        var warnings = await FindDuplicatesAsync(
+            registry, tenant, request.FirstName, request.LastName, request.DateOfBirth, request.Phone, null, ct);
 
         var patient = new Patient
         {
@@ -161,32 +258,179 @@ public static class PatientEndpoints
         {
             await db.SaveChangesAsync(ct);
         }
-        catch (DbUpdateException ex) when (ex.InnerException is Npgsql.PostgresException { SqlState: Npgsql.PostgresErrorCodes.UniqueViolation })
+        catch (DbUpdateException ex) when (HmsProblems.FromDatabase(ex, HmsProblems.Codes.DuplicateMrn, uniqueDetail: DuplicateMrnDetail) is { } problem)
         {
-            return DuplicateMrn();
-        }
-        catch (DbUpdateException ex) when (ex.InnerException is Npgsql.PostgresException { SqlState: Npgsql.PostgresErrorCodes.InsufficientPrivilege })
-        {
-            // RLS (defense in depth) rejected a write the API-level checks allowed.
-            return Forbidden("The database rejected this write for your memberships.");
+            return problem;
         }
 
-        return TypedResults.Created($"/api/v1/patients/{patient.Id}", PatientSummaryDto.From(patient));
+        return TypedResults.Created($"/api/v1/patients/{patient.Id}", PatientCreatedDto.From(patient, warnings));
+    }
+
+    private static async Task<Results<Ok<PatientDetailDto>, ValidationProblem, ProblemHttpResult>> UpdateAsync(
+        Guid id, JsonElement body, PatientsDbContext db, ITenantContext tenant, TimeProvider timeProvider, CancellationToken ct)
+    {
+        if (!CanWriteAtAnyBranch(tenant))
+        {
+            return HmsProblems.Forbidden();
+        }
+
+        var errors = new Dictionary<string, string[]>();
+        var patch = PatientPatch.Parse(body, errors);
+        if (errors.Count > 0)
+        {
+            return TypedResults.ValidationProblem(errors);
+        }
+
+        var patient = await db.Patients.SingleOrDefaultAsync(x => x.Id == id, ct);
+        if (patient is null)
+        {
+            return HmsProblems.NotFound("Patient not found.");
+        }
+
+        // Authorize against the CURRENT branch, and the NEW branch when it moves (mirrors RLS USING / WITH CHECK).
+        if (!CanWritePatientAt(tenant, patient.RegisteredBranchId))
+        {
+            return HmsProblems.Forbidden("You cannot edit patients registered at this branch.");
+        }
+
+        var targetBranch = patch.RegisteredBranchId.Or(patient.RegisteredBranchId) ?? patient.RegisteredBranchId;
+        if (targetBranch != patient.RegisteredBranchId && !CanWritePatientAt(tenant, targetBranch))
+        {
+            return await BranchScope.DenyAsync(db, tenant, targetBranch, "You cannot move patients to that branch.", ct);
+        }
+
+        if (patch.Mrn.IsSet && (patch.Mrn.Value is null || CreatePatientValidator.NormalizeMrn(patch.Mrn.Value) != patient.Mrn))
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["mrn"] = ["The MRN cannot be changed."] });
+        }
+
+        var merged = new CreatePatientRequest(
+            patient.Mrn,
+            patch.FirstName.Or(patient.FirstName),
+            patch.LastName.Or(patient.LastName),
+            patch.DateOfBirth.Or(patient.DateOfBirth),
+            patch.Sex.IsSet && patch.Sex.Value is null ? "\0" : patch.Sex.Or(patient.Sex), // explicit null sex is invalid
+            targetBranch,
+            patch.Phone.Or(patient.Phone),
+            patch.Email.Or(patient.Email));
+
+        tenant.BranchTimeZones.TryGetValue(targetBranch, out var branchTimeZone);
+        errors = CreatePatientValidator.Validate(merged, BranchClock.Today(timeProvider, branchTimeZone));
+        errors.Remove("mrn"); // legacy rows may predate the MRN rule; the MRN is immutable here anyway
+        if (errors.Count > 0)
+        {
+            return TypedResults.ValidationProblem(errors);
+        }
+
+        patient.FirstName = merged.FirstName!.Trim();
+        patient.LastName = merged.LastName!.Trim();
+        patient.DateOfBirth = merged.DateOfBirth;
+        patient.Sex = merged.Sex!;
+        patient.RegisteredBranchId = targetBranch;
+        patient.Phone = merged.Phone;
+        patient.Email = merged.Email;
+
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // 0 rows: deleted concurrently, or RLS USING hid it (deleted_at is not null).
+            return HmsProblems.NotFound("Patient not found.");
+        }
+        catch (DbUpdateException ex) when (HmsProblems.FromDatabase(ex) is { } problem)
+        {
+            return problem;
+        }
+
+        return TypedResults.Ok(PatientDetailDto.From(patient));
+    }
+
+    private static async Task<Results<NoContent, ValidationProblem, ProblemHttpResult>> DeleteAsync(
+        Guid id, [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] DeletePatientRequest? request, PatientsDbContext db, ITenantContext tenant, IPatientRegistryFunctions registry, CancellationToken ct)
+    {
+        if (!tenant.RolesByBranch.Keys.Any(b => tenant.HasRoleAtBranch(b, DeleteRoles)))
+        {
+            return HmsProblems.Forbidden();
+        }
+
+        if (request?.Reason is { Length: > DeletionReasonMaxLength })
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["reason"] = [$"Reason must be at most {DeletionReasonMaxLength} characters."],
+            });
+        }
+
+        var patient = await db.Patients.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct);
+        if (patient is null)
+        {
+            return HmsProblems.NotFound("Patient not found.");
+        }
+
+        if (!tenant.HasRoleAtBranch(patient.RegisteredBranchId, DeleteRoles))
+        {
+            return HmsProblems.Forbidden("You cannot delete patients registered at this branch.");
+        }
+
+        try
+        {
+            await registry.SoftDeleteAsync(id, string.IsNullOrWhiteSpace(request?.Reason) ? null : request.Reason.Trim(), ct);
+        }
+        catch (Exception ex) when (HmsProblems.FromDatabase(ex) is { } problem)
+        {
+            return problem;
+        }
+
+        return TypedResults.NoContent();
+    }
+
+    private static async Task<Results<NoContent, ProblemHttpResult>> RestoreAsync(
+        Guid id, ITenantContext tenant, IPatientRegistryFunctions registry, CancellationToken ct)
+    {
+        if (!tenant.HasAnyRole(HmsRoles.TenantAdmin))
+        {
+            return HmsProblems.Forbidden("Only tenant admins can restore patients.");
+        }
+
+        try
+        {
+            await registry.RestoreAsync(id, ct);
+        }
+        catch (Exception ex) when (HmsProblems.FromDatabase(ex) is { } problem)
+        {
+            return problem;
+        }
+
+        return TypedResults.NoContent();
+    }
+
+    private static async Task<IReadOnlyList<DuplicateCandidateDto>> FindDuplicatesAsync(
+        IPatientRegistryFunctions registry, ITenantContext tenant, string? firstName, string? lastName, DateOnly? dob, string? phone,
+        Guid? excludeId, CancellationToken ct)
+    {
+        var byNameDob = !string.IsNullOrWhiteSpace(firstName) && !string.IsNullOrWhiteSpace(lastName) && dob is not null;
+        var byPhone = PatientPhone.Normalize(phone) is not null;
+        if (!byNameDob && !byPhone)
+        {
+            return [];
+        }
+
+        return await registry.FindDuplicatesAsync(tenant.TenantId, firstName, lastName, dob, phone, excludeId, ct);
     }
 
     /// <summary>
     /// Authorization for creating OR updating a patient registered at <paramref name="branchId"/>.
-    /// Any future update endpoint must call this with the patient's CURRENT branch and, when the
-    /// branch changes, the NEW branch too (mirrors the RLS USING/WITH CHECK pair).
+    /// Update endpoints call this with the patient's CURRENT branch and, when the branch changes,
+    /// the NEW branch too (mirrors the RLS USING/WITH CHECK pair).
     /// </summary>
     internal static bool CanWritePatientAt(ITenantContext tenant, Guid branchId) => tenant.HasRoleAtBranch(branchId, WriteRoles);
 
     private static bool CanWriteAtAnyBranch(ITenantContext tenant) =>
         tenant.IsResolved && tenant.RolesByBranch.Keys.Any(branch => tenant.HasRoleAtBranch(branch, WriteRoles));
 
-    private static ProblemHttpResult DuplicateMrn() =>
-        TypedResults.Problem(title: "Duplicate MRN", detail: "A patient with this MRN already exists in this hospital.", statusCode: StatusCodes.Status409Conflict);
+    private const string DuplicateMrnDetail = "A patient with this MRN already exists in this hospital.";
 
-    private static ProblemHttpResult Forbidden(string? detail = null) =>
-        TypedResults.Problem(title: "Forbidden", detail: detail ?? "Your role does not permit this action.", statusCode: StatusCodes.Status403Forbidden);
+    private static ProblemHttpResult DuplicateMrn() => HmsProblems.Conflict(HmsProblems.Codes.DuplicateMrn, DuplicateMrnDetail);
 }

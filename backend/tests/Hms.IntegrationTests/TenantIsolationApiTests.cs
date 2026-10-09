@@ -90,7 +90,9 @@ public sealed class TenantIsolationApiTests(HmsApiFactory factory) : IClassFixtu
             registeredBranchId = BetaMain,
             tenantId = Beta,
         });
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        // 404-not-403: another tenant's branch is indistinguishable from an unknown one.
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Contains("\"not_found\"", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
     }
 
     [Fact]
