@@ -1,5 +1,7 @@
 import { useId, useState, type Ref } from 'react'
 import { useNavigate } from 'react-router'
+import clsx from 'clsx'
+import { Input } from '@tailux/components/ui'
 import { PATIENT_SEARCH_DEBOUNCE_MS, PATIENT_SEARCH_MAX_LENGTH, usePatients } from '../../lib/api/hooks'
 import { useDebouncedValue } from '../../lib/useDebouncedValue'
 import { localToday } from '../../lib/dates'
@@ -69,12 +71,11 @@ export function PatientPicker({
   }
 
   return (
-    <div className="space-y-2">
-      <label htmlFor={inputId} className="block text-sm font-medium text-slate-800">
-        {label}
-      </label>
-      <input
+    <div className="relative space-y-2">
+      <Input
         id={inputId}
+        label={label}
+        classNames={{ label: 'font-medium text-gray-800 dark:text-dark-100' }}
         ref={inputRef}
         type="search"
         role="combobox"
@@ -133,26 +134,46 @@ export function PatientPicker({
             }
           }
         }}
-        className="block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
       />
       <p id={hintId} className="sr-only">
         Type at least {PATIENT_PICKER_MIN_CHARS} characters, then use the arrow keys and Enter to choose a patient.
       </p>
       {value && (
-        <p className="text-sm" data-testid="picked-patient">
-          Selected: <strong>{value.lastName}, {value.firstName}</strong> <span className="font-mono">{value.mrn}</span>{' '}
-          <button type="button" className="text-brand-800 underline" onClick={() => onChange(null)}>
+        <p className="text-sm text-gray-700 dark:text-dark-200" data-testid="picked-patient">
+          Selected:{' '}
+          <strong className="text-gray-800 dark:text-dark-50">
+            {value.lastName}, {value.firstName}
+          </strong>{' '}
+          <span className="font-mono">{value.mrn}</span>{' '}
+          <button
+            type="button"
+            className="font-medium text-primary-600 hover:underline dark:text-primary-400"
+            onClick={() => onChange(null)}
+          >
             Clear
           </button>
         </p>
       )}
-      <div className={expanded ? 'rounded border border-slate-200' : 'hidden'} aria-busy={results.isFetching}>
-        <div role="status" className="px-3 text-sm text-slate-600">
+      {/* Dropdown styled as the Tailux Combobox options panel (js/demo components/shared/form/Combobox). */}
+      <div
+        className={
+          expanded
+            ? 'rounded-lg border border-gray-300 bg-white py-1 shadow-lg shadow-gray-200/50 dark:border-dark-500 dark:bg-dark-750 dark:shadow-none'
+            : 'hidden'
+        }
+        aria-busy={results.isFetching}
+      >
+        <div role="status" className="px-4 text-sm text-gray-600 dark:text-dark-200">
           {expanded && searching && results.isPending && <p className="py-2">Searching…</p>}
-          {expanded && results.isError && <p className="py-2 text-red-700">Patient search is unavailable.</p>}
+          {expanded && results.isError && <p className="py-2 text-error dark:text-error-lighter">Patient search is unavailable.</p>}
           {expanded && fresh && items.length === 0 && <p className="py-2">No matching patients.</p>}
         </div>
-        <ul id={listId} role="listbox" aria-label="Matching patients" className={`max-h-56 overflow-y-auto ${results.isPlaceholderData ? 'opacity-60' : ''}`}>
+        <ul
+          id={listId}
+          role="listbox"
+          aria-label="Matching patients"
+          className={clsx('max-h-60 overflow-y-auto overflow-x-hidden', results.isPlaceholderData && 'opacity-60')}
+        >
           {expanded &&
             items.map((p, i) => (
               // Keyboard is handled on the combobox input (aria-activedescendant pattern); options are not focusable.
@@ -163,7 +184,12 @@ export function PatientPicker({
                 role="option"
                 aria-selected={i === active}
                 data-testid="patient-option"
-                className={`cursor-pointer px-3 py-2 text-sm ${i === active ? 'bg-brand-50 outline outline-1 outline-brand-600' : 'hover:bg-slate-50'}`}
+                className={clsx(
+                  'relative cursor-pointer select-none px-4 py-2 text-sm transition-colors',
+                  i === active
+                    ? 'bg-primary-600 text-white dark:bg-primary-500'
+                    : 'text-gray-800 hover:bg-gray-100 dark:text-dark-100 dark:hover:bg-dark-600',
+                )}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => pick(p)}
               >
@@ -177,7 +203,12 @@ export function PatientPicker({
               role="option"
               aria-selected={active === items.length}
               data-testid="register-new-patient"
-              className={`cursor-pointer border-t border-slate-100 px-3 py-2 text-sm font-medium text-brand-800 ${active === items.length ? 'bg-brand-50 outline outline-1 outline-brand-600' : 'hover:bg-slate-50'}`}
+              className={clsx(
+                'relative cursor-pointer select-none border-t border-gray-200 px-4 py-2 text-sm font-medium transition-colors dark:border-dark-500',
+                active === items.length
+                  ? 'bg-primary-600 text-white dark:bg-primary-500'
+                  : 'text-primary-600 hover:bg-gray-100 dark:text-primary-400 dark:hover:bg-dark-600',
+              )}
               onMouseDown={(e) => e.preventDefault()}
               onClick={registerNew}
             >
@@ -189,4 +220,3 @@ export function PatientPicker({
     </div>
   )
 }
-

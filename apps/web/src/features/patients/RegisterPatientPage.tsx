@@ -134,13 +134,13 @@ export function RegisterPatientPage() {
   return (
     <div className="max-w-2xl space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Register patient</h1>
-        <Link to={origin.returnTo ?? '/patients'} className="text-sm text-brand-800 underline">
+        <h1 className="text-xl font-semibold text-gray-800 dark:text-dark-50">Register patient</h1>
+        <Link to={origin.returnTo ?? '/patients'} className="text-sm font-medium text-primary-600 hover:underline dark:text-primary-400">
           {origin.returnTo ? 'Back' : 'Back to patients'}
         </Link>
       </div>
       <Card>
-        <p className="mb-4 text-sm text-slate-600">
+        <p className="mb-4 text-sm text-gray-600 dark:text-dark-200">
           Registering in <strong>{activeTenant?.name ?? '—'}</strong>. MRNs must be unique within this hospital.
         </p>
         {formError && (

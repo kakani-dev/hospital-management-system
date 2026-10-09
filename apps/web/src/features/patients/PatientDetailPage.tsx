@@ -27,7 +27,7 @@ export function PatientDetailPage() {
     const status = patient.error instanceof ApiError ? patient.error.status : 0
     return (
       <div className="space-y-4">
-        <h1 className="text-2xl font-semibold">Patient</h1>
+        <h1 className="text-xl font-semibold text-gray-800 dark:text-dark-50">Patient</h1>
         <div data-testid="patient-not-found">
           <Alert tone="warning">
             {status === 404
@@ -53,9 +53,9 @@ export function PatientDetailPage() {
   return (
     <div className="max-w-3xl space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">
+        <h1 className="text-xl font-semibold text-gray-800 dark:text-dark-50">
           {p.lastName}, {p.firstName}{' '}
-          <span className="font-mono text-base font-normal text-slate-600">{p.mrn}</span>
+          <span className="font-mono text-base font-normal text-gray-500 dark:text-dark-300">{p.mrn}</span>
         </h1>
         <BackLink />
       </div>
@@ -108,7 +108,7 @@ export function PatientDetailPage() {
 
 function BackLink() {
   return (
-    <Link to="/patients" className="text-sm text-brand-800 underline">
+    <Link to="/patients" className="text-sm font-medium text-primary-600 hover:underline dark:text-primary-400">
       Back to patients
     </Link>
   )
@@ -117,8 +117,8 @@ function BackLink() {
 function Field({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="text-slate-600">{label}</dt>
-      <dd className="font-medium">{value}</dd>
+      <dt className="text-gray-500 dark:text-dark-300">{label}</dt>
+      <dd className="font-medium text-gray-800 dark:text-dark-100">{value}</dd>
     </div>
   )
 }
