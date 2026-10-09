@@ -146,13 +146,16 @@ export function usePatientLookup(ids: readonly string[]): (id: string) => Patien
 }
 
 /**
- * Patient summary for appointment/queue rows: the embedded `patient` (API v2) when present; only
- * rows without it fall back to a cached GET /patients/{id} (null = deleted / not visible).
+ * Patient summary for appointment/queue rows. API v2 embeds `patient` in the same query:
+ * an object, or `null` when the patient is soft-deleted or not readable (shown as unavailable —
+ * GET /patients/{id} would 404 too, so no fetch). Only rows where the field is **absent** (an
+ * older API) fall back to a cached GET /patients/{id}. Result: undefined = loading, null = unavailable.
  */
 export function usePatientRefs(rows: readonly { patientId: string; patient?: PatientRef | null }[]) {
-  const missing = rows.filter((r) => !r.patient).map((r) => r.patientId)
+  const missing = rows.filter((r) => r.patient === undefined).map((r) => r.patientId)
   const lookup = usePatientLookup(missing)
-  return (row: { patientId: string; patient?: PatientRef | null }): PatientRef | null | undefined => row.patient ?? lookup(row.patientId)
+  return (row: { patientId: string; patient?: PatientRef | null }): PatientRef | null | undefined =>
+    row.patient === undefined ? lookup(row.patientId) : row.patient
 }
 
 export function useCreatePatient() {

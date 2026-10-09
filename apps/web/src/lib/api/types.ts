@@ -262,8 +262,9 @@ export const APPOINTMENT_STATUSES = ['booked', 'checked_in', 'in_consultation', 
 export type AppointmentStatus = (typeof APPOINTMENT_STATUSES)[number]
 
 /**
- * Patient summary embedded in appointment and queue responses (API v2, per the CTO 16:44 IST).
- * Optional so an older API without it still works (the UI then looks patients up by id).
+ * Patient summary embedded in appointment and queue responses (contract API v2, 16:50 IST).
+ * `patient: null` = soft-deleted or not readable (shown as unavailable). The field is optional so
+ * an older API without it still works (the UI then looks patients up by id).
  */
 export interface PatientRef {
   id: Guid

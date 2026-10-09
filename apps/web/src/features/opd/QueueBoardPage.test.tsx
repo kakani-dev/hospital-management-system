@@ -56,6 +56,13 @@ describe('QueueBoardPage', () => {
     expect(calls.filter((c) => c.path.startsWith('/api/v1/patients/'))).toEqual([])
   })
 
+  it('patient: null (soft-deleted / not readable) shows "Patient unavailable" without fetching', async () => {
+    const calls = routes(['billing'], () => [entry('q1', 1, 'waiting', { patient: null })])
+    renderWithProviders(<App />, { path: '/queue', auth: fakeAuthClient({ session: fakeSession() }) })
+    await waitFor(() => expect(screen.getByTestId('queue-entry')).toHaveTextContent('Patient unavailable'))
+    expect(calls.filter((c) => c.path.startsWith('/api/v1/patients/'))).toEqual([])
+  })
+
   it('looks a patient up only when the entry lacks the summary (older API)', async () => {
     const calls = routes(['billing'], () => [entry('q1', 1, 'waiting', { patient: undefined })], {
       [`GET /api/v1/patients/${PATIENT_ID}`]: () => json(patientDetail),

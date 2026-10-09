@@ -20,8 +20,8 @@ import type { BrowserContext, Page, Request, Route } from '@playwright/test'
  *   POST /appointments/{id}/cancel, POST /appointments/{id}/check-in (today only);
  * - GET /queue?branchId&date, POST /queue/walk-in, PATCH /queue/{id} (transition rules, doctor may
  *   only call in / finish); one active entry per patient per branch-day (409 already_checked_in).
- * API v2 (CTO, 2026-10-09): appointment/queue/check-in/walk-in responses embed
- * `patient: { id, mrn, firstName, lastName }`. `backend.legacyApi = true` simulates an older API:
+ * API v2 (contract 16:50 IST): appointment/queue/check-in/walk-in responses embed
+ * `patient: { id, mrn, firstName, lastName } | null` (null when soft-deleted). `backend.legacyApi = true` simulates an older API:
  * no summary, and `?branchId=` on /practitioners → 400. POST/PATCH /patients reject a DOB after
  * today in the registered branch's zone (`backend.branchTimeZones` overrides a branch's zone).
  * Writes check the role held *at the row's branch*; branch-bound members only see their branches.
@@ -105,8 +105,8 @@ const practitioners = [
 
 /** Dr. Rao: every day 09:00–13:00 at Alpha Main (15 min). Dr. Iyer: every day 14:00–16:00 at Alpha East (20 min). */
 const schedules = [
-  ...[1, 2, 3, 4, 5, 6, 7].map((weekday) => ({ id: `5c000000-0000-4000-8000-00000000000${weekday}`, tenantId: ids.alpha, practitionerId: practitionerIds.rao, branchId: ids.alphaMain, weekday, startTime: '09:00', endTime: '13:00', slotMinutes: 15, validFrom: '2026-01-01', validTo: null, isActive: true })),
-  ...[1, 2, 3, 4, 5, 6, 7].map((weekday) => ({ id: `5c000000-0000-4000-8000-00000000010${weekday}`, tenantId: ids.alpha, practitionerId: practitionerIds.iyer, branchId: ids.alphaEast, weekday, startTime: '14:00', endTime: '16:00', slotMinutes: 20, validFrom: '2026-01-01', validTo: null, isActive: true })),
+  ...[1, 2, 3, 4, 5, 6, 7].map((weekday) => ({ id: `5c000000-0000-4000-8000-00000000000${weekday}`, tenantId: ids.alpha, practitionerId: practitionerIds.rao, branchId: ids.alphaMain, weekday, startTime: '09:00', endTime: '13:00', slotMinutes: 15, validFrom: '2026-01-01', validTo: null as string | null, isActive: true })),
+  ...[1, 2, 3, 4, 5, 6, 7].map((weekday) => ({ id: `5c000000-0000-4000-8000-00000000010${weekday}`, tenantId: ids.alpha, practitionerId: practitionerIds.iyer, branchId: ids.alphaEast, weekday, startTime: '14:00', endTime: '16:00', slotMinutes: 20, validFrom: '2026-01-01', validTo: null as string | null, isActive: true })),
 ]
 
 interface MockAppointment {
@@ -490,12 +490,15 @@ export class MockBackend {
     const withPatient = <T extends { tenantId: string; patientId: string }>(row: T) => {
       if (this.legacyApi) return strip(row)
       const p = this.patients.find((x) => x.id === row.patientId)
-      return { ...strip(row), patient: p ? { id: p.id, mrn: p.mrn, firstName: p.firstName, lastName: p.lastName } : null }
+      // null when soft-deleted (or not readable), like the API's RLS-scoped LEFT JOIN
+      return { ...strip(row), patient: p && !p.deletedAt ? { id: p.id, mrn: p.mrn, firstName: p.firstName, lastName: p.lastName } : null }
     }
     if (method === 'GET' && path === '/api/v1/practitioners') {
       const branchId = url.searchParams.get('branchId')
       if (branchId && this.legacyApi) return reply(400, { title: 'Validation', status: 400, errors: { branchId: ['Unknown parameter.'] } }, tenant)
-      const atBranch = branchId ? new Set(schedules.filter((s) => s.branchId === branchId && s.isActive).map((s) => s.practitionerId)) : null
+      if (branchId && !tenants[tenant]!.branches.some((b) => b.id === branchId)) return notFound() // foreign branch (v2)
+      // v2: practitioners with an active schedule at the branch (validTo null or ≥ branch today)
+      const atBranch = branchId ? new Set(schedules.filter((s) => s.branchId === branchId && s.isActive && (!s.validTo || s.validTo >= todayIn(this.branchZone(branchId)))).map((s) => s.practitionerId)) : null
       return reply(200, practitioners.filter((p) => p.tenantId === tenant && (url.searchParams.get('activeOnly') !== 'true' || p.isActive) && (!atBranch || atBranch.has(p.id))).map(strip), tenant)
     }
     if (method === 'GET' && path === '/api/v1/schedules') {
