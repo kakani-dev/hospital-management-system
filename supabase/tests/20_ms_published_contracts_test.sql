@@ -57,17 +57,39 @@ select tests.ok(
 
 -- Soft-deleted membership grants nothing (audit-tz is_deleted).
 select tests.as_superuser();
-update identity.memberships set is_deleted = true
- where user_id = (select id from auth.users where email = 'consultant@shared.example')
-   and tenant_id = '22222222-2222-4222-8222-222222222222';
+do $$
+declare r uuid;
+begin
+  -- the is_deleted guard only lets a writer that names the row (hms.soft_delete) change it,
+  -- which also holds for a non-owner superuser such as supabase_admin
+  for r in select m.id from identity.memberships m
+           where m.user_id = (select id from auth.users where email = 'consultant@shared.example')
+             and m.tenant_id = '22222222-2222-4222-8222-222222222222' loop
+    perform set_config('hms.soft_delete', r::text, true);
+    update identity.memberships set is_deleted = true where id = r;
+  end loop;
+  perform set_config('hms.soft_delete', '', true);
+end
+$$;
 select tests.authenticate_as('consultant@shared.example');
 select tests.ok(
   identity.my_tenant_grant_v1('22222222-2222-4222-8222-222222222222') is null,
   'a soft-deleted membership grants nothing');
 select tests.as_superuser();
-update identity.memberships set is_deleted = false
- where user_id = (select id from auth.users where email = 'consultant@shared.example')
-   and tenant_id = '22222222-2222-4222-8222-222222222222';
+do $$
+declare r uuid;
+begin
+  -- the is_deleted guard only lets a writer that names the row (hms.soft_delete) change it,
+  -- which also holds for a non-owner superuser such as supabase_admin
+  for r in select m.id from identity.memberships m
+           where m.user_id = (select id from auth.users where email = 'consultant@shared.example')
+             and m.tenant_id = '22222222-2222-4222-8222-222222222222' loop
+    perform set_config('hms.soft_delete', r::text, true);
+    update identity.memberships set is_deleted = false where id = r;
+  end loop;
+  perform set_config('hms.soft_delete', '', true);
+end
+$$;
 
 -- Branch without an override inherits the tenant zone (audit-tz tenant time zone).
 update identity.branches set timezone = null where id = 'a1111111-0000-4000-8000-000000000001';
