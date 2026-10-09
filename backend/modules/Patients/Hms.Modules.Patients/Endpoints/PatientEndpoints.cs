@@ -223,7 +223,8 @@ public static class PatientEndpoints
         // "some branch somewhere"). Branches of other tenants are never in the map.
         if (!CanWritePatientAt(tenant, request.RegisteredBranchId))
         {
-            return HmsProblems.Forbidden("You cannot register patients at this branch.");
+            // 404-not-403: another tenant's branch is 404; a same-tenant branch without the role stays 403.
+            return await BranchScope.DenyAsync(db, tenant, request.RegisteredBranchId, "You cannot register patients at this branch.", ct);
         }
 
         var mrn = CreatePatientValidator.NormalizeMrn(request.Mrn!);

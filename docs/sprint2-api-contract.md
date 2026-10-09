@@ -1,6 +1,6 @@
 ## API (Backend)
 <!-- BEGIN API (Backend) — owned by Backend (.NET), branch s2/backend. Do not edit other sections from here. -->
-Owner: Backend. Version **API v2, 2026-10-09 16:55 IST** (v4 status codes + embedded `patient` + `GET /practitioners?branchId=`), implemented on `s2/backend` against DB contract **v4** (`s2/db` @ 6d13c64, D1–D11) and integration-tested on a scratch Postgres 17. Every route below is implemented.
+Owner: Backend. Version **API v2, 2026-10-09 16:50 IST** (v4 status codes + embedded `patient` + `GET /practitioners?branchId=`), implemented on `s2/backend` against DB contract **v4** (`s2/db` @ 6d13c64, D1–D11) and integration-tested on a scratch Postgres 17. Every route below is implemented.
 
 ### A.0 Conventions (unchanged from Sprint 1)
 - Base `/api/v1`, JSON camelCase. `date` = `YYYY-MM-DD`; `time` = `HH:mm` (branch-local wall clock); `instant` = ISO-8601 with offset (responses are UTC `…Z`).
@@ -54,7 +54,7 @@ DeletePatientRequest  { reason?: string /* ≤ 500 */ }    // optional body on D
 | POST | `/patients/search` | REG_READ | 200 `Paged<PatientSummaryDto>` | 400, 403 (`includeDeleted` by non-admin) |
 | POST | `/patients/duplicates` | REG_WRITE (any branch) | 200 `{ candidates: DuplicateCandidateDto[] }` (≤ 20, both-reasons first) | 400, 403 (no registry write / read — DB `42501`, v4; was an empty list) |
 | GET | `/patients/{id}` | REG_READ | 200 `PatientDetailDto` | 404 (incl. deleted; admins too — use search `includeDeleted`) |
-| POST | `/patients` | REG_WRITE @registeredBranchId | **201** `PatientCreatedDto`, `Location` | 400, 403, 409 `duplicate_mrn` |
+| POST | `/patients` | REG_WRITE @registeredBranchId | **201** `PatientCreatedDto`, `Location` | 400, 403 (same-tenant branch without a write role), **404** (`registeredBranchId` of another tenant / unknown; was 403 in Sprint 1, CTO 16:49), 409 `duplicate_mrn` |
 | PATCH | `/patients/{id}` | REG_WRITE @current branch (and @new branch if `registeredBranchId` changes) | 200 `PatientDetailDto` | 400, 403, 404 (incl. moving to another tenant's branch) |
 | DELETE | `/patients/{id}` | tenant_admin, or receptionist @patient's branch (D1) | **204** (soft delete via `patient.soft_delete_patient`, reason audited) | 400 reason > 500, 403 (same tenant, wrong role/branch), 404 (foreign/unknown/already deleted), 409 `invalid_state` (open appointments/queue, D2) |
 | POST | `/patients/{id}/restore` | ADMIN | **204** | 403 (same-tenant non-admin), 404 (foreign/unknown/not deleted) |
@@ -138,6 +138,7 @@ UpdateQueueStatusRequest { status: "in_consultation"|"done"|"cancelled" }
 - Walk-in uses D11 `appointment.check_in_walk_in(branch, patient, practitioner?)`. A second active queue entry for the same patient/branch/day (`23505`) → 409 `already_checked_in` on both check-in paths.
 - Q6: the API does not validate that `practitioners.user_id` is a doctor member (DB default).
 - Q2 default: no patient-side overlap check (a patient may hold overlapping bookings with different practitioners).
-- `POST /patients` (Sprint 1 route) still answers **403** for a branch the caller has no write role at, including another tenant's branch (unchanged Sprint 1 behaviour and tests). Say if it should become 404 like the Sprint 2 routes.
+- `POST /patients` (Sprint 1 route) follows the same rule since API v2 (CTO 16:49): another tenant's `registeredBranchId` → 404, same-tenant branch without a write role → 403.
+- Accepted by the CTO: `patient: null` for soft-deleted patients; Q2 / Q6 defaults.
 - EF never sends DB-owned columns: appointment `status`/`cancel_reason` on insert, lifecycle timestamps, audit columns, `deleted_at`.
 <!-- END API (Backend) -->

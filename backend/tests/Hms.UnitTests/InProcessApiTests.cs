@@ -78,7 +78,10 @@ public sealed class InProcessApiTests : IClassFixture<InProcessApiTests.ApiFacto
         Assert.Equal(HttpStatusCode.Forbidden, (await billing.PostAsJsonAsync("/api/v1/patients", NewPatient(Main))).StatusCode);
 
         using var admin = _factory.ClientAs(Admin);
-        Assert.Equal(HttpStatusCode.Forbidden, (await admin.PostAsJsonAsync("/api/v1/patients", NewPatient(BetaMain))).StatusCode);
+        // 404-not-403 (CTO 16:49): another tenant's branch is 404; a same-tenant branch without a write role stays 403.
+        Assert.Equal(HttpStatusCode.NotFound, (await admin.PostAsJsonAsync("/api/v1/patients", NewPatient(BetaMain))).StatusCode);
+        using var mixed = _factory.ClientAs(MixedUser); // billing @Main, nurse @East
+        Assert.Equal(HttpStatusCode.Forbidden, (await mixed.PostAsJsonAsync("/api/v1/patients", NewPatient(Main))).StatusCode);
         Assert.Equal(HttpStatusCode.Created, (await admin.PostAsJsonAsync("/api/v1/patients", NewPatient(Main))).StatusCode);
     }
 
