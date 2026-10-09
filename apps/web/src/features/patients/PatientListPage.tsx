@@ -132,7 +132,11 @@ export function PatientListPage() {
                 {includeDeleted && <th scope="col" className="px-3 py-2 font-semibold">Status</th>}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody
+              className={`divide-y divide-slate-100 transition-opacity ${patients.isPlaceholderData ? 'opacity-60' : ''}`}
+              aria-busy={patients.isFetching}
+              data-stale={patients.isPlaceholderData || undefined}
+            >
               {patients.isPending && (
                 <tr>
                   <td colSpan={includeDeleted ? 6 : 5} className="px-3 py-6 text-center text-slate-600">Loading…</td>

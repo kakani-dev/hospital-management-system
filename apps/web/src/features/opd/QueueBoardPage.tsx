@@ -73,7 +73,7 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
         </Alert>
       )}
       {error && <Alert tone="error">{error}</Alert>}
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className={`grid gap-4 md:grid-cols-3 ${queue.isPlaceholderData ? 'opacity-60' : ''}`} aria-busy={queue.isFetching && !queue.data}>
         {COLUMNS.map((col) => {
           const items = entries.filter((e) => e.status === col.status)
           return (

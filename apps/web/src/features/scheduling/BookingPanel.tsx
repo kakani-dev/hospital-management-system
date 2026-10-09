@@ -120,8 +120,8 @@ export function BookingPanel({
             {!practitionerId && <p className="text-sm text-slate-600">Choose a practitioner first.</p>}
             {practitionerId && slots.isPending && <p className="text-sm text-slate-600">Loading slots…</p>}
             {slots.isError && <p className="text-sm text-red-700">Slots are unavailable right now.</p>}
-            {slots.data?.length === 0 && <p className="text-sm text-slate-600">No free slots on this day.</p>}
-            <div className="mt-2 flex flex-wrap gap-2">
+            {slots.data?.length === 0 && !slots.isPlaceholderData && <p className="text-sm text-slate-600">No free slots on this day.</p>}
+            <div className={`mt-2 flex flex-wrap gap-2 ${slots.isPlaceholderData ? 'opacity-50' : ''}`} aria-busy={slots.isFetching}>
               {slots.data?.map((s) => {
                 const checked = slot?.startsAt === s.startsAt
                 return (
@@ -129,7 +129,7 @@ export function BookingPanel({
                     key={s.startsAt}
                     className={`cursor-pointer rounded border px-2 py-1 text-sm font-mono ${checked ? 'border-brand-700 bg-brand-50' : 'border-slate-300'}`}
                   >
-                    <input type="radio" name={slotGroup} className="sr-only" checked={checked} onChange={() => setSlot(s)} />
+                    <input type="radio" name={slotGroup} className="sr-only" checked={checked} disabled={slots.isPlaceholderData} onChange={() => setSlot(s)} />
                     {formatTime(s.startsAt, timeZone)}
                   </label>
                 )

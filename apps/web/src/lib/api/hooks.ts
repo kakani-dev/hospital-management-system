@@ -1,7 +1,8 @@
-import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient, type Query } from '@tanstack/react-query'
 import { ApiError, apiClient } from './client'
 import type {
   AddMemberRequest,
+  Appointment,
   AppointmentQuery,
   CreateAppointmentRequest,
   CreateBranchRequest,
@@ -9,7 +10,9 @@ import type {
   PatientDetail,
   PatientRef,
   Practitioner,
+  QueueEntry,
   QueueStatus,
+  Slot,
   SwitchContextRequest,
   UpdateBranchRequest,
   UpdateMemberRequest,
@@ -32,6 +35,15 @@ export const queryKeys = {
   queue: (branchId: string, date: string) => ['queue', branchId, date] as const,
   branches: ['branches'] as const,
   members: ['members'] as const,
+}
+
+/**
+ * placeholderData that keeps the previous result while a new key loads, but only when `same`
+ * says the old key is comparable (e.g. same branch): never show branch A's queue under branch B.
+ */
+function keepPreviousIf<TData>(same: (prevKey: readonly unknown[]) => boolean) {
+  return (previous: TData | undefined, previousQuery: Query<TData, Error, TData, readonly unknown[]> | undefined) =>
+    previous !== undefined && previousQuery && same(previousQuery.queryKey) ? previous : undefined
 }
 
 export function useApiHealth() {
@@ -88,6 +100,8 @@ export function usePatients(input: string | PatientSearchCriteria, { enabled = t
     queryFn: () => (hasCriteria ? apiClient.patients.search({ ...criteria, pageSize: 25 }) : apiClient.patients.list({ pageSize: 25 })),
     retry: false,
     enabled,
+    // Keep the last results on screen (dimmed) while the next search runs, instead of blanking.
+    placeholderData: keepPreviousData,
   })
 }
 
@@ -318,6 +332,8 @@ export function useAppointments(query: AppointmentQuery | null, options: { refet
     enabled: !!query?.branchId,
     retry: false,
     refetchInterval: options.refetchInterval,
+    // Day/week steps and practitioner filters keep the old list (dimmed) until the new one lands.
+    placeholderData: keepPreviousIf<Appointment[]>((prev) => (prev[1] as AppointmentQuery | undefined)?.branchId === query?.branchId),
   })
 }
 
@@ -327,6 +343,7 @@ export function useSlots(branchId: string | null, practitionerId: string, date: 
     queryFn: () => apiClient.slots({ branchId: branchId!, practitionerId, from: date, to: date }),
     enabled: !!branchId && !!practitionerId && !!date,
     retry: false,
+    placeholderData: keepPreviousIf<Slot[]>((prev) => prev[2] === (branchId ?? '') && prev[3] === practitionerId),
   })
 }
 
@@ -356,6 +373,7 @@ export function useQueue(branchId: string | null, date: string, { refetchInterva
     queryFn: () => apiClient.queue.list({ branchId: branchId!, date }),
     enabled: !!branchId,
     retry: false,
+    placeholderData: keepPreviousIf<QueueEntry[]>((prev) => prev[1] === (branchId ?? '')),
     refetchInterval,
     refetchIntervalInBackground: false,
   })

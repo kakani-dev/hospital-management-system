@@ -111,7 +111,11 @@ export function AppointmentCalendarPage() {
       )}
       <BranchNotice branchId={branchId} />
       {appointments.isError && <Alert tone="warning">Appointments are unavailable right now.</Alert>}
-      <div className={cal.view === 'week' ? 'grid gap-3 md:grid-cols-7' : ''} data-testid={`calendar-${cal.view}`}>
+      <div
+        className={`${cal.view === 'week' ? 'grid gap-3 md:grid-cols-7' : ''} transition-opacity ${appointments.isPlaceholderData ? 'opacity-60' : ''}`}
+        data-testid={`calendar-${cal.view}`}
+        aria-busy={appointments.isFetching}
+      >
         {days.map((d) => (
           <Card key={d} className={d === cal.today ? 'ring-2 ring-brand-600' : ''}>
             <section aria-label={formatDayLabel(d)} data-testid="calendar-day" data-date={d}>
@@ -119,8 +123,8 @@ export function AppointmentCalendarPage() {
                 {formatDayLabel(d)}
                 {d === cal.today && <span className="ml-1 text-xs font-normal text-brand-800">today</span>}
               </h2>
-              {appointments.isPending && !!branchId && <p className="text-sm text-slate-600">Loading…</p>}
-              {!appointments.isPending && (byDay.get(d)?.length ?? 0) === 0 && <p className="text-sm text-slate-500">No appointments</p>}
+              {(appointments.isPending || appointments.isPlaceholderData) && !!branchId && (byDay.get(d)?.length ?? 0) === 0 && <p className="text-sm text-slate-600">Loading…</p>}
+              {!appointments.isPending && !appointments.isPlaceholderData && (byDay.get(d)?.length ?? 0) === 0 && <p className="text-sm text-slate-500">No appointments</p>}
               <ul className="space-y-2">
                 {byDay.get(d)?.map((a) => {
                   const p = patient(a)
