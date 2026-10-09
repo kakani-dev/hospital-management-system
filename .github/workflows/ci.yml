@@ -82,6 +82,10 @@ jobs:
       HMS_API_TEST_CONNECTION: Host=localhost;Port=5432;Database=hms_sql_test;Username=hms_api_login;Password=hms_api_local_only
     steps:
       - uses: actions/checkout@v7
+      - name: Migration chain check (14-digit versions unique; new ones newer than the base branch)
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: bash .github/scripts/check-migration-versions.sh
       - name: Install psql client
         run: sudo apt-get update -y && sudo apt-get install -y postgresql-client
       - name: Apply migrations + seed, run SQL tests (hook, API role, RLS)

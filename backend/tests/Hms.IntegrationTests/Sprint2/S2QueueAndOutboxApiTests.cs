@@ -181,8 +181,9 @@ public sealed class S2QueueAndOutboxApiTests(HmsApiFactory factory) : IClassFixt
         var a1 = (await (await S2.BookAsync(admin, AlphaMain, pr.Id, patient.Id, S2.FutureSlot(11, 9))).Content.ReadFromJsonAsync<S2Appointment>())!;
         var a2 = (await (await S2.BookAsync(admin, AlphaMain, pr.Id, patient.Id, S2.FutureSlot(11, 10))).Content.ReadFromJsonAsync<S2Appointment>())!;
 
-        // The API login role (hms_api_login -> hms_api -> hms_dispatcher), exactly like the gateway.
-        await using var dataSource = NpgsqlDataSource.Create(ApiConnection);
+        // The scheduling service's login (hms_scheduling_login -> hms_svc_scheduling -> hms_dispatcher), exactly
+        // like the scheduling service; the legacy hms_api_login can no longer dispatch (DB review B1).
+        await using var dataSource = NpgsqlDataSource.Create(ServiceConnection("scheduling"));
         var store = new PostgresOutboxStore(dataSource);
         var worker = $"it-{Guid.NewGuid():N}";
         OutboxMessage? m1 = null, m2 = null;
@@ -233,5 +234,17 @@ public sealed class S2QueueAndOutboxApiTests(HmsApiFactory factory) : IClassFixt
         await using var cmd = new NpgsqlCommand("select count(*) from messaging.outbox", conn);
         var denied = await Assert.ThrowsAsync<PostgresException>(() => cmd.ExecuteScalarAsync());
         Assert.Equal("42501", denied.SqlState);
+    }
+
+    [Fact]
+    public async Task Only_the_scheduling_login_can_dispatch_and_other_logins_cannot()
+    {
+        foreach (var connection in new[] { ApiConnection, ServiceConnection("patients"), ServiceConnection("identity") })
+        {
+            await using var dataSource = NpgsqlDataSource.Create(connection);
+            var store = new PostgresOutboxStore(dataSource);
+            var error = await Assert.ThrowsAnyAsync<PostgresException>(() => store.ClaimAsync($"it-{Guid.NewGuid():N}", 1, TimeSpan.FromSeconds(30), CancellationToken.None));
+            Assert.Equal("42501", error.SqlState); // permission denied to set role "hms_dispatcher"
+        }
     }
 }
