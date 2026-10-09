@@ -1,5 +1,5 @@
 using Hms.Modules.Identity.Persistence;
-using Hms.Modules.Identity.Tenancy;
+using Hms.Platform.Tenancy;
 using Hms.Modules.Patients.Domain;
 using Hms.Modules.Patients.Persistence;
 using Hms.SharedKernel.Persistence;
@@ -73,19 +73,37 @@ public sealed class DatabaseMappingTests
     }
 
     [Fact]
-    public async Task Membership_store_reads_real_memberships()
+    public async Task Membership_store_reads_real_memberships_through_published_identity_function()
     {
-        await using var identity = Identity();
-        var store = new EfMembershipStore(identity);
+        await using var dataSource = NpgsqlDataSource.Create(ConnectionString);
 
-        var admin = await store.FindActiveGrantAsync(AlphaAdmin, Alpha, null, default);
-        Assert.Equal(2, admin!.AccessibleBranchIds.Count);
+        // Runs as role "authenticated" with the user's claims (RLS applies), like every API request.
+        static NpgsqlMembershipStore StoreFor(NpgsqlDataSource ds, Guid user)
+        {
+            var session = new DbSessionContext();
+            session.SetUser(user, null);
+            return new NpgsqlMembershipStore(ds, session);
+        }
 
-        var reception = await store.FindActiveGrantAsync(AlphaReception, Alpha, null, default);
+        var admin = await StoreFor(dataSource, AlphaAdmin).FindActiveGrantAsync(AlphaAdmin, Alpha, null, default);
+        // >= : integration tests running against the same database may add branches to Alpha.
+        Assert.Contains(AlphaMain, admin!.AccessibleBranchIds);
+        Assert.True(admin.AccessibleBranchIds.Count >= 2);
+        Assert.Contains(HmsRoles.TenantAdmin, admin.Roles);
+
+        var reception = await StoreFor(dataSource, AlphaReception).FindActiveGrantAsync(AlphaReception, Alpha, null, default);
         Assert.Equal([AlphaMain], reception!.AccessibleBranchIds);
+        Assert.Equal("Asia/Kolkata", reception.BranchTimeZones[AlphaMain]);
+        Assert.Equal("Asia/Kolkata", reception.TenantTimeZone);
 
-        Assert.Null(await store.FindActiveGrantAsync(Outsider, Alpha, null, default));
-        Assert.Null(await store.FindActiveGrantAsync(AlphaAdmin, Beta, null, default));
+        Assert.Null(await StoreFor(dataSource, Outsider).FindActiveGrantAsync(Outsider, Alpha, null, default));
+        Assert.Null(await StoreFor(dataSource, AlphaAdmin).FindActiveGrantAsync(AlphaAdmin, Beta, null, default));
+
+        // Never answers for a user other than the session user.
+        Assert.Null(await StoreFor(dataSource, AlphaReception).FindActiveGrantAsync(AlphaAdmin, Alpha, null, default));
+
+        var fallback = await StoreFor(dataSource, AlphaAdmin).FindDefaultContextAsync(default);
+        Assert.Equal(Alpha, fallback!.TenantId);
     }
 
     [Fact]

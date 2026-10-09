@@ -129,6 +129,7 @@ public sealed class TenantTimeZoneApiTests(HmsApiFactory factory) : IClassFixtur
 /// is still on the 9th.
 /// </summary>
 [Trait("Category", "Database")]
+[Trait("Mode", "in-process-only")] // fixed clock needs in-process hosts
 public sealed class ZoneDayEdgeApiTests(FixedClockApiFactory factory) : IClassFixture<FixedClockApiFactory>
 {
     private static readonly DateTimeOffset HalfPastMidnightIst = new(2026, 10, 9, 19, 0, 0, TimeSpan.Zero);

@@ -41,14 +41,13 @@ public sealed class ATzClock : TimeProvider
     public override DateTimeOffset GetUtcNow() => Now;
 }
 
-/// <summary>Gateway with a settable clock. One instance per test class (tests in a class run sequentially).</summary>
+/// <summary>API (every in-process host) with a settable clock. One instance per test class (tests in a class run sequentially).</summary>
 public sealed class FixedClockApiFactory : HmsApiFactory
 {
     public ATzClock Clock { get; } = new();
 
-    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    protected override void ConfigureHost(IWebHostBuilder builder)
     {
-        base.ConfigureWebHost(builder);
         builder.ConfigureTestServices(services =>
         {
             services.RemoveAll<TimeProvider>();

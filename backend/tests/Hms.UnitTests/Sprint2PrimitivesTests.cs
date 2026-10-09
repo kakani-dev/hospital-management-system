@@ -1,3 +1,4 @@
+using Hms.Platform.Http;
 using System.Text.Json;
 using Hms.Modules.Patients.Endpoints;
 using Hms.Modules.Patients.Registry;
