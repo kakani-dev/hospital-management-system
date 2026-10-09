@@ -1,4 +1,7 @@
+import { useCallback, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router'
+import { ShortcutHelp } from '../../features/shortcuts/ShortcutHelp'
+import { useReceptionShortcuts } from '../../features/shortcuts/useReceptionShortcuts'
 import { useAuth } from '../../features/auth/AuthProvider'
 import { TenantSwitcher } from '../../features/tenancy/TenantSwitcher'
 import { useCurrentContext } from '../../features/tenancy/useCurrentContext'
@@ -11,14 +14,18 @@ export function AppShell() {
   const { email, signOut } = useAuth()
   const { isAdmin, roles } = useCurrentContext()
   const navigate = useNavigate()
+  const [helpOpen, setHelpOpen] = useState(false)
+  const openHelp = useCallback(() => setHelpOpen(true), [])
+  const closeHelp = useCallback(() => setHelpOpen(false), [])
+  useReceptionShortcuts({ roles, onHelp: openHelp })
 
-  const navItems = [
+  const navItems: { to: string; label: string; end: boolean; keys?: string }[] = [
     { to: '/', label: 'Dashboard', end: true },
-    { to: '/patients', label: 'Patients', end: false },
-    ...(can(roles, 'appointments.view') ? [{ to: '/appointments', label: 'Appointments', end: false }] : []),
+    { to: '/patients', label: 'Patients', end: false, keys: '/' },
+    ...(can(roles, 'appointments.view') ? [{ to: '/appointments', label: 'Appointments', end: false, keys: can(roles, 'appointments.book') ? 'Alt+B' : undefined }] : []),
     ...(can(roles, 'schedules.view') ? [{ to: '/schedules', label: 'Schedules', end: false }] : []),
-    ...(can(roles, 'queue.checkIn') ? [{ to: '/reception/check-in', label: 'Check-in', end: false }] : []),
-    ...(can(roles, 'queue.view') ? [{ to: '/queue', label: 'OPD queue', end: false }] : []),
+    ...(can(roles, 'queue.checkIn') ? [{ to: '/reception/check-in', label: 'Check-in', end: false, keys: 'Alt+C' }] : []),
+    ...(can(roles, 'queue.view') ? [{ to: '/queue', label: 'OPD queue', end: false, keys: 'Alt+Q' }] : []),
     ...(isAdmin
       ? [
           { to: '/admin/branches', label: 'Branches', end: false },
@@ -48,6 +55,9 @@ export function AppShell() {
             <span className="hidden text-slate-600 sm:inline" data-testid="user-email">
               {email}
             </span>
+            <Button variant="ghost" aria-keyshortcuts="?" onClick={openHelp} data-testid="shortcut-help-button">
+              Keyboard shortcuts
+            </Button>
             <Button
               variant="secondary"
               onClick={async () => {
@@ -66,6 +76,7 @@ export function AppShell() {
                 <NavLink
                   to={item.to}
                   end={item.end}
+                  aria-keyshortcuts={item.keys}
                   className={({ isActive }) =>
                     `inline-block border-b-2 px-3 py-2 text-sm font-medium ${
                       isActive ? 'border-brand-700 text-brand-800' : 'border-transparent text-slate-600 hover:text-slate-900'
@@ -87,6 +98,7 @@ export function AppShell() {
       <main id="main-content" tabIndex={-1} className="mx-auto max-w-7xl px-4 py-6">
         <Outlet />
       </main>
+      {helpOpen && <ShortcutHelp roles={roles} onClose={closeHelp} />}
     </div>
   )
 }

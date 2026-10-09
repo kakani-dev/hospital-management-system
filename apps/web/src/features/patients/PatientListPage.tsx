@@ -61,6 +61,8 @@ export function PatientListPage() {
             </label>
             <input
               id={searchId}
+              data-shortcut="patient-search"
+              aria-keyshortcuts="/"
               type="search"
               maxLength={PATIENT_SEARCH_MAX_LENGTH}
               value={search}
