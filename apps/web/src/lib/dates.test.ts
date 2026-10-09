@@ -46,3 +46,33 @@ describe('patientSchema date of birth (time zone edge)', () => {
     expect(patientSchema.safeParse({ ...valid, dateOfBirth: '2026-10-08' }).success).toBe(false)
   })
 })
+
+describe('calendar helpers', () => {
+  it('adds days across month and year ends', async () => {
+    const { addDays } = await import('./dates')
+    expect(addDays('2026-12-31', 1)).toBe('2027-01-01')
+    expect(addDays('2026-03-01', -1)).toBe('2026-02-28')
+  })
+
+  it('weeks start on Monday', async () => {
+    const { startOfWeek, weekDates } = await import('./dates')
+    expect(startOfWeek('2026-10-09')).toBe('2026-10-05') // Friday -> Monday
+    expect(startOfWeek('2026-10-11')).toBe('2026-10-05') // Sunday belongs to the week before
+    expect(weekDates('2026-10-05')).toEqual(['2026-10-05', '2026-10-06', '2026-10-07', '2026-10-08', '2026-10-09', '2026-10-10', '2026-10-11'])
+  })
+
+  it('formats instants in the branch time zone', async () => {
+    const { dateInZone, formatTime } = await import('./dates')
+    expect(formatTime('2026-10-09T03:30:00Z', 'Asia/Kolkata')).toBe('09:00')
+    expect(dateInZone('2026-10-08T19:00:00Z', 'Asia/Kolkata')).toBe('2026-10-09')
+    expect(dateInZone('2026-10-08T19:00:00Z', 'UTC')).toBe('2026-10-08')
+  })
+
+  it('validates calendar dates', async () => {
+    const { isCalendarDate, formatDayLabel } = await import('./dates')
+    expect(isCalendarDate('2026-02-29')).toBe(false)
+    expect(isCalendarDate('2028-02-29')).toBe(true)
+    expect(isCalendarDate('9 Oct')).toBe(false)
+    expect(formatDayLabel('2026-10-09')).toMatch(/Fri.*9.*Oct/)
+  })
+})

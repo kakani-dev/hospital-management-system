@@ -1,5 +1,18 @@
 import type {
   AddMemberRequest,
+  Appointment,
+  AppointmentRangeQuery,
+  CheckInRequest,
+  CreateAppointmentRequest,
+  DuplicateCheckRequest,
+  PatientDetail,
+  PossibleDuplicate,
+  Practitioner,
+  QueueEntry,
+  ScheduleEntry,
+  Slot,
+  UpdatePatientRequest,
+  UpdateQueueStatusRequest,
   AddMemberResponse,
   Branch,
   CreateBranchRequest,
@@ -149,7 +162,62 @@ export class ApiClient {
       this.request<PagedResult<PatientSummary>>('/api/v1/patients/search', { method: 'POST', body: JSON.stringify(body) }),
     create: (body: CreatePatientRequest) =>
       this.request<PatientSummary>('/api/v1/patients', { method: 'POST', body: JSON.stringify(body) }),
+    /** 404 for another tenant's id and for soft-deleted patients. */
+    get: (id: string) => this.request<PatientDetail>(`/api/v1/patients/${encodeURIComponent(id)}`),
+    update: (id: string, body: UpdatePatientRequest) =>
+      this.request<PatientDetail>(`/api/v1/patients/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    /** Soft delete (sets deleted_at); the patient disappears from list, search and get. */
+    remove: (id: string) => this.request<void>(`/api/v1/patients/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    /** Possible duplicates (same tenant, name+DOB or phone). Identifiers are PHI: body, never URL. */
+    duplicates: async (body: DuplicateCheckRequest) => {
+      const result = await this.request<PossibleDuplicate[] | { items?: PossibleDuplicate[] } | undefined>('/api/v1/patients/duplicates', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      })
+      return Array.isArray(result) ? result : (result?.items ?? [])
+    },
   }
+
+  practitioners = {
+    list: (branchId: string) => this.request<Practitioner[]>(`/api/v1/practitioners${qs({ branchId })}`),
+  }
+
+  schedules = {
+    /** Working blocks per practitioner per branch-local date in [from, to]. */
+    list: (params: { branchId: string; from: string; to: string; practitionerId?: string }) =>
+      this.request<ScheduleEntry[]>(`/api/v1/schedules${qs(params)}`),
+  }
+
+  appointments = {
+    list: (params: AppointmentRangeQuery) => this.request<Appointment[]>(`/api/v1/appointments${qs(params)}`),
+    slots: (params: { branchId: string; practitionerId: string; date: string }) =>
+      this.request<Slot[]>(`/api/v1/appointments/slots${qs(params)}`),
+    /** 409 when the practitioner already has an overlapping booking. */
+    create: (body: CreateAppointmentRequest) =>
+      this.request<Appointment>('/api/v1/appointments', { method: 'POST', body: JSON.stringify(body) }),
+    cancel: (id: string) => this.request<void>(`/api/v1/appointments/${encodeURIComponent(id)}/cancel`, { method: 'POST' }),
+  }
+
+  queue = {
+    /** OPD queue of one branch for one branch-local day, ordered by token number. */
+    list: (params: { branchId: string; date: string }) => this.request<QueueEntry[]>(`/api/v1/queue${qs(params)}`),
+    /** Issues the next token number for the branch-day (409 if the patient is already in today's queue). */
+    checkIn: (body: CheckInRequest) => this.request<QueueEntry>('/api/v1/queue/check-in', { method: 'POST', body: JSON.stringify(body) }),
+    /** waiting -> in_consult -> done; other transitions are a 409. */
+    updateStatus: (id: string, body: UpdateQueueStatusRequest) =>
+      this.request<QueueEntry>(`/api/v1/queue/${encodeURIComponent(id)}/status`, { method: 'PATCH', body: JSON.stringify(body) }),
+  }
+}
+
+/**
+ * Query string from non-empty params. Only ids, dates and paging go in URLs; PHI (names, phone,
+ * DOB search terms) always travels in a JSON body.
+ */
+function qs(params: object): string {
+  const query = new URLSearchParams()
+  for (const [key, value] of Object.entries(params) as [string, unknown][]) if (value !== undefined && value !== null && value !== '') query.set(key, String(value))
+  const text = query.toString()
+  return text ? `?${text}` : ''
 }
 
 let currentTokenProvider: TokenProvider = () => null

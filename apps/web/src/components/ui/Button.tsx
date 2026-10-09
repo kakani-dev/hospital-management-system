@@ -1,11 +1,12 @@
-import type { ButtonHTMLAttributes } from 'react'
+import type { ComponentPropsWithRef } from 'react'
 
-type Variant = 'primary' | 'secondary' | 'ghost'
+type Variant = 'primary' | 'secondary' | 'ghost' | 'danger'
 
 const styles: Record<Variant, string> = {
   primary: 'bg-brand-700 text-white hover:bg-brand-800 disabled:bg-slate-400',
   secondary: 'border border-slate-300 bg-white text-slate-800 hover:bg-slate-100 disabled:text-slate-400',
   ghost: 'text-slate-700 hover:bg-slate-100',
+  danger: 'bg-red-700 text-white hover:bg-red-800 disabled:bg-slate-400',
 }
 
 export function Button({
@@ -13,7 +14,7 @@ export function Button({
   className = '',
   type = 'button',
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant }) {
+}: ComponentPropsWithRef<'button'> & { variant?: Variant }) {
   return (
     <button
       type={type}
