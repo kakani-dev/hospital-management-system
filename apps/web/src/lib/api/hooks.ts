@@ -1,4 +1,4 @@
-import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient, type Query } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useMutationState, useQueries, useQuery, useQueryClient, type Query } from '@tanstack/react-query'
 import { ApiError, apiClient } from './client'
 import type {
   AddMemberRequest,
@@ -382,11 +382,30 @@ export function useQueue(branchId: string | null, date: string, { refetchInterva
 const invalidateQueueAndAppointments = (qc: ReturnType<typeof useQueryClient>) =>
   Promise.all([qc.invalidateQueries({ queryKey: ['queue'] }), qc.invalidateQueries({ queryKey: ['appointments'] })])
 
-/** Check in a booked appointment (POST /appointments/{id}/check-in). */
+export const mutationKeys = {
+  checkIn: ['appointments', 'check-in'] as const,
+  walkIn: ['queue', 'walk-in'] as const,
+  queueStatus: ['queue', 'status'] as const,
+}
+
+/** Applies `fn` to every cached appointment list (skips other shapes under the 'appointments' prefix). */
+function updateCachedAppointments(qc: ReturnType<typeof useQueryClient>, fn: (a: Appointment) => Appointment) {
+  qc.setQueriesData<Appointment[]>({ queryKey: ['appointments'] }, (list) =>
+    Array.isArray(list) && list.every((a) => typeof a?.id === 'string' && 'status' in a) ? list.map(fn) : list,
+  )
+}
+
+/**
+ * Check in a booked appointment (POST /appointments/{id}/check-in). The token is issued by the
+ * server, so nothing is optimistic; on success the row flips to checked_in at once instead of
+ * waiting for the next poll.
+ */
 export function useCheckInAppointment() {
   const qc = useQueryClient()
   return useMutation({
+    mutationKey: mutationKeys.checkIn,
     mutationFn: (appointmentId: string) => apiClient.appointments.checkIn(appointmentId),
+    onSuccess: (_result, appointmentId) => updateCachedAppointments(qc, (a) => (a.id === appointmentId ? { ...a, status: 'checked_in' } : a)),
     onSettled: () => invalidateQueueAndAppointments(qc),
   })
 }
@@ -395,15 +414,41 @@ export function useCheckInAppointment() {
 export function useWalkIn() {
   const qc = useQueryClient()
   return useMutation({
+    mutationKey: mutationKeys.walkIn,
     mutationFn: (body: WalkInRequest) => apiClient.queue.walkIn(body),
     onSettled: () => invalidateQueueAndAppointments(qc),
   })
 }
 
+export interface QueueStatusChange {
+  id: string
+  status: Exclude<QueueStatus, 'waiting'>
+}
+
+/**
+ * Queue transition with an optimistic update: the card moves column at once, a failure (409, 403,
+ * timeout…) rolls the board back, and the board is refetched either way.
+ */
 export function useUpdateQueueStatus() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, status }: { id: string; status: Exclude<QueueStatus, 'waiting'> }) => apiClient.queue.updateStatus(id, { status }),
+    mutationKey: mutationKeys.queueStatus,
+    mutationFn: ({ id, status }: QueueStatusChange) => apiClient.queue.updateStatus(id, { status }),
+    onMutate: async ({ id, status }: QueueStatusChange) => {
+      await qc.cancelQueries({ queryKey: ['queue'] })
+      const snapshot = qc.getQueriesData<QueueEntry[]>({ queryKey: ['queue'] })
+      qc.setQueriesData<QueueEntry[]>({ queryKey: ['queue'] }, (list) => (Array.isArray(list) ? list.map((e) => (e.id === id ? { ...e, status } : e)) : list))
+      return { snapshot }
+    },
+    onError: (_error, _change, context) => context?.snapshot.forEach(([key, data]) => qc.setQueryData(key, data)),
     onSettled: () => invalidateQueueAndAppointments(qc),
+  })
+}
+
+/** Ids (variables) of the pending mutations with `mutationKey`: per-row "saving" state. */
+export function usePendingMutationIds<V>(mutationKey: readonly unknown[], idOf: (variables: V) => string): string[] {
+  return useMutationState({
+    filters: { mutationKey: [...mutationKey], status: 'pending' },
+    select: (m) => idOf(m.state.variables as V),
   })
 }

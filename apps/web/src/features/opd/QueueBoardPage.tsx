@@ -3,7 +3,9 @@ import { Card } from '../../components/ui/Card'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
 import { BranchPicker } from '../../components/scheduling/BranchPicker'
-import { QUEUE_REFRESH_MS, usePatientRefs, usePractitioners, useQueue, useUpdateQueueStatus } from '../../lib/api/hooks'
+import { mutationKeys, QUEUE_REFRESH_MS, usePatientRefs, usePendingMutationIds, usePractitioners, useQueue, useUpdateQueueStatus, type QueueStatusChange } from '../../lib/api/hooks'
+import { transientWriteMessage } from '../../lib/api/errors'
+import { RetryAlert } from '../../components/ui/RetryAlert'
 import { formatDayLabel, formatTime, localToday } from '../../lib/dates'
 import { can } from '../../lib/permissions'
 import { ApiError, problemCode } from '../../lib/api/client'
@@ -29,7 +31,8 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
   const practitioners = usePractitioners()
   const patient = usePatientRefs(queue.data ?? [])
   const update = useUpdateQueueStatus()
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<{ message: string; retry: (() => void) | null } | null>(null)
+  const saving = usePendingMutationIds<QueueStatusChange>(mutationKeys.queueStatus, (v) => v.id)
   const branchRoles = rolesAtBranch(me.data, branchId)
   const canAdvance = can(branchRoles, 'queue.advance')
   const canCancel = can(branchRoles, 'queue.cancel')
@@ -38,18 +41,24 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
   const cancelledCount = entries.filter((e) => e.status === 'cancelled').length
   const practitionerName = (id: string | null) => (id ? (practitioners.data?.find((p) => p.id === id)?.displayName ?? '—') : 'Any doctor')
 
+  // Optimistic: the card moves at once (useUpdateQueueStatus), and rolls back on failure.
   const move = async (entry: QueueEntry, status: Exclude<QueueStatus, 'waiting'>) => {
     setError(null)
     try {
       await update.mutateAsync({ id: entry.id, status })
     } catch (e) {
-      setError(
+      const transient = transientWriteMessage(e, `update token ${entry.tokenNo}`)
+      if (transient) {
+        setError({ message: transient, retry: () => void move(entry, status) })
+        return
+      }
+      const message =
         problemCode(e) === 'invalid_transition' || (e instanceof ApiError && e.status === 409)
           ? `Token ${entry.tokenNo} was already updated elsewhere. The board has been refreshed.`
           : e instanceof ApiError && e.status === 403
             ? 'Your role at this branch cannot make that change.'
-            : `Could not update token ${entry.tokenNo}. Try again.`,
-      )
+            : `Could not update token ${entry.tokenNo}. Try again.`
+      setError({ message, retry: null })
     }
   }
 
@@ -72,7 +81,7 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
           {queue.error instanceof ApiError && queue.error.status === 403 ? 'You cannot view the queue of this branch.' : 'The queue is unavailable right now.'}
         </Alert>
       )}
-      {error && <Alert tone="error">{error}</Alert>}
+      {error && (error.retry ? <RetryAlert message={error.message} onRetry={error.retry} /> : <Alert tone="error">{error.message}</Alert>)}
       <div className={`grid gap-4 md:grid-cols-3 ${queue.isPlaceholderData ? 'opacity-60' : ''}`} aria-busy={queue.isFetching && !queue.data}>
         {COLUMNS.map((col) => {
           const items = entries.filter((e) => e.status === col.status)
@@ -87,11 +96,22 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
                   {items.map((e) => {
                     const p = patient(e)
                     return (
-                      <li key={e.id} className="rounded border border-slate-200 p-2" data-testid="queue-entry" data-token={e.tokenNo}>
+                      <li
+                        key={e.id}
+                        className={`rounded border p-2 ${saving.includes(e.id) ? 'border-brand-300 bg-brand-50' : 'border-slate-200'}`}
+                        data-testid="queue-entry"
+                        data-token={e.tokenNo}
+                        aria-busy={saving.includes(e.id)}
+                      >
                         <div className="flex items-baseline gap-3">
                           <span className="text-2xl font-bold tabular-nums" aria-label={`Token ${e.tokenNo}`}>
                             {e.tokenNo}
                           </span>
+                          {saving.includes(e.id) && (
+                            <span className="text-xs font-medium text-brand-800" data-testid="queue-entry-saving">
+                              Saving…
+                            </span>
+                          )}
                           <span className="text-sm">
                             <strong>{p === undefined ? 'Loading…' : p === null ? 'Patient unavailable' : `${p.lastName}, ${p.firstName}`}</strong>
                             <span className="block text-xs text-slate-600">
@@ -107,7 +127,7 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
                                 key={to}
                                 variant={to === 'cancelled' ? 'secondary' : 'primary'}
                                 className="px-3 py-1 text-xs"
-                                disabled={update.isPending}
+                                disabled={saving.includes(e.id)}
                                 aria-label={`${ACTION_LABEL[to]} token ${e.tokenNo}`}
                                 onClick={() => move(e, to)}
                               >
