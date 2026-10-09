@@ -17,13 +17,13 @@ public sealed record CurrentUserDto(
 
 public sealed record CurrentTenantDto(Guid Id, string Code, string Name, Guid? ActiveBranchId, IReadOnlyList<string> Roles, string TimeZone);
 
-/// <summary>PATCH /api/v1/tenants/current (tenant_admin). A zone change is refused (409) while today's queue has entries.</summary>
-public sealed record UpdateTenantRequest(string? Name, string? TimeZone);
-
-/// <summary>POST /api/v1/platform/tenants (platform admins only; identity.create_tenant()).</summary>
-public sealed record CreateTenantRequest(string? Code, string? Name, string? TimeZone, string? AdminEmail, string? BranchCode, string? BranchName);
-
-public sealed record TenantDto(Guid Id, string Code, string Name, string TimeZone);
+/// <summary>
+/// PATCH /api/v1/tenants/current (tenant_admin). A zone change is refused with 409 time_zone_locked
+/// while today's queue has entries; one that would shift future bookings answers 409
+/// time_zone_has_future_bookings with futureBookings = N; repeat with confirmFutureBookings = true.
+/// The create-tenant HTTP endpoint lives in the identity service (code review MIN-5).
+/// </summary>
+public sealed record UpdateTenantRequest(string? Name, string? TimeZone, bool? ConfirmFutureBookings = null);
 
 /// <summary>Requested tenant/branch switch. Validated in the database against memberships.</summary>
 public sealed record SwitchContextRequest(Guid TenantId, Guid? BranchId);
@@ -36,7 +36,8 @@ public sealed record BranchDto(Guid Id, string Code, string Name, string Timezon
 public sealed record CreateBranchRequest(string? Code, string? Name, string? Timezone);
 
 /// <param name="InheritTimezone">true clears the override so the branch follows the tenant zone again.</param>
-public sealed record UpdateBranchRequest(string? Name, string? Timezone, bool? IsActive, bool? InheritTimezone = null);
+/// <summary>PATCH /api/v1/branches/{id}. Same future-bookings confirmation as the tenant zone.</summary>
+public sealed record UpdateBranchRequest(string? Name, string? Timezone, bool? IsActive, bool? InheritTimezone = null, bool? ConfirmFutureBookings = null);
 
 public sealed record MemberDto(Guid Id, Guid UserId, string? Email, string? DisplayName, string Role, Guid? BranchId, string? BranchName, string Status);
 

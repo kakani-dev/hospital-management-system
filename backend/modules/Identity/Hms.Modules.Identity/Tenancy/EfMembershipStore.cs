@@ -45,6 +45,10 @@ internal sealed class EfMembershipStore(IdentityDbContext db) : IMembershipStore
 
         var memberships = await db.Memberships.AsNoTracking()
             .Where(m => m.UserId == userId && m.TenantId == tenantId && m.Status == MembershipStatus.Active)
+            // A branch-scoped membership counts only while its branch is live (code review MAJ-2;
+            // identity.has_tenant_role / current_tenant_ids agree): deleting a branch revokes the
+            // tenant-wide roles of staff scoped to it.
+            .Where(m => m.BranchId == null || db.Branches.Any(b => b.Id == m.BranchId && !b.IsDeleted))
             .Select(m => new { m.Role, m.BranchId })
             .ToListAsync(cancellationToken);
         if (memberships.Count == 0)

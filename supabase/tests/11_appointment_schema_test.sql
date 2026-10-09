@@ -133,7 +133,9 @@ select tests.throws_ok(
             'aa000000-0000-4000-8000-000000000004', '2030-01-09 10:00+05:30', '2030-01-09 10:30+05:30')$$,
   '42501', 'reception (Main only) cannot book at Alpha East -> 42501');
 select tests.as_superuser();
+select tests.as_owner('patient.patients');  -- the soft-delete state is owner-only (re-review R2)
 update patient.patients set deleted_at = now() where id = 'aa000000-0000-4000-8000-000000000003';
+select tests.as_superuser();
 select tests.authenticate_as('admin@alpha.example');
 select tests.throws_ok(
   $$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at)

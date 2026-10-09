@@ -161,32 +161,40 @@ public static class TenantAdminEndpoints
             return TypedResults.NotFound();
         }
 
-        if (request.Name is not null)
-        {
-            branch.Name = request.Name.Trim();
-        }
-
-        if (request.InheritTimezone == true)
-        {
-            branch.Timezone = null;
-        }
-        else if (request.Timezone is not null)
-        {
-            branch.Timezone = TenantTimeZones.Canonicalize(request.Timezone);
-        }
-
-        if (request.IsActive is { } active)
-        {
-            branch.IsActive = active;
-        }
-
         try
         {
+            // Zone first (identity.change_time_zone_v1, DB re-review R5): when it needs confirmation
+            // nothing is saved. 55000 time_zone_locked (today's queue) -> 409.
+            if (request.InheritTimezone == true || request.Timezone is not null)
+            {
+                var zone = request.InheritTimezone == true ? null : request.Timezone;
+                var outcome = await TimeZoneChange.ApplyAsync(db, tenant.TenantId, branch.Id, zone, request.ConfirmFutureBookings == true, ct);
+                if (!outcome.Changed)
+                {
+                    return TimeZoneChange.NeedsConfirmation(outcome);
+                }
+
+                // keep the tracked entity in step without EF sending the column (AfterSave Ignore)
+                var property = db.Entry(branch).Property(b => b.Timezone);
+                property.CurrentValue = outcome.TimeZone;
+                property.OriginalValue = outcome.TimeZone;
+                property.IsModified = false;
+            }
+
+            if (request.Name is not null)
+            {
+                branch.Name = request.Name.Trim();
+            }
+
+            if (request.IsActive is { } active)
+            {
+                branch.IsActive = active;
+            }
+
             await db.SaveChangesAsync(ct);
         }
-        catch (Exception ex) when (HmsProblems.FromDatabase(ex) is { } problem)
+        catch (Exception ex) when (TimeZoneChange.FromDatabase(ex) is { } problem)
         {
-            // 55000 time_zone_locked: today's queue at this branch already has entries -> 409
             return problem;
         }
 
