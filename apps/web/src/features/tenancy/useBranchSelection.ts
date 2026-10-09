@@ -1,5 +1,5 @@
 import { useSearchParams } from 'react-router'
-import { useBranches } from '../../lib/api/hooks'
+import { useBranchTimeZones } from '../../lib/useBranchTimeZone'
 import { browserTimeZone } from '../../lib/dates'
 import { useCurrentContext } from './useCurrentContext'
 
@@ -11,7 +11,7 @@ import { useCurrentContext } from './useCurrentContext'
  */
 export function useBranchSelection() {
   const { branches, activeBranchId, me } = useCurrentContext()
-  const branchDetails = useBranches()
+  const zones = useBranchTimeZones()
   const [params, setParams] = useSearchParams()
   const requested = params.get('branch')
   const branchId =
@@ -20,7 +20,7 @@ export function useBranchSelection() {
     branches[0]?.id ??
     null
   const branch = branches.find((b) => b.id === branchId) ?? null
-  const timeZone = branchDetails.data?.find((b) => b.id === branchId)?.timezone || browserTimeZone()
+  const timeZone = zones.zoneFor(branchId) ?? browserTimeZone()
 
   const setBranchId = (id: string) =>
     setParams(
@@ -33,7 +33,7 @@ export function useBranchSelection() {
     )
 
   // Branch-local ranges must not be computed in the wrong zone: wait for /branches (or its failure).
-  const timeZoneReady = !branchDetails.isPending
+  const timeZoneReady = zones.ready
 
   return { branches, branchId, branch, timeZone, timeZoneReady, setBranchId, loading: me.isPending }
 }

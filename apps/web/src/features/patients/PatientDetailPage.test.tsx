@@ -4,7 +4,12 @@ import userEvent from '@testing-library/user-event'
 import { App } from '../../App'
 import { ALPHA_EAST, ALPHA_MAIN, fakeAuthClient, fakeSession, json, meFor, meWithRoles, renderWithProviders, stubFetch } from '../../test/fakes'
 
-afterEach(() => vi.unstubAllGlobals())
+import { restoreWorkstation, workstationAt } from '../../test/timeZones'
+
+afterEach(() => {
+  restoreWorkstation()
+  vi.unstubAllGlobals()
+})
 
 const PID = 'aa000000-0000-4000-8000-000000000001'
 const detail = {
@@ -140,5 +145,39 @@ describe('PatientDetailPage', () => {
     expect(await screen.findByTestId('patient-deleted-flag')).toBeInTheDocument()
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Edit patient' })).not.toBeInTheDocument())
     expect(screen.queryByRole('button', { name: 'Delete patient' })).not.toBeInTheDocument()
+  })
+
+  it('edit form checks DOB against the patient\'s branch zone, not the workstation zone', async () => {
+    workstationAt('America/New_York') // 2026-10-06 here, already 2026-10-07 at Alpha Main (IST)
+    const calls = stubFetch({
+      'GET /api/v1/me': () => json(meWithRoles(['nurse'])),
+      'GET /api/v1/branches': () =>
+        json([
+          { id: ALPHA_MAIN, code: 'main', name: 'Alpha Main', timezone: 'Asia/Kolkata', isActive: true },
+          { id: ALPHA_EAST, code: 'east', name: 'Alpha East', timezone: 'America/New_York', isActive: true },
+        ]),
+      [`GET /api/v1/patients/${PID}`]: () => json(detail),
+      [`PATCH /api/v1/patients/${PID}`]: (_u, init) => json({ ...detail, ...JSON.parse(String(init.body)) }),
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: `/patients/${PID}`, auth: fakeAuthClient({ session: fakeSession() }) })
+    await user.click(await screen.findByRole('button', { name: 'Edit patient' }))
+    const form = screen.getByRole('form', { name: 'Edit patient' })
+    const dob = within(form).getByLabelText('Date of birth')
+    await waitFor(() => expect(dob).toHaveAttribute('max', '2026-10-07'))
+    await user.clear(dob)
+    await user.type(dob, '2026-10-07')
+
+    // Moving the patient to the New York branch makes 2026-10-07 a future date there
+    await user.selectOptions(within(form).getByLabelText('Registered branch'), ALPHA_EAST)
+    await waitFor(() => expect(dob).toHaveAttribute('max', '2026-10-06'))
+    await user.click(within(form).getByRole('button', { name: 'Save changes' }))
+    expect(await within(form).findByText('Date of birth must be between 1900-01-01 and today')).toBeInTheDocument()
+    expect(calls.some((c) => c.method === 'PATCH')).toBe(false)
+
+    await user.selectOptions(within(form).getByLabelText('Registered branch'), ALPHA_MAIN)
+    await user.click(within(form).getByRole('button', { name: 'Save changes' }))
+    expect(await screen.findByText('Changes saved.')).toBeInTheDocument()
+    expect(calls.find((c) => c.method === 'PATCH')!.body).toMatchObject({ dateOfBirth: '2026-10-07', registeredBranchId: ALPHA_MAIN })
   })
 })

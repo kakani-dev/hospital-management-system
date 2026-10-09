@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { localToday } from './dates'
-import { patientSchema } from '../features/patients/patientSchema'
+import { createPatientSchema, patientSchema } from '../features/patients/patientSchema'
 
 // 2026-10-06T19:00:00Z is already 2026-10-07 00:30 in India (UTC+5:30): the UTC date lags a day.
 const AFTER_IST_MIDNIGHT = new Date('2026-10-06T19:00:00Z')
@@ -44,6 +44,35 @@ describe('patientSchema date of birth (time zone edge)', () => {
     vi.setSystemTime(AFTER_IST_MIDNIGHT)
     expect(patientSchema.safeParse({ ...valid, dateOfBirth: '2026-10-07' }).success).toBe(true)
     expect(patientSchema.safeParse({ ...valid, dateOfBirth: '2026-10-08' }).success).toBe(false)
+  })
+
+  it('uses the branch zone, not the workstation zone: New York workstation, Kolkata branch', () => {
+    env.TZ = 'America/New_York' // workstation date is still 2026-10-06
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(AFTER_IST_MIDNIGHT)
+    const branchSchema = createPatientSchema(() => 'Asia/Kolkata')
+    expect(branchSchema.safeParse({ ...valid, dateOfBirth: '2026-10-07' }).success).toBe(true)
+    expect(branchSchema.safeParse({ ...valid, dateOfBirth: '2026-10-08' }).success).toBe(false)
+    // the workstation-zone schema would have wrongly rejected the newborn the API accepts
+    expect(patientSchema.safeParse({ ...valid, dateOfBirth: '2026-10-07' }).success).toBe(false)
+  })
+
+  it('uses the branch zone, not the workstation zone: Kolkata workstation, New York branch', () => {
+    env.TZ = 'Asia/Kolkata' // workstation date is already 2026-10-07
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(AFTER_IST_MIDNIGHT)
+    const branchSchema = createPatientSchema(() => 'America/New_York')
+    expect(branchSchema.safeParse({ ...valid, dateOfBirth: '2026-10-06' }).success).toBe(true)
+    // tomorrow at the branch: the API would 400, so the form must reject it too
+    expect(branchSchema.safeParse({ ...valid, dateOfBirth: '2026-10-07' }).success).toBe(false)
+    expect(patientSchema.safeParse({ ...valid, dateOfBirth: '2026-10-07' }).success).toBe(true)
+  })
+
+  it('falls back to the workstation zone while the branch zone is unknown', () => {
+    env.TZ = 'Asia/Kolkata'
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(AFTER_IST_MIDNIGHT)
+    expect(createPatientSchema(() => undefined).safeParse({ ...valid, dateOfBirth: '2026-10-07' }).success).toBe(true)
   })
 })
 

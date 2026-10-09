@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useForm } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
+import { useForm, useWatch } from 'react-hook-form'
 import { Link, useNavigate } from 'react-router'
 import { Card } from '../../components/ui/Card'
 import { Alert } from '../../components/ui/Alert'
@@ -12,13 +11,14 @@ import { ApiError, apiClient, fieldErrors } from '../../lib/api/client'
 import { SEXES, type DuplicateCandidate } from '../../lib/api/types'
 import { DuplicateWarning } from './DuplicateWarning'
 import { useCurrentContext } from '../tenancy/useCurrentContext'
-import { localToday } from '../../lib/dates'
-import { patientSchema, toCreatePatientRequest, type PatientFormValues } from './patientSchema'
+import { createPatientSchema, toCreatePatientRequest, type PatientFormValues } from './patientSchema'
+import { useBranchToday, useBranchZonedResolver } from './useBranchZonedResolver'
 
 export function RegisterPatientPage() {
   const navigate = useNavigate()
   const { branches, activeBranchId, activeTenant } = useCurrentContext()
   const createPatient = useCreatePatient()
+  const resolver = useBranchZonedResolver<PatientFormValues>(createPatientSchema)
   const [formError, setFormError] = useState<string | null>(null)
   const [duplicates, setDuplicates] = useState<{ matches: DuplicateCandidate[]; values: PatientFormValues } | null>(null)
   const [creatingAnyway, setCreatingAnyway] = useState(false)
@@ -28,11 +28,15 @@ export function RegisterPatientPage() {
     setError,
     setValue,
     getValues,
+    control,
     formState: { errors, isSubmitting },
   } = useForm<PatientFormValues>({
-    resolver: zodResolver(patientSchema),
+    resolver,
     defaultValues: { mrn: '', firstName: '', lastName: '', dateOfBirth: '', sex: 'unknown', registeredBranchId: '', phone: '', email: '' },
   })
+
+  // DOB "today" is the selected branch's date — the API validates in the branch's zone.
+  const branchToday = useBranchToday(useWatch({ control, name: 'registeredBranchId' }))
 
   // Default the branch to the active one once /me has loaded.
   useEffect(() => {
@@ -141,7 +145,7 @@ export function RegisterPatientPage() {
             label="Date of birth"
             type="date"
             min="1900-01-01"
-            max={localToday()}
+            max={branchToday}
             error={errors.dateOfBirth?.message}
             {...register('dateOfBirth')}
           />

@@ -8,6 +8,7 @@ import { ApiError } from '../../lib/api/client'
 import { useCurrentContext } from '../tenancy/useCurrentContext'
 import { can } from '../../lib/permissions'
 import { localToday } from '../../lib/dates'
+import { useBranchTimeZones } from '../../lib/useBranchTimeZone'
 import { Button } from '../../components/ui/Button'
 
 export function PatientListPage() {
@@ -24,6 +25,9 @@ export function PatientListPage() {
   const dobId = useId()
   const patients = usePatients(debouncedCriteria)
   const { roles, branches } = useCurrentContext()
+  // Latest "today" across the user's branches (a branch east of the workstation may already be tomorrow).
+  const { zoneFor } = useBranchTimeZones()
+  const dobMax = branches.map((b) => localToday(new Date(), zoneFor(b.id))).reduce((a, b) => (b > a ? b : a), localToday())
   const location = useLocation()
   const flash = location.state as { registered?: string; deleted?: string } | null
   const registered = flash?.registered
@@ -92,7 +96,7 @@ export function PatientListPage() {
               id={dobId}
               type="date"
               min="1900-01-01"
-              max={localToday()}
+              max={dobMax}
               value={dateOfBirth}
               onChange={(e) => setDateOfBirth(e.target.value)}
               className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"

@@ -1,10 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { App } from '../../App'
 import { ALPHA_EAST, ALPHA_MAIN, fakeAuthClient, fakeSession, json, meFor, renderWithProviders, stubFetch } from '../../test/fakes'
 
-afterEach(() => vi.unstubAllGlobals())
+import { restoreWorkstation, workstationAt } from '../../test/timeZones'
+
+afterEach(() => {
+  restoreWorkstation()
+  vi.unstubAllGlobals()
+})
 
 const listPage = { items: [], page: 1, pageSize: 25, totalCount: 0 }
 
@@ -132,5 +137,56 @@ describe('RegisterPatientPage duplicate warning', () => {
     expect(await screen.findByText(/patient NEW-0002 registered/i)).toBeInTheDocument()
     expect(screen.queryByTestId('duplicate-warning')).not.toBeInTheDocument()
     expect(calls.map((c) => `${c.method} ${c.path}`)).toContain('POST /api/v1/patients/duplicates')
+  })
+
+  describe('date of birth uses the registering branch\'s time zone (as the API does)', () => {
+    // Workstation in New York (still 2026-10-06), Alpha Main in India (already 2026-10-07 00:30),
+    // Alpha East in New York.
+    const branches = [
+      { id: ALPHA_MAIN, code: 'main', name: 'Alpha Main', timezone: 'Asia/Kolkata', isActive: true },
+      { id: ALPHA_EAST, code: 'east', name: 'Alpha East', timezone: 'America/New_York', isActive: true },
+    ]
+    const fill = async (user: ReturnType<typeof userEvent.setup>, dob: string) => {
+      await user.type(await screen.findByLabelText('MRN'), 'NB-0001')
+      await user.type(screen.getByLabelText('First name'), 'Baby')
+      await user.type(screen.getByLabelText('Last name'), 'Synthetic')
+      await user.type(screen.getByLabelText('Date of birth'), dob)
+    }
+
+    it('accepts a newborn born "today" at an IST branch although the workstation date is still yesterday', async () => {
+      workstationAt('America/New_York')
+      const calls = stubFetch({
+        'GET /api/v1/me': () => json(meFor({ activeBranchId: ALPHA_MAIN })),
+        'GET /api/v1/branches': () => json(branches),
+        'POST /api/v1/patients/duplicates': () => json({ candidates: [] }),
+        'POST /api/v1/patients': (_u, init) => json({ id: 'p1', ...JSON.parse(String(init.body)) }, 201),
+        'GET /api/v1/patients': () => json(listPage),
+      })
+      const user = userEvent.setup()
+      renderWithProviders(<App />, { path: '/patients/new', auth: fakeAuthClient({ session: fakeSession() }) })
+      await waitFor(() => expect(screen.getByLabelText('Date of birth')).toHaveAttribute('max', '2026-10-07'))
+      await fill(user, '2026-10-07')
+      await user.click(screen.getByRole('button', { name: /register patient/i }))
+
+      expect(await screen.findByText(/patient NB-0001 registered/i)).toBeInTheDocument()
+      expect(calls.find((c) => c.method === 'POST' && c.path === '/api/v1/patients')!.body).toMatchObject({ dateOfBirth: '2026-10-07', registeredBranchId: ALPHA_MAIN })
+    })
+
+    it('rejects the same date for a branch whose day has not started yet, even if the workstation\'s has', async () => {
+      workstationAt('Asia/Kolkata')
+      const calls = stubFetch({
+        'GET /api/v1/me': () => json(meFor({ activeBranchId: ALPHA_MAIN })),
+        'GET /api/v1/branches': () => json(branches),
+      })
+      const user = userEvent.setup()
+      renderWithProviders(<App />, { path: '/patients/new', auth: fakeAuthClient({ session: fakeSession() }) })
+      await fill(user, '2026-10-07')
+      await user.selectOptions(screen.getByLabelText('Registered branch'), ALPHA_EAST)
+      await waitFor(() => expect(screen.getByLabelText('Date of birth')).toHaveAttribute('max', '2026-10-06'))
+      await user.click(screen.getByRole('button', { name: /register patient/i }))
+
+      expect(await screen.findByText('Date of birth must be between 1900-01-01 and today')).toBeInTheDocument()
+      expect(calls.some((c) => c.method === 'POST')).toBe(false)
+    })
   })
 })

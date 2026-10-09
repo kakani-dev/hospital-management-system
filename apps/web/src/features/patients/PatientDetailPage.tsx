@@ -1,6 +1,5 @@
 import { useState } from 'react'
-import { useForm } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
+import { useForm, useWatch } from 'react-hook-form'
 import { Link, useNavigate, useParams } from 'react-router'
 import { Card } from '../../components/ui/Card'
 import { Alert } from '../../components/ui/Alert'
@@ -11,10 +10,10 @@ import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 import { useDeletePatient, usePatient, useUpdatePatient } from '../../lib/api/hooks'
 import { ApiError, fieldErrors } from '../../lib/api/client'
 import { SEXES, type PatientDetail } from '../../lib/api/types'
-import { localToday } from '../../lib/dates'
 import { can } from '../../lib/permissions'
 import { rolesAtBranch, useCurrentContext } from '../tenancy/useCurrentContext'
-import { patientEditSchema, toUpdatePatientRequest, type PatientEditValues } from './patientSchema'
+import { createPatientEditSchema, toUpdatePatientRequest, type PatientEditValues } from './patientSchema'
+import { useBranchToday, useBranchZonedResolver } from './useBranchZonedResolver'
 
 export function PatientDetailPage() {
   const { patientId = '' } = useParams()
@@ -137,13 +136,15 @@ function EditPatientForm({
 }) {
   const update = useUpdatePatient(patient.id)
   const [formError, setFormError] = useState<string | null>(null)
+  const resolver = useBranchZonedResolver<PatientEditValues>(createPatientEditSchema)
   const {
     register,
     handleSubmit,
     setError,
+    control,
     formState: { errors, isSubmitting },
   } = useForm<PatientEditValues>({
-    resolver: zodResolver(patientEditSchema),
+    resolver,
     defaultValues: {
       firstName: patient.firstName,
       lastName: patient.lastName,
@@ -154,6 +155,9 @@ function EditPatientForm({
       email: patient.email ?? '',
     },
   })
+
+  // DOB "today" is the selected branch's date — the API validates in the branch's zone.
+  const branchToday = useBranchToday(useWatch({ control, name: 'registeredBranchId' }))
 
   const onSubmit = async (values: PatientEditValues) => {
     setFormError(null)
@@ -189,7 +193,7 @@ function EditPatientForm({
       <form noValidate aria-label="Edit patient" onSubmit={handleSubmit(onSubmit)} className="grid gap-4 sm:grid-cols-2">
         <FormField label="First name" autoComplete="off" error={errors.firstName?.message} {...register('firstName')} />
         <FormField label="Last name" autoComplete="off" error={errors.lastName?.message} {...register('lastName')} />
-        <FormField label="Date of birth" type="date" min="1900-01-01" max={localToday()} error={errors.dateOfBirth?.message} {...register('dateOfBirth')} />
+        <FormField label="Date of birth" type="date" min="1900-01-01" max={branchToday} error={errors.dateOfBirth?.message} {...register('dateOfBirth')} />
         <SelectField label="Sex" error={errors.sex?.message} {...register('sex')}>
           {SEXES.map((s) => (
             <option key={s} value={s}>
