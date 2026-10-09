@@ -52,7 +52,7 @@ test.describe('cross-tenant attacks', () => {
       headers: bearer(token),
       data: { mrn: 'XT-0001', firstName: 'Cross', lastName: 'Tenant', registeredBranchId: ids.betaMain, tenantId: ids.beta },
     })
-    expect(response.status()).toBe(403)
+    expect(response.status()).toBe(404)
   })
 
   test('admin endpoints cannot touch another tenant\'s branch', async ({ request }) => {
