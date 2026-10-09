@@ -38,12 +38,28 @@ public static class PractitionerScheduleEndpoints
     }
 
     // ------------------------------------------------------------- practitioners
-    private static async Task<Ok<List<PractitionerDto>>> ListPractitionersAsync(AppointmentsDbContext db, bool? activeOnly, CancellationToken ct)
+    private static async Task<Results<Ok<List<PractitionerDto>>, ProblemHttpResult>> ListPractitionersAsync(
+        AppointmentsDbContext db, ITenantContext tenant, TimeProvider clock, bool? activeOnly, Guid? branchId, CancellationToken ct)
     {
         var query = db.Practitioners.AsNoTracking();
         if (activeOnly ?? true)
         {
             query = query.Where(p => p.IsActive);
+        }
+
+        if (branchId is { } branch && branch != Guid.Empty)
+        {
+            // v4: another tenant's (or unknown) branch is 404; any branch of the own tenant is readable (schedules are tenant-wide).
+            if (!await BranchScope.ExistsInTenantAsync(db, tenant, branch, ct))
+            {
+                return HmsProblems.NotFound("Branch not found.");
+            }
+
+            // "Active schedule at the branch": is_active and not ended before the branch-local today (future starts count).
+            tenant.BranchTimeZones.TryGetValue(branch, out var tz);
+            var today = BranchTime.Today(clock, tz);
+            query = query.Where(p => db.Schedules.Any(s =>
+                s.PractitionerId == p.Id && s.BranchId == branch && s.IsActive && (s.ValidTo == null || s.ValidTo >= today)));
         }
 
         var rows = await query.OrderBy(p => p.DisplayName).ThenBy(p => p.Id).ToListAsync(ct);

@@ -66,8 +66,8 @@ public static class QueueEndpoints
             query = query.Where(q => q.Status == status);
         }
 
-        var rows = await query.OrderBy(q => q.TokenNo).ToListAsync(ct);
-        return TypedResults.Ok(rows.Select(QueueEntryDto.From).ToList());
+        var rows = await query.WithPatient(db).OrderBy(r => r.Entry.TokenNo).ToListAsync(ct);
+        return TypedResults.Ok(rows.Select(r => r.ToDto()).ToList());
     }
 
     private static async Task<Results<Created<CheckInResultDto>, ValidationProblem, ProblemHttpResult>> WalkInAsync(
@@ -109,9 +109,9 @@ public static class QueueEndpoints
             return problem;
         }
 
-        var entry = await db.QueueEntries.AsNoTracking().SingleAsync(q => q.Id == token.QueueEntryId, ct);
+        var entry = await PatientEmbedding.LoadQueueEntryAsync(db, token.QueueEntryId, ct);
         return TypedResults.Created(
-            $"/api/v1/queue/{token.QueueEntryId}", new CheckInResultDto(token.QueueEntryId, token.TokenNo, token.QueueDate, QueueEntryDto.From(entry)));
+            $"/api/v1/queue/{token.QueueEntryId}", new CheckInResultDto(token.QueueEntryId, token.TokenNo, token.QueueDate, entry));
     }
 
     private static async Task<Results<Ok<QueueEntryDto>, ValidationProblem, ProblemHttpResult>> SetStatusAsync(
@@ -164,8 +164,7 @@ public static class QueueEndpoints
             return problem;
         }
 
-        var updated = await db.QueueEntries.AsNoTracking().SingleAsync(q => q.Id == id, ct);
-        return TypedResults.Ok(QueueEntryDto.From(updated));
+        return TypedResults.Ok(await PatientEmbedding.LoadQueueEntryAsync(db, id, ct));
     }
 
     internal static ProblemHttpResult? CheckInProblem(Exception ex) =>

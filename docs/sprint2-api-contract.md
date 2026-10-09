@@ -1,6 +1,6 @@
 ## API (Backend)
 <!-- BEGIN API (Backend) — owned by Backend (.NET), branch s2/backend. Do not edit other sections from here. -->
-Owner: Backend. Version **API v2, 2026-10-09 (IST)**, implemented on `s2/backend` against DB contract **v4** (`s2/db` @ 6d13c64, D1–D11) and integration-tested on a scratch Postgres 17. Every route below is implemented.
+Owner: Backend. Version **API v2, 2026-10-09 16:55 IST** (v4 status codes + embedded `patient` + `GET /practitioners?branchId=`), implemented on `s2/backend` against DB contract **v4** (`s2/db` @ 6d13c64, D1–D11) and integration-tested on a scratch Postgres 17. Every route below is implemented.
 
 ### A.0 Conventions (unchanged from Sprint 1)
 - Base `/api/v1`, JSON camelCase. `date` = `YYYY-MM-DD`; `time` = `HH:mm` (branch-local wall clock); `instant` = ISO-8601 with offset (responses are UTC `…Z`).
@@ -75,7 +75,7 @@ SlotDto { practitionerId: uuid, branchId: uuid, startsAt: instant, endsAt: insta
 ```
 | Method | Path | Who | Success | Errors |
 |---|---|---|---|---|
-| GET | `/practitioners?activeOnly=true` | any tenant member | 200 `PractitionerDto[]` (by displayName) | — |
+| GET | `/practitioners?activeOnly=true&branchId=` | any tenant member | 200 `PractitionerDto[]` (by displayName). **v2:** with `branchId`, only practitioners that have an **active schedule at that branch** (`isActive` and `validTo` null or ≥ the branch-local today; schedules starting in the future count). Any branch of the caller's tenant is allowed (schedules are tenant-wide). `activeOnly` (default true) still applies. | 404 (`branchId` of another tenant / unknown) |
 | POST | `/practitioners` | ADMIN | 201 `PractitionerDto` | 400, 403, 409 (user already linked) |
 | PATCH | `/practitioners/{id}` | ADMIN | 200 `PractitionerDto` | 400, 403, 404, 409 |
 | GET | `/schedules?branchId=&practitionerId=` | any tenant member | 200 `ScheduleDto[]` | — |
@@ -90,7 +90,9 @@ AppointmentStatus = "booked"|"checked_in"|"in_consultation"|"completed"|"cancell
 AppointmentDto { id: uuid, branchId: uuid, practitionerId: uuid, patientId: uuid, startsAt: instant, endsAt: instant,
                  status: AppointmentStatus, reason: string|null, cancelReason: string|null,
                  checkedInAt: instant|null, startedAt: instant|null, completedAt: instant|null, cancelledAt: instant|null,
-                 createdAt: instant, updatedAt: instant }
+                 createdAt: instant, updatedAt: instant,
+                 patient: PatientRef|null /* v2 */ }
+PatientRef { id: uuid, mrn: string, firstName: string, lastName: string }   // v2, see "Embedded patient" below
 CreateAppointmentRequest     { branchId, practitionerId, patientId, startsAt: instant, endsAt: instant /* > startsAt, ≤ 8 h */, reason?: string /* ≤500 */ }
 RescheduleAppointmentRequest { startsAt: instant, endsAt: instant, practitionerId?: uuid }      // only while booked
 CancelAppointmentRequest     { reason?: string /* ≤500 */ }
@@ -105,6 +107,8 @@ AppointmentSearch (query)    branchId?, practitionerId?, patientId?, date?: date
 | POST | `/appointments/{id}/cancel` | REG_WRITE @its branch | 200 `AppointmentDto` (`cancelled`) | 403, 404, 409 `invalid_transition` |
 | POST | `/appointments/{id}/no-show` | REG_WRITE @its branch | 200 `AppointmentDto` (`no_show`) | 403, 404, 409 `invalid_transition` (before start / not booked) |
 
+**Embedded patient (v2).** Every `AppointmentDto` and `QueueEntryDto` (list, detail, create/book, reschedule/cancel/no-show, check-in / walk-in `entry`, queue PATCH) carries `patient: { id, mrn, firstName, lastName }`. It is loaded in the **same SQL statement** (LEFT JOIN on `patient.patients`; no per-row lookups) under the caller's RLS, so it only appears for patients the caller can already read through `GET /patients/{id}`. `patient` is **null** when the patient is soft-deleted or not readable; `patientId` is always present. No extra fields (DOB, phone, email) are embedded.
+
 Overlap: same practitioner, half-open `[startsAt, endsAt)`, blocking statuses booked/checked_in/in_consultation/completed. Back-to-back is fine. Enforced by DB `23P01` → 409.
 
 ### A.6 Check-in & OPD queue (2.3)
@@ -112,7 +116,8 @@ Overlap: same practitioner, half-open `[startsAt, endsAt)`, blocking statuses bo
 QueueStatus = "waiting"|"in_consultation"|"done"|"cancelled"
 QueueEntryDto { id: uuid, branchId: uuid, queueDate: date /* branch-local */, tokenNo: int, patientId: uuid,
                 appointmentId: uuid|null, practitionerId: uuid|null, status: QueueStatus,
-                checkedInAt: instant, calledAt: instant|null, completedAt: instant|null, cancelledAt: instant|null }
+                checkedInAt: instant, calledAt: instant|null, completedAt: instant|null, cancelledAt: instant|null,
+                patient: PatientRef|null /* v2 */ }
 CheckInResultDto { queueEntryId: uuid, tokenNo: int, queueDate: date, entry: QueueEntryDto }
 WalkInRequest { branchId: uuid, patientId: uuid, practitionerId?: uuid }
 UpdateQueueStatusRequest { status: "in_consultation"|"done"|"cancelled" }

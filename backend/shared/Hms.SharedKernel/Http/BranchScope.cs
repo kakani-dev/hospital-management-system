@@ -22,6 +22,10 @@ public static class BranchScope
         return HmsProblems.NotFound("Branch not found.");
     }
 
+    /// <summary>True when the branch is one of the caller's branches or another (RLS-visible) branch of the resolved tenant.</summary>
+    public static async Task<bool> ExistsInTenantAsync(DbContext db, ITenantContext tenant, Guid branchId, CancellationToken ct) =>
+        tenant.CanAccessBranch(branchId) || await BelongsToTenantAsync(db, tenant, branchId, ct);
+
     private static async Task<bool> BelongsToTenantAsync(DbContext db, ITenantContext tenant, Guid branchId, CancellationToken ct)
     {
         if (!tenant.IsResolved || branchId == Guid.Empty || !db.Database.IsRelational() || db.Database.CurrentTransaction is null)

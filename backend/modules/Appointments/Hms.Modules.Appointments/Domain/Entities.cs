@@ -99,3 +99,18 @@ public static class QueueStatus
     /// <summary>Statuses a client may request through PATCH /queue/{id}.</summary>
     public static readonly IReadOnlySet<string> Settable = new HashSet<string>(StringComparer.Ordinal) { InConsultation, Done, Cancelled };
 }
+
+/// <summary>
+/// Read-only projection of patient.patients used to embed { id, mrn, firstName, lastName } in
+/// appointment / queue responses with a single JOIN. RLS (patients_select_registry_roles) and the
+/// tenant + not-deleted query filter decide visibility; the API never writes through it.
+/// </summary>
+public sealed class PatientRef
+{
+    public Guid Id { get; set; }
+    public Guid TenantId { get; set; }
+    public string Mrn { get; set; } = "";
+    public string FirstName { get; set; } = "";
+    public string LastName { get; set; } = "";
+    public DateTimeOffset? DeletedAt { get; set; }
+}

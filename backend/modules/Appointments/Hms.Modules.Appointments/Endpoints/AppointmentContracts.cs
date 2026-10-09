@@ -37,11 +37,17 @@ public sealed record SlotDto(Guid PractitionerId, Guid BranchId, DateTimeOffset 
 public sealed record AppointmentDto(
     Guid Id, Guid BranchId, Guid PractitionerId, Guid PatientId, DateTimeOffset StartsAt, DateTimeOffset EndsAt, string Status,
     string? Reason, string? CancelReason, DateTimeOffset? CheckedInAt, DateTimeOffset? StartedAt, DateTimeOffset? CompletedAt,
-    DateTimeOffset? CancelledAt, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt)
+    DateTimeOffset? CancelledAt, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, PatientRefDto? Patient)
 {
-    public static AppointmentDto From(Appointment a) => new(
+    public static AppointmentDto From(Appointment a, PatientRef? patient) => new(
         a.Id, a.BranchId, a.PractitionerId, a.PatientId, a.StartsAt.ToUniversalTime(), a.EndsAt.ToUniversalTime(), a.Status, a.Reason, a.CancelReason,
-        a.CheckedInAt, a.StartedAt, a.CompletedAt, a.CancelledAt, a.CreatedAt, a.UpdatedAt);
+        a.CheckedInAt, a.StartedAt, a.CompletedAt, a.CancelledAt, a.CreatedAt, a.UpdatedAt, PatientRefDto.From(patient));
+}
+
+/// <summary>Embedded patient; null when the caller cannot read the patient (RLS) or it is soft-deleted.</summary>
+public sealed record PatientRefDto(Guid Id, string Mrn, string FirstName, string LastName)
+{
+    public static PatientRefDto? From(PatientRef? p) => p is null ? null : new(p.Id, p.Mrn, p.FirstName, p.LastName);
 }
 
 public sealed record CreateAppointmentRequest(
@@ -54,11 +60,11 @@ public sealed record CancelAppointmentRequest(string? Reason);
 // ---------------------------------------------------------------------- queue
 public sealed record QueueEntryDto(
     Guid Id, Guid BranchId, DateOnly QueueDate, int TokenNo, Guid PatientId, Guid? AppointmentId, Guid? PractitionerId, string Status,
-    DateTimeOffset CheckedInAt, DateTimeOffset? CalledAt, DateTimeOffset? CompletedAt, DateTimeOffset? CancelledAt)
+    DateTimeOffset CheckedInAt, DateTimeOffset? CalledAt, DateTimeOffset? CompletedAt, DateTimeOffset? CancelledAt, PatientRefDto? Patient)
 {
-    public static QueueEntryDto From(QueueEntry q) => new(
+    public static QueueEntryDto From(QueueEntry q, PatientRef? patient) => new(
         q.Id, q.BranchId, q.QueueDate, q.TokenNo, q.PatientId, q.AppointmentId, q.PractitionerId, q.Status,
-        q.CheckedInAt, q.CalledAt, q.CompletedAt, q.CancelledAt);
+        q.CheckedInAt, q.CalledAt, q.CompletedAt, q.CancelledAt, PatientRefDto.From(patient));
 }
 
 public sealed record CheckInResultDto(Guid QueueEntryId, int TokenNo, DateOnly QueueDate, QueueEntryDto Entry);

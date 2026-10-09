@@ -111,8 +111,10 @@ public static class AppointmentEndpoints
         var p = Math.Max(page ?? 1, 1);
         var size = Math.Clamp(pageSize ?? 25, 1, 100);
         var total = await query.CountAsync(ct);
-        var items = await query.OrderBy(a => a.StartsAt).ThenBy(a => a.Id).Skip((p - 1) * size).Take(size).ToListAsync(ct);
-        return TypedResults.Ok(new PagedResult<AppointmentDto>([.. items.Select(AppointmentDto.From)], p, size, total));
+        var items = await query.WithPatient(db)
+            .OrderBy(r => r.Appointment.StartsAt).ThenBy(r => r.Appointment.Id)
+            .Skip((p - 1) * size).Take(size).ToListAsync(ct);
+        return TypedResults.Ok(new PagedResult<AppointmentDto>([.. items.Select(r => r.ToDto())], p, size, total));
     }
 
     private static async Task<Results<Ok<AppointmentDto>, ProblemHttpResult>> GetAsync(
@@ -123,8 +125,8 @@ public static class AppointmentEndpoints
             return HmsProblems.Forbidden();
         }
 
-        var appointment = await db.Appointments.AsNoTracking().SingleOrDefaultAsync(a => a.Id == id, ct);
-        return appointment is null ? HmsProblems.NotFound("Appointment not found.") : TypedResults.Ok(AppointmentDto.From(appointment));
+        var row = await db.Appointments.AsNoTracking().Where(a => a.Id == id).WithPatient(db).SingleOrDefaultAsync(ct);
+        return row is null ? HmsProblems.NotFound("Appointment not found.") : TypedResults.Ok(row.ToDto());
     }
 
     private static async Task<Results<Created<AppointmentDto>, ValidationProblem, ProblemHttpResult>> BookAsync(
@@ -193,8 +195,7 @@ public static class AppointmentEndpoints
             return problem;
         }
 
-        await db.Entry(appointment).ReloadAsync(ct);
-        return TypedResults.Created($"/api/v1/appointments/{appointment.Id}", AppointmentDto.From(appointment));
+        return TypedResults.Created($"/api/v1/appointments/{appointment.Id}", await PatientEmbedding.LoadAppointmentAsync(db, appointment.Id, ct));
     }
 
     private static async Task<Results<Ok<AppointmentDto>, ValidationProblem, ProblemHttpResult>> RescheduleAsync(
@@ -303,9 +304,9 @@ public static class AppointmentEndpoints
             return problem;
         }
 
-        var entry = await db.QueueEntries.AsNoTracking().SingleAsync(q => q.Id == token.QueueEntryId, ct);
+        var entry = await PatientEmbedding.LoadQueueEntryAsync(db, token.QueueEntryId, ct);
         return TypedResults.Created(
-            $"/api/v1/queue/{token.QueueEntryId}", new CheckInResultDto(token.QueueEntryId, token.TokenNo, token.QueueDate, QueueEntryDto.From(entry)));
+            $"/api/v1/queue/{token.QueueEntryId}", new CheckInResultDto(token.QueueEntryId, token.TokenNo, token.QueueDate, entry));
     }
 
     // ------------------------------------------------------------------ helpers
@@ -372,8 +373,8 @@ public static class AppointmentEndpoints
             return problem;
         }
 
-        await db.Entry(appointment).ReloadAsync(ct); // trigger-owned timestamps
-        return TypedResults.Ok(AppointmentDto.From(appointment));
+        // fresh read: trigger-owned timestamps + embedded patient in one statement
+        return TypedResults.Ok(await PatientEmbedding.LoadAppointmentAsync(db, appointment.Id, ct));
     }
 
     private static ProblemHttpResult? AppointmentProblem(Exception ex) =>
