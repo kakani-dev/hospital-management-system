@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <!-- Scheduling service host (MICROSERVICES-PLAN.md §2). Service boundary: Hms.Platform + its own module only. -->
+  <PropertyGroup>
+    <UserSecretsId>hms-scheduling-dev</UserSecretsId>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../platform/Hms.Platform/Hms.Platform.csproj" />
+    <ProjectReference Include="../../../modules/Appointments/Hms.Modules.Appointments/Hms.Modules.Appointments.csproj" />
+  </ItemGroup>
+</Project>

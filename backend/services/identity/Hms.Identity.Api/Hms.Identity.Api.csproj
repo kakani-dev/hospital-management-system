@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <!-- Identity service host (MICROSERVICES-PLAN.md §2). Service boundary: Hms.Platform + its own module only. -->
+  <PropertyGroup>
+    <UserSecretsId>hms-identity-dev</UserSecretsId>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../platform/Hms.Platform/Hms.Platform.csproj" />
+    <ProjectReference Include="../../../modules/Identity/Hms.Modules.Identity/Hms.Modules.Identity.csproj" />
+  </ItemGroup>
+</Project>

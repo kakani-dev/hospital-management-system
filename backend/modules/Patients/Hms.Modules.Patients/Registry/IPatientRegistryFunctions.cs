@@ -1,3 +1,4 @@
+using Hms.Platform.Http;
 using Hms.Modules.Patients.Endpoints;
 
 namespace Hms.Modules.Patients.Registry;

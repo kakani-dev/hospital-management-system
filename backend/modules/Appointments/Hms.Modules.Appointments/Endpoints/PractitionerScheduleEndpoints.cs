@@ -1,3 +1,4 @@
+using Hms.Platform.Http;
 using Hms.Modules.Appointments.Domain;
 using Hms.Modules.Appointments.Functions;
 using Hms.Modules.Appointments.Persistence;

@@ -21,9 +21,6 @@ public sealed class AppointmentsDbContext(DbContextOptions<AppointmentsDbContext
     public DbSet<Appointment> Appointments => Set<Appointment>();
     public DbSet<QueueEntry> QueueEntries => Set<QueueEntry>();
 
-    /// <summary>Read-only view of patient.patients (embedding only; never Add/Update it).</summary>
-    public IQueryable<PatientRef> PatientRefs => Set<PatientRef>().AsNoTracking();
-
     private Guid CurrentTenantId => tenantContext.IsResolved ? tenantContext.TenantId : Guid.Empty;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -68,17 +65,6 @@ public sealed class AppointmentsDbContext(DbContextOptions<AppointmentsDbContext
             e.HasQueryFilter(x => x.TenantId == CurrentTenantId);
         });
 
-        modelBuilder.Entity<PatientRef>(e =>
-        {
-            e.ToTable("patients", "patient", t => t.ExcludeFromMigrations());
-            // Same visibility as GET /patients/{id}: this tenant, not soft-deleted (RLS adds the role check).
-            e.HasQueryFilter(x => x.TenantId == CurrentTenantId && !x.IsDeleted);
-            foreach (var property in e.Metadata.GetProperties().Where(p => !p.IsKey()))
-            {
-                property.SetBeforeSaveBehavior(PropertySaveBehavior.Ignore);
-                property.SetAfterSaveBehavior(PropertySaveBehavior.Ignore);
-            }
-        });
 
         modelBuilder.UseDbManagedAuditColumns();
     }

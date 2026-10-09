@@ -1,3 +1,4 @@
+using Hms.Platform.Http;
 using Hms.Modules.Appointments.Domain;
 using Hms.Modules.Appointments.Functions;
 using Hms.Modules.Appointments.Persistence;
@@ -40,7 +41,7 @@ public static class AppointmentEndpoints
 
     private static async Task<Results<Ok<PagedResult<AppointmentDto>>, ValidationProblem, ProblemHttpResult>> ListAsync(
         AppointmentsDbContext db, ITenantContext tenant, Guid? branchId, Guid? practitionerId, Guid? patientId, DateOnly? date,
-        DateTimeOffset? from, DateTimeOffset? to, string? status, int? page, int? pageSize, CancellationToken ct)
+        DateTimeOffset? from, DateTimeOffset? to, string? status, int? page, int? pageSize, IPatientSummaries patients, CancellationToken ct)
     {
         if (!tenant.HasAnyRole(AppointmentRoles.RegRead))
         {
@@ -114,11 +115,12 @@ public static class AppointmentEndpoints
         var items = await query.WithPatient(db)
             .OrderBy(r => r.Appointment.StartsAt).ThenBy(r => r.Appointment.Id)
             .Skip((p - 1) * size).Take(size).ToListAsync(ct);
+        await patients.AttachAsync(items, ct);
         return TypedResults.Ok(new PagedResult<AppointmentDto>([.. items.Select(r => r.ToDto())], p, size, total));
     }
 
     private static async Task<Results<Ok<AppointmentDto>, ProblemHttpResult>> GetAsync(
-        Guid id, AppointmentsDbContext db, ITenantContext tenant, CancellationToken ct)
+        Guid id, AppointmentsDbContext db, ITenantContext tenant, IPatientSummaries patients, CancellationToken ct)
     {
         if (!tenant.HasAnyRole(AppointmentRoles.RegRead))
         {
@@ -126,11 +128,16 @@ public static class AppointmentEndpoints
         }
 
         var row = await db.Appointments.AsNoTracking().Where(a => a.Id == id).WithPatient(db).SingleOrDefaultAsync(ct);
+        if (row is not null)
+        {
+            await patients.AttachAsync([row], ct);
+        }
+
         return row is null ? HmsProblems.NotFound("Appointment not found.") : TypedResults.Ok(row.ToDto());
     }
 
     private static async Task<Results<Created<AppointmentDto>, ValidationProblem, ProblemHttpResult>> BookAsync(
-        CreateAppointmentRequest request, AppointmentsDbContext db, ITenantContext tenant, CancellationToken ct)
+        CreateAppointmentRequest request, AppointmentsDbContext db, ITenantContext tenant, IPatientSummaries patients, CancellationToken ct)
     {
         if (!AppointmentRoles.AnyBranch(tenant, AppointmentRoles.RegWrite))
         {
@@ -195,11 +202,11 @@ public static class AppointmentEndpoints
             return problem;
         }
 
-        return TypedResults.Created($"/api/v1/appointments/{appointment.Id}", await PatientEmbedding.LoadAppointmentAsync(db, appointment.Id, ct));
+        return TypedResults.Created($"/api/v1/appointments/{appointment.Id}", await PatientEmbedding.LoadAppointmentAsync(db, patients, appointment.Id, ct));
     }
 
     private static async Task<Results<Ok<AppointmentDto>, ValidationProblem, ProblemHttpResult>> RescheduleAsync(
-        Guid id, RescheduleAppointmentRequest request, AppointmentsDbContext db, ITenantContext tenant, CancellationToken ct)
+        Guid id, RescheduleAppointmentRequest request, AppointmentsDbContext db, ITenantContext tenant, IPatientSummaries patients, CancellationToken ct)
     {
         var errors = new Dictionary<string, string[]>();
         ValidateTimes(request.StartsAt, request.EndsAt, errors);
@@ -230,11 +237,11 @@ public static class AppointmentEndpoints
         appointment.StartsAt = startsAt;
         appointment.EndsAt = endsAt;
         appointment.PractitionerId = practitioner;
-        return await SaveAsync(db, appointment, ct);
+        return await SaveAsync(db, appointment, patients, ct);
     }
 
     private static async Task<Results<Ok<AppointmentDto>, ValidationProblem, ProblemHttpResult>> CancelAsync(
-        Guid id, CancelAppointmentRequest? request, AppointmentsDbContext db, ITenantContext tenant, CancellationToken ct)
+        Guid id, CancelAppointmentRequest? request, AppointmentsDbContext db, ITenantContext tenant, IPatientSummaries patients, CancellationToken ct)
     {
         if (request?.Reason is { Length: > ReasonMaxLength })
         {
@@ -254,11 +261,11 @@ public static class AppointmentEndpoints
 
         appointment.Status = AppointmentStatus.Cancelled;
         appointment.CancelReason = string.IsNullOrWhiteSpace(request?.Reason) ? null : request.Reason.Trim();
-        return await SaveAsync(db, appointment, ct);
+        return await SaveAsync(db, appointment, patients, ct);
     }
 
     private static async Task<Results<Ok<AppointmentDto>, ValidationProblem, ProblemHttpResult>> NoShowAsync(
-        Guid id, AppointmentsDbContext db, ITenantContext tenant, TimeProvider clock, CancellationToken ct)
+        Guid id, AppointmentsDbContext db, ITenantContext tenant, TimeProvider clock, IPatientSummaries patients, CancellationToken ct)
     {
         var (appointment, denied) = await LoadForWriteAsync(db, tenant, id, ct);
         if (denied is not null)
@@ -272,11 +279,11 @@ public static class AppointmentEndpoints
         }
 
         appointment.Status = AppointmentStatus.NoShow;
-        return await SaveAsync(db, appointment, ct);
+        return await SaveAsync(db, appointment, patients, ct);
     }
 
     private static async Task<Results<Created<CheckInResultDto>, ProblemHttpResult>> CheckInAsync(
-        Guid id, AppointmentsDbContext db, ITenantContext tenant, IAppointmentFunctions functions, CancellationToken ct)
+        Guid id, AppointmentsDbContext db, ITenantContext tenant, IAppointmentFunctions functions, IPatientSummaries patients, CancellationToken ct)
     {
         if (!AppointmentRoles.AnyBranch(tenant, AppointmentRoles.FrontDesk))
         {
@@ -304,7 +311,7 @@ public static class AppointmentEndpoints
             return problem;
         }
 
-        var entry = await PatientEmbedding.LoadQueueEntryAsync(db, token.QueueEntryId, ct);
+        var entry = await PatientEmbedding.LoadQueueEntryAsync(db, patients, token.QueueEntryId, ct);
         return TypedResults.Created(
             $"/api/v1/queue/{token.QueueEntryId}", new CheckInResultDto(token.QueueEntryId, token.TokenNo, token.QueueDate, entry));
     }
@@ -358,7 +365,7 @@ public static class AppointmentEndpoints
     }
 
     private static async Task<Results<Ok<AppointmentDto>, ValidationProblem, ProblemHttpResult>> SaveAsync(
-        AppointmentsDbContext db, Appointment appointment, CancellationToken ct)
+        AppointmentsDbContext db, Appointment appointment, IPatientSummaries patients, CancellationToken ct)
     {
         try
         {
@@ -373,8 +380,8 @@ public static class AppointmentEndpoints
             return problem;
         }
 
-        // fresh read: trigger-owned timestamps + embedded patient in one statement
-        return TypedResults.Ok(await PatientEmbedding.LoadAppointmentAsync(db, appointment.Id, ct));
+        // fresh read: trigger-owned timestamps, then the patient summary through patient.patient_summary_v1
+        return TypedResults.Ok(await PatientEmbedding.LoadAppointmentAsync(db, patients, appointment.Id, ct));
     }
 
     // Booking insert: concurrent overlapping inserts can deadlock (40P01) inside the exclusion-constraint
