@@ -94,6 +94,22 @@ export function meFor(overrides: Partial<CurrentUser> = {}): CurrentUser {
   }
 }
 
+/** /me for a user holding `roles` in Alpha, tenant-wide or bound to `branchId`. */
+export function meWithRoles(roles: string[], branchId: string | null = null, overrides: Partial<CurrentUser> = {}): CurrentUser {
+  return meFor({
+    roles,
+    activeBranchId: branchId,
+    accessibleBranches: branchId
+      ? [{ id: branchId, name: branchId === ALPHA_MAIN ? 'Alpha Main' : 'Alpha East' }]
+      : [
+          { id: ALPHA_MAIN, name: 'Alpha Main' },
+          { id: ALPHA_EAST, name: 'Alpha East' },
+        ],
+    memberships: roles.map((role) => ({ tenantId: ALPHA, tenantName: 'Demo Alpha Hospital', branchId, branchName: null, role })),
+    ...overrides,
+  })
+}
+
 type Handler = (url: URL, init: RequestInit) => Response | Promise<Response>
 
 export function json(body: unknown, status = 200, headers: Record<string, string> = {}) {

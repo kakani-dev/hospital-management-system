@@ -4,7 +4,8 @@ import { defineConfig, devices } from '@playwright/test'
  * Browser E2E for the web app with the API and Supabase Auth MOCKED in the page (page.route,
  * see mocked/mock-backend.ts). No database, .NET or mock-auth server needed: it pins the web side
  * of the PR #1 contracts (X-Hms-Tenant, POST patient search, invitations, 202 add-member,
- * sessionStorage session, idle logoff). The full-stack suite is playwright.config.ts.
+ * sessionStorage session, idle logoff) and the Sprint 2 screens (patients, schedules, calendar,
+ * check-in, OPD queue). The full-stack suite is playwright.config.ts.
  *
  *   npm run e2e:mocked
  */

@@ -13,6 +13,20 @@ const apiProxy = {
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  build: {
+    rolldownOptions: {
+      output: {
+        // Long-lived vendor chunks (cache across app deploys) and an entry chunk under 500 kB.
+        // supabase-js (~200 kB) is only bundled when VITE_SUPABASE_* are set, as in real builds.
+        codeSplitting: {
+          groups: [
+            { name: 'vendor-supabase', test: /node_modules[\\/]@supabase[\\/]/ },
+            { name: 'vendor-react', test: /node_modules[\\/](react|react-dom|scheduler|react-router)[\\/]/ },
+          ],
+        },
+      },
+    },
+  },
   server: { port: 5173, strictPort: true, proxy: apiProxy },
   preview: { port: 4173, strictPort: true, proxy: apiProxy },
   test: {
