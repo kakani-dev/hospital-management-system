@@ -63,12 +63,12 @@
   --color-warning-lighter: #ffba42;
   --color-warning-light: #ffa71a;
   --color-warning: #f59200;
-  --color-warning-darker: #db7c00;
+  --color-warning-darker: #9c5300; /* HMS: was #db7c00 (2.8:1 on soft tints); AA 4.5:1 */
 
   --color-error-lighter: #ff8a5c;
   --color-error-light: #ff6933;
   --color-error: #ff4f1a;
-  --color-error-darker: #e52e00;
+  --color-error-darker: #c22700; /* HMS: was #e52e00 (3.8:1 on soft tints); AA 4.5:1 */
 
   --border-width-3: 3px;
 

@@ -81,7 +81,7 @@ const Textarea = forwardRef(
         {description && (
           <span
             className={clsx(
-              "input-description mt-1 text-xs text-gray-400 dark:text-dark-300",
+              "input-description mt-1 text-xs text-gray-600 dark:text-dark-200", // HMS a11y: was gray-400 (2.6:1 on white)
               classNames?.description,
             )}
           >
