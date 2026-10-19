@@ -7,16 +7,22 @@ import type {
   CreateAppointmentRequest,
   CreateBranchRequest,
   CreatePatientRequest,
+  CreatePractitionerRequest,
+  CreateScheduleRequest,
   PatientDetail,
   PatientRef,
   Practitioner,
   QueueEntry,
   QueueStatus,
+  RescheduleAppointmentRequest,
   Slot,
   SwitchContextRequest,
   UpdateBranchRequest,
   UpdateMemberRequest,
   UpdatePatientRequest,
+  UpdatePractitionerRequest,
+  UpdateScheduleRequest,
+  UpdateTenantRequest,
   WalkInRequest,
 } from './types'
 import { ADD_MEMBER_GENERIC_MESSAGE } from './types'
@@ -36,6 +42,10 @@ export const queryKeys = {
   queue: (branchId: string, date: string) => ['queue', branchId, date] as const,
   branches: ['branches'] as const,
   members: ['members'] as const,
+  patientStats: (branchId: string) => ['patients', 'stats', branchId] as const,
+  appointmentCount: (q: AppointmentQuery) => ['appointments', 'count', q] as const,
+  adminPractitioners: ['practitioners', 'admin'] as const,
+  adminSchedules: (branchId: string) => ['schedules', 'admin', branchId] as const,
 }
 
 /**
@@ -463,5 +473,139 @@ export function usePendingMutationIds<V>(mutationKey: readonly unknown[], idOf: 
   return useMutationState({
     filters: { mutationKey: [...mutationKey], status: 'pending' },
     select: (m) => idOf(m.state.variables as V),
+  })
+}
+
+// ----------------------------------------------------------------- dashboard counts
+
+/** Live patients and today's registrations (GET /patients/stats; '' = whole hospital). */
+export function usePatientStats(branchId: string | null, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.patientStats(branchId ?? ''),
+    queryFn: () => apiClient.patients.stats(branchId ? { branchId } : {}),
+    enabled,
+    retry: false,
+    staleTime: 30_000,
+  })
+}
+
+/** Number of appointments in [from, to) (one page of 1 row: only totalCount is read). */
+export function useAppointmentCount(query: AppointmentQuery | null) {
+  return useQuery({
+    queryKey: queryKeys.appointmentCount(query ?? { branchId: '', from: '', to: '' }),
+    queryFn: async () => (await apiClient.appointments.list({ ...query!, page: 1, pageSize: 1 })).totalCount,
+    enabled: !!query?.branchId,
+    retry: false,
+    staleTime: 30_000,
+  })
+}
+
+// ----------------------------------------------------------------- appointment changes
+
+export function useRescheduleAppointment() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: RescheduleAppointmentRequest }) => apiClient.appointments.reschedule(id, body),
+    onSettled: () => qc.invalidateQueries({ queryKey: ['appointments'] }),
+  })
+}
+
+export function useNoShowAppointment() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => apiClient.appointments.noShow(id),
+    onSettled: () => qc.invalidateQueries({ queryKey: ['appointments'] }),
+  })
+}
+
+// ----------------------------------------------------------------- admin: practitioners + working hours
+
+/** Every practitioner incl. inactive and (tenant_admin) soft-deleted ones. */
+export function useAdminPractitioners() {
+  return useQuery({
+    queryKey: queryKeys.adminPractitioners,
+    queryFn: () => apiClient.practitioners.list({ activeOnly: false, includeDeleted: true }),
+    retry: false,
+  })
+}
+
+/** Practitioner or schedule writes change who is bookable where: refresh both lists and the slots. */
+const invalidateScheduling = (qc: ReturnType<typeof useQueryClient>) =>
+  Promise.all([
+    qc.invalidateQueries({ queryKey: ['practitioners'] }),
+    qc.invalidateQueries({ queryKey: ['schedules'] }),
+    qc.invalidateQueries({ queryKey: ['appointments', 'slots'] }),
+  ])
+
+export function useCreatePractitioner() {
+  const qc = useQueryClient()
+  return useMutation({ mutationFn: (body: CreatePractitionerRequest) => apiClient.practitioners.create(body), onSuccess: () => invalidateScheduling(qc) })
+}
+
+export function useUpdatePractitioner() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: UpdatePractitionerRequest }) => apiClient.practitioners.update(id, body),
+    onSuccess: () => invalidateScheduling(qc),
+  })
+}
+
+export function useDeletePractitioner() {
+  const qc = useQueryClient()
+  return useMutation({ mutationFn: (id: string) => apiClient.practitioners.remove(id), onSuccess: () => invalidateScheduling(qc) })
+}
+
+export function useRestorePractitioner() {
+  const qc = useQueryClient()
+  return useMutation({ mutationFn: (id: string) => apiClient.practitioners.restore(id), onSuccess: () => invalidateScheduling(qc) })
+}
+
+/** A branch's weekly hours incl. inactive and (tenant_admin) soft-deleted rows. */
+export function useAdminSchedules(branchId: string | null) {
+  return useQuery({
+    queryKey: queryKeys.adminSchedules(branchId ?? ''),
+    queryFn: () => apiClient.schedules.list({ branchId: branchId!, includeDeleted: true }),
+    enabled: !!branchId,
+    retry: false,
+  })
+}
+
+export function useCreateSchedule() {
+  const qc = useQueryClient()
+  return useMutation({ mutationFn: (body: CreateScheduleRequest) => apiClient.schedules.create(body), onSuccess: () => invalidateScheduling(qc) })
+}
+
+export function useUpdateSchedule() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: UpdateScheduleRequest }) => apiClient.schedules.update(id, body),
+    onSuccess: () => invalidateScheduling(qc),
+  })
+}
+
+export function useDeleteSchedule() {
+  const qc = useQueryClient()
+  return useMutation({ mutationFn: (id: string) => apiClient.schedules.remove(id), onSuccess: () => invalidateScheduling(qc) })
+}
+
+export function useRestoreSchedule() {
+  const qc = useQueryClient()
+  return useMutation({ mutationFn: (id: string) => apiClient.schedules.restore(id), onSuccess: () => invalidateScheduling(qc) })
+}
+
+// ----------------------------------------------------------------- admin: hospital settings
+
+/**
+ * Rename the hospital or change its zone. A zone change moves every "today", slot and label that
+ * follows the hospital zone, so everything cached is refetched.
+ */
+export function useUpdateCurrentTenant() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: UpdateTenantRequest) => apiClient.updateCurrentTenant(body),
+    onSuccess: (tenant) => {
+      qc.setQueryData(queryKeys.currentTenant, tenant)
+      return qc.invalidateQueries()
+    },
   })
 }

@@ -9,6 +9,8 @@ import type {
   CreateAppointmentRequest,
   CreateBranchRequest,
   CreatePatientRequest,
+  CreatePractitionerRequest,
+  CreateScheduleRequest,
   CurrentTenant,
   CurrentUser,
   DeletePatientRequest,
@@ -20,15 +22,20 @@ import type {
   PagedResult,
   PatientDetail,
   PatientSearchRequest,
+  PatientStats,
   PatientSummary,
   Practitioner,
   ProblemDetails,
   QueueEntry,
   QueueStatus,
+  RescheduleAppointmentRequest,
   Schedule,
   Slot,
   SwitchContextRequest,
   UpdateBranchRequest,
+  UpdatePractitionerRequest,
+  UpdateScheduleRequest,
+  UpdateTenantRequest,
   UpdateMemberRequest,
   UpdatePatientRequest,
   UpdateQueueStatusRequest,
@@ -317,6 +324,10 @@ export class ApiClient {
   /** The active hospital (tenant); carries the hospital time zone on the audit/TZ API. */
   currentTenant = () => this.request<CurrentTenant>('/api/v1/tenants/current')
 
+  /** tenant_admin: rename the hospital or change its zone (409 asks to confirm future bookings). */
+  updateCurrentTenant = (body: UpdateTenantRequest) =>
+    this.request<CurrentTenant>('/api/v1/tenants/current', { method: 'PATCH', body: JSON.stringify(body) })
+
   /** Server validates the requested tenant/branch against memberships (403 otherwise). */
   switchContext = (body: SwitchContextRequest) =>
     this.request<void>('/api/v1/me/context', { method: 'POST', body: JSON.stringify(body) })
@@ -375,6 +386,8 @@ export class ApiClient {
       }),
     /** tenant_admin only. */
     restore: (id: string) => this.request<void>(`/api/v1/patients/${encodeURIComponent(id)}/restore`, { method: 'POST' }),
+    /** Counts only (no PHI); omit branchId for the whole hospital. */
+    stats: (params: { branchId?: string } = {}) => this.request<PatientStats>(`/api/v1/patients/stats${qs(params)}`),
     /** Possible duplicates (≤ 20, advisory). Identifiers are PHI: body, never URL. */
     duplicates: async (body: DuplicateCheckRequest) => {
       const result = await this.request<{ candidates?: DuplicateCandidate[] } | DuplicateCandidate[] | undefined>('/api/v1/patients/duplicates', {
@@ -387,13 +400,28 @@ export class ApiClient {
 
   practitioners = {
     /** `branchId` (API v2): practitioners bookable at that branch; omitted = tenant-wide. */
-    list: ({ activeOnly = true, branchId }: { activeOnly?: boolean; branchId?: string } = {}) =>
-      this.request<Practitioner[]>(`/api/v1/practitioners${qs({ activeOnly: String(activeOnly), branchId })}`),
+    /** includeDeleted is tenant_admin only (403 otherwise). */
+    list: ({ activeOnly = true, branchId, includeDeleted }: { activeOnly?: boolean; branchId?: string; includeDeleted?: boolean } = {}) =>
+      this.request<Practitioner[]>(`/api/v1/practitioners${qs({ activeOnly: String(activeOnly), branchId, includeDeleted: includeDeleted ? 'true' : undefined })}`),
+    create: (body: CreatePractitionerRequest) =>
+      this.request<Practitioner>('/api/v1/practitioners', { method: 'POST', body: JSON.stringify(body) }),
+    update: (id: string, body: UpdatePractitionerRequest) =>
+      this.request<Practitioner>(`/api/v1/practitioners/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    /** Soft delete; 409 while the practitioner has open appointments. */
+    remove: (id: string) => this.request<void>(`/api/v1/practitioners/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    restore: (id: string) => this.request<void>(`/api/v1/practitioners/${encodeURIComponent(id)}/restore`, { method: 'POST' }),
   }
 
   schedules = {
     /** Weekly recurring schedules (all of the branch's practitioners when practitionerId is omitted). */
-    list: (params: { branchId: string; practitionerId?: string }) => this.request<Schedule[]>(`/api/v1/schedules${qs(params)}`),
+    list: (params: { branchId?: string; practitionerId?: string; includeDeleted?: boolean }) =>
+      this.request<Schedule[]>(`/api/v1/schedules${qs({ ...params, includeDeleted: params.includeDeleted ? 'true' : undefined })}`),
+    create: (body: CreateScheduleRequest) => this.request<Schedule>('/api/v1/schedules', { method: 'POST', body: JSON.stringify(body) }),
+    update: (id: string, body: UpdateScheduleRequest) =>
+      this.request<Schedule>(`/api/v1/schedules/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    remove: (id: string) => this.request<void>(`/api/v1/schedules/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    /** 409 schedule_overlap when the restored hours overlap another active schedule. */
+    restore: (id: string) => this.request<void>(`/api/v1/schedules/${encodeURIComponent(id)}/restore`, { method: 'POST' }),
   }
 
   /** Free, future slots; `from`/`to` are branch-local dates, inclusive, ≤ 31 days. */
@@ -409,6 +437,11 @@ export class ApiClient {
       this.request<Appointment>(`/api/v1/appointments/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: JSON.stringify(body) }),
     /** Issues the next OPD token (appointment must be today, branch-local). */
     checkIn: (id: string) => this.request<CheckInResult>(`/api/v1/appointments/${encodeURIComponent(id)}/check-in`, { method: 'POST' }),
+    /** Only `booked` appointments; 409 appointment_overlap / invalid_transition. */
+    reschedule: (id: string, body: RescheduleAppointmentRequest) =>
+      this.request<Appointment>(`/api/v1/appointments/${encodeURIComponent(id)}/reschedule`, { method: 'POST', body: JSON.stringify(body) }),
+    /** Only `booked` appointments whose start has passed; otherwise 409 invalid_transition. */
+    noShow: (id: string) => this.request<Appointment>(`/api/v1/appointments/${encodeURIComponent(id)}/no-show`, { method: 'POST' }),
   }
 
   queue = {

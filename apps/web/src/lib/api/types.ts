@@ -106,6 +106,13 @@ export interface CurrentTenant {
   timeZone?: string | null
 }
 
+/** PATCH /api/v1/tenants/current (tenant_admin). 409 time_zone_has_future_bookings / time_zone_locked. */
+export interface UpdateTenantRequest {
+  name?: string
+  timeZone?: string
+  confirmFutureBookings?: boolean
+}
+
 export interface SwitchContextRequest {
   tenantId: Guid
   branchId?: Guid | null
@@ -258,6 +265,23 @@ export interface Practitioner {
   displayName: string
   specialty: string | null
   isActive: boolean
+  /** Only ever true in the admin list with includeDeleted (restore). */
+  isDeleted?: boolean
+}
+
+export interface CreatePractitionerRequest {
+  displayName: string
+  specialty?: string | null
+  userId?: Guid | null
+}
+
+/** Merge-patch: absent = unchanged; unlinkUser clears the staff account link. */
+export interface UpdatePractitionerRequest {
+  displayName?: string
+  specialty?: string | null
+  userId?: Guid
+  isActive?: boolean
+  unlinkUser?: boolean
 }
 
 /** Weekly recurring working hours at a branch (ScheduleDto). Times are branch-local wall clock. */
@@ -273,6 +297,44 @@ export interface Schedule {
   validFrom: string
   validTo: string | null
   isActive: boolean
+  /** Only ever true in the admin list with includeDeleted (restore). */
+  isDeleted?: boolean
+}
+
+export interface CreateScheduleRequest {
+  practitionerId: Guid
+  branchId: Guid
+  weekday: number
+  startTime: string
+  endTime: string
+  slotMinutes: number
+  validFrom: string
+  validTo?: string | null
+}
+
+/** Merge-patch; clearValidTo removes the end date. 409 schedule_overlap on overlapping hours. */
+export interface UpdateScheduleRequest {
+  weekday?: number
+  startTime?: string
+  endTime?: string
+  slotMinutes?: number
+  validFrom?: string
+  validTo?: string
+  clearValidTo?: boolean
+  isActive?: boolean
+}
+
+/** GET /api/v1/patients/stats: dashboard counts (no PHI). "Today" = each branch's local day. */
+export interface PatientStats {
+  total: number
+  registeredToday: number
+}
+
+/** POST /appointments/{id}/reschedule: only `booked`; 409 appointment_overlap. */
+export interface RescheduleAppointmentRequest {
+  startsAt: string
+  endsAt: string
+  practitionerId?: Guid
 }
 
 /** GET /api/v1/slots: only free, future slots. */
