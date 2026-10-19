@@ -37,4 +37,17 @@ public sealed class PostgresPatientRegistryFunctions(PatientsDbContext db) : IPa
 
     public Task RestoreAsync(Guid patientId, CancellationToken ct) =>
         RawSql.ScalarAsync(db, "select patient.restore_patient(@id::uuid)", ct, ("id", patientId));
+
+    public async Task<string?> DefaultCountryCodeAsync(Guid tenantId, CancellationToken ct) =>
+        await RawSql.ScalarAsync(db, "select identity.tenant_default_country_code_v1(@tenant::uuid)", ct, ("tenant", tenantId)) as string;
+
+    public Task SetPhonesAsync(Guid patientId, string? phone, bool whatsappSameAsPhone, string? whatsapp, CancellationToken ct) =>
+        RawSql.ScalarAsync(
+            db,
+            "select patient.set_patient_phones(@id::uuid, @phone::text, @same::boolean, @whatsapp::text)",
+            ct,
+            ("id", patientId),
+            ("phone", phone),
+            ("same", whatsappSameAsPhone),
+            ("whatsapp", whatsapp));
 }

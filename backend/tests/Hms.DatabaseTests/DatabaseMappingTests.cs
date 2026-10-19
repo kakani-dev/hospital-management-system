@@ -134,13 +134,15 @@ public sealed class DatabaseMappingTests
     }
 
     [Fact]
-    public async Task Database_rejects_duplicate_mrn_within_tenant()
+    public async Task Database_generates_the_mrn_and_never_takes_an_existing_one()
     {
         await using var db = Patients(As(Alpha, AlphaAdmin, AlphaMain));
         await using var tx = await db.Database.BeginTransactionAsync();
-        db.Patients.Add(new Patient { Mrn = "ALP-0001", FirstName = "Dup", LastName = "Synthetic-Alpha", RegisteredBranchId = AlphaMain });
-        var ex = await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
-        Assert.Equal(PostgresErrorCodes.UniqueViolation, Assert.IsType<PostgresException>(ex.InnerException).SqlState);
+        var patient = new Patient { Mrn = "ALP-0001", FirstName = "Dup", LastName = "Synthetic-Alpha", RegisteredBranchId = AlphaMain };
+        db.Patients.Add(patient);
+        await db.SaveChangesAsync();
+        Assert.NotEqual("ALP-0001", patient.Mrn);
+        Assert.StartsWith("DEMO-ALPHA-", patient.Mrn, StringComparison.Ordinal);
         await tx.RollbackAsync();
     }
 }

@@ -86,17 +86,20 @@ public sealed class InProcessApiTests : IClassFixture<InProcessApiTests.ApiFacto
     }
 
     [Fact]
-    public async Task Mrn_is_stored_upper_case_and_uniqueness_is_case_insensitive()
+    public async Task Mrn_is_generated_server_side_and_a_client_mrn_is_ignored()
     {
         using var client = _factory.ClientAs(Admin);
-        var mrn = NewMrn("low");
-        var created = await client.PostAsJsonAsync("/api/v1/patients", NewPatient(Main, mrn));
-        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
-        var body = await created.Content.ReadFromJsonAsync<PatientBody>();
-        Assert.Equal(mrn.ToUpperInvariant(), body!.Mrn);
+        var typed = NewMrn("typed");
+        var first = await client.PostAsJsonAsync("/api/v1/patients", NewPatient(Main, typed));
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+        var a = (await first.Content.ReadFromJsonAsync<PatientBody>())!;
+        Assert.NotEqual(typed.ToUpperInvariant(), a.Mrn);
+        Assert.Matches("^[A-Z0-9-]+-[0-9]{6,}$", a.Mrn);
 
-        Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsJsonAsync("/api/v1/patients", NewPatient(Main, mrn.ToUpperInvariant()))).StatusCode);
-        Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsJsonAsync("/api/v1/patients", NewPatient(East, mrn))).StatusCode);
+        // the same typed value again is not a conflict any more: it is simply ignored
+        var second = await client.PostAsJsonAsync("/api/v1/patients", NewPatient(Main, typed));
+        Assert.Equal(HttpStatusCode.Created, second.StatusCode);
+        Assert.NotEqual(a.Mrn, (await second.Content.ReadFromJsonAsync<PatientBody>())!.Mrn);
     }
 
     [Fact]
@@ -258,7 +261,7 @@ public sealed class InProcessApiTests : IClassFixture<InProcessApiTests.ApiFacto
             services.RemoveAll<IDbContextOptionsConfiguration<TContext>>();
             services.AddDbContext<TContext>((sp, o) => o
                 .UseInMemoryDatabase(name)
-                .AddInterceptors(sp.GetRequiredService<TenantSaveChangesInterceptor>()));
+                .AddInterceptors(sp.GetRequiredService<TenantSaveChangesInterceptor>(), new FakeMrnTrigger()));
         }
     }
 

@@ -12,7 +12,7 @@ export function Header({ start, end }: { start?: ReactNode; end?: ReactNode }) {
   return (
     <header
       className={clsx(
-        'app-header transition-content sticky top-0 z-20 flex min-h-[65px] items-center gap-3 border-b border-gray-200 bg-white/80 px-(--margin-x) py-2 backdrop-blur-sm backdrop-saturate-150 dark:border-dark-600',
+        'app-header transition-content sticky top-0 z-20 flex min-h-[65px] min-w-0 items-center gap-3 border-b border-gray-200 bg-white/80 px-(--margin-x) py-2 backdrop-blur-sm backdrop-saturate-150 dark:border-dark-600',
         cardSkin === 'bordered' ? 'dark:bg-dark-900/80' : 'dark:bg-dark-700/80',
       )}
     >

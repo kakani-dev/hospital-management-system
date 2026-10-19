@@ -27,6 +27,11 @@ import type { BrowserContext, Page, Request, Route } from '@playwright/test'
  * Writes check the role held *at the row's branch*; branch-bound members only see their branches.
  * The resolved tenant is per USER (server-side), like identity.user_profiles, so a "switch on
  * another device" is simulated with `backend.setActiveTenant()`.
+ * Level 1 (MRN + phones): POST /patients ignores a client `mrn` and assigns `<TENANT>-<6 digits>`
+ * from a per-tenant counter; PATCH with a different `mrn` → 400. Phones are normalised to E.164
+ * (+91 default); `whatsapp: {sameAsPhone, number?}` on create/update; detail responses carry
+ * `phones[] {number, isPrimary, isWhatsapp}` + `whatsappSameAsPhone`; phone search/duplicates
+ * compare every live number (the last 10 digits).
  */
 
 export const MOCK_AUTH_URL = 'http://127.0.0.1:59999'
@@ -67,7 +72,10 @@ interface MockPatient {
   dateOfBirth: string | null
   sex: string
   registeredBranchId: string
+  /** Primary phone, E.164 (mirrors patients.phone). */
   phone: string | null
+  /** WhatsApp: 'same' = the phone row carries the flag; a string = a separate E.164 number. */
+  whatsapp?: 'same' | string | null
   email: string | null
   deletedAt: string | null
   /** Set for patients registered during the test (GET /patients/stats). */
@@ -75,8 +83,8 @@ interface MockPatient {
 }
 
 const seedPatients = (): MockPatient[] => [
-  { id: patientIds.asha, tenantId: ids.alpha, mrn: 'ALP-0001', firstName: 'Asha', lastName: 'Synthetic-Alpha', dateOfBirth: '1990-01-01', sex: 'female', registeredBranchId: ids.alphaMain, phone: '+91 98450 00001', email: null, deletedAt: null },
-  { id: patientIds.ravi, tenantId: ids.alpha, mrn: 'ALP-0002', firstName: 'Ravi', lastName: 'Synthetic-Alpha', dateOfBirth: '1985-05-05', sex: 'male', registeredBranchId: ids.alphaEast, phone: '+91 98450 00002', email: null, deletedAt: null },
+  { id: patientIds.asha, tenantId: ids.alpha, mrn: 'ALP-0001', firstName: 'Asha', lastName: 'Synthetic-Alpha', dateOfBirth: '1990-01-01', sex: 'female', registeredBranchId: ids.alphaMain, phone: '+919845000001', whatsapp: '+919800000101', email: null, deletedAt: null },
+  { id: patientIds.ravi, tenantId: ids.alpha, mrn: 'ALP-0002', firstName: 'Ravi', lastName: 'Synthetic-Alpha', dateOfBirth: '1985-05-05', sex: 'male', registeredBranchId: ids.alphaEast, phone: '+919845000002', whatsapp: 'same', email: null, deletedAt: null },
   { id: patientIds.meera, tenantId: ids.beta, mrn: 'BET-0001', firstName: 'Meera', lastName: 'Synthetic-Beta', dateOfBirth: '1970-07-07', sex: 'female', registeredBranchId: ids.betaMain, phone: null, email: null, deletedAt: null },
 ]
 
@@ -167,6 +175,22 @@ interface MockQueueEntry {
 
 const BLOCKING = ['booked', 'checked_in', 'in_consultation', 'completed']
 const QUEUE_TRANSITIONS: Record<string, string[]> = { waiting: ['in_consultation', 'cancelled'], in_consultation: ['done', 'cancelled'], done: [], cancelled: [] }
+/** Mirror of PhoneE164.Normalize / patient.to_e164 (tenant default calling code; +91 here). */
+export const toE164 = (raw: unknown, countryCode = '+91'): string | null => {
+  if (typeof raw !== 'string' || !raw.trim()) return null
+  const v = raw.replace(/[\s().-]/g, '')
+  const cc = countryCode.replace(/^\+/, '')
+  let candidate: string
+  if (v.startsWith('+')) candidate = v
+  else if (v.startsWith('00')) candidate = '+' + v.slice(2)
+  else if (!/^\d+$/.test(v)) return null
+  else if (v.length > 10 && v.startsWith(cc)) candidate = '+' + v
+  else candidate = '+' + cc + v.replace(/^0+/, '')
+  return /^\+[1-9]\d{7,14}$/.test(candidate) ? candidate : null
+}
+const PHONE_ERROR = 'Enter a valid phone number, e.g. 98765 43210 or +971 50 123 4567.'
+const WHATSAPP_ERROR = 'Enter a valid WhatsApp number, e.g. 98765 43210 or +971 50 123 4567.'
+const WHATSAPP_NEEDS_PHONE = 'Enter a phone number, or untick "Same as phone number" and enter the WhatsApp number.'
 const normalizePhone = (p: string | null | undefined) => {
   const digits = (p ?? '').replace(/\D/g, '')
   return digits.length < 7 ? null : digits.slice(-10)
@@ -186,7 +210,52 @@ interface MockUser {
   email: string
   memberships: Membership[]
   activeTenantId: string | null
+  /** identity.platform_admins (no tenant access implied). */
+  platformAdmin?: boolean
 }
+
+/** Level 1 onboarding / platform console (identity.tenant_signup_requests, invite_links, platform_list_tenants). */
+interface MockSignup {
+  id: string
+  hospitalName: string
+  timeZone: string
+  contactName: string
+  contactEmail: string
+  phone: string
+  city: string
+  status: 'pending' | 'approved' | 'rejected'
+  decisionReason: string | null
+  decidedOn: string | null
+  tenantId: string | null
+  tenantCode: string | null
+  createdOn: string
+}
+interface MockPlatformTenant {
+  id: string
+  code: string
+  name: string
+  timeZone: string
+  createdOn: string
+  branchCount: number
+  userCount: number
+}
+interface MockInviteLink {
+  id: string
+  tenantId: string
+  tenantName: string
+  email: string
+  role: string
+  branchId: string | null
+  token: string
+  status: 'pending' | 'claimed' | 'revoked'
+  expiresOn: string
+  createdOn: string
+  claimedOn: string | null
+}
+
+export const OPERATOR_EMAIL = 'operator@medicore.example'
+export const INVITEE_EMAIL = 'invitee@synthetic.example'
+
 
 export interface RecordedCall {
   method: string
@@ -246,6 +315,13 @@ export class MockBackend {
     this.addUser('reception@alpha.example').memberships.push(this.membership(ids.alpha, ids.alphaMain, 'receptionist', 'active'))
     this.addUser('doctor@alpha.example').memberships.push(this.membership(ids.alpha, null, 'doctor', 'active'))
     this.addUser('billing@alpha.example').memberships.push(this.membership(ids.alpha, null, 'billing', 'active'))
+    // Level 1: the platform operator (no hospital membership) and an account invited by link.
+    this.addUser(OPERATOR_EMAIL).platformAdmin = true
+    this.addUser(INVITEE_EMAIL)
+    this.signups.push(
+      { id: '5a000000-0000-4000-8000-000000000001', hospitalName: 'Synthetic Orchid Hospital', timeZone: 'Asia/Dubai', contactName: 'Omar Synthetic', contactEmail: 'omar@orchid.example', phone: '+971 4 555 0100', city: 'Dubai', status: 'pending', decisionReason: null, decidedOn: null, tenantId: null, tenantCode: null, createdOn: '2026-10-18T06:15:00.000Z' },
+      { id: '5a000000-0000-4000-8000-000000000002', hospitalName: 'Synthetic Lotus Clinic', timeZone: 'Asia/Kolkata', contactName: 'Asha Synthetic', contactEmail: 'asha@lotus.example', phone: '+91 20 5550 1234', city: 'Pune', status: 'pending', decisionReason: null, decidedOn: null, tenantId: null, tenantCode: null, createdOn: '2026-10-19T02:40:00.000Z' },
+    )
     // Today's booked appointment for Asha with Dr. Rao (check-in flow).
     const today = branchToday()
     this.appointments.push({ id: 'a0000000-0000-4000-8000-000000000001', tenantId: ids.alpha, branchId: ids.alphaMain, practitionerId: practitionerIds.rao, patientId: patientIds.asha, startsAt: branchInstant(today, '09:30'), endsAt: branchInstant(today, '09:45'), status: 'booked', reason: null, cancelReason: null })
@@ -271,9 +347,20 @@ export class MockBackend {
   }
   /** Renamed hospitals/branches (admin screens). */
   readonly tenantNames = new Map<string, string>()
+  /** patient.mrn_counters: per-tenant MRN sequence (seed MRNs use the legacy format). */
+  readonly mrnCounters = new Map<string, number>()
   readonly branchNames = new Map<string, string>()
   readonly appointments: MockAppointment[] = []
   readonly queue: MockQueueEntry[] = []
+  /** Level 1 state (per instance). */
+  readonly signups: MockSignup[] = []
+  readonly platformTenants: MockPlatformTenant[] = []
+  readonly inviteLinks: MockInviteLink[] = []
+  readonly tenantStatus = new Map<string, { status: 'active' | 'suspended'; history: { fromStatus: string; toStatus: string; reason: string; changedOn: string; changedBy: string | null }[] }>()
+  readonly branchState = new Map<string, { isActive: boolean; isDeleted: boolean }>()
+  tenantIsActive(tenantId: string) {
+    return (this.tenantStatus.get(tenantId)?.status ?? 'active') === 'active'
+  }
   private tokenCounters = new Map<string, number>()
 
   /** Another desk books directly (to provoke a 409 in the UI). */
@@ -317,7 +404,8 @@ export class MockBackend {
 
   /** identity.resolve_active_context: persisted preference, else oldest ACTIVE membership. */
   resolvedTenant(user: MockUser): string | null {
-    const active = user.memberships.filter((m) => m.status === 'active').sort((a, b) => a.createdOn.localeCompare(b.createdOn))
+    // Suspended hospitals never resolve (my_tenant_grant_v1 requires tenants.status = 'active').
+    const active = user.memberships.filter((m) => m.status === 'active' && this.tenantIsActive(m.tenantId)).sort((a, b) => a.createdOn.localeCompare(b.createdOn))
     const pref = active.find((m) => m.tenantId === user.activeTenantId)
     const tenant = pref?.tenantId ?? active[0]?.tenantId ?? null
     if (tenant) user.activeTenantId = tenant // first resolution is persisted
@@ -434,6 +522,32 @@ export class MockBackend {
       this.warmups += 1
       return reply(204)
     }
+    // Public (anonymous) Level 1 endpoints: they never create a tenant or any access.
+    if (path.startsWith('/api/v1/public/')) {
+      let pub: Record<string, unknown> = {}
+      try {
+        pub = (request.postDataJSON() ?? {}) as Record<string, unknown>
+      } catch {
+        pub = {}
+      }
+      if (method === 'POST' && path === '/api/v1/public/hospital-signups') {
+        const accepted = { message: 'Thank you. If the details are valid, our team will review your request and contact you.' }
+        if (pub.website) return reply(202, accepted) // honeypot: dropped silently
+        const email = String(pub.contactEmail ?? '').toLowerCase()
+        if (!this.signups.some((x) => x.status === 'pending' && x.contactEmail === email)) {
+          this.signups.push({ id: uuid('5a100000'), hospitalName: String(pub.hospitalName), timeZone: String(pub.timeZone), contactName: String(pub.contactName), contactEmail: email, phone: String(pub.phone), city: String(pub.city), status: 'pending', decisionReason: null, decidedOn: null, tenantId: null, tenantCode: null, createdOn: new Date().toISOString() })
+        }
+        return reply(202, accepted)
+      }
+      const pre = /^\/api\/v1\/public\/invites\/([0-9a-f]{64})$/.exec(path)
+      if (method === 'GET' && pre) {
+        const link = this.inviteLinks.find((l) => l.token === pre[1] && l.status === 'pending' && l.expiresOn > new Date().toISOString())
+        if (!link) return reply(404, { title: 'Not found', status: 404, code: 'not_found' })
+        const [local, domain] = link.email.split('@')
+        return reply(200, { tenantName: link.tenantName, role: link.role, branchName: link.branchId ? (tenants[link.tenantId]?.branches.find((b) => b.id === link.branchId)?.name ?? null) : null, emailHint: `${local!.slice(0, 1)}***@${domain}`, expiresOn: link.expiresOn })
+      }
+      return reply(404, { title: 'Not found', status: 404 })
+    }
     const user = this.userFromRequest(request)
     if (!user) return reply(401, { title: 'Unauthorized', status: 401 })
     const tenant = this.resolvedTenant(user)
@@ -462,10 +576,27 @@ export class MockBackend {
           activeBranchId: scopedBranches && scopedBranches.size === 1 ? [...scopedBranches][0] : null,
           roles,
           accessibleBranches: tenant ? tenants[tenant]!.branches.filter((b) => !scopedBranches || scopedBranches.has(b.id)).map(({ id, name }) => ({ id, name })) : [],
-          memberships: active.map((m) => ({ tenantId: m.tenantId, tenantName: tenants[m.tenantId]!.name, branchId: m.branchId, branchName: null, role: m.role })),
+          memberships: active.filter((m) => this.tenantIsActive(m.tenantId)).map((m) => ({ tenantId: m.tenantId, tenantName: this.tenantNames.get(m.tenantId) ?? tenants[m.tenantId]!.name, branchId: m.branchId, branchName: null, role: m.role })),
+          isPlatformAdmin: user.platformAdmin === true,
         },
         tenant,
       )
+    }
+    // Claim an invite link (signed in; the account email must match). Tenant-independent.
+    if (method === 'POST' && path === '/api/v1/me/invite-links/claim') {
+      const link = this.inviteLinks.find((l) => l.token === body.token && l.status === 'pending')
+      if (!link || !tenants[link.tenantId]) return reply(404, { title: 'Not found', status: 404, code: 'not_found' })
+      if (link.email !== user.email) return reply(403, { title: 'Forbidden', status: 403, code: 'invite_email_mismatch' })
+      if (!user.memberships.some((m) => m.tenantId === link.tenantId && m.role === link.role && m.branchId === link.branchId)) {
+        user.memberships.push(this.membership(link.tenantId, link.branchId, link.role, 'active'))
+      }
+      Object.assign(link, { status: 'claimed', claimedOn: new Date().toISOString() })
+      return reply(200, { tenantId: link.tenantId, tenantName: link.tenantName, role: link.role, branchId: link.branchId })
+    }
+    // Platform console (identity service): is_platform_admin() or 403; metadata only, no tenant access.
+    if (path.startsWith('/api/v1/platform/')) {
+      if (!user.platformAdmin) return reply(403, { title: 'Forbidden', status: 403, code: 'forbidden' })
+      return this.handlePlatform(method, path, url, body, user, reply)
     }
     if (method === 'GET' && path === '/api/v1/me/invitations') {
       const invitations = user.memberships
@@ -496,8 +627,33 @@ export class MockBackend {
     const forbidden = () => problem(403, 'forbidden')
 
     const livePatients = this.patients.filter((p) => p.tenantId === tenant && !p.deletedAt)
-    const dto = ({ tenantId: _t, email: _e, ...p }: MockPatient) => p
-    const detailDto = ({ tenantId: _t, ...p }: MockPatient) => p
+    // Level 1: phones[] + derived whatsappSameAsPhone (patient.patient_phones); the WhatsApp choice itself is internal.
+    const phonesOf = (p: MockPatient) => [
+      ...(p.phone ? [{ number: p.phone, isPrimary: true, isWhatsapp: p.whatsapp === 'same' }] : []),
+      ...(p.whatsapp && p.whatsapp !== 'same' ? [{ number: p.whatsapp, isPrimary: false, isWhatsapp: true }] : []),
+    ]
+    const dto = ({ tenantId: _t, email: _e, whatsapp: _w, ...p }: MockPatient) => p
+    const detailDto = (p: MockPatient) => {
+      const { tenantId: _t, whatsapp: _w, ...rest } = p
+      return { ...rest, phones: phonesOf(p), whatsappSameAsPhone: !!p.phone && p.whatsapp === 'same' }
+    }
+    const validationError = (errors: Record<string, string[]>) => reply(400, { title: 'Validation', status: 400, errors }, tenant)
+    /** Like PatientPhones.ResolveWhatsapp: undefined = no change requested. */
+    const resolveWhatsapp = (input: unknown, rawPhone: unknown, phone: string | null, errors: Record<string, string[]>): MockPatient['whatsapp'] => {
+      if (input == null || typeof input !== 'object') return null
+      const w = input as { sameAsPhone?: boolean; number?: string }
+      if (w.sameAsPhone) {
+        if (!phone && !(typeof rawPhone === 'string' && rawPhone.trim())) errors.whatsapp = [WHATSAPP_NEEDS_PHONE]
+        return phone ? 'same' : null
+      }
+      if (!w.number?.trim()) return null
+      const e164 = toE164(w.number)
+      if (!e164) {
+        errors.whatsapp = [WHATSAPP_ERROR]
+        return null
+      }
+      return e164 === phone ? 'same' : e164
+    }
     const page = (items: unknown[]) => ({ items, page: 1, pageSize: 25, totalCount: items.length })
     const patientMatch = /^\/api\/v1\/patients\/(?!stats$)([^/]+)$/.exec(path)
     const restoreMatch = /^\/api\/v1\/patients\/([^/]+)\/restore$/.exec(path)
@@ -519,7 +675,7 @@ export class MockBackend {
       const hits = pool.filter(
         (p) =>
           (!t || [p.mrn, p.firstName, p.lastName].some((v) => v.toLowerCase().includes(t))) &&
-          (body.phone === undefined || normalizePhone(p.phone) === normalizePhone(String(body.phone))) &&
+          (body.phone === undefined || phonesOf(p).some((x) => normalizePhone(x.number) === normalizePhone(String(body.phone)))) &&
           (body.dateOfBirth === undefined || p.dateOfBirth === body.dateOfBirth),
       )
       return reply(200, page(hits.map(dto)), tenant)
@@ -531,7 +687,7 @@ export class MockBackend {
         .map((p) => {
           const reasons: string[] = []
           if (body.dateOfBirth && p.dateOfBirth === body.dateOfBirth && norm(p.firstName) === norm(body.firstName) && norm(p.lastName) === norm(body.lastName)) reasons.push('name_dob')
-          if (normalizePhone(p.phone) && normalizePhone(p.phone) === normalizePhone(body.phone as string)) reasons.push('phone')
+          if (normalizePhone(body.phone as string) && phonesOf(p).some((x) => normalizePhone(x.number) === normalizePhone(body.phone as string))) reasons.push('phone')
           return { p, reasons }
         })
         .filter((x) => x.reasons.length > 0 && x.p.id !== body.excludePatientId)
@@ -544,9 +700,16 @@ export class MockBackend {
     if (method === 'POST' && path === '/api/v1/patients') {
       if (!has(REG_WRITE, rolesAt(String(body.registeredBranchId)))) return forbidden()
       if (dobInFuture(body.dateOfBirth, String(body.registeredBranchId))) return dobProblem()
-      const mrn = String(body.mrn).toUpperCase()
-      if (this.patients.some((p) => p.tenantId === tenant && p.mrn === mrn)) return problem(409, 'duplicate_mrn')
-      const created: MockPatient = { id: uuid('ab000000'), tenantId: tenant, mrn, firstName: String(body.firstName), lastName: String(body.lastName), dateOfBirth: (body.dateOfBirth as string) ?? null, sex: String(body.sex ?? 'unknown'), registeredBranchId: String(body.registeredBranchId), phone: (body.phone as string) ?? null, email: (body.email as string) ?? null, deletedAt: null, createdOn: new Date().toISOString() }
+      // Any client `mrn` is ignored: the MRN comes from a per-tenant counter (<TENANT CODE>-<6 digits>).
+      const errors: Record<string, string[]> = {}
+      const phone = toE164(body.phone)
+      if (typeof body.phone === 'string' && body.phone.trim() && !phone) errors.phone = [PHONE_ERROR]
+      const whatsapp = resolveWhatsapp(body.whatsapp, body.phone, phone, errors)
+      if (Object.keys(errors).length) return validationError(errors)
+      const next = (this.mrnCounters.get(tenant) ?? 0) + 1
+      this.mrnCounters.set(tenant, next)
+      const mrn = `${tenant === ids.alpha ? 'ALPHA' : 'BETA'}-${String(next).padStart(6, '0')}`
+      const created: MockPatient = { id: uuid('ab000000'), tenantId: tenant, mrn, firstName: String(body.firstName), lastName: String(body.lastName), dateOfBirth: (body.dateOfBirth as string) ?? null, sex: String(body.sex ?? 'unknown'), registeredBranchId: String(body.registeredBranchId), phone, whatsapp, email: (body.email as string) ?? null, deletedAt: null, createdOn: new Date().toISOString() }
       this.patients.push(created)
       return reply(201, { ...detailDto(created), duplicateWarnings: [] }, tenant)
     }
@@ -559,9 +722,17 @@ export class MockBackend {
       if (!patient) return notFound()
       if (method === 'PATCH') {
         if (!has(REG_WRITE, rolesAt(patient.registeredBranchId))) return forbidden()
-        if ('mrn' in body) return reply(400, { title: 'Validation', status: 400, errors: { mrn: ['MRN is immutable.'] } }, tenant)
+        if ('mrn' in body && String(body.mrn).toUpperCase() !== patient.mrn.toUpperCase())
+          return validationError({ mrn: ['The MRN is generated by the system and cannot be changed.'] })
         if (dobInFuture(body.dateOfBirth, String(body.registeredBranchId ?? patient.registeredBranchId))) return dobProblem()
-        Object.assign(patient, body)
+        const errors: Record<string, string[]> = {}
+        const { mrn: _m, phone: rawPhone, whatsapp: rawWhatsapp, ...rest } = body
+        const phone = 'phone' in body ? toE164(rawPhone) : patient.phone
+        if (typeof rawPhone === 'string' && rawPhone.trim() && !phone) errors.phone = [PHONE_ERROR]
+        // No whatsapp in the patch: "same" follows the phone, a separate number is kept.
+        const whatsapp = 'whatsapp' in body ? resolveWhatsapp(rawWhatsapp, rawPhone, phone, errors) : patient.whatsapp === 'same' ? (phone ? 'same' : null) : (patient.whatsapp ?? null)
+        if (Object.keys(errors).length) return validationError(errors)
+        Object.assign(patient, rest, { phone, whatsapp: whatsapp === phone ? 'same' : whatsapp })
         return reply(200, detailDto(patient), tenant)
       }
       if (method === 'DELETE') {
@@ -708,7 +879,7 @@ export class MockBackend {
       if (!has(REG_READ)) return forbidden()
       const q = url.searchParams
       const items = this.appointments
-        .filter((a) => a.tenantId === tenant && (!q.get('branchId') || a.branchId === q.get('branchId')) && (!q.get('practitionerId') || a.practitionerId === q.get('practitionerId')) && (!q.get('from') || a.endsAt > new Date(q.get('from')!).toISOString()) && (!q.get('to') || a.startsAt < new Date(q.get('to')!).toISOString()))
+        .filter((a) => a.tenantId === tenant && (!q.get('branchId') || a.branchId === q.get('branchId')) && (!q.get('practitionerId') || a.practitionerId === q.get('practitionerId')) && (!q.get('from') || a.endsAt > new Date(q.get('from')!).toISOString()) && (!q.get('to') || a.startsAt < new Date(q.get('to')!).toISOString()) && (!q.get('status') || a.status === q.get('status')))
         .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
         .map(withPatient)
       const size = Number(q.get('pageSize') ?? 25)
@@ -802,13 +973,30 @@ export class MockBackend {
       name: this.branchNames.get(b.id) ?? b.name,
       timezone: this.branchZone(b.id),
       timezoneOverride: this.branchTimeZones.get(b.id) ?? null,
-      isActive: true,
+      isActive: this.branchState.get(b.id)?.isActive ?? true,
+      isDeleted: this.branchState.get(b.id)?.isDeleted ?? false,
     })
     // Future bookings whose wall-clock time would move with a zone change (identity.change_time_zone_v1).
     const futureBookings = (branchIds: string[]) =>
       this.appointments.filter((a) => branchIds.includes(a.branchId) && a.status === 'booked' && a.startsAt > new Date().toISOString()).length
     if (method === 'GET' && path === '/api/v1/branches') {
-      return reply(200, tenants[tenant]!.branches.map(branchDto), tenant)
+      const withDeleted = isAdmin && url.searchParams.get('includeDeleted') === 'true'
+      return reply(200, tenants[tenant]!.branches.map(branchDto).filter((b) => (withDeleted || !b.isDeleted) && (isAdmin || b.isActive)), tenant)
+    }
+    const branchRestore = /^\/api\/v1\/branches\/([^/]+)\/restore$/.exec(path)
+    if ((method === 'DELETE' && /^\/api\/v1\/branches\/[^/]+$/.test(path)) || (method === 'POST' && branchRestore)) {
+      if (!isAdmin) return forbidden()
+      const id = branchRestore ? branchRestore[1]! : path.split('/').pop()!
+      const b = tenants[tenant]!.branches.find((x) => x.id === id)
+      const st = this.branchState.get(id) ?? { isActive: true, isDeleted: false }
+      if (!b || st.isDeleted === (method === 'DELETE')) return notFound()
+      if (method === 'DELETE') {
+        if (tenants[tenant]!.branches.filter((x) => !this.branchState.get(x.id)?.isDeleted).length <= 1) return problem(409, 'invalid_state', { detail: 'a hospital needs at least one branch' })
+        if (this.appointments.some((a) => a.branchId === id && ['booked', 'checked_in', 'in_consultation'].includes(a.status)) || this.queue.some((q) => q.branchId === id && ['waiting', 'in_consultation'].includes(q.status)))
+          return problem(409, 'invalid_state', { detail: 'branch has open appointments or queue entries' })
+        this.branchState.set(id, { isActive: false, isDeleted: true })
+      } else this.branchState.set(id, { isActive: false, isDeleted: false }) // restored inactive, like the SQL
+      return reply(204, undefined, tenant)
     }
     const branchMatch = /^\/api\/v1\/branches\/([^/]+)$/.exec(path)
     if (method === 'PATCH' && branchMatch) {
@@ -820,6 +1008,7 @@ export class MockBackend {
       if (body.inheritTimezone) this.branchTimeZones.delete(b.id)
       else if (typeof body.timezone === 'string') this.branchTimeZones.set(b.id, body.timezone)
       if (typeof body.name === 'string') this.branchNames.set(b.id, body.name)
+      if (typeof body.isActive === 'boolean') this.branchState.set(b.id, { isActive: body.isActive, isDeleted: false })
       return reply(200, branchDto(b), tenant)
     }
     const tenantDto = () => ({ id: tenant, code: tenant === ids.alpha ? 'alpha' : 'beta', name: this.tenantNames.get(tenant) ?? tenants[tenant]!.name, activeBranchId: null, roles, timeZone: this.tenantZone(tenant) })
@@ -859,9 +1048,152 @@ export class MockBackend {
       this.invite(String(body.email).toLowerCase(), tenant, String(body.role), (body.branchId as string | null) ?? null)
       return reply(202, { message: ADD_MEMBER_GENERIC_MESSAGE }, tenant)
     }
+    const memberMatch = /^\/api\/v1\/members\/([^/]+)$/.exec(path)
+    if (memberMatch && memberMatch[1] !== 'invite-links' && (method === 'PATCH' || method === 'DELETE')) {
+      if (!isAdmin) return forbidden()
+      const owner = [...this.users.values()].find((u) => u.memberships.some((m) => m.id === memberMatch[1] && m.tenantId === tenant))
+      const m = owner?.memberships.find((x) => x.id === memberMatch[1])
+      if (!owner || !m) return notFound()
+      if (owner.id === user.id) return problem(409, 'conflict', { detail: 'You cannot change your own membership.' })
+      if (method === 'DELETE') {
+        owner.memberships.splice(owner.memberships.indexOf(m), 1)
+        return reply(204, undefined, tenant)
+      }
+      if (typeof body.role === 'string') m.role = body.role
+      if (typeof body.status === 'string') m.status = body.status as Membership['status']
+      if (typeof body.branchId === 'string') {
+        if (m.role === 'tenant_admin') return reply(400, { title: 'Validation', status: 400, errors: { branchId: ['tenant_admin is tenant-wide: omit branchId.'] } }, tenant)
+        if (!tenants[tenant]!.branches.some((b) => b.id === body.branchId)) return reply(400, { title: 'Validation', status: 400, errors: { branchId: ['Unknown branch.'] } }, tenant)
+        m.branchId = body.branchId
+      }
+      if (body.allBranches === true) m.branchId = null
+      return reply(200, { id: m.id, userId: owner.id, email: owner.email, displayName: null, role: m.role, branchId: m.branchId, branchName: null, status: m.status }, tenant)
+    }
+    if (path === '/api/v1/members/invite-links' || path.startsWith('/api/v1/members/invite-links/')) {
+      if (!isAdmin) return forbidden()
+      if (method === 'GET') {
+        const now = new Date().toISOString()
+        return reply(
+          200,
+          this.inviteLinks
+            .filter((l) => l.tenantId === tenant)
+            .map(({ token: _t, tenantId: _x, tenantName: _n, ...l }) => ({ ...l, status: l.status === 'pending' && l.expiresOn <= now ? 'expired' : l.status })),
+          tenant,
+        )
+      }
+      if (method === 'POST') {
+        if (body.role === 'tenant_admin' && body.branchId) return reply(400, { title: 'Validation', status: 400, errors: { branchId: ['tenant_admin is tenant-wide: omit branchId.'] } }, tenant)
+        const issued = this.issueInviteLink(tenant, tenants[tenant]!.name, String(body.email).toLowerCase(), String(body.role), (body.branchId as string | null) ?? null, 7)
+        return reply(201, issued, tenant)
+      }
+      if (method === 'DELETE') {
+        const link = this.inviteLinks.find((l) => l.tenantId === tenant && l.id === path.split('/').pop() && l.status === 'pending')
+        if (!link) return notFound()
+        link.status = 'revoked'
+        return reply(204, undefined, tenant)
+      }
+    }
     return reply(404, { title: 'Not found', status: 404 }, tenant)
   }
+
+  /** identity.issue_invite_link: supersedes pending links for the same tenant/email/branch; returns the token once. */
+  issueInviteLink(tenantId: string, tenantName: string, email: string, role: string, branchId: string | null, days: number) {
+    for (const l of this.inviteLinks) if (l.tenantId === tenantId && l.email === email && l.branchId === branchId && l.status === 'pending') l.status = 'revoked'
+    const n = ++seq
+    const token = Array.from({ length: 64 }, (_, i) => '0123456789abcdef'[(n * 7 + i * 13 + email.length * (i + 1)) % 16]).join('')
+    const link: MockInviteLink = { id: uuid('1c000000'), tenantId, tenantName, email, role, branchId, token, status: 'pending', expiresOn: new Date(Date.now() + days * 86_400_000).toISOString(), createdOn: new Date().toISOString(), claimedOn: null }
+    this.inviteLinks.push(link)
+    return { id: link.id, token, path: `/invite/${token}`, expiresOn: link.expiresOn }
+  }
+
+  private platformTenantList() {
+    const seeded = Object.entries(tenants).map(([id, t]) => ({
+      id,
+      code: id === ids.alpha ? 'alpha' : 'beta',
+      name: this.tenantNames.get(id) ?? t.name,
+      timeZone: this.tenantZone(id),
+      createdOn: id === ids.alpha ? '2026-09-01T04:30:00.000Z' : '2026-09-15T04:30:00.000Z',
+      branchCount: t.branches.filter((b) => !this.branchState.get(b.id)?.isDeleted).length,
+      userCount: [...this.users.values()].filter((u) => u.memberships.some((m) => m.tenantId === id && m.status === 'active')).length,
+    }))
+    return [...seeded, ...this.platformTenants].map((t) => {
+      const st = this.tenantStatus.get(t.id)
+      return {
+        ...t,
+        status: st?.status ?? 'active',
+        pendingInvites: this.inviteLinks.filter((l) => l.tenantId === t.id && l.status === 'pending').length,
+        statusReason: st?.history.at(-1)?.reason ?? null,
+      }
+    })
+  }
+
+  private handlePlatform(method: string, path: string, url: URL, body: Record<string, unknown>, user: MockUser, reply: (status: number, body?: unknown) => Promise<void>) {
+    const p = (status: number, code: string, detail?: string) => reply(status, { title: code, status, code, ...(detail ? { detail } : {}) })
+    const invalid = (errors: Record<string, string[]>) => reply(400, { title: 'Validation', status: 400, errors })
+    const zoneOk = (z: unknown) => typeof z === 'string' && (z === 'UTC' || /^[A-Z][A-Za-z_]+\/[A-Za-z_/-]+$/.test(z)) && !z.startsWith('Mars/')
+    const codeOk = (c: unknown) => /^[a-z0-9][a-z0-9-]{1,39}$/.test(String(c ?? ''))
+    const createTenant = (code: string, name: string, timeZone: string) => {
+      if (this.platformTenantList().some((t) => t.code === code)) return null
+      const t: MockPlatformTenant = { id: uuid('7e000000'), code, name, timeZone, createdOn: new Date().toISOString(), branchCount: 1, userCount: 0 }
+      this.platformTenants.push(t)
+      return t
+    }
+    if (method === 'GET' && path === '/api/v1/platform/tenants') {
+      const search = (url.searchParams.get('search') ?? '').toLowerCase()
+      const status = url.searchParams.get('status')
+      return reply(200, this.platformTenantList().filter((t) => (!search || `${t.name} ${t.code}`.toLowerCase().includes(search)) && (!status || t.status === status)).sort((a, b) => a.name.localeCompare(b.name)))
+    }
+    if (method === 'POST' && path === '/api/v1/platform/tenants') {
+      const errors: Record<string, string[]> = {}
+      if (!codeOk(body.code)) errors.code = ['2-40 lowercase letters, digits or hyphens']
+      if (!zoneOk(body.timeZone)) errors.timeZone = ['Unknown IANA time zone.']
+      if (Object.keys(errors).length) return invalid(errors)
+      const t = createTenant(String(body.code), String(body.name), String(body.timeZone))
+      if (!t) return p(409, 'conflict', 'A live record with the same key already exists.')
+      return reply(201, { tenantId: t.id, invite: this.issueInviteLink(t.id, t.name, String(body.adminEmail).toLowerCase(), 'tenant_admin', null, 14) })
+    }
+    const tm = /^\/api\/v1\/platform\/tenants\/([^/]+)(?:\/(suspend|reactivate|admin-invite))?$/.exec(path)
+    if (tm) {
+      const t = this.platformTenantList().find((x) => x.id === tm[1])
+      if (!t) return p(404, 'not_found')
+      if (method === 'GET' && !tm[2]) return reply(200, { tenant: t, history: [...(this.tenantStatus.get(t.id)?.history ?? [])].reverse() })
+      if (method === 'POST' && tm[2] === 'admin-invite') return reply(201, this.issueInviteLink(t.id, t.name, String(body.email).toLowerCase(), 'tenant_admin', null, 14))
+      if (method === 'POST' && tm[2]) {
+        const to = tm[2] === 'suspend' ? 'suspended' : 'active'
+        if (String(body.reason ?? '').trim().length < 3) return invalid({ reason: ['Give a reason (3-500 characters).'] })
+        if (t.status === to) return p(409, 'invalid_state', `tenant is already ${to}`)
+        const st = this.tenantStatus.get(t.id) ?? { status: 'active' as const, history: [] }
+        st.history.push({ fromStatus: t.status, toStatus: to, reason: String(body.reason).trim(), changedOn: new Date().toISOString(), changedBy: user.email })
+        st.status = to
+        this.tenantStatus.set(t.id, st)
+        return reply(200, this.platformTenantList().find((x) => x.id === t.id))
+      }
+    }
+    if (method === 'GET' && path === '/api/v1/platform/hospital-requests') {
+      const status = url.searchParams.get('status')
+      return reply(200, this.signups.filter((x) => !status || x.status === status).sort((a, b) => b.createdOn.localeCompare(a.createdOn)))
+    }
+    const rm = /^\/api\/v1\/platform\/hospital-requests\/([^/]+)\/(approve|reject)$/.exec(path)
+    if (method === 'POST' && rm) {
+      const r = this.signups.find((x) => x.id === rm[1])
+      if (!r) return p(404, 'not_found')
+      if (r.status !== 'pending') return p(409, 'invalid_state', 'request already decided')
+      if (rm[2] === 'reject') {
+        if (String(body.reason ?? '').trim().length < 3) return invalid({ reason: ['Give a reason (3-500 characters).'] })
+        Object.assign(r, { status: 'rejected', decisionReason: String(body.reason).trim(), decidedOn: new Date().toISOString() })
+        return reply(204)
+      }
+      if (!codeOk(body.tenantCode)) return invalid({ tenantCode: ['2-40 lowercase letters, digits or hyphens'] })
+      const code = String(body.tenantCode)
+      const t = createTenant(code, r.hospitalName, r.timeZone)
+      if (!t) return p(409, 'conflict', 'A live record with the same key already exists.')
+      Object.assign(r, { status: 'approved', decidedOn: new Date().toISOString(), tenantId: t.id, tenantCode: code })
+      return reply(200, { tenantId: t.id, invite: this.issueInviteLink(t.id, t.name, r.contactEmail, 'tenant_admin', null, 14) })
+    }
+    return p(404, 'not_found')
+  }
 }
+
 
 export async function signIn(page: Page, email: string) {
   await page.goto('/login')

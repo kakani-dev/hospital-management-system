@@ -58,6 +58,18 @@ insert into patient.patients (id, tenant_id, registered_branch_id, mrn, first_na
   -- same MRN as an Alpha patient: allowed because MRN uniqueness is per tenant
   ('bb000000-0000-4000-8000-000000000003', '22222222-2222-4222-8222-222222222222', 'b2222222-0000-4000-8000-000000000001', 'MRN-1001', 'Kiran', 'Synthetic-Beta',  '1990-06-15', 'other',  null,          null);
 
+-- Normalized phone numbers (patient.patient_phones, 20261019104000): the primary number of every
+-- patient above, plus a separate WhatsApp number for Asha. Ravi's WhatsApp is the same as his phone.
+insert into patient.patient_phones (tenant_id, patient_id, phone_e164, is_primary, is_whatsapp)
+select p.tenant_id, p.id, patient.to_e164(p.phone, t.default_country_code), true,
+       p.id = 'aa000000-0000-4000-8000-000000000002'
+from patient.patients p join identity.tenants t on t.id = p.tenant_id
+where p.phone is not null and patient.to_e164(p.phone, t.default_country_code) is not null;
+insert into patient.patient_phones (tenant_id, patient_id, phone_e164, is_primary, is_whatsapp) values
+  ('11111111-1111-4111-8111-111111111111', 'aa000000-0000-4000-8000-000000000001', '+919800000101', false, true);
+update patient.patients p set phone = ph.phone_e164
+from patient.patient_phones ph where ph.patient_id = p.id and ph.is_primary and not ph.is_deleted;
+
 -- ---------------------------------------------------------------- Sprint 2 ----
 -- Synthetic practitioners, weekly schedules (branch-local time) and two far-future bookings.
 insert into appointment.practitioners (id, tenant_id, user_id, display_name, specialty) values

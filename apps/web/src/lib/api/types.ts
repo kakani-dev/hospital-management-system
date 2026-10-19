@@ -46,8 +46,21 @@ export interface PatientSummary {
   deletedAt?: string | null
 }
 
+/** WhatsApp on create / update: the phone itself, a separate number, or none (null). */
+export interface WhatsappInput {
+  sameAsPhone: boolean
+  number?: string | null
+}
+
+/** One stored number (E.164). Phone and WhatsApp being the same number is ONE entry with both flags. */
+export interface PatientPhone {
+  number: string
+  isPrimary: boolean
+  isWhatsapp: boolean
+}
+
+/** POST /api/v1/patients. There is no MRN: the server generates it (TENANTCODE-000123) and returns it. */
 export interface CreatePatientRequest {
-  mrn: string
   firstName: string
   lastName: string
   dateOfBirth?: string | null
@@ -55,6 +68,7 @@ export interface CreatePatientRequest {
   registeredBranchId: Guid
   phone?: string | null
   email?: string | null
+  whatsapp?: WhatsappInput | null
 }
 
 export const ROLES = [
@@ -94,6 +108,8 @@ export interface CurrentUser {
   memberships: MembershipDto[]
   /** Effective zone of the active branch (else the tenant zone); null without a resolved tenant. Newer API only. */
   timeZone?: string | null
+  /** Platform operator (identity.platform_admins): opens /platform. Grants NO tenant access. */
+  isPlatformAdmin?: boolean
 }
 
 /** GET /api/v1/tenants/current. `timeZone` (the hospital's required zone) comes with the audit/TZ API. */
@@ -203,6 +219,124 @@ export interface PatientSearchRequest {
 export interface UpdateMemberRequest {
   role?: Role
   status?: 'active' | 'suspended'
+  /** Move a branch-scoped member to this branch. */
+  branchId?: Guid
+  /** Make the membership tenant-wide (all branches). */
+  allBranches?: boolean
+}
+
+// ---------------------------------------------------------------------------------------------
+// Level 1: invite links, public hospital registration and the platform console.
+// ---------------------------------------------------------------------------------------------
+
+/** A one-time invite link (token shown once; the server keeps only its hash). */
+export interface InviteLinkIssued {
+  id: Guid
+  token: string
+  /** App path of the invite page: `/invite/<token>`. */
+  path: string
+  expiresOn: string
+}
+
+export interface InviteLink {
+  id: Guid
+  email: string
+  role: string
+  branchId: Guid | null
+  status: 'pending' | 'claimed' | 'revoked' | 'expired' | string
+  expiresOn: string
+  createdOn: string
+  claimedOn: string | null
+}
+
+export interface CreateInviteLinkRequest {
+  email: string
+  role: Role
+  branchId?: Guid | null
+}
+
+export interface InvitePreview {
+  tenantName: string
+  role: string
+  branchName: string | null
+  emailHint: string
+  expiresOn: string
+}
+
+export interface ClaimedInvite {
+  tenantId: Guid
+  tenantName: string
+  role: string
+  branchId: Guid | null
+}
+
+export interface HospitalSignupRequest {
+  hospitalName: string
+  timeZone: string
+  contactName: string
+  contactEmail: string
+  phone: string
+  city: string
+  /** Honeypot; always empty for people. */
+  website?: string
+}
+
+export type HospitalRequestStatus = 'pending' | 'approved' | 'rejected'
+
+export interface HospitalRequest {
+  id: Guid
+  hospitalName: string
+  timeZone: string
+  contactName: string
+  contactEmail: string
+  phone: string
+  city: string
+  status: HospitalRequestStatus
+  decisionReason: string | null
+  decidedOn: string | null
+  tenantId: Guid | null
+  tenantCode: string | null
+  createdOn: string
+}
+
+export interface HospitalApproved {
+  tenantId: Guid
+  invite: InviteLinkIssued
+}
+
+export type PlatformTenantStatus = 'active' | 'suspended' | 'archived'
+
+export interface PlatformTenant {
+  id: Guid
+  code: string
+  name: string
+  status: PlatformTenantStatus | string
+  timeZone: string
+  createdOn: string
+  branchCount: number
+  userCount: number
+  pendingInvites: number
+  statusReason: string | null
+}
+
+export interface TenantStatusChange {
+  fromStatus: string
+  toStatus: string
+  reason: string
+  changedOn: string
+  changedBy: string | null
+}
+
+export interface PlatformTenantDetail {
+  tenant: PlatformTenant
+  history: TenantStatusChange[]
+}
+
+export interface PlatformCreateTenantRequest {
+  code: string
+  name: string
+  timeZone: string
+  adminEmail: string
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -214,6 +348,10 @@ export interface PatientDetail extends PatientSummary {
   email: string | null
   createdOn?: string
   updatedOn?: string
+  /** Level 1: normalized numbers (E.164); `phone` is the primary one. */
+  phones?: PatientPhone[]
+  /** Level 1: the phone number is also the WhatsApp number. */
+  whatsappSameAsPhone?: boolean
 }
 
 /**
@@ -228,6 +366,8 @@ export interface UpdatePatientRequest {
   registeredBranchId?: Guid
   phone?: string | null
   email?: string | null
+  /** null removes WhatsApp; absent leaves it unchanged. */
+  whatsapp?: WhatsappInput | null
 }
 
 /** POST /api/v1/patients/duplicates (advisory, D3). */
@@ -385,6 +525,8 @@ export interface AppointmentQuery {
   from: string
   to: string
   practitionerId?: Guid
+  /** Server-side status filter (one status). */
+  status?: AppointmentStatus
   page?: number
   pageSize?: number
 }

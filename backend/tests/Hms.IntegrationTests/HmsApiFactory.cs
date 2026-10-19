@@ -175,12 +175,16 @@ public class HmsApiFactory : IDisposable
         return stub;
     }
 
+    private readonly string _onboardingSalt = Guid.NewGuid().ToString("N");
+
     private void ConfigureCommon(IWebHostBuilder builder, StubJwksHandler jwks)
     {
         builder.UseEnvironment("Testing");
         builder.UseSetting("Auth:Supabase:ProjectUrl", TestJwt.ProjectUrl);
         builder.UseSetting("Auth:Supabase:LegacyJwtSecret", LegacySecret ?? string.Empty);
         builder.UseSetting("RateLimiting:PermitPerMinute", "100000");
+        // per-factory salt: the DB's per-source sign-up cap (3 / 24 h) must not leak across runs on a reused DB
+        builder.UseSetting("Onboarding:SourceHashSalt", _onboardingSalt);
         builder.ConfigureTestServices(services =>
             services.AddHttpClient(SupabaseAuthOptions.JwksHttpClient).ConfigurePrimaryHttpMessageHandler(() => jwks));
         ConfigureHost(builder);

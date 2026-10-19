@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Navigate, useLocation, useNavigate } from 'react-router'
+import { Link, Navigate, useLocation, useNavigate } from 'react-router'
 import { loginSchema, type LoginFormValues } from './loginSchema'
 import { useAuth } from './AuthProvider'
 import { EnvelopeIcon, LockClosedIcon } from '@heroicons/react/24/outline'
@@ -86,6 +86,12 @@ export function LoginPage() {
             </Button>
           </form>
         </Card>
+        <p className="mt-4 text-center text-sm text-gray-600 dark:text-dark-200">
+          New hospital?{' '}
+          <Link to="/register-hospital" className="font-medium text-primary-600 underline dark:text-primary-400">
+            Register your hospital
+          </Link>
+        </p>
         <p className="mt-8 text-center text-xs text-gray-500 dark:text-dark-300">Synthetic demo data only. Not for clinical use.</p>
       </div>
     </main>

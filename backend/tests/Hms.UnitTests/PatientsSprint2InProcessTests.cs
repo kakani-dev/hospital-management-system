@@ -40,7 +40,7 @@ public sealed class PatientsSprint2InProcessTests(ApiFactory factory) : IClassFi
         var created = await CreateAsync(Main, phone: "+91 98450 12345");
         using var client = factory.ClientAs(MixedUser); // billing at Main can read
         var detail = await client.GetFromJsonAsync<Detail>($"/api/v1/patients/{created.Id}");
-        Assert.Equal("+91 98450 12345", detail!.Phone);
+        Assert.Equal("+919845012345", detail!.Phone); // normalized to E.164 (tenant default +91)
         Assert.Equal("ravi@synthetic.example", detail.Email);
         Assert.Null(detail.DeletedAt);
 
@@ -206,7 +206,7 @@ public sealed class PatientsSprint2InProcessTests(ApiFactory factory) : IClassFi
         var byPhoneAndDob = await Search(new { phone = "9845077 1234", dateOfBirth = "1971-03-04" });
         Assert.Equal(b.Id, Assert.Single(byPhoneAndDob).Id);
         Assert.Equal(2, (await Search(new { dateOfBirth = "1970-03-04", search = last })).Count);
-        Assert.Equal("098450 771234", byPhoneAndDob[0].Phone);
+        Assert.Equal("+9198450771234", byPhoneAndDob[0].Phone);
 
         Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync("/api/v1/patients/search", new { phone = "12-34" })).StatusCode);
     }
@@ -240,20 +240,87 @@ public sealed class PatientsSprint2InProcessTests(ApiFactory factory) : IClassFi
     }
 
     [Fact]
-    public async Task Duplicate_mrn_conflict_carries_a_machine_code()
+    public async Task A_client_mrn_matching_an_existing_one_is_ignored_not_a_conflict()
     {
         var created = await CreateAsync(Main);
         using var client = factory.ClientAs(Admin);
         var response = await client.PostAsJsonAsync("/api/v1/patients", new { mrn = created.Mrn.ToLowerInvariant(), firstName = "A", lastName = "B", registeredBranchId = East });
-        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
-        Assert.Equal("duplicate_mrn", await CodeOf(response));
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.NotEqual(created.Mrn, (await response.Content.ReadFromJsonAsync<Detail>())!.Mrn);
+    }
+
+    [Fact]
+    public async Task Whatsapp_same_as_phone_is_one_number_with_both_flags()
+    {
+        using var client = factory.ClientAs(Admin);
+        var response = await client.PostAsJsonAsync("/api/v1/patients", new
+        {
+            firstName = "Wa", lastName = Unique("Same"), registeredBranchId = Main, phone = "098450 12345",
+            whatsapp = new { sameAsPhone = true },
+        });
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var body = (await response.Content.ReadFromJsonAsync<Detail>())!;
+        Assert.Equal("+919845012345", body.Phone);
+        Assert.True(body.WhatsappSameAsPhone);
+        var phone = Assert.Single(body.Phones!);
+        Assert.True(phone.IsPrimary && phone.IsWhatsapp);
+        Assert.Equal("+919845012345", phone.Number);
+    }
+
+    [Fact]
+    public async Task A_different_whatsapp_number_is_a_second_entry_and_patch_can_switch_back()
+    {
+        using var client = factory.ClientAs(Admin);
+        var response = await client.PostAsJsonAsync("/api/v1/patients", new
+        {
+            firstName = "Wa", lastName = Unique("Diff"), registeredBranchId = Main, phone = "9845012345",
+            whatsapp = new { sameAsPhone = false, number = "+971 50 123 4567" },
+        });
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var body = (await response.Content.ReadFromJsonAsync<Detail>())!;
+        Assert.False(body.WhatsappSameAsPhone);
+        Assert.Equal(["+919845012345:True:False", "+971501234567:False:True"],
+            body.Phones!.Select(p => $"{p.Number}:{p.IsPrimary}:{p.IsWhatsapp}"));
+
+        // a WhatsApp number typed equal to the phone collapses into "same"
+        var same = await PatchAsync(client, body.Id, new { whatsapp = new { sameAsPhone = false, number = "09845012345" } });
+        Assert.Equal(HttpStatusCode.OK, same.StatusCode);
+        var patched = (await same.Content.ReadFromJsonAsync<Detail>())!;
+        Assert.True(patched.WhatsappSameAsPhone);
+        Assert.Single(patched.Phones!);
+
+        // phone change: WhatsApp keeps following the phone
+        var moved = (await (await PatchAsync(client, body.Id, new { phone = "9845099999" })).Content.ReadFromJsonAsync<Detail>())!;
+        Assert.True(moved.WhatsappSameAsPhone);
+        Assert.Equal("+919845099999", Assert.Single(moved.Phones!).Number);
+
+        // whatsapp: null removes WhatsApp, keeps the phone
+        var none = (await (await PatchAsync(client, body.Id, new { whatsapp = (object?)null })).Content.ReadFromJsonAsync<Detail>())!;
+        Assert.False(none.WhatsappSameAsPhone);
+        Assert.False(Assert.Single(none.Phones!).IsWhatsapp);
+    }
+
+    [Theory]
+    [InlineData("{\"firstName\":\"A\",\"lastName\":\"B\",\"phone\":\"12345\"}", "phone")]
+    [InlineData("{\"firstName\":\"A\",\"lastName\":\"B\",\"whatsapp\":{\"sameAsPhone\":true}}", "whatsapp")]
+    [InlineData("{\"firstName\":\"A\",\"lastName\":\"B\",\"phone\":\"9845012345\",\"whatsapp\":{\"sameAsPhone\":false,\"number\":\"abc\"}}", "whatsapp")]
+    public async Task Invalid_phone_or_whatsapp_is_400_with_the_field(string json, string field)
+    {
+        using var client = factory.ClientAs(Admin);
+        var payload = json.Insert(1, $"\"registeredBranchId\":\"{Main}\",");
+        var response = await client.PostAsync("/api/v1/patients", new StringContent(payload, System.Text.Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains(field, await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
     }
 
     private sealed record Candidate(Guid Id, string Mrn, List<string> MatchReasons);
 
     private sealed record Detail(
         Guid Id, string Mrn, string FirstName, string LastName, DateOnly? DateOfBirth, string Sex, Guid RegisteredBranchId,
-        string? Phone, DateTimeOffset? DeletedAt, string? Email, List<Candidate> DuplicateWarnings);
+        string? Phone, DateTimeOffset? DeletedAt, string? Email, List<Candidate> DuplicateWarnings,
+        List<PhoneEntry>? Phones = null, bool WhatsappSameAsPhone = false);
+
+    private sealed record PhoneEntry(string Number, bool IsPrimary, bool IsWhatsapp);
 
     private sealed record Summary(Guid Id, string Mrn, string LastName, string? Phone, DateTimeOffset? DeletedAt);
 

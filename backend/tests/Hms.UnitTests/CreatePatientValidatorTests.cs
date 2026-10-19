@@ -7,20 +7,16 @@ public class CreatePatientValidatorTests
     private static readonly DateOnly Today = new(2026, 10, 6);
 
     private static CreatePatientRequest Valid() =>
-        new("ALP-1234", "Asha", "Synthetic", new DateOnly(1990, 1, 1), "female", Guid.NewGuid(), null, "asha@patients.example");
+        new("Asha", "Synthetic", new DateOnly(1990, 1, 1), "female", Guid.NewGuid(), null, "asha@patients.example");
 
     private static Dictionary<string, string[]> Validate(CreatePatientRequest r) => CreatePatientValidator.Validate(r, Today);
 
     [Fact]
     public void Valid_request_has_no_errors() => Assert.Empty(Validate(Valid()));
 
-    [Theory]
-    [InlineData("")]
-    [InlineData("has space")]
-    [InlineData("THIS-MRN-IS-WAY-TOO-LONG-1234567890")]
-    [InlineData("drop;table")]
-    public void Invalid_mrn_is_rejected(string mrn) =>
-        Assert.Contains("mrn", Validate(Valid() with { Mrn = mrn }).Keys);
+    [Fact]
+    public void Mrn_is_not_an_input_any_more() =>
+        Assert.DoesNotContain(typeof(CreatePatientRequest).GetProperties(), p => p.Name == "Mrn");
 
     [Fact]
     public void Multiple_errors_are_reported_together()
@@ -59,6 +55,21 @@ public class CreatePatientValidatorTests
     [InlineData("ALP-0001", "ALP-0001")]
     public void Mrn_is_normalized_to_upper_case(string input, string expected) =>
         Assert.Equal(expected, CreatePatientValidator.NormalizeMrn(input));
+
+    [Theory]
+    [InlineData("98765 43210", "+91", "+919876543210")]
+    [InlineData("098765-43210", "+91", "+919876543210")]
+    [InlineData("(0)98765 43210", "+91", "+919876543210")]
+    [InlineData("919876543210", "+91", "+919876543210")]
+    [InlineData("+971 50 123 4567", "+91", "+971501234567")]
+    [InlineData("0044 20 7946 0000", "+91", "+442079460000")]
+    [InlineData("50 123 4567", "+971", "+971501234567")]
+    [InlineData("12345", "+91", null)]
+    [InlineData("call me", "+91", null)]
+    [InlineData("+0123456789", "+91", null)]
+    [InlineData("", "+91", null)]
+    public void Phones_are_normalized_to_e164_with_the_tenant_code(string raw, string cc, string? expected) =>
+        Assert.Equal(expected, Hms.Modules.Patients.Registry.PhoneE164.Normalize(raw, cc));
 
     [Fact]
     public void Today_is_computed_in_the_branch_time_zone()

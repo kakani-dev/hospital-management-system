@@ -12,12 +12,14 @@ import {
   UserGroupIcon,
   UsersIcon,
   CalendarIcon,
+  GlobeAltIcon,
+  InboxStackIcon,
 } from '@heroicons/react/24/outline'
 import { ArrowLeftStartOnRectangleIcon, CommandLineIcon } from '@heroicons/react/24/outline'
 import { ShortcutHelp } from '../../features/shortcuts/ShortcutHelp'
 import { useReceptionShortcuts } from '../../features/shortcuts/useReceptionShortcuts'
 import { useAuth } from '../../features/auth/AuthProvider'
-import { TenantSwitcher } from '../../features/tenancy/TenantSwitcher'
+import { HeaderContext, SidebarContextSwitcher } from '../../features/tenancy/ResponsiveContext'
 import { useCurrentContext } from '../../features/tenancy/useCurrentContext'
 import { TenantChangedBanner } from '../../features/tenancy/TenantChangedBanner'
 import { ContextErrorBanner } from '../../features/tenancy/ContextErrorBanner'
@@ -39,7 +41,10 @@ function initialsSource(email: string | null | undefined) {
  */
 export function AppShell() {
   const { email, signOut } = useAuth()
-  const { isAdmin, roles } = useCurrentContext()
+  const { isAdmin, roles, me } = useCurrentContext()
+  const isPlatformAdmin = me.data?.isPlatformAdmin === true
+  // An operator outside any hospital has no clinical screens (the APIs answer 403 anyway).
+  const operatorOnly = isPlatformAdmin && !me.data?.activeTenantId
   const navigate = useNavigate()
   const [helpOpen, setHelpOpen] = useState(false)
   const openHelp = useCallback(() => setHelpOpen(true), [])
@@ -50,7 +55,7 @@ export function AppShell() {
     const clinical: NavGroup = {
       id: 'clinical',
       title: 'Clinical',
-      childs: [
+      childs: operatorOnly ? [] : [
         { id: 'dashboard', path: '/', title: 'Dashboard', end: true, Icon: HomeIcon },
         { id: 'patients', path: '/patients', title: 'Patients', Icon: UsersIcon, keys: '/' },
         ...(can(roles, 'appointments.view')
@@ -90,8 +95,19 @@ export function AppShell() {
           ]
         : [],
     }
-    return [clinical, reception, admin].filter((g) => g.childs.length > 0)
-  }, [roles, isAdmin])
+    // Server-checked flag (identity.is_platform_admin); every /platform endpoint re-checks it.
+    const platform: NavGroup = {
+      id: 'platform',
+      title: 'Platform',
+      childs: isPlatformAdmin
+        ? [
+            { id: 'platform-hospitals', path: '/platform', title: 'Hospitals', end: true, Icon: GlobeAltIcon },
+            { id: 'platform-requests', path: '/platform/requests', title: 'Hospital requests', Icon: InboxStackIcon },
+          ]
+        : [],
+    }
+    return [clinical, reception, admin, platform].filter((g) => g.childs.length > 0)
+  }, [roles, isAdmin, isPlatformAdmin, operatorOnly])
 
   const avatarName = initialsSource(email)
 
@@ -106,7 +122,8 @@ export function AppShell() {
       <Sideblock
         appName="HMS"
         navigation={navigation}
-        headerStart={<TenantSwitcher />}
+        headerStart={<HeaderContext />}
+        sidebarTop={<SidebarContextSwitcher />}
         headerEnd={
           <>
             <ThemeModeSwitch className="max-sm:hidden" />
@@ -130,14 +147,15 @@ export function AppShell() {
             </div>
             <Button
               variant="outlined"
-              className="h-8 gap-2 px-3 text-xs-plus"
+              className="h-8 gap-2 px-3 text-xs-plus max-sm:px-2"
+              title="Sign out"
               onClick={async () => {
                 await signOut()
                 navigate('/login', { replace: true })
               }}
             >
               <ArrowLeftStartOnRectangleIcon className="size-4" aria-hidden="true" />
-              <span>Sign out</span>
+              <span className="max-sm:sr-only">Sign out</span>
             </Button>
           </>
         }

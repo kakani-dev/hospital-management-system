@@ -4,6 +4,8 @@ import { Card } from '../../components/ui/Card'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
 import { SelectField } from '../../components/ui/SelectField'
+import { FormField } from '../../components/ui/FormField'
+import { Textarea } from '@tailux/components/ui'
 import { BranchPicker } from '../../components/scheduling/BranchPicker'
 import { CalendarToolbar } from '../../components/scheduling/CalendarToolbar'
 import { StatusBadge } from '../../components/scheduling/StatusBadge'
@@ -12,7 +14,7 @@ import { ApiError, problemCode } from '../../lib/api/client'
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 import { addDays, dateInZone, formatDayLabel, formatTime, weekDates, zonedTimeToInstant } from '../../lib/dates'
 import { can } from '../../lib/permissions'
-import type { Appointment } from '../../lib/api/types'
+import { APPOINTMENT_STATUSES, type Appointment, type AppointmentStatus } from '../../lib/api/types'
 import { rolesAtBranch, useCurrentContext } from '../tenancy/useCurrentContext'
 import { useBranchSelection } from '../tenancy/useBranchSelection'
 import { BranchNotice } from '../tenancy/BranchNotice'
@@ -31,6 +33,8 @@ export function AppointmentCalendarPage() {
   const { branches, branchId, timeZone, timeZoneReady, timeZoneMissing, setBranchId } = useBranchSelection()
   const cal = useCalendarParams(timeZone, 'day')
   const [practitionerFilter, setPractitionerFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState<AppointmentStatus | ''>('')
+  const [search, setSearch] = useState('')
   const location = useLocation()
   const navigate = useNavigate()
   // Alt+K ({ openBooking }) or the way back from "Register new patient" ({ booking, pickedPatient }).
@@ -47,6 +51,10 @@ export function AppointmentCalendarPage() {
   const [noShow, setNoShow] = useState<{ appointment: Appointment; patientName: string } | null>(null)
   const [noShowError, setNoShowError] = useState<string | null>(null)
   const markNoShow = useNoShowAppointment()
+  const cancelAppointment = useCancelAppointment()
+  const [cancelling, setCancelling] = useState<{ appointment: Appointment; patientName: string } | null>(null)
+  const [cancelReason, setCancelReason] = useState('')
+  const [cancelError, setCancelError] = useState<string | null>(null)
 
   // Tenant-wide list for names; the branch list for the filter and the booking picker.
   const practitioners = usePractitioners()
@@ -60,6 +68,7 @@ export function AppointmentCalendarPage() {
           from: zonedTimeToInstant(cal.rangeStart, '00:00', timeZone),
           to: zonedTimeToInstant(cal.rangeEnd, '00:00', timeZone),
           practitionerId: practitionerFilter || undefined,
+          status: statusFilter || undefined,
         }
       : null,
     { refetchInterval: CALENDAR_REFRESH_MS },
@@ -67,9 +76,20 @@ export function AppointmentCalendarPage() {
   const patient = usePatientRefs(appointments.data ?? [])
   const canBook = can(rolesAtBranch(me.data, branchId), 'appointments.book')
 
+  // Patient search narrows the loaded range (name, MRN or visit reason); the server filters status.
+  const needle = search.trim().toLowerCase()
+  const matches = (a: Appointment) => {
+    if (!needle) return true
+    const p = patient(a)
+    const hay = [p ? `${p.firstName} ${p.lastName} ${p.lastName}, ${p.firstName} ${p.mrn}` : '', a.reason ?? ''].join(' ').toLowerCase()
+    return hay.includes(needle)
+  }
+  const visible = (appointments.data ?? []).filter(matches)
+  const filtering = !!needle || !!statusFilter
+
   const days = cal.view === 'week' ? weekDates(cal.date) : [cal.date]
   const byDay = new Map<string, Appointment[]>(days.map((d) => [d, []]))
-  for (const a of appointments.data ?? []) byDay.get(dateInZone(a.startsAt, timeZone))?.push(a)
+  for (const a of visible) byDay.get(dateInZone(a.startsAt, timeZone))?.push(a)
   for (const list of byDay.values()) list.sort((a, b) => a.startsAt.localeCompare(b.startsAt))
 
   const rangeLabel = cal.view === 'week' ? `${formatDayLabel(cal.rangeStart)} – ${formatDayLabel(addDays(cal.rangeEnd, -1))}` : formatDayLabel(cal.date)
@@ -102,6 +122,19 @@ export function AppointmentCalendarPage() {
               </option>
             ))}
           </SelectField>
+        </div>
+        <div className="w-48">
+          <SelectField label="Status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as AppointmentStatus | '')}>
+            <option value="">All statuses</option>
+            {APPOINTMENT_STATUSES.map((st) => (
+              <option key={st} value={st}>
+                {statusLabel(st)}
+              </option>
+            ))}
+          </SelectField>
+        </div>
+        <div className="w-64">
+          <FormField label="Find patient" type="search" placeholder="Name, MRN or reason" value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
       </div>
       <CalendarToolbar
@@ -181,6 +214,55 @@ export function AppointmentCalendarPage() {
         )}
       </ConfirmDialog>
       {noShowError && <Alert tone="error">{noShowError}</Alert>}
+      <ConfirmDialog
+        open={!!cancelling}
+        title="Cancel appointment?"
+        confirmLabel="Cancel appointment"
+        busy={cancelAppointment.isPending}
+        onCancel={() => setCancelling(null)}
+        onConfirm={() => {
+          if (!cancelling) return
+          const reason = cancelReason.trim()
+          if (reason.length > 500) return setCancelError('Keep the reason under 500 characters.')
+          const c = cancelling
+          cancelAppointment.mutate(
+            { id: c.appointment.id, reason: reason || undefined },
+            {
+              onSuccess: () => {
+                setNotice(`The ${formatTime(c.appointment.startsAt, timeZone)} appointment for ${c.patientName} was cancelled. The slot is free again.`)
+                setCancelling(null)
+              },
+              onError: (e) =>
+                setCancelError(
+                  problemCode(e) === 'invalid_transition' || (e instanceof ApiError && e.status === 409)
+                    ? 'Only booked appointments can be cancelled (it may have been checked in already).'
+                    : e instanceof ApiError && e.status === 403
+                      ? 'You are not allowed to change appointments at this branch.'
+                      : 'Could not cancel the appointment. Try again.',
+                ),
+            },
+          )
+        }}
+      >
+        {cancelling && (
+          <div className="space-y-3">
+            <p>
+              {cancelling.patientName} · {formatDayLabel(dateInZone(cancelling.appointment.startsAt, timeZone))}{' '}
+              {formatTime(cancelling.appointment.startsAt, timeZone)} with {practitionerName(cancelling.appointment.practitionerId)}.
+            </p>
+            <Textarea
+              label="Reason (optional)"
+              rows={2}
+              value={cancelReason}
+              error={cancelError ?? undefined}
+              onChange={(e) => {
+                setCancelReason(e.target.value)
+                setCancelError(null)
+              }}
+            />
+          </div>
+        )}
+      </ConfirmDialog>
       <BranchNotice branchId={branchId} timeZoneMissing={timeZoneMissing} />
       {appointments.isError && <Alert tone="warning">Appointments are unavailable right now.</Alert>}
       <div
@@ -199,7 +281,7 @@ export function AppointmentCalendarPage() {
                 <p className="text-sm text-gray-600 dark:text-dark-200">Loading…</p>
               )}
               {!appointments.isPending && !appointments.isPlaceholderData && (byDay.get(d)?.length ?? 0) === 0 && (
-                <p className="text-sm text-gray-500 dark:text-dark-300">No appointments</p>
+                <p className="text-sm text-gray-500 dark:text-dark-300">{filtering ? 'No matching appointments' : 'No appointments'}</p>
               )}
               <ul className="space-y-2">
                 {byDay.get(d)?.map((a) => {
@@ -225,9 +307,24 @@ export function AppointmentCalendarPage() {
                         {p && <span className="ml-1 font-mono text-xs text-gray-600 dark:text-dark-200">{p.mrn}</span>}
                       </div>
                       <div className="text-xs text-gray-600 dark:text-dark-200">{practitionerName(a.practitionerId)}</div>
+                      {a.reason && <div className="text-xs text-gray-700 dark:text-dark-100">Reason: {a.reason}</div>}
+                      {a.status === 'cancelled' && a.cancelReason && (
+                        <div className="text-xs text-gray-600 dark:text-dark-200">Cancelled: {a.cancelReason}</div>
+                      )}
                       {canBook && a.status === 'booked' && (
                         <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
-                          <CancelAppointmentButton appointment={a} />
+                          <button
+                            type="button"
+                            className="text-xs font-medium text-error-darker underline dark:text-error-lighter"
+                            onClick={() => {
+                              setNotice(null)
+                              setCancelReason('')
+                              setCancelError(null)
+                              setCancelling({ appointment: a, patientName: p ? `${p.firstName} ${p.lastName}` : 'The patient' })
+                            }}
+                          >
+                            Cancel appointment
+                          </button>
                           <LinkButton
                             onClick={() => {
                               setNotice(null)
@@ -268,23 +365,4 @@ function LinkButton({ onClick, children }: { onClick: () => void; children: stri
   )
 }
 
-function CancelAppointmentButton({ appointment }: { appointment: Appointment }) {
-  const cancel = useCancelAppointment()
-  return (
-    <div>
-      <button
-        type="button"
-        className="text-xs font-medium text-error-darker underline disabled:text-gray-400 dark:text-error-lighter dark:disabled:text-dark-400"
-        disabled={cancel.isPending}
-        onClick={() => cancel.mutate({ id: appointment.id })}
-      >
-        Cancel appointment
-      </button>
-      {cancel.isError && (
-        <p role="alert" className="text-xs text-error-darker dark:text-error-lighter">
-          Could not cancel (it may have been checked in already).
-        </p>
-      )}
-    </div>
-  )
-}
+const statusLabel = (st: string) => (st === 'no_show' ? 'No-show' : st.charAt(0).toUpperCase() + st.slice(1).replace(/_/g, ' '))

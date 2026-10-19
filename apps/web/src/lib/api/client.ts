@@ -40,6 +40,17 @@ import type {
   UpdatePatientRequest,
   UpdateQueueStatusRequest,
   WalkInRequest,
+  ClaimedInvite,
+  CreateInviteLinkRequest,
+  HospitalApproved,
+  HospitalRequest,
+  HospitalSignupRequest,
+  InviteLink,
+  InviteLinkIssued,
+  InvitePreview,
+  PlatformCreateTenantRequest,
+  PlatformTenant,
+  PlatformTenantDetail,
 } from './types'
 import { resilience as defaultResilience, type ResilienceConfig } from '../config'
 import { beginPending, type PendingHandle } from './pending'
@@ -333,7 +344,12 @@ export class ApiClient {
     this.request<void>('/api/v1/me/context', { method: 'POST', body: JSON.stringify(body) })
 
   branches = {
-    list: () => this.request<Branch[]>('/api/v1/branches'),
+    list: (params: { includeDeleted?: boolean } = {}) =>
+      this.request<Branch[]>(`/api/v1/branches${qs({ includeDeleted: params.includeDeleted ? 'true' : undefined })}`),
+    /** Soft delete. 409 for the last branch or one with open appointments / queue entries. */
+    remove: (id: string) => this.request<void>(`/api/v1/branches/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    /** Restore a soft-deleted branch (it comes back inactive). */
+    restore: (id: string) => this.request<void>(`/api/v1/branches/${encodeURIComponent(id)}/restore`, { method: 'POST' }),
     create: (body: CreateBranchRequest) =>
       this.request<Branch>('/api/v1/branches', { method: 'POST', body: JSON.stringify(body) }),
     update: (id: string, body: UpdateBranchRequest) =>
@@ -357,6 +373,47 @@ export class ApiClient {
       this.request<AddMemberResponse | undefined>('/api/v1/members', { method: 'POST', body: JSON.stringify(body) }),
     update: (id: string, body: UpdateMemberRequest) =>
       this.request<Member>(`/api/v1/members/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    /** Soft delete: the membership grants nothing afterwards. */
+    remove: (id: string) => this.request<void>(`/api/v1/members/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    inviteLinks: {
+      list: () => this.request<InviteLink[]>('/api/v1/members/invite-links'),
+      /** 201 with the one-time token; works whether or not the person has an account yet. */
+      create: (body: CreateInviteLinkRequest) =>
+        this.request<InviteLinkIssued>('/api/v1/members/invite-links', { method: 'POST', body: JSON.stringify(body) }),
+      revoke: (id: string) => this.request<void>(`/api/v1/members/invite-links/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    },
+  }
+
+  /** Anonymous endpoints (no Authorization header). */
+  publicApi = {
+    /** Always 202 when valid; creates only a pending request (no hospital, no access). 429 rate_limited. */
+    submitHospitalSignup: (body: HospitalSignupRequest) =>
+      this.request<{ message: string } | undefined>('/api/v1/public/hospital-signups', { method: 'POST', body: JSON.stringify(body), auth: false }),
+    /** 404 when unknown, used, revoked or expired. */
+    previewInvite: (token: string) => this.request<InvitePreview>(`/api/v1/public/invites/${encodeURIComponent(token)}`, { auth: false, retry: false }),
+  }
+
+  /** Claim an invite link as the signed-in user (email must match: 403 invite_email_mismatch). */
+  claimInvite = (token: string) =>
+    this.request<ClaimedInvite>('/api/v1/me/invite-links/claim', { method: 'POST', body: JSON.stringify({ token }) })
+
+  /** Platform console (platform operators only; 403 otherwise). Tenant metadata and counts only. */
+  platform = {
+    tenants: (params: { search?: string; status?: string } = {}) => this.request<PlatformTenant[]>(`/api/v1/platform/tenants${qs(params)}`),
+    tenant: (id: string) => this.request<PlatformTenantDetail>(`/api/v1/platform/tenants/${encodeURIComponent(id)}`),
+    createTenant: (body: PlatformCreateTenantRequest) =>
+      this.request<HospitalApproved>('/api/v1/platform/tenants', { method: 'POST', body: JSON.stringify(body) }),
+    suspend: (id: string, reason: string) =>
+      this.request<void>(`/api/v1/platform/tenants/${encodeURIComponent(id)}/suspend`, { method: 'POST', body: JSON.stringify({ reason }) }),
+    reactivate: (id: string, reason: string) =>
+      this.request<void>(`/api/v1/platform/tenants/${encodeURIComponent(id)}/reactivate`, { method: 'POST', body: JSON.stringify({ reason }) }),
+    reissueAdminInvite: (id: string, email: string) =>
+      this.request<InviteLinkIssued>(`/api/v1/platform/tenants/${encodeURIComponent(id)}/admin-invite`, { method: 'POST', body: JSON.stringify({ email }) }),
+    requests: (status?: string) => this.request<HospitalRequest[]>(`/api/v1/platform/hospital-requests${qs({ status })}`),
+    approve: (id: string, tenantCode: string) =>
+      this.request<HospitalApproved>(`/api/v1/platform/hospital-requests/${encodeURIComponent(id)}/approve`, { method: 'POST', body: JSON.stringify({ tenantCode }) }),
+    reject: (id: string, reason: string) =>
+      this.request<void>(`/api/v1/platform/hospital-requests/${encodeURIComponent(id)}/reject`, { method: 'POST', body: JSON.stringify({ reason }) }),
   }
 
   patients = {

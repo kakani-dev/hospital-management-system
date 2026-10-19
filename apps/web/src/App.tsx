@@ -14,6 +14,9 @@ import { MembersPage } from "./features/admin/MembersPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { RequireCapability } from "./features/auth/RequireCapability";
 import { WakingBanner } from "./components/layout/WakingBanner";
+import { RegisterHospitalPage } from "./features/onboarding/RegisterHospitalPage";
+import { InvitePage } from "./features/invitations/InvitePage";
+import { RequirePlatformAdmin } from "./features/platform/RequirePlatformAdmin";
 
 // Scheduling and OPD screens are split into their own chunks: most sessions (billing, patient
 // registration) never open them, and together they pushed the entry chunk past 500 kB.
@@ -40,6 +43,16 @@ const WorkingHoursPage = lazy(() =>
 );
 const HospitalSettingsPage = lazy(() =>
   import("./features/admin/HospitalSettingsPage").then((m) => ({ default: m.HospitalSettingsPage })),
+);
+// Platform console (operators only): its own chunk, hospital staff never load it.
+const PlatformHospitalsPage = lazy(() =>
+  import("./features/platform/PlatformHospitalsPage").then((m) => ({ default: m.PlatformHospitalsPage })),
+);
+const PlatformHospitalDetailPage = lazy(() =>
+  import("./features/platform/PlatformHospitalDetailPage").then((m) => ({ default: m.PlatformHospitalDetailPage })),
+);
+const HospitalRequestsPage = lazy(() =>
+  import("./features/platform/HospitalRequestsPage").then((m) => ({ default: m.HospitalRequestsPage })),
 );
 const QueueBoardPage = lazy(() =>
   import("./features/opd/QueueBoardPage").then((m) => ({
@@ -70,6 +83,8 @@ export function App() {
     <WakingBanner />
     <Routes key={cacheEpoch}>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/register-hospital" element={<RegisterHospitalPage />} />
+      <Route path="/invite/:token" element={<InvitePage />} />
       <Route element={<RequireAuth />}>
         <Route element={<AppShell />}>
           <Route index element={<DashboardPage />} />
@@ -140,6 +155,32 @@ export function App() {
               element={
                 <Lazy>
                   <HospitalSettingsPage />
+                </Lazy>
+              }
+            />
+          </Route>
+          <Route path="platform" element={<RequirePlatformAdmin />}>
+            <Route
+              index
+              element={
+                <Lazy>
+                  <PlatformHospitalsPage />
+                </Lazy>
+              }
+            />
+            <Route
+              path="hospitals/:tenantId"
+              element={
+                <Lazy>
+                  <PlatformHospitalDetailPage />
+                </Lazy>
+              }
+            />
+            <Route
+              path="requests"
+              element={
+                <Lazy>
+                  <HospitalRequestsPage />
                 </Lazy>
               }
             />

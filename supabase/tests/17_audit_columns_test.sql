@@ -116,9 +116,9 @@ select tests.throws_ok(
   $$update patient.patients set created_at = '2000-01-01' where id = 'aa000000-0000-4000-8000-000000000001'$$,
   '42501', 'client UPDATE of the legacy created_at is refused');
 
-insert into patient.patients (id, tenant_id, registered_branch_id, mrn, first_name, last_name)
+insert into patient.patients (id, tenant_id, registered_branch_id, first_name, last_name)
 values ('aa000000-0000-4000-8000-0000000000f1', '11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001',
-        'FRG-3', 'Stamped', 'Synthetic');
+        'Stamped', 'Synthetic');
 select tests.ok(
   (select created_by = '0a000000-0000-4000-8000-000000000002' and updated_by = created_by
           and created_on = updated_on and not is_deleted

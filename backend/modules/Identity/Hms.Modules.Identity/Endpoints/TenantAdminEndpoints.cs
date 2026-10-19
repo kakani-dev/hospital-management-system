@@ -314,9 +314,15 @@ public static class TenantAdminEndpoints
             return TypedResults.NotFound();
         }
 
-        if (request.Role == HmsRoles.TenantAdmin && membership.BranchId is not null)
+        var branchId = request.AllBranches == true ? null : request.BranchId ?? membership.BranchId;
+        if (request.BranchId is { } target && !tenant.BranchTimeZones.ContainsKey(target))
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["role"] = [IdentityValidators.TenantAdminIsTenantWide] });
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["branchId"] = ["Branch does not belong to this hospital."] });
+        }
+
+        if ((request.Role ?? membership.Role) == HmsRoles.TenantAdmin && branchId is not null)
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]> { [request.Role is null ? "branchId" : "role"] = [IdentityValidators.TenantAdminIsTenantWide] });
         }
 
         if (membership.UserId == tenant.UserId)
@@ -326,7 +332,15 @@ public static class TenantAdminEndpoints
 
         membership.Role = request.Role ?? membership.Role;
         membership.Status = request.Status ?? membership.Status;
-        await db.SaveChangesAsync(ct);
+        membership.BranchId = branchId;
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (PostgresErrors.ToProblem(ex, "That person already has a membership for this branch scope.") is { } problem)
+        {
+            return problem;
+        }
 
         var email = await db.UserProfiles.AsNoTracking().Where(p => p.Id == membership.UserId).Select(p => p.Email).SingleOrDefaultAsync(ct);
         return TypedResults.Ok(new MemberDto(membership.Id, membership.UserId, email, null, membership.Role, membership.BranchId, null, membership.Status));

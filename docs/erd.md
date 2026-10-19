@@ -11,6 +11,8 @@ erDiagram
   BRANCHES |o--o{ MEMBERSHIPS : "scopes (null = all branches)"
   TENANTS ||--o{ PATIENTS : "owns"
   BRANCHES ||--o{ PATIENTS : "registered at"
+  PATIENTS ||--o{ PATIENT_PHONES : "has numbers"
+  TENANTS ||--o| MRN_COUNTERS : "numbers MRNs"
   TENANTS ||--o{ AUDIT_LOG : "scopes"
   TENANTS ||--o{ PRACTITIONERS : "owns"
   AUTH_USERS |o--o{ PRACTITIONERS : "optional staff link"
@@ -66,16 +68,29 @@ erDiagram
     uuid id PK
     uuid tenant_id FK
     uuid registered_branch_id "FK(tenant_id, registered_branch_id)"
-    text mrn "UK(tenant_id, mrn)"
+    text mrn "UK(tenant_id, mrn), generated, immutable"
     text first_name
     text last_name
     date date_of_birth
     text sex
-    text phone
+    text phone "deprecated mirror of the primary patient_phones row
     text email
     timestamptz deleted_at "soft delete (RPC only)"
     uuid deleted_by "Sprint 2, RPC only"
     text deletion_reason "Sprint 2, <=500"
+  }
+  PATIENT_PHONES {
+    uuid id PK
+    uuid tenant_id FK
+    uuid patient_id "FK(tenant_id, patient_id)"
+    text phone_e164 "E.164; UK(patient_id, phone_e164) live"
+    boolean is_primary "<=1 live per patient"
+    boolean is_whatsapp "<=1 live per patient"
+    boolean is_deleted
+  }
+  MRN_COUNTERS {
+    uuid tenant_id PK
+    bigint last_value
   }
   PRACTITIONERS {
     uuid id PK
@@ -185,6 +200,7 @@ Source: `/workspace/SPRINT2-CONTRACT.md` (DB v1) and migrations `20261010090000`
 
 - **Tenancy.** Every new table has `tenant_id`; child rows reference parents through composite FKs `(tenant_id, x_id)`, so no row can point at another tenant's row. RLS is on for every table.
 - **Patients (2.1).** Soft delete and restore only through `patient.soft_delete_patient(id, reason)` (tenant_admin, receptionist) and `patient.restore_patient(id)` (tenant_admin); `authenticated` has no `update (deleted_at)` grant. Deleted rows are visible to tenant_admin only and can't be edited until restored. The MRN stays reserved after delete. Deleting a patient with open appointments or queue entries fails (`55000`). Indexes: normalized phone (`patient.normalize_phone`, last 10 digits), DOB, and lower(name)+DOB, all `where deleted_at is null`.
+- **MRN and phones (Level 1).** `patient.mrn_counters` (one row per tenant) feeds the MRN trigger (`<TENANT CODE>-<6 digits>`, row-locked upsert). `patient.patient_phones` holds each distinct E.164 number once with `is_primary` / `is_whatsapp` flags (at most one of each per patient; partial unique indexes on live rows); `patients.phone` is a deprecated mirror to be dropped later. `identity.tenants.default_country_code` drives normalisation.
 - **Duplicate detection.** `patient.find_duplicate_patients(...)` (SECURITY INVOKER) returns up to 20 same-tenant, non-deleted matches by name+DOB or normalized phone, with `match_reasons`. Advisory only; the DB never blocks a duplicate.
 - **Schedules.** Weekly, branch-local wall-clock time, no overnight shifts; overlapping active rows for one practitioner are excluded (`23P01`). Slots are computed by `appointment.available_slots(...)`, never stored (max 31-day range).
 - **Appointments.** No overlap per practitioner: `exclude using gist (tenant_id =, practitioner_id =, during &&)` for status `booked|checked_in|in_consultation|completed` (`23P01`; cancelled and no_show free the time). Patient-side overlap is not enforced. New rows must be `booked`; transitions are enforced by a trigger (`23514 invalid_transition:...`); time, practitioner, patient and branch are immutable once not `booked`. No DELETE (cancel instead).

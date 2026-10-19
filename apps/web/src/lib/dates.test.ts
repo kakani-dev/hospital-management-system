@@ -29,13 +29,14 @@ describe('localToday', () => {
 
 describe('patientSchema date of birth (time zone edge)', () => {
   const valid = {
-    mrn: 'NB-0001',
     firstName: 'Baby',
     lastName: 'Synthetic',
     sex: 'unknown' as const,
     registeredBranchId: 'a1111111-0000-4000-8000-000000000001',
     phone: '',
     email: '',
+    whatsappSameAsPhone: true,
+    whatsappNumber: '',
   }
 
   it('accepts a newborn registered at 00:30 IST (UTC date is still yesterday) and rejects tomorrow', () => {

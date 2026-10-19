@@ -19,4 +19,14 @@ public interface IPatientRegistryFunctions
 
     /// <summary><c>patient.restore_patient</c>: tenant_admin only; P0002 when not found / not deleted.</summary>
     Task RestoreAsync(Guid patientId, CancellationToken ct);
+
+    /// <summary><c>identity.tenant_default_country_code_v1</c>: the caller's own tenant calling code (e.g. +91); null if not a member.</summary>
+    Task<string?> DefaultCountryCodeAsync(Guid tenantId, CancellationToken ct);
+
+    /// <summary>
+    /// <c>patient.set_patient_phones</c>: sets the DESIRED numbers (E.164 or null). whatsappSameAsPhone
+    /// flags the phone row; otherwise whatsapp is a separate number (equal to phone = same row).
+    /// 22023 invalid, P0002 not found, 42501 no writer role at the patient's branch.
+    /// </summary>
+    Task SetPhonesAsync(Guid patientId, string? phone, bool whatsappSameAsPhone, string? whatsapp, CancellationToken ct);
 }

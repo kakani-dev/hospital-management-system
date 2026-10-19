@@ -127,7 +127,7 @@ select tests.ok(
                         where id = 'aa000000-0000-4000-8000-000000000003'$$) = 0,
   'MIN-3: receptionist@Main cannot move an East patient into Main (PoC D4, 0 rows)');
 select tests.ok(
-  tests.affected_rows($$update patient.patients set phone = '+1-555-0199'
+  tests.affected_rows($$update patient.patients set email = 'min3@patients.example'
                         where id = 'aa000000-0000-4000-8000-000000000001'$$) = 1,
   'MIN-3: receptionist@Main can still edit a Main patient');
 select tests.throws_ok(

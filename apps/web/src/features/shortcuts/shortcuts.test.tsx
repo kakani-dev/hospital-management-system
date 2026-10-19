@@ -25,7 +25,7 @@ function setup(roles: string[], path = '/') {
 }
 
 describe('reception keyboard shortcuts', () => {
-  it('Alt+C → check-in, Alt+W → walk-in search focused, Alt+Q → queue, Alt+N → register (MRN focused)', async () => {
+  it('Alt+C → check-in, Alt+W → walk-in search focused, Alt+Q → queue, Alt+N → register (first name focused)', async () => {
     const user = setup(['receptionist'])
     await screen.findByRole('link', { name: 'Check-in' })
     await user.keyboard('{Alt>}c{/Alt}')
@@ -40,7 +40,7 @@ describe('reception keyboard shortcuts', () => {
 
     await user.keyboard('{Alt>}n{/Alt}')
     await screen.findByRole('form', { name: 'Register patient' })
-    await waitFor(() => expect(screen.getByLabelText('MRN')).toHaveFocus())
+    await waitFor(() => expect(screen.getByLabelText('First name')).toHaveFocus())
   })
 
   it('"/" focuses the patient search (navigating to Patients if needed) but types normally inside fields', async () => {

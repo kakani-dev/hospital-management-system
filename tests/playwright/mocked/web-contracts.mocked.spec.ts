@@ -106,23 +106,25 @@ test.describe('B1: consent-based invitations', () => {
   test('admin gets the generic 202 message; the invitee accepts from the no-hospital dashboard', async ({ page, browser }) => {
     await signIn(page, 'admin@alpha.example')
     await page.getByRole('link', { name: 'Members' }).click()
-    await page.getByLabel('Email').fill('newcomer@synthetic.example')
-    await page.getByLabel('Role', { exact: true }).selectOption('nurse')
-    await page.getByRole('button', { name: 'Add member' }).click()
+    // The page also has the "Create invite link" form (same labels): scope to "Add member".
+    const add = page.getByRole('form', { name: 'Add member' })
+    await add.getByLabel('Email').fill('newcomer@synthetic.example')
+    await add.getByLabel('Role', { exact: true }).selectOption('nurse')
+    await add.getByRole('button', { name: 'Add member' }).click()
     await expect(page.getByText(ADD_MEMBER_GENERIC_MESSAGE)).toBeVisible()
     await expect(page.getByTestId('member-row').filter({ hasText: 'newcomer@synthetic.example' })).toHaveCount(0)
 
     // Unknown email: exactly the same answer (no account enumeration).
-    await page.getByLabel('Email').fill('nobody-here@synthetic.example')
-    await page.getByRole('button', { name: 'Add member' }).click()
+    await add.getByLabel('Email').fill('nobody-here@synthetic.example')
+    await add.getByRole('button', { name: 'Add member' }).click()
     await expect(page.getByText(ADD_MEMBER_GENERIC_MESSAGE)).toBeVisible()
     await expect(page.getByText(/no user|signed up/i)).toHaveCount(0)
 
     // tenant_admin is tenant-wide: the branch scope collapses to "All branches".
-    await page.getByLabel('Branch scope').selectOption({ label: 'Alpha East Clinic' })
-    await page.getByLabel('Role', { exact: true }).selectOption('tenant_admin')
-    await expect(page.getByLabel('Branch scope')).toHaveValue('')
-    await expect(page.getByLabel('Branch scope').locator('option')).toHaveText(['All branches'])
+    await add.getByLabel('Branch scope').selectOption({ label: 'Alpha East Clinic' })
+    await add.getByLabel('Role', { exact: true }).selectOption('tenant_admin')
+    await expect(add.getByLabel('Branch scope')).toHaveValue('')
+    await expect(add.getByLabel('Branch scope').locator('option')).toHaveText(['All branches'])
 
     const inviteeContext = await browser.newContext()
     await backend.install(inviteeContext)

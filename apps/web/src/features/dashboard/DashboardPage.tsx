@@ -1,5 +1,5 @@
 import type { ComponentType, ReactNode, SVGProps } from 'react'
-import { Link } from 'react-router'
+import { Link, Navigate } from 'react-router'
 import {
   CalendarDaysIcon,
   ClipboardDocumentCheckIcon,
@@ -83,7 +83,7 @@ function StatCard({
 }
 
 export function DashboardPage() {
-  const { activeTenant, branches: myBranches, activeBranchId, roles } = useCurrentContext()
+  const { me, tenants, activeTenant, branches: myBranches, activeBranchId, roles } = useCurrentContext()
   const { branches, branchId, branch, timeZone, timeZoneReady, setBranchId } = useBranchSelection()
   const health = useApiHealth()
   const apiStatus = health.isPending
@@ -123,6 +123,9 @@ export function DashboardPage() {
   ).filter((a): a is QuickAction => !!a)
 
   const hasStats = (showAppointments || showQueue || showPatients) && !!branchId
+
+  // A platform operator without any hospital membership has nothing here: the console is home.
+  if (me.data?.isPlatformAdmin && tenants.length === 0) return <Navigate to="/platform" replace />
 
   return (
     <div className="space-y-6">

@@ -13,7 +13,8 @@ public sealed record CurrentUserDto(
     IReadOnlyList<string> Roles,
     IReadOnlyList<BranchOptionDto> AccessibleBranches,
     IReadOnlyList<MembershipDto> Memberships,
-    string? TimeZone = null);
+    string? TimeZone = null,
+    bool IsPlatformAdmin = false);
 
 public sealed record CurrentTenantDto(Guid Id, string Code, string Name, Guid? ActiveBranchId, IReadOnlyList<string> Roles, string TimeZone);
 
@@ -57,4 +58,6 @@ public sealed record AddMemberAcceptedDto(string Message)
 /// <summary>A pending invitation for the CURRENT user (identity.my_invitations()).</summary>
 public sealed record InvitationDto(Guid MembershipId, Guid TenantId, string TenantName, Guid? BranchId, string Role, DateTimeOffset InvitedAt);
 
-public sealed record UpdateMemberRequest(string? Role, string? Status);
+/// <param name="BranchId">Move the membership to this branch (branch-scoped staff).</param>
+/// <param name="AllBranches">true = make the membership tenant-wide (branchId null).</param>
+public sealed record UpdateMemberRequest(string? Role, string? Status, Guid? BranchId = null, bool? AllBranches = null);

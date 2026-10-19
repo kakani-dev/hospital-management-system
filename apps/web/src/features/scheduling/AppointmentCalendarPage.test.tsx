@@ -217,7 +217,26 @@ describe('AppointmentCalendarPage', () => {
     const user = userEvent.setup()
     renderWithProviders(<App />, { path: '/appointments', auth: fakeAuthClient({ session: fakeSession() }) })
     await user.click(await screen.findByRole('button', { name: 'Cancel appointment' }))
-    await waitFor(() => expect(calls.some((c) => c.path.endsWith('/cancel'))).toBe(true))
+    // Asks first (nothing is posted yet), with an optional reason that is sent along.
+    const dialog = await screen.findByRole('alertdialog')
+    expect(calls.some((c) => c.path.endsWith('/cancel'))).toBe(false)
+    await user.type(within(dialog).getByLabelText('Reason (optional)'), 'Patient called to cancel')
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel appointment' }))
+    await waitFor(() => expect(calls.find((c) => c.path.endsWith('/cancel'))?.body).toEqual({ reason: 'Patient called to cancel' }))
+    expect(await screen.findByText(/was cancelled\. The slot is free again\./)).toBeInTheDocument()
+  })
+
+  it('passes the status filter to the API and narrows by patient search', async () => {
+    const calls = routes(['receptionist'], {}, ALPHA_MAIN)
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: '/appointments', auth: fakeAuthClient({ session: fakeSession() }) })
+    expect(await screen.findAllByTestId('appointment')).toHaveLength(1)
+    await user.selectOptions(screen.getByLabelText('Status'), 'no_show')
+    await waitFor(() => expect(calls.some((c) => c.method === 'GET' && c.path === '/api/v1/appointments' && new URL(c.url, 'http://localhost').searchParams.get('status') === 'no_show')).toBe(true))
+    await user.selectOptions(screen.getByLabelText('Status'), '')
+    await user.type(screen.getByLabelText('Find patient'), 'zzz-nobody')
+    await waitFor(() => expect(screen.queryAllByTestId('appointment')).toHaveLength(0))
+    expect(screen.getAllByText('No matching appointments').length).toBeGreaterThan(0)
   })
 
   it('blocks roles outside REG_READ', async () => {

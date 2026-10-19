@@ -92,7 +92,7 @@ async function setUp(request: APIRequestContext) {
   const lastName = `Zz-E2E-${unique('S2')}`
   const patientResponse = await request.post('/api/v1/patients', {
     headers: reception,
-    data: { mrn: unique('S2Q').toUpperCase(), firstName: 'Queue', lastName, registeredBranchId: ids.alphaMain, sex: 'female' },
+    data: { firstName: 'Queue', lastName, registeredBranchId: ids.alphaMain, sex: 'female' },
   })
   expect(patientResponse.status()).toBe(201)
   const patient = (await patientResponse.json()) as Patient

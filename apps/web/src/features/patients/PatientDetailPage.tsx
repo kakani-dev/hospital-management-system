@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
 import { Link, useNavigate, useParams } from 'react-router'
+import { Badge } from '@tailux/components/ui'
 import { Card } from '../../components/ui/Card'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
@@ -14,6 +15,7 @@ import { can } from '../../lib/permissions'
 import { rolesAtBranch, useCurrentContext } from '../tenancy/useCurrentContext'
 import { createPatientEditSchema, toUpdatePatientRequest, type PatientEditValues } from './patientSchema'
 import { useBranchToday, useBranchZonedResolver } from './useBranchZonedResolver'
+import { WhatsappFields } from './WhatsappFields'
 
 export function PatientDetailPage() {
   const { patientId = '' } = useParams()
@@ -82,7 +84,7 @@ export function PatientDetailPage() {
             <Field label="Date of birth" value={p.dateOfBirth ?? '—'} />
             <Field label="Sex" value={p.sex} />
             <Field label="Registered branch" value={branchName} />
-            <Field label="Phone" value={p.phone ?? '—'} />
+            <PhoneFields patient={p} />
             <Field label="Email" value={p.email ?? '—'} />
           </dl>
           {(canWrite || canDelete) && (
@@ -114,11 +116,34 @@ function BackLink() {
   )
 }
 
-function Field({ label, value }: { label: string; value: string }) {
+/** Phone with a WhatsApp badge when it is also the WhatsApp number, else a separate WhatsApp line. */
+function PhoneFields({ patient }: { patient: PatientDetail }) {
+  const whatsapp = patient.phones?.find((x) => x.isWhatsapp && !x.isPrimary)
+  return (
+    <>
+      <div>
+        <dt className="text-gray-500 dark:text-dark-300">Phone</dt>
+        <dd className="flex flex-wrap items-center gap-2 font-medium text-gray-800 dark:text-dark-100" data-testid="patient-phone">
+          {patient.phone ?? '—'}
+          {patient.phone && patient.whatsappSameAsPhone && (
+            <Badge color="success" variant="soft" data-testid="whatsapp-same-badge">
+              WhatsApp
+            </Badge>
+          )}
+        </dd>
+      </div>
+      {whatsapp && <Field label="WhatsApp" value={whatsapp.number} testId="patient-whatsapp" />}
+    </>
+  )
+}
+
+function Field({ label, value, testId }: { label: string; value: string; testId?: string }) {
   return (
     <div>
       <dt className="text-gray-500 dark:text-dark-300">{label}</dt>
-      <dd className="font-medium text-gray-800 dark:text-dark-100">{value}</dd>
+      <dd className="font-medium text-gray-800 dark:text-dark-100" data-testid={testId}>
+        {value}
+      </dd>
     </div>
   )
 }
@@ -153,6 +178,9 @@ function EditPatientForm({
       registeredBranchId: patient.registeredBranchId,
       phone: patient.phone ?? '',
       email: patient.email ?? '',
+      // Reflects the stored state; with no number stored yet, "same" is the default (as on register).
+      whatsappSameAsPhone: patient.phones?.length ? !!patient.whatsappSameAsPhone : true,
+      whatsappNumber: patient.phones?.find((x) => x.isWhatsapp && !x.isPrimary)?.number ?? '',
     },
   })
 
@@ -167,7 +195,8 @@ function EditPatientForm({
     } catch (error) {
       const fields = fieldErrors(error)
       for (const [field, message] of Object.entries(fields)) {
-        if (field in values) setError(field as keyof PatientEditValues, { message })
+        const key = field === 'whatsapp' ? 'whatsappNumber' : field
+        if (key in values) setError(key as keyof PatientEditValues, { message })
       }
       setFormError(
         error instanceof ApiError && error.status === 403
@@ -191,6 +220,11 @@ function EditPatientForm({
         </div>
       )}
       <form noValidate aria-label="Edit patient" onSubmit={handleSubmit(onSubmit)} className="grid gap-4 sm:grid-cols-2">
+        <div className="sm:col-span-2 text-sm" data-testid="edit-mrn">
+          <span className="text-gray-500 dark:text-dark-300">MRN </span>
+          <span className="font-mono font-medium text-gray-800 dark:text-dark-100">{patient.mrn}</span>
+          <span className="text-gray-500 dark:text-dark-300"> (assigned by the system, cannot be changed)</span>
+        </div>
         <FormField label="First name" autoComplete="off" error={errors.firstName?.message} {...register('firstName')} />
         <FormField label="Last name" autoComplete="off" error={errors.lastName?.message} {...register('lastName')} />
         <FormField label="Date of birth" type="date" min="1900-01-01" max={branchToday} error={errors.dateOfBirth?.message} {...register('dateOfBirth')} />
@@ -210,6 +244,7 @@ function EditPatientForm({
         </SelectField>
         <FormField label="Phone (optional)" type="tel" autoComplete="off" error={errors.phone?.message} {...register('phone')} />
         <FormField label="Email (optional)" type="email" autoComplete="off" error={errors.email?.message} {...register('email')} />
+        <WhatsappFields control={control} register={register} errors={errors} />
         <div className="flex gap-2 sm:col-span-2">
           <Button type="submit" disabled={isSubmitting}>
             {isSubmitting ? 'Saving…' : 'Save changes'}

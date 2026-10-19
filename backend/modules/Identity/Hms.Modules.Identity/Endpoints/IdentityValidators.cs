@@ -76,9 +76,14 @@ public static partial class IdentityValidators
     public static Dictionary<string, string[]> Validate(UpdateMemberRequest r)
     {
         var errors = new Dictionary<string, string[]>();
-        if (r.Role is null && r.Status is null)
+        if (r.Role is null && r.Status is null && r.BranchId is null && r.AllBranches is null)
         {
-            errors["request"] = ["Provide role and/or status."];
+            errors["request"] = ["Provide role, status, branchId and/or allBranches."];
+        }
+
+        if (r.BranchId is not null && r.AllBranches == true)
+        {
+            errors["branchId"] = ["Use either branchId or allBranches, not both."];
         }
 
         if (r.Role is not null && !HmsRoles.All.Contains(r.Role))

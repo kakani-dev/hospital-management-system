@@ -33,10 +33,12 @@ test.describe('tenant admin', () => {
     await expect(page.getByTestId('member-row').filter({ hasText: users.alphaReception })).toBeVisible()
     await expect(page.getByTestId('member-row').filter({ hasText: users.betaAdmin })).toHaveCount(0)
 
+    // The page also has the "Create invite link" form (same labels): scope to "Add member".
+    const add = page.getByRole('form', { name: 'Add member' })
     const addMember = async (address: string) => {
       const answered = page.waitForResponse((r) => r.url().endsWith('/api/v1/members') && r.request().method() === 'POST')
-      await page.getByLabel('Email').fill(address)
-      await page.getByRole('button', { name: 'Add member' }).click()
+      await add.getByLabel('Email').fill(address)
+      await add.getByRole('button', { name: 'Add member' }).click()
       const response = await answered
       expect(response.status()).toBe(202)
       expect(await response.json()).toEqual({ message: ADD_MEMBER_GENERIC_MESSAGE })
@@ -44,8 +46,8 @@ test.describe('tenant admin', () => {
     }
 
     // Known account, branch-scoped invite.
-    await page.getByLabel('Role', { exact: true }).selectOption('nurse')
-    await page.getByLabel('Branch scope').selectOption({ label: 'Alpha East Clinic' })
+    await add.getByLabel('Role', { exact: true }).selectOption('nurse')
+    await add.getByLabel('Branch scope').selectOption({ label: 'Alpha East Clinic' })
     await addMember(email)
     const row = page.getByTestId('member-row').filter({ hasText: email })
     await expect(row).toHaveCount(0) // pending invites are not listed to admins
