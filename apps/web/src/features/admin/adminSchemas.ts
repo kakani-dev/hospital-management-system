@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { ROLES } from '../../lib/api/types'
 
-const isIanaZone = (tz: string) => {
+export const isIanaZone = (tz: string) => {
   try {
     new Intl.DateTimeFormat('en-US', { timeZone: tz })
     return tz.length > 0
@@ -38,3 +38,54 @@ export const memberSchema = z
   // Mirrors the API (400) and DB CHECK (role <> 'tenant_admin' or branch_id is null).
   .refine((v) => v.role !== 'tenant_admin' || v.branchId === '', { path: ['branchId'], error: TENANT_ADMIN_BRANCH_ERROR })
 export type MemberFormValues = z.infer<typeof memberSchema>
+
+/** Edit an existing branch: name plus "follow the hospital zone" or an explicit override. */
+export const branchEditSchema = z
+  .object({
+    name: z.string().trim().min(1, { error: 'Name is required' }).max(120, { error: 'Max 120 characters' }),
+    useHospitalZone: z.boolean(),
+    timezone: z.string().trim(),
+  })
+  .refine((v) => v.useHospitalZone || isIanaZone(v.timezone), { path: ['timezone'], error: 'Use an IANA time zone, e.g. Asia/Kolkata' })
+export type BranchEditValues = z.infer<typeof branchEditSchema>
+
+/** The hospital's own zone is required (branches without an override follow it). */
+export const hospitalSchema = z.object({
+  name: z.string().trim().min(1, { error: 'Name is required' }).max(200, { error: 'Max 200 characters' }),
+  timeZone: z
+    .string()
+    .trim()
+    .refine(isIanaZone, { error: 'Use an IANA time zone, e.g. Asia/Kolkata' }),
+})
+export type HospitalValues = z.infer<typeof hospitalSchema>
+
+export const practitionerSchema = z.object({
+  displayName: z.string().trim().min(1, { error: 'Name is required' }).max(200, { error: 'Max 200 characters' }),
+  specialty: z.string().trim().max(200, { error: 'Max 200 characters' }),
+  /** '' = not linked to a staff account. */
+  userId: z.union([z.literal(''), z.guid()]),
+})
+export type PractitionerValues = z.infer<typeof practitionerSchema>
+
+const HH_MM = /^([01]\d|2[0-3]):[0-5]\d$/
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
+
+/** Weekly working hours in branch-local wall-clock time. */
+export const scheduleSchema = z
+  .object({
+    practitionerId: z.guid({ error: 'Choose a practitioner' }),
+    weekday: z.coerce.number<string>().int().min(1).max(7),
+    startTime: z.string().regex(HH_MM, { error: 'Use HH:mm' }),
+    endTime: z.string().regex(HH_MM, { error: 'Use HH:mm' }),
+    slotMinutes: z.coerce
+      .number<string>({ error: 'Enter minutes' })
+      .int({ error: 'Whole minutes' })
+      .min(5, { error: '5 to 240 minutes' })
+      .max(240, { error: '5 to 240 minutes' }),
+    validFrom: z.string().regex(ISO_DATE, { error: 'Choose a start date' }),
+    validTo: z.union([z.literal(''), z.string().regex(ISO_DATE)]),
+  })
+  .refine((v) => v.endTime > v.startTime, { path: ['endTime'], error: 'End must be after start' })
+  .refine((v) => !v.validTo || v.validTo >= v.validFrom, { path: ['validTo'], error: 'Must be on or after the start date' })
+export type ScheduleFormInput = z.input<typeof scheduleSchema>
+export type ScheduleValues = z.output<typeof scheduleSchema>

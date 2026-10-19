@@ -32,6 +32,15 @@ const CheckInPage = lazy(() =>
     default: m.CheckInPage,
   })),
 );
+const PractitionersPage = lazy(() =>
+  import("./features/admin/PractitionersPage").then((m) => ({ default: m.PractitionersPage })),
+);
+const WorkingHoursPage = lazy(() =>
+  import("./features/admin/WorkingHoursPage").then((m) => ({ default: m.WorkingHoursPage })),
+);
+const HospitalSettingsPage = lazy(() =>
+  import("./features/admin/HospitalSettingsPage").then((m) => ({ default: m.HospitalSettingsPage })),
+);
 const QueueBoardPage = lazy(() =>
   import("./features/opd/QueueBoardPage").then((m) => ({
     default: m.QueueBoardPage,
@@ -110,6 +119,30 @@ export function App() {
           <Route path="admin" element={<RequireAdmin />}>
             <Route path="branches" element={<BranchesPage />} />
             <Route path="members" element={<MembersPage />} />
+            <Route
+              path="practitioners"
+              element={
+                <Lazy>
+                  <PractitionersPage />
+                </Lazy>
+              }
+            />
+            <Route
+              path="working-hours"
+              element={
+                <Lazy>
+                  <WorkingHoursPage />
+                </Lazy>
+              }
+            />
+            <Route
+              path="hospital"
+              element={
+                <Lazy>
+                  <HospitalSettingsPage />
+                </Lazy>
+              }
+            />
           </Route>
           <Route path="*" element={<NotFoundPage />} />
         </Route>

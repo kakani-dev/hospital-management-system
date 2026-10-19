@@ -5,10 +5,13 @@ import {
   CalendarDaysIcon,
   ClipboardDocumentCheckIcon,
   ClockIcon,
+  Cog6ToothIcon,
   HomeIcon,
+  IdentificationIcon,
   QueueListIcon,
   UserGroupIcon,
   UsersIcon,
+  CalendarIcon,
 } from '@heroicons/react/24/outline'
 import { ArrowLeftStartOnRectangleIcon, CommandLineIcon } from '@heroicons/react/24/outline'
 import { ShortcutHelp } from '../../features/shortcuts/ShortcutHelp'
@@ -81,6 +84,9 @@ export function AppShell() {
         ? [
             { id: 'branches', path: '/admin/branches', title: 'Branches', Icon: BuildingOffice2Icon },
             { id: 'members', path: '/admin/members', title: 'Members', Icon: UserGroupIcon },
+            { id: 'practitioners', path: '/admin/practitioners', title: 'Practitioners', Icon: IdentificationIcon },
+            { id: 'working-hours', path: '/admin/working-hours', title: 'Working hours', Icon: CalendarIcon },
+            { id: 'hospital', path: '/admin/hospital', title: 'Hospital settings', Icon: Cog6ToothIcon },
           ]
         : [],
     }
