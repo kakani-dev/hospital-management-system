@@ -13,12 +13,15 @@ export function Sideblock({
   appName,
   headerStart,
   headerEnd,
+  sidebarTop,
   children,
 }: {
   navigation: NavGroup[]
   appName: string
   headerStart?: ReactNode
   headerEnd?: ReactNode
+  /** Rendered at the top of the sidebar, under the logo (e.g. the context switcher on phones). */
+  sidebarTop?: ReactNode
   children: ReactNode
 }) {
   return (
@@ -28,7 +31,7 @@ export function Sideblock({
         <main id="main-content" tabIndex={-1} className="main-content transition-content grid grid-cols-1 content-start outline-hidden">
           {children}
         </main>
-        <Sidebar navigation={navigation} appName={appName} />
+        <Sidebar navigation={navigation} appName={appName} top={sidebarTop} />
       </SidebarProvider>
     </BreakpointProvider>
   )

@@ -4,6 +4,7 @@
 import { Portal } from '@headlessui/react'
 import { ChevronLeftIcon } from '@heroicons/react/24/outline'
 import clsx from 'clsx'
+import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 import { Button } from '@tailux/components/ui'
 import { useBreakpointsContext } from '../../contexts/breakpoint/context'
@@ -36,7 +37,7 @@ function SidebarHeader({ appName }: { appName: string }) {
   )
 }
 
-export function Sidebar({ navigation, appName }: { navigation: NavGroup[]; appName: string }) {
+export function Sidebar({ navigation, appName, top }: { navigation: NavGroup[]; appName: string; top?: ReactNode }) {
   const { cardSkin } = useThemeContext()
   const { lgAndDown } = useBreakpointsContext()
   const { isExpanded: isSidebarExpanded, close: closeSidebar } = useSidebarContext()
@@ -51,6 +52,7 @@ export function Sidebar({ navigation, appName }: { navigation: NavGroup[]; appNa
     >
       <div className={clsx('flex h-full grow flex-col bg-white', cardSkin === 'shadow' ? 'dark:bg-dark-750' : 'dark:bg-dark-900')}>
         <SidebarHeader appName={appName} />
+        {top}
         <nav aria-label="Primary" className="custom-scrollbar h-full overflow-x-hidden overflow-y-auto pb-6">
           <div className="space-y-1">
             {navigation.map((group) => (
