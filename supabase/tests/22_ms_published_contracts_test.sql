@@ -92,6 +92,8 @@ end
 $$;
 
 -- Branch without an override inherits the tenant zone (audit-tz tenant time zone).
+-- zone writes: as the table owner (R5 refuses non-owner writers such as supabase_admin when bookings exist)
+select tests.as_owner('identity.branches');
 update identity.branches set timezone_override = null where id = 'a1111111-0000-4000-8000-000000000001';
 update identity.tenants set time_zone = 'Asia/Dubai' where id = '11111111-1111-4111-8111-111111111111';
 select tests.authenticate_as('reception@alpha.example');
@@ -102,9 +104,10 @@ select tests.ok(
 select tests.ok(
   identity.my_tenant_grant_v1('11111111-1111-4111-8111-111111111111') ->> 'tenant_time_zone' = 'Asia/Dubai',
   'grant document carries the tenant zone');
-select tests.as_superuser();
+select tests.as_owner('identity.tenants');
 update identity.tenants set time_zone = 'Asia/Kolkata' where id = '11111111-1111-4111-8111-111111111111';
 update identity.branches set timezone = 'Asia/Kolkata' where id = 'a1111111-0000-4000-8000-000000000001';
+select tests.as_superuser();
 
 -- ---------- every published _v1 object: definer, pinned search_path, exact signature ----------
 -- The full v1 surface after the split: audit-tz's functions + the ones added for the services.
@@ -165,15 +168,19 @@ select tests.throws_ok(
   $$select * from patient.patient_summary_v1('11111111-1111-4111-8111-111111111111', array_fill(gen_random_uuid(), array[501]))$$,
   '22023', 'more than 500 ids is rejected');
 
-select tests.as_superuser();
+select tests.as_owner('patient.patients');  -- R1/R2: only the owner naming the row may flip deleted_at
+select set_config('hms.soft_delete', 'aa000000-0000-4000-8000-000000000002', true);
 update patient.patients set deleted_at = now() where id = 'aa000000-0000-4000-8000-000000000002';
+select set_config('hms.soft_delete', '', true);
 select tests.authenticate_as('reception@alpha.example');
 select tests.ok(
   (select is_deleted from patient.patient_summary_v1('11111111-1111-4111-8111-111111111111',
      array['aa000000-0000-4000-8000-000000000002']::uuid[])) is true,
   'soft-deleted patients are included (is_deleted = true) so appointment history keeps a name');
-select tests.as_superuser();
+select tests.as_owner('patient.patients');  -- R1/R2: only the owner naming the row may flip deleted_at
+select set_config('hms.soft_delete', 'aa000000-0000-4000-8000-000000000002', true);
 update patient.patients set deleted_at = null where id = 'aa000000-0000-4000-8000-000000000002';
+select set_config('hms.soft_delete', '', true);
 
 -- ---------- identity.branch_time_zone_v1 ----------
 select tests.authenticate_as('reception@alpha.example');
