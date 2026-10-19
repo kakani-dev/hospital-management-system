@@ -101,7 +101,7 @@ export function AppShell() {
       title: 'Platform',
       childs: isPlatformAdmin
         ? [
-            { id: 'platform-hospitals', path: '/platform', title: 'Hospitals', Icon: GlobeAltIcon },
+            { id: 'platform-hospitals', path: '/platform', title: 'Hospitals', end: true, Icon: GlobeAltIcon },
             { id: 'platform-requests', path: '/platform/requests', title: 'Hospital requests', Icon: InboxStackIcon },
           ]
         : [],
