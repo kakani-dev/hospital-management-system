@@ -76,7 +76,17 @@ test.describe('app shell and authentication', () => {
 
   test('@responsive layout works on a mobile viewport', async ({ page }) => {
     await signIn(page)
-    await expect(page.getByRole('navigation', { name: 'Primary' })).toBeVisible()
+    // Tailux Sideblock: below xl the sidebar is off-canvas behind the header's toggle.
+    const toggle = page.getByRole('button', { name: 'Toggle navigation' })
+    if (await toggle.isVisible()) {
+      await toggle.click()
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+      await expect(page.getByRole('navigation', { name: 'Primary' })).toBeVisible()
+      await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Patients', exact: true }).click()
+      await expect(page).toHaveURL(/\/patients$/)
+    } else {
+      await expect(page.getByRole('navigation', { name: 'Primary' })).toBeVisible()
+    }
     await expect(page.getByTestId('tenant-context')).toBeVisible()
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
     expect(overflow).toBeLessThanOrEqual(1)

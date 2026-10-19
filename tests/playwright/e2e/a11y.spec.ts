@@ -8,7 +8,8 @@ async function seriousViolations(page: Page) {
   const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze()
   return results.violations
     .filter((v) => v.impact === 'serious' || v.impact === 'critical')
-    .map((v) => `${v.id}: ${v.help} (${v.nodes.length} nodes)`)
+    // Selectors and axe's summary make a failure actionable without re-running locally.
+    .map((v) => `${v.id}: ${v.help} (${v.nodes.length} nodes: ${v.nodes.map((n) => `${n.target.join(' ')} :: ${n.failureSummary ?? ''}`).join(' | ')})`)
 }
 
 test.describe('accessibility smoke (axe, WCAG 2.1 AA)', () => {
