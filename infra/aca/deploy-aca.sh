@@ -10,7 +10,8 @@
 #   - Container Apps environment cae-medicore-hms-dev (Consumption-only, no workload profiles)
 #   - ca-hms-edge (external ingress) + ca-hms-identity / ca-hms-patients / ca-hms-scheduling (internal)
 #     0.25 vCPU / 0.5 GiB, min 0 / max 1 replicas, port 8080, startup/liveness/readiness probes,
-#     public GHCR images ghcr.io/kakani-dev/hms-<svc>:sha-<IMAGE_SHA> (no registry credentials)
+#     PRIVATE GHCR images ghcr.io/kakani-dev/hms-<svc>:sha-<IMAGE_SHA>, pulled with a registry
+#     credential (kakani-dev token with read:packages, stored as a Container Apps secret)
 #   - secrets: hms-db (services) from /home/box/.secrets/medicore-hms-connstr (pool forced to 5),
 #              hms-edge-key (all 4) from /home/box/.secrets/medicore-hms-edge-key (generated if missing)
 # It never registers resource providers, never creates ACR / Key Vault / App Insights / dedicated
@@ -104,7 +105,7 @@ if [[ "$LOGS" == "la" ]]; then
 fi
 read -r q_cur q_lim < <(az rest --method get \
   --url "https://management.azure.com/subscriptions/$SUB/providers/Microsoft.App/locations/$LOC/usages?api-version=2024-03-01" \
-  --query "value[?name.value=='ManagedEnvironmentCount'] | [0].[currentValue, limit]" -o tsv)
+  --query "value[?name.value=='ManagedEnvironmentCount'] | [0].join(' ', [to_string(currentValue), to_string(limit)])" -o tsv)
 log "   ManagedEnvironmentCount $q_cur / $q_lim"
 env_exists=false
 az containerapp env show -g "$RG" -n "$ENV_NAME" -o none >/dev/null 2>&1 && env_exists=true
@@ -135,15 +136,17 @@ print(";".join(parts), end="")' "$POOL_SIZE"
 }
 
 # ---------------------------------------------------------------------------------------------------
-log "3. images (anonymous GHCR pull check, sha-$IMAGE_SHA)"
+GHCR_USER="${GHCR_USER:-kakani-dev}"
+ghcr_token() { if [[ -n "${GHCR_TOKEN_FILE:-}" ]]; then cat "$GHCR_TOKEN_FILE"; else /usr/local/bin/gh auth token -u "$GHCR_USER"; fi; }
+log "3. images (private GHCR pull check, sha-$IMAGE_SHA)"
 for app in edge "${SERVICES[@]}"; do
   repo="${REGISTRY#ghcr.io/}/hms-$app"
-  tok=$(curl -fsS "https://ghcr.io/token?scope=repository:${repo}:pull" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("token",""))') \
-    || die "GHCR anonymous token failed for $repo (package missing or private: approval item A4)"
+  tok=$(curl -fsS -u "kakani-dev:$(ghcr_token)" "https://ghcr.io/token?scope=repository:${repo}:pull" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("token",""))') \
+    || die "GHCR token failed for $repo (package missing or token lacks read:packages)"
   code=$(curl -sS -o /dev/null -w '%{http_code}' -I -H "Authorization: Bearer $tok" \
     -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.manifest.v1+json' \
     "https://ghcr.io/v2/${repo}/manifests/sha-${IMAGE_SHA}")
-  [[ "$code" == 200 ]] || die "ghcr.io/$repo:sha-$IMAGE_SHA not anonymously pullable (HTTP $code)"
+  [[ "$code" == 200 ]] || die "ghcr.io/$repo:sha-$IMAGE_SHA not pullable with the registry credential (HTTP $code)"
   log "   ok hms-$app"
 done
 
@@ -191,7 +194,7 @@ else
     fi
   fi
 fi
-wp=$(az containerapp env show -g "$RG" -n "$ENV_NAME" --query "length(properties.workloadProfiles || \`[]\`)" -o tsv)
+wp=$(az containerapp env show -g "$RG" -n "$ENV_NAME" --query "length((properties.workloadProfiles || \`[]\`)[?workloadProfileType!='Consumption'])" -o tsv)
 [[ "$wp" == "0" ]] || die "environment has workload profiles ($wp); dedicated profiles cost money. Investigate before continuing."
 DOMAIN=$(az containerapp env show -g "$RG" -n "$ENV_NAME" --query properties.defaultDomain -o tsv)
 log "   ok, default domain $DOMAIN"
@@ -238,10 +241,12 @@ deploy_app() { # app ingress(external|internal) ready_path secrets_csv env...
     quiet az containerapp create -g "$RG" -n "$name" --environment "$ENV_NAME" --image "$image" \
       --revisions-mode single --ingress "$ingress" --target-port 8080 --transport auto "${extra[@]}" \
       --cpu 0.25 --memory 0.5Gi --min-replicas 0 --max-replicas 1 \
+      --registry-server ghcr.io --registry-username "$GHCR_USER" --registry-password "$(ghcr_token)" \
       --secrets "${secret_args[@]}" --tags "${TAGS[@]}" service="$app" || die "create $name failed"
   else
     log "   update secrets $name"
     quiet az containerapp secret set -g "$RG" -n "$name" --secrets "${secret_args[@]}" || die "secret set $name failed"
+    quiet az containerapp registry set -g "$RG" -n "$name" --server ghcr.io --username "$GHCR_USER" --password "$(ghcr_token)" || die "registry set $name failed"
   fi
   # ingress (idempotent): external only for the edge
   if [[ "$ingress" == internal ]]; then
@@ -258,7 +263,7 @@ deploy_app() { # app ingress(external|internal) ready_path secrets_csv env...
   # verification (names only, never values)
   local names; names=$(az containerapp secret list -g "$RG" -n "$name" --query "[].name" -o tsv | tr '\n' ' ')
   for s in "${wanted[@]}"; do [[ " $names " == *" $s "* ]] || die "$name lost secret $s after PATCH"; done
-  az containerapp show -g "$RG" -n "$name" --query "{img:properties.template.containers[0].image,cpu:properties.template.containers[0].resources.cpu,min:properties.template.scale.minReplicas,max:properties.template.scale.maxReplicas,ingress:properties.configuration.ingress.external,probes:length(properties.template.containers[0].probes)}" -o tsv \
+  az containerapp show -g "$RG" -n "$name" --query "{img:properties.template.containers[0].image,cpu:properties.template.containers[0].resources.cpu,min:properties.template.scale.minReplicas,max:properties.template.scale.maxReplicas,ingress:properties.configuration.ingress.external,probes:length(properties.template.containers[0].probes || \`[]\`)}" -o tsv \
     | { read -r img cpu min max ext probes; log "     image=${img##*/} cpu=$cpu replicas=$min..$max external=$ext probes=$probes secrets=[$names]"; }
 }
 
