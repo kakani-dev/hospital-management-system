@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Card } from '../../components/ui/Card'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
 import { FormField } from '../../components/ui/FormField'
+import { TimeZoneField } from '../../components/ui/TimeZoneField'
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 import { useBranches, useCurrentTenant, useUpdateCurrentTenant } from '../../lib/api/hooks'
 import { ApiError, fieldErrors } from '../../lib/api/client'
@@ -30,6 +31,7 @@ export function HospitalSettingsPage() {
     handleSubmit,
     reset,
     setError,
+    control,
     formState: { errors, isSubmitting, isDirty },
   } = useForm<HospitalValues>({ resolver: zodResolver(hospitalSchema), defaultValues: { name: '', timeZone: '' } })
 
@@ -96,11 +98,21 @@ export function HospitalSettingsPage() {
           <Card title="Hospital" className="lg:col-span-2">
             <form noValidate aria-label="Hospital settings" onSubmit={handleSubmit(onSubmit)} className="space-y-4">
               <FormField label="Hospital name" error={errors.name?.message} {...register('name')} />
-              <FormField
-                label="Hospital time zone"
-                hint="IANA zone, e.g. Asia/Kolkata. Days, slots and queue dates of branches without their own zone follow it."
-                error={errors.timeZone?.message}
-                {...register('timeZone')}
+              <Controller
+                control={control}
+                name="timeZone"
+                render={({ field }) => (
+                  <TimeZoneField
+                    label="Hospital time zone"
+                    hint="Days, slots and queue dates of branches without their own zone follow it."
+                    error={errors.timeZone?.message}
+                    name={field.name}
+                    value={field.value}
+                    onChange={field.onChange}
+                    onBlur={field.onBlur}
+                    ref={field.ref}
+                  />
+                )}
               />
               <p className="text-sm text-gray-600 dark:text-dark-200">
                 Changing the zone keeps booked appointments at the same instant, so their local times move. You will be asked to confirm if

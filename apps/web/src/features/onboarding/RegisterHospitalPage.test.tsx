@@ -40,17 +40,18 @@ describe('Register your hospital (public)', () => {
     expect(post.headers.get('X-Tenant-Id')).toBeNull()
   })
 
-  it('validates the zone and phone before posting', async () => {
+  it('accepts only listed zones and validates the phone before posting', async () => {
     const calls = stubFetch({})
     const user = userEvent.setup()
     renderWithProviders(<App />, { path: '/register-hospital', auth: fakeAuthClient() })
     const zone = await screen.findByLabelText('Hospital time zone')
-    await user.clear(zone)
+    const before = (zone as HTMLInputElement).value
     await user.type(zone, 'Mars/Olympus')
+    expect(screen.getByText('No time zone matches “Mars/Olympus”.')).toBeInTheDocument()
     await user.type(screen.getByLabelText('Phone'), 'call me')
+    expect(zone).toHaveValue(before)
     await user.click(screen.getByRole('button', { name: 'Send request' }))
-    expect(await screen.findByText('Use an IANA time zone, e.g. Asia/Kolkata')).toBeInTheDocument()
-    expect(screen.getByText(/7-20 digits/)).toBeInTheDocument()
+    expect(await screen.findByText(/7-20 digits/)).toBeInTheDocument()
     expect(calls.some((c) => c.method === 'POST')).toBe(false)
   })
 

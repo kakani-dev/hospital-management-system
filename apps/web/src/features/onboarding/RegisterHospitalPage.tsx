@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Link } from 'react-router'
 import { FormField } from '../../components/ui/FormField'
@@ -8,7 +8,7 @@ import { Button } from '../../components/ui/Button'
 import { Alert } from '../../components/ui/Alert'
 import { useSubmitHospitalSignup } from '../../lib/api/hooks'
 import { ApiError, fieldErrors, problemCode } from '../../lib/api/client'
-import { suggestedZone } from '../../lib/timeZones'
+import { defaultZone } from '../../lib/timeZones'
 import { PublicLayout } from './PublicLayout'
 import { hospitalSignupSchema, type HospitalSignupValues } from './onboardingSchemas'
 
@@ -25,12 +25,13 @@ export function RegisterHospitalPage() {
   const [error, setError] = useState<string | null>(null)
   const {
     register,
+    control,
     handleSubmit,
     setError: setFieldError,
     formState: { errors, isSubmitting },
   } = useForm<HospitalSignupValues>({
     resolver: zodResolver(hospitalSignupSchema),
-    defaultValues: { hospitalName: '', timeZone: suggestedZone(), contactName: '', contactEmail: '', phone: '', city: '', website: '' },
+    defaultValues: { hospitalName: '', timeZone: defaultZone(), contactName: '', contactEmail: '', phone: '', city: '', website: '' },
   })
 
   const onSubmit = async (values: HospitalSignupValues) => {
@@ -75,11 +76,21 @@ export function RegisterHospitalPage() {
         <div className="sm:col-span-2">
           <FormField label="Hospital name" autoComplete="organization" error={errors.hospitalName?.message} {...register('hospitalName')} />
         </div>
-        <TimeZoneField
-          label="Hospital time zone"
-          hint="IANA zone (e.g. Asia/Kolkata). Appointment days and queues follow it."
-          error={errors.timeZone?.message}
-          {...register('timeZone')}
+        <Controller
+          control={control}
+          name="timeZone"
+          render={({ field }) => (
+            <TimeZoneField
+              label="Hospital time zone"
+              hint="Appointment days and queues follow it. Search, e.g. Kolkata."
+              error={errors.timeZone?.message}
+              name={field.name}
+              value={field.value}
+              onChange={field.onChange}
+              onBlur={field.onBlur}
+              ref={field.ref}
+            />
+          )}
         />
         <FormField label="City" autoComplete="address-level2" error={errors.city?.message} {...register('city')} />
         <FormField label="Your name" autoComplete="name" error={errors.contactName?.message} {...register('contactName')} />
