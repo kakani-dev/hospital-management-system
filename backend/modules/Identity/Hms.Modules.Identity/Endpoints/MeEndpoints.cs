@@ -97,7 +97,9 @@ public static class MeEndpoints
             branches,
             memberships,
             // effective zone of the active branch (else the tenant zone): what "today" means for this user
-            tenant.IsResolved ? tenant.TimeZoneFor(tenant.BranchId) : null));
+            tenant.IsResolved ? tenant.TimeZoneFor(tenant.BranchId) : null,
+            // drives the /platform console entry; grants NO tenant access (identity.is_platform_admin)
+            await RawSql.ScalarAsync(db, "select identity.is_platform_admin()", ct) is true));
     }
 
     private static async Task<Results<NoContent, ProblemHttpResult>> SwitchContextAsync(

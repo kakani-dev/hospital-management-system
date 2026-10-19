@@ -9,13 +9,26 @@ namespace Hms.IntegrationTests.AuditTz;
 public sealed class TenantTimeZoneApiTests(HmsApiFactory factory) : IClassFixture<HmsApiFactory>
 {
     [Fact]
-    public async Task The_monolith_has_no_create_tenant_endpoint()
+    public async Task The_monolith_has_no_create_tenant_endpoint_and_the_identity_service_requires_a_platform_admin()
     {
-        // code review MIN-5: identity.create_tenant stays in the DB; the HTTP endpoint lives in the identity service.
+        // code review MIN-5: identity.create_tenant stays in the DB; the HTTP endpoint lives in the identity
+        // service only (/api/v1/platform/tenants, Level 1 platform console) and needs identity.is_platform_admin().
         using var alphaAdmin = factory.ClientAs(AlphaAdmin, Alpha);
-        var response = await alphaAdmin.PostAsJsonAsync("/api/v1/platform/tenants", new { code = ATz.Code(), name = "Synthetic", timeZone = "Asia/Kolkata" });
-        Assert.True(response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed, $"got {(int)response.StatusCode}");
-        Assert.Equal(0L, await ATz.ScalarAsync<long>("select count(*) from identity.platform_admins"));
+        var admins = await ATz.ScalarAsync<long>("select count(*) from identity.platform_admins");
+        var tenants = await ATz.ScalarAsync<long>("select count(*) from identity.tenants");
+        var response = await alphaAdmin.PostAsJsonAsync("/api/v1/platform/tenants", new { code = ATz.Code(), name = "Synthetic", timeZone = "Asia/Kolkata", adminEmail = "x@synthetic.example" });
+        if (Target == SystemTarget.Monolith)
+        {
+            Assert.True(response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed, $"got {(int)response.StatusCode}");
+        }
+        else
+        {
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+
+        Assert.Equal(admins, await ATz.ScalarAsync<long>("select count(*) from identity.platform_admins"));
+        Assert.True(await ATz.ScalarAsync<long>("select count(*) from identity.tenants") >= tenants);
+        Assert.Equal(0L, await ATz.ScalarAsync<long>("select count(*) from identity.tenants where name = 'Synthetic'"));
     }
 
     [Fact]
