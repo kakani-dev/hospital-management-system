@@ -6,7 +6,7 @@ import { useCurrentContext } from './useCurrentContext'
  * access"; while /me loads we show a placeholder, and a failed /me is explained once by
  * ContextErrorBanner (AppShell) rather than as a false "no access".
  */
-export function BranchNotice({ branchId }: { branchId: string | null }) {
+export function BranchNotice({ branchId, timeZoneMissing = false }: { branchId: string | null; timeZoneMissing?: boolean }) {
   const { me, branches } = useCurrentContext()
   if (me.isPending) {
     return (
@@ -18,5 +18,11 @@ export function BranchNotice({ branchId }: { branchId: string | null }) {
   }
   if (me.isError && !me.data) return null
   if (!branchId && branches.length === 0) return <Alert tone="warning">You do not have access to any branch in this hospital.</Alert>
+  if (timeZoneMissing)
+    return (
+      <Alert tone="error">
+        No time zone is configured for this branch or hospital, so its day and times can't be shown. Ask a hospital admin to set one.
+      </Alert>
+    )
   return null
 }

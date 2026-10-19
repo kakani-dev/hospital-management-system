@@ -1,4 +1,3 @@
-import { localToday } from '../../lib/dates'
 import type { PatientSummary } from '../../lib/api/types'
 
 /** Searching starts at this many characters (one-letter terms match half the registry). */
@@ -18,7 +17,7 @@ const maskedPhone = (phone: string | null | undefined) => {
   return digits.length >= 4 ? `ph …${digits.slice(-4)}` : null
 }
 
-export function patientOptionLabel(p: PatientSummary, today = localToday()): string {
+export function patientOptionLabel(p: PatientSummary, today: string): string {
   const age = ageOn(p.dateOfBirth, today)
   return [
     `${p.lastName}, ${p.firstName}`,

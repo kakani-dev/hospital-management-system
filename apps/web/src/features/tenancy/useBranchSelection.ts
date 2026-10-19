@@ -1,13 +1,12 @@
 import { useSearchParams } from 'react-router'
 import { useBranchTimeZones } from '../../lib/useBranchTimeZone'
-import { browserTimeZone } from '../../lib/dates'
 import { useCurrentContext } from './useCurrentContext'
 
 /**
  * Branch picked on a branch-scoped screen (calendar, schedules, check-in, queue). Options are the
  * server-resolved accessibleBranches from /me (a branch-scoped member only ever sees their own
  * branch); the choice lives in `?branch=` so it survives reloads and can be linked. The time zone
- * comes from GET /api/v1/branches, falling back to the workstation's zone.
+ * is the branch's, else the hospital's (useBranchTimeZones), never the workstation's.
  */
 export function useBranchSelection() {
   const { branches, activeBranchId, me } = useCurrentContext()
@@ -20,7 +19,10 @@ export function useBranchSelection() {
     branches[0]?.id ??
     null
   const branch = branches.find((b) => b.id === branchId) ?? null
-  const timeZone = zones.zoneFor(branchId) ?? browserTimeZone()
+  const resolvedZone = branchId ? zones.zoneFor(branchId) : undefined
+  // Placeholder only so formatting helpers stay total; nothing date-ranged runs until a real zone
+  // is known (timeZoneReady) and pages show TimeZoneNotice instead of their content.
+  const timeZone = resolvedZone ?? 'UTC'
 
   const setBranchId = (id: string) =>
     setParams(
@@ -32,8 +34,10 @@ export function useBranchSelection() {
       { replace: true },
     )
 
-  // Branch-local ranges must not be computed in the wrong zone: wait for /branches (or its failure).
-  const timeZoneReady = zones.ready
+  // Branch-local ranges must not be computed in the wrong zone: wait until the zone is resolved.
+  const timeZoneReady = zones.ready && !!resolvedZone
+  /** Loaded, a branch is selected, and neither it nor the hospital has a zone on record. */
+  const timeZoneMissing = zones.ready && !!branchId && !resolvedZone
 
-  return { branches, branchId, branch, timeZone, timeZoneReady, setBranchId, loading: me.isPending }
+  return { branches, branchId, branch, timeZone, timeZoneReady, timeZoneMissing, setBranchId, loading: me.isPending }
 }

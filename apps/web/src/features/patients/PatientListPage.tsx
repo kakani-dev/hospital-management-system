@@ -11,7 +11,7 @@ import { useDebouncedValue } from '../../lib/useDebouncedValue'
 import { ApiError } from '../../lib/api/client'
 import { useCurrentContext } from '../tenancy/useCurrentContext'
 import { can } from '../../lib/permissions'
-import { localToday } from '../../lib/dates'
+import { latestToday, localToday } from '../../lib/dates'
 import { useBranchTimeZones } from '../../lib/useBranchTimeZone'
 import { Button } from '../../components/ui/Button'
 import { exactMrnFirst } from './patientLabel'
@@ -40,7 +40,11 @@ export function PatientListPage() {
   const { roles, branches } = useCurrentContext()
   // Latest "today" across the user's branches (a branch east of the workstation may already be tomorrow).
   const { zoneFor } = useBranchTimeZones()
-  const dobMax = branches.map((b) => localToday(new Date(), zoneFor(b.id))).reduce((a, b) => (b > a ? b : a), localToday())
+  const zones = branches.map((b) => zoneFor(b.id))
+  const dobMax =
+    zones.length > 0 && zones.every(Boolean)
+      ? zones.map((z) => localToday(new Date(), z)).reduce((a, b) => (b > a ? b : a))
+      : latestToday()
   const location = useLocation()
   const flash = location.state as { registered?: string; deleted?: string } | null
   const registered = flash?.registered

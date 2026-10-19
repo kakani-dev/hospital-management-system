@@ -25,7 +25,7 @@ export const CALENDAR_REFRESH_MS = 30_000
 
 export function AppointmentCalendarPage() {
   const { me } = useCurrentContext()
-  const { branches, branchId, timeZone, timeZoneReady, setBranchId } = useBranchSelection()
+  const { branches, branchId, timeZone, timeZoneReady, timeZoneMissing, setBranchId } = useBranchSelection()
   const cal = useCalendarParams(timeZone, 'day')
   const [practitionerFilter, setPractitionerFilter] = useState('')
   const location = useLocation()
@@ -104,7 +104,7 @@ export function AppointmentCalendarPage() {
         onToday={cal.goToday}
         onDate={cal.setDate}
         onView={cal.setView}
-        label={`${rangeLabel} · times in ${timeZone}`}
+        label={`${rangeLabel}${timeZoneReady ? ` · times in ${timeZone}` : ''}`}
       />
       {notice && <Alert tone="info">{notice}</Alert>}
       {booking && branchId && (
@@ -126,7 +126,7 @@ export function AppointmentCalendarPage() {
           />
         </Drawer>
       )}
-      <BranchNotice branchId={branchId} />
+      <BranchNotice branchId={branchId} timeZoneMissing={timeZoneMissing} />
       {appointments.isError && <Alert tone="warning">Appointments are unavailable right now.</Alert>}
       <div
         className={`${cal.view === 'week' ? 'grid gap-3 md:grid-cols-7' : ''} transition-opacity ${appointments.isPlaceholderData ? 'opacity-60' : ''}`}

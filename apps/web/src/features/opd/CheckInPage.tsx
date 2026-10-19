@@ -39,7 +39,7 @@ export function CheckInPage() {
   const { me } = useCurrentContext()
   const location = useLocation()
   const navigate = useNavigate()
-  const { branches, branchId, timeZone, timeZoneReady, setBranchId } = useBranchSelection()
+  const { branches, branchId, timeZone, timeZoneReady, timeZoneMissing, setBranchId } = useBranchSelection()
   const today = localToday(new Date(), timeZone)
   const canCheckIn = can(rolesAtBranch(me.data, branchId), 'queue.checkIn')
   const [issued, setIssued] = useState<{ result: CheckInResult; name: string } | null>(null)
@@ -114,10 +114,10 @@ export function CheckInPage() {
       <div className="flex flex-wrap items-end gap-4">
         <BranchPicker branches={branches} value={branchId} onChange={setBranchId} />
         <p className="text-sm text-gray-700 dark:text-dark-200">
-          Today at this branch: <strong>{formatDayLabel(today)}</strong> ({timeZone})
+          Today at this branch: <strong>{formatDayLabel(today)}</strong>{timeZoneReady && ` (${timeZone})`}
         </p>
       </div>
-      <BranchNotice branchId={branchId} />
+      <BranchNotice branchId={branchId} timeZoneMissing={timeZoneMissing} />
       {branchId && !canCheckIn && me.data && <Alert tone="warning">Your role at this branch cannot check patients in.</Alert>}
       <div aria-live="polite">
         {issued && (

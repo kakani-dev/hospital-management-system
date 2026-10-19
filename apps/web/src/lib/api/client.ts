@@ -9,6 +9,7 @@ import type {
   CreateAppointmentRequest,
   CreateBranchRequest,
   CreatePatientRequest,
+  CurrentTenant,
   CurrentUser,
   DeletePatientRequest,
   DuplicateCandidate,
@@ -312,6 +313,9 @@ export class ApiClient {
   }
 
   me = () => this.request<CurrentUser>('/api/v1/me')
+
+  /** The active hospital (tenant); carries the hospital time zone on the audit/TZ API. */
+  currentTenant = () => this.request<CurrentTenant>('/api/v1/tenants/current')
 
   /** Server validates the requested tenant/branch against memberships (403 otherwise). */
   switchContext = (body: SwitchContextRequest) =>

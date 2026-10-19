@@ -25,7 +25,7 @@ const ACTION_LABEL: Partial<Record<QueueStatus, string>> = { in_consultation: 'C
 /** OPD queue of a branch for the branch-local day; polls every QUEUE_REFRESH_MS. */
 export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: number }) {
   const { me } = useCurrentContext()
-  const { branches, branchId, timeZone, timeZoneReady, setBranchId } = useBranchSelection()
+  const { branches, branchId, timeZone, timeZoneReady, timeZoneMissing, setBranchId } = useBranchSelection()
   const today = localToday(new Date(), timeZone)
   const queue = useQueue(timeZoneReady ? branchId : null, today, { refetchInterval: refreshMs })
   const practitioners = usePractitioners()
@@ -75,7 +75,7 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
         </p>
       </div>
       <BranchPicker branches={branches} value={branchId} onChange={setBranchId} />
-      <BranchNotice branchId={branchId} />
+      <BranchNotice branchId={branchId} timeZoneMissing={timeZoneMissing} />
       {queue.isError && (
         <Alert tone="warning">
           {queue.error instanceof ApiError && queue.error.status === 403 ? 'You cannot view the queue of this branch.' : 'The queue is unavailable right now.'}

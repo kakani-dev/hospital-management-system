@@ -24,6 +24,7 @@ import { ADD_MEMBER_GENERIC_MESSAGE } from './types'
 export const queryKeys = {
   health: ['health'] as const,
   me: ['me'] as const,
+  currentTenant: ['tenants', 'current'] as const,
   invitations: ['me', 'invitations'] as const,
   patients: (criteria: PatientSearchCriteria) => ['patients', criteria] as const,
   patient: (id: string) => ['patients', 'detail', id] as const,
@@ -52,6 +53,11 @@ export function useApiHealth() {
 
 export function useMe(enabled = true) {
   return useQuery({ queryKey: queryKeys.me, queryFn: () => apiClient.me(), retry: false, enabled, staleTime: 60_000 })
+}
+
+/** The active hospital; only fetched when a zone is missing from /me and /branches. */
+export function useCurrentTenant(enabled = true) {
+  return useQuery({ queryKey: queryKeys.currentTenant, queryFn: () => apiClient.currentTenant(), retry: false, enabled, staleTime: 5 * 60_000 })
 }
 
 /** Debounced patient search term (ms). */

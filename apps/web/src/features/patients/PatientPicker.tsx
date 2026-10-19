@@ -4,7 +4,8 @@ import clsx from 'clsx'
 import { Badge, Input } from '@tailux/components/ui'
 import { PATIENT_SEARCH_DEBOUNCE_MS, PATIENT_SEARCH_MAX_LENGTH, usePatients } from '../../lib/api/hooks'
 import { useDebouncedValue } from '../../lib/useDebouncedValue'
-import { localToday } from '../../lib/dates'
+import { latestToday, localToday } from '../../lib/dates'
+import { useBranchTimeZones } from '../../lib/useBranchTimeZone'
 import { exactMrnFirst, PATIENT_PICKER_MIN_CHARS, patientOptionLabel } from './patientLabel'
 import { can } from '../../lib/permissions'
 import type { PatientSummary } from '../../lib/api/types'
@@ -54,7 +55,9 @@ export function PatientPicker({
   const optionCount = items.length + (offerRegister ? 1 : 0)
   const expanded = open && term.trim().length >= PATIENT_PICKER_MIN_CHARS
   const optionId = (i: number) => `${listId}-opt-${i}`
-  const today = localToday()
+  // Ages are counted in the user's branch/hospital zone (never the workstation's).
+  const { defaultZone } = useBranchTimeZones()
+  const today = defaultZone ? localToday(new Date(), defaultZone) : latestToday()
 
   const pick = (p: PatientSummary) => {
     onChange(p)

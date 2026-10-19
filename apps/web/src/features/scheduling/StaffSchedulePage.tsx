@@ -12,7 +12,7 @@ import { hhmm, schedulesOn } from './scheduleUtils'
 
 /** Weekly working hours of every practitioner at a branch (read-only; edited by admins via the API). */
 export function StaffSchedulePage() {
-  const { branches, branchId, timeZone, setBranchId } = useBranchSelection()
+  const { branches, branchId, timeZone, timeZoneReady, timeZoneMissing, setBranchId } = useBranchSelection()
   const cal = useCalendarParams(timeZone, 'week')
   const schedules = useSchedules(branchId)
   const practitioners = usePractitioners()
@@ -34,11 +34,11 @@ export function StaffSchedulePage() {
             onStep={cal.step}
             onToday={cal.goToday}
             onDate={cal.setDate}
-            label={`Week of ${formatDayLabel(days[0]!)} · times in ${timeZone}`}
+            label={`Week of ${formatDayLabel(days[0]!)}${timeZoneReady ? ` · times in ${timeZone}` : ''}`}
           />
         </div>
       </div>
-      <BranchNotice branchId={branchId} />
+      <BranchNotice branchId={branchId} timeZoneMissing={timeZoneMissing} />
       {(schedules.isError || practitioners.isError) && <Alert tone="warning">Schedules are unavailable right now.</Alert>}
       <Card>
         <div className="table-wrapper min-w-full overflow-x-auto">
