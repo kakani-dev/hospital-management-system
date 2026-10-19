@@ -1,0 +1,177 @@
+# =====================================================================================================
+# DRAFT - Deploy MediCore HMS microservices to Azure Container Apps (docs/architecture/microservices-ci-and-aca-plan.md)
+#
+# INERT BY DEFAULT: every job is gated on the repository variable ACA_DEPLOY_ENABLED == 'true'. Until
+# Mohith approves (plan "Deploy day" checklist: A2 environment + apps, A4 public GHCR packages, A6 OIDC
+# federated credential + RG-scoped role, GitHub environment "aca-dev" with him as required reviewer),
+# that variable must stay unset and this workflow does nothing.
+#
+# Triggers:
+#   - workflow_dispatch: deploy a chosen sha (default: the dispatching commit) for chosen services.
+#   - workflow_run: after the "CI" workflow completes successfully on main (push), deploy that sha.
+# Images: ghcr.io/kakani-dev/hms-<svc>:sha-<40hex> built with GITHUB_TOKEN (packages: write).
+# Azure auth: OIDC via azure/login (secrets AZURE_CLIENT_ID / AZURE_TENANT_ID / AZURE_SUBSCRIPTION_ID;
+# IDs only, no client secret). The container apps must already exist (infra/aca/deploy-aca.sh): this
+# workflow only rolls the image (`az containerapp update --image`).
+# No hosted database migration ever runs from here.
+# =====================================================================================================
+name: Deploy to Azure Container Apps (DRAFT)
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Full 40-hex commit sha on main to deploy (blank = this run's commit)"
+        required: false
+        default: ""
+      services:
+        description: "Comma-separated subset of identity,patients,scheduling,edge (blank = all)"
+        required: false
+        default: ""
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-aca
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io/kakani-dev
+  RESOURCE_GROUP: rg-medicore-hms-dev
+
+jobs:
+  plan:
+    name: Plan (sha + services)
+    if: >-
+      vars.ACA_DEPLOY_ENABLED == 'true' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'))
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.p.outputs.sha }}
+      matrix: ${{ steps.p.outputs.matrix }}
+    steps:
+      - id: p
+        env:
+          INPUT_SHA: ${{ inputs.sha }}
+          INPUT_SERVICES: ${{ inputs.services }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          DISPATCH_SHA: ${{ github.sha }}
+        run: |
+          sha="${INPUT_SHA:-${RUN_SHA:-$DISPATCH_SHA}}"
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::sha must be 40 hex, got '$sha'"; exit 1; }
+          all='identity,patients,scheduling,edge'
+          want="${INPUT_SERVICES:-$all}"
+          json=$(python3 - "$want" "$all" <<'PY'
+          import json, sys
+          want = [s.strip() for s in sys.argv[1].split(",") if s.strip()]
+          allowed = sys.argv[2].split(",")
+          bad = [s for s in want if s not in allowed]
+          if bad:
+              sys.exit(f"unknown service(s): {bad}")
+          want = [s for s in allowed if s in want]   # services first, edge last
+          files = {"edge": "backend/edge/Dockerfile",
+                   "identity": "backend/services/identity/Dockerfile",
+                   "patients": "backend/services/patients/Dockerfile",
+                   "scheduling": "backend/services/scheduling/Dockerfile"}
+          print(json.dumps({"include": [{"service": s, "dockerfile": files[s]} for s in want]}))
+          PY
+          )
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "matrix=$json" >> "$GITHUB_OUTPUT"
+          echo "Deploying $sha: $want" >> "$GITHUB_STEP_SUMMARY"
+
+  image:
+    name: Image ${{ matrix.service }}
+    needs: plan
+    if: vars.ACA_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: true
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ env.REGISTRY }}/hms-${{ matrix.service }}:sha-${{ needs.plan.outputs.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ needs.plan.outputs.sha }}
+          sbom: true
+          provenance: mode=max
+          cache-from: type=gha,scope=img-${{ matrix.service }}
+          cache-to: type=gha,scope=img-${{ matrix.service }},mode=max
+
+  deploy:
+    name: Deploy ${{ matrix.service }}
+    needs: [plan, image]
+    if: vars.ACA_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment: aca-dev            # required reviewer: Mohith (repo settings; approval item A6)
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: true
+      max-parallel: 1               # services first, edge last (matrix order); one at a time
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    concurrency:
+      group: deploy-aca-${{ matrix.service }}
+      cancel-in-progress: false
+    steps:
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Roll image (no secrets, no scale or ingress changes)
+        env:
+          APP: ca-hms-${{ matrix.service }}
+          IMAGE: ${{ env.REGISTRY }}/hms-${{ matrix.service }}:sha-${{ needs.plan.outputs.sha }}
+        run: |
+          az containerapp show -g "$RESOURCE_GROUP" -n "$APP" -o none   # must already exist (deploy-aca.sh)
+          az containerapp update -g "$RESOURCE_GROUP" -n "$APP" --image "$IMAGE" -o none
+          az containerapp show -g "$RESOURCE_GROUP" -n "$APP" \
+            --query "{image:properties.template.containers[0].image,min:properties.template.scale.minReplicas,max:properties.template.scale.maxReplicas,revision:properties.latestRevisionName}" -o table
+
+  smoke:
+    name: Post-deploy smoke (public checks)
+    needs: [plan, deploy]
+    if: vars.ACA_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment: aca-dev
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Gateway smoke (health, per-service readiness, CORS, isolation; no sign-in, no writes)
+        run: |
+          fqdn=$(az containerapp show -g "$RESOURCE_GROUP" -n ca-hms-edge --query properties.configuration.ingress.fqdn -o tsv)
+          GATEWAY_URL="https://$fqdn" SMOKE_AUTH=0 bash scripts/smoke/smoke-gateway.sh
