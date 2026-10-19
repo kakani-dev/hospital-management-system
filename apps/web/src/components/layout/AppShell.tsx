@@ -43,6 +43,8 @@ export function AppShell() {
   const { email, signOut } = useAuth()
   const { isAdmin, roles, me } = useCurrentContext()
   const isPlatformAdmin = me.data?.isPlatformAdmin === true
+  // An operator outside any hospital has no clinical screens (the APIs answer 403 anyway).
+  const operatorOnly = isPlatformAdmin && !me.data?.activeTenantId
   const navigate = useNavigate()
   const [helpOpen, setHelpOpen] = useState(false)
   const openHelp = useCallback(() => setHelpOpen(true), [])
@@ -53,7 +55,7 @@ export function AppShell() {
     const clinical: NavGroup = {
       id: 'clinical',
       title: 'Clinical',
-      childs: [
+      childs: operatorOnly ? [] : [
         { id: 'dashboard', path: '/', title: 'Dashboard', end: true, Icon: HomeIcon },
         { id: 'patients', path: '/patients', title: 'Patients', Icon: UsersIcon, keys: '/' },
         ...(can(roles, 'appointments.view')
@@ -105,7 +107,7 @@ export function AppShell() {
         : [],
     }
     return [clinical, reception, admin, platform].filter((g) => g.childs.length > 0)
-  }, [roles, isAdmin, isPlatformAdmin])
+  }, [roles, isAdmin, isPlatformAdmin, operatorOnly])
 
   const avatarName = initialsSource(email)
 

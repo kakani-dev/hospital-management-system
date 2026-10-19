@@ -50,6 +50,9 @@ describe('Platform console', () => {
     expect(row).toHaveTextContent('Asia/Kolkata')
     expect(screen.getByRole('link', { name: /Hospital requests \(1 pending\)/ })).toBeInTheDocument()
     expect(screen.getByTestId('tenant-name')).toHaveTextContent('Platform console (no hospital access)')
+    const primary = screen.getByRole('navigation', { name: 'Primary' })
+    expect(within(primary).queryByRole('link', { name: 'Patients' })).not.toBeInTheDocument()
+    expect(within(primary).getByRole('link', { name: 'Hospital requests' })).toBeInTheDocument()
     // No clinical endpoint is ever called for the operator.
     expect(calls.some((c) => /\/api\/v1\/(patients|appointments|queue)/.test(c.path))).toBe(false)
   })

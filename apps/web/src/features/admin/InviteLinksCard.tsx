@@ -99,8 +99,8 @@ export function InviteLinksCard({ branches, timeZone }: { branches: Branch[]; ti
             <li key={l.id} className="flex flex-wrap items-center justify-between gap-3 py-2" data-testid="invite-link-row" data-status={l.status}>
               <div>
                 <span className="font-medium text-gray-800 dark:text-dark-50">{l.email}</span>{' '}
-                <span className="capitalize text-gray-600 dark:text-dark-200">
-                  · {roleLabel(l.role)} · {branchName(l.branchId)}
+                <span className="text-gray-600 dark:text-dark-200">
+                  · <span className="capitalize">{roleLabel(l.role)}</span> · {branchName(l.branchId)}
                 </span>
               </div>
               <div className="flex items-center gap-2">
