@@ -7,6 +7,8 @@ import { useCurrentContext } from '../tenancy/useCurrentContext'
 export function RequireCapability({ capability, children }: { capability: Capability; children?: React.ReactNode }) {
   const { me, roles } = useCurrentContext()
   if (me.isPending) return <p role="status">Loading…</p>
+  // /me failed (cold server): ContextErrorBanner explains it; never claim the role is missing.
+  if (me.isError && !me.data) return null
   if (!can(roles, capability)) {
     return (
       <div data-testid="forbidden">

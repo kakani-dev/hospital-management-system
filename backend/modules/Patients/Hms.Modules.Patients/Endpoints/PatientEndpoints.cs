@@ -4,6 +4,7 @@ using Hms.Modules.Patients.Domain;
 using Hms.Modules.Patients.Persistence;
 using Hms.Modules.Patients.Registry;
 using Hms.SharedKernel.Http;
+using Hms.SharedKernel.Time;
 using Hms.SharedKernel.Tenancy;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -39,6 +40,8 @@ public static class PatientEndpoints
             .WithSummary("Search by MRN / name, phone (normalized) and/or date of birth; terms are sent in the JSON body.");
         group.MapPost("/duplicates", DuplicatesAsync).WithName("FindDuplicatePatients")
             .WithSummary("Advisory duplicate check (name + DOB, or phone) before registering or editing a patient.");
+        group.MapGet("/stats", StatsAsync).WithName("GetPatientStats")
+            .WithSummary("Dashboard counts: live patients and those registered today (each branch's own local day). No PHI.");
         group.MapGet("/{id:guid}", GetAsync).WithName("GetPatient");
         group.MapPost("/", CreateAsync).WithName("CreatePatient");
         group.MapPatch("/{id:guid}", UpdateAsync).WithName("UpdatePatient")
@@ -133,6 +136,54 @@ public static class PatientEndpoints
 
         return TypedResults.Ok(await PageAsync(query, request.Page, request.PageSize, ct));
     }
+
+    /// <summary>
+    /// GET /patients/stats[?branchId=]. Counts only (no PHI), read roles, RLS + tenant filter as for the
+    /// list. "Today" is the local day of each patient's registered branch (else the tenant zone), so a
+    /// branch-scoped dashboard and the hospital-wide one agree. Another tenant's or unknown branch: 404.
+    /// </summary>
+    private static async Task<Results<Ok<PatientStatsDto>, ProblemHttpResult>> StatsAsync(
+        PatientsDbContext db, ITenantContext tenant, TimeProvider timeProvider, Guid? branchId, CancellationToken ct)
+    {
+        if (!tenant.HasAnyRole(ReadRoles))
+        {
+            return HmsProblems.Forbidden();
+        }
+
+        var live = db.Patients.AsNoTracking();
+        if (branchId is { } only)
+        {
+            // Branches of the tenant the caller can see come from the token's resolved context; the
+            // patients service never reads identity tables directly.
+            if (!tenant.BranchTimeZones.ContainsKey(only))
+            {
+                return HmsProblems.NotFound("Branch not found.");
+            }
+
+            live = live.Where(p => p.RegisteredBranchId == only);
+        }
+
+        var total = await live.LongCountAsync(ct);
+        long today = 0;
+        var known = branchId is { } b ? [b] : tenant.BranchTimeZones.Keys.ToList();
+        foreach (var branch in known)
+        {
+            var (start, end) = DayRange(timeProvider, tenant.TimeZoneFor(branch));
+            today += await live.LongCountAsync(p => p.RegisteredBranchId == branch && p.CreatedOn >= start && p.CreatedOn < end, ct);
+        }
+
+        if (branchId is null)
+        {
+            // Patients of branches outside the caller's context (reads are tenant-wide): the tenant's day.
+            var (start, end) = DayRange(timeProvider, tenant.TenantTimeZone);
+            today += await live.LongCountAsync(p => !known.Contains(p.RegisteredBranchId) && p.CreatedOn >= start && p.CreatedOn < end, ct);
+        }
+
+        return TypedResults.Ok(new PatientStatsDto(total, today));
+    }
+
+    private static (DateTimeOffset Start, DateTimeOffset End) DayRange(TimeProvider clock, string zone) =>
+        BranchTime.DayRangeUtc(BranchTime.Today(clock, zone), zone);
 
     private static async Task<PagedResult<PatientSummaryDto>> PageAsync(IQueryable<Patient> query, int? page, int? pageSize, CancellationToken ct)
     {

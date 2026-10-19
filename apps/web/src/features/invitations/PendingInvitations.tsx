@@ -6,12 +6,16 @@ import { useAcceptInvitation, useInvitations, useMe } from '../../lib/api/hooks'
 import { useAuth } from '../auth/AuthProvider'
 import { ApiError } from '../../lib/api/client'
 import type { Invitation } from '../../lib/api/types'
+import { useBranchTimeZones } from '../../lib/useBranchTimeZone'
 
 const roleLabel = (r: string) => r.replace(/_/g, ' ')
 
-function formatInvitedAt(value: string) {
+/** Invitation date in the user's current hospital zone; with no hospital yet, in UTC (labelled), never the workstation's. */
+function formatInvitedAt(value: string, timeZone: string | undefined) {
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+  if (Number.isNaN(date.getTime())) return value
+  const text = new Intl.DateTimeFormat('en-GB', { year: 'numeric', month: 'short', day: 'numeric', timeZone: timeZone ?? 'UTC' }).format(date)
+  return timeZone ? text : `${text} (UTC)`
 }
 
 /**
@@ -22,6 +26,7 @@ export function PendingInvitations() {
   const invitations = useInvitations()
   const accept = useAcceptInvitation()
   const me = useMe()
+  const { defaultZone } = useBranchTimeZones()
   const { refresh } = useAuth()
   const [message, setMessage] = useState<{ tone: 'info' | 'error'; text: string } | null>(null)
 
@@ -58,14 +63,14 @@ export function PendingInvitations() {
         {message && <Alert tone={message.tone}>{message.text}</Alert>}
         {loadFailed && <Alert tone="warning">Could not load your invitations.</Alert>}
         {items.length > 0 && (
-          <ul className="divide-y divide-slate-100">
+          <ul className="divide-y divide-gray-200 dark:divide-dark-500">
             {items.map((invitation) => (
               <li key={invitation.membershipId} className="flex flex-wrap items-center justify-between gap-3 py-2" data-testid="invitation-row">
                 <div className="text-sm">
-                  <p className="font-medium text-slate-900">{invitation.tenantName}</p>
-                  <p className="text-slate-600">
+                  <p className="font-medium text-gray-800 dark:text-dark-50">{invitation.tenantName}</p>
+                  <p className="text-gray-600 dark:text-dark-200">
                     <span className="capitalize">{roleLabel(invitation.role)}</span> ·{' '}
-                    {invitation.branchId ? (invitation.branchName ?? 'One branch') : 'All branches'} · invited {formatInvitedAt(invitation.invitedAt)}
+                    {invitation.branchId ? (invitation.branchName ?? 'One branch') : 'All branches'} · invited {formatInvitedAt(invitation.invitedAt, defaultZone)}
                   </p>
                 </div>
                 <Button

@@ -53,8 +53,10 @@ describe('patientSchema date of birth (time zone edge)', () => {
     const branchSchema = createPatientSchema(() => 'Asia/Kolkata')
     expect(branchSchema.safeParse({ ...valid, dateOfBirth: '2026-10-07' }).success).toBe(true)
     expect(branchSchema.safeParse({ ...valid, dateOfBirth: '2026-10-08' }).success).toBe(false)
-    // the workstation-zone schema would have wrongly rejected the newborn the API accepts
-    expect(patientSchema.safeParse({ ...valid, dateOfBirth: '2026-10-07' }).success).toBe(false)
+    // without a branch zone the schema never falls back to the workstation's (which would reject
+    // the newborn the API accepts): it only bounds DOB by the latest date anywhere (UTC+14)
+    expect(patientSchema.safeParse({ ...valid, dateOfBirth: '2026-10-07' }).success).toBe(true)
+    expect(patientSchema.safeParse({ ...valid, dateOfBirth: '2026-10-08' }).success).toBe(false)
   })
 
   it('uses the branch zone, not the workstation zone: Kolkata workstation, New York branch', () => {

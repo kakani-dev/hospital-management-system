@@ -1,11 +1,13 @@
 import { forwardRef, useId, type ReactNode, type SelectHTMLAttributes } from 'react'
+import { Select } from '@tailux/components/ui'
 
-interface SelectFieldProps extends SelectHTMLAttributes<HTMLSelectElement> {
+interface SelectFieldProps extends Omit<SelectHTMLAttributes<HTMLSelectElement>, 'prefix'> {
   label: string
   error?: string
   children: ReactNode
 }
 
+/** Labelled native select (keeps selectOption/getByLabel working): the Tailux Select. */
 export const SelectField = forwardRef<HTMLSelectElement, SelectFieldProps>(function SelectField(
   { label, error, id, children, ...props },
   ref,
@@ -14,25 +16,23 @@ export const SelectField = forwardRef<HTMLSelectElement, SelectFieldProps>(funct
   const selectId = id ?? generatedId
   const errorId = `${selectId}-error`
   return (
-    <div className="space-y-1">
-      <label htmlFor={selectId} className="block text-sm font-medium text-slate-800">
-        {label}
-      </label>
-      <select
-        ref={ref}
-        id={selectId}
-        aria-invalid={error ? true : undefined}
-        aria-describedby={error ? errorId : undefined}
-        className={`block w-full rounded-md border bg-white px-3 py-2 text-sm shadow-sm ${error ? 'border-red-600' : 'border-slate-300'}`}
-        {...props}
-      >
-        {children}
-      </select>
-      {error && (
-        <p id={errorId} role="alert" className="text-sm text-red-700">
-          {error}
-        </p>
-      )}
-    </div>
+    <Select
+      ref={ref}
+      id={selectId}
+      label={label}
+      aria-invalid={error ? true : undefined}
+      aria-describedby={error ? errorId : undefined}
+      classNames={{ root: '', label: 'font-medium text-gray-800 dark:text-dark-100' }}
+      error={
+        error ? (
+          <span id={errorId} role="alert">
+            {error}
+          </span>
+        ) : undefined
+      }
+      {...props}
+    >
+      {children}
+    </Select>
   )
 })

@@ -2,6 +2,11 @@ import { useId } from 'react'
 import { useAuth } from '../auth/AuthProvider'
 import { useSwitchContext } from '../../lib/api/hooks'
 import { useCurrentContext } from './useCurrentContext'
+import { Badge } from '@tailux/components/ui'
+
+// Tailux form-select look, compact for the header.
+const selectClass =
+  'form-select-base form-select h-8 rounded-lg border-gray-300 py-1 pr-8 text-xs-plus hover:border-gray-400 focus:border-primary-600 dark:border-dark-450 dark:bg-dark-900 dark:hover:border-dark-400 dark:focus:border-primary-500'
 
 export function TenantSwitcher() {
   const { refresh, resetCache, expectTenant } = useAuth()
@@ -10,11 +15,11 @@ export function TenantSwitcher() {
   const tenantSelectId = useId()
   const branchSelectId = useId()
 
-  if (me.isPending) return <span className="text-sm text-slate-500">Loading context…</span>
-  if (me.isError || !me.data) return <span className="text-sm text-red-700">Context unavailable</span>
+  if (me.isPending) return <span className="text-xs-plus text-gray-500 dark:text-dark-300">Loading context…</span>
+  if (me.isError || !me.data) return <span className="text-xs-plus text-error-darker dark:text-error-lighter">Context unavailable</span>
   if (tenants.length === 0) {
     return (
-      <span className="text-sm text-slate-600" data-testid="tenant-name">
+      <span className="text-xs-plus text-gray-600 dark:text-dark-200" data-testid="tenant-name">
         No hospital memberships
       </span>
     )
@@ -22,15 +27,15 @@ export function TenantSwitcher() {
 
   const busy = switchContext.isPending
   return (
-    <div className="flex flex-wrap items-center gap-3 text-sm" data-testid="tenant-context">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs-plus" data-testid="tenant-context">
       <div className="flex items-center gap-2">
-        <label htmlFor={tenantSelectId} className="text-slate-600">
+        <label htmlFor={tenantSelectId} className="text-gray-500 dark:text-dark-300">
           Hospital
         </label>
         {tenants.length > 1 ? (
           <select
             id={tenantSelectId}
-            className="rounded-md border border-slate-300 bg-white px-2 py-1"
+            className={selectClass}
             value={activeTenant?.id ?? ''}
             disabled={busy}
             onChange={(e) => switchContext.mutate({ tenantId: e.target.value, branchId: null })}
@@ -43,7 +48,7 @@ export function TenantSwitcher() {
             ))}
           </select>
         ) : (
-          <output id={tenantSelectId} className="font-semibold text-slate-900">
+          <output id={tenantSelectId} className="font-medium text-gray-800 dark:text-dark-100">
             {activeTenant?.name ?? tenants[0]!.name}
           </output>
         )}
@@ -53,12 +58,12 @@ export function TenantSwitcher() {
       </div>
       {activeTenant && (
         <div className="flex items-center gap-2">
-          <label htmlFor={branchSelectId} className="text-slate-600">
+          <label htmlFor={branchSelectId} className="text-gray-500 dark:text-dark-300">
             Branch
           </label>
           <select
             id={branchSelectId}
-            className="rounded-md border border-slate-300 bg-white px-2 py-1"
+            className={selectClass}
             value={activeBranchId ?? ''}
             disabled={busy}
             onChange={(e) => switchContext.mutate({ tenantId: activeTenant.id, branchId: e.target.value || null })}
@@ -72,11 +77,11 @@ export function TenantSwitcher() {
           </select>
         </div>
       )}
-      <span className="rounded-full bg-brand-100 px-2 py-0.5 text-xs font-medium text-brand-800" data-testid="active-roles">
+      <Badge color="primary" variant="soft" className="rounded-full capitalize" data-testid="active-roles">
         {roles.length ? roles.map((r) => r.replace('_', ' ')).join(', ') : 'no role'}
-      </span>
+      </Badge>
       {switchContext.isError && (
-        <span role="alert" className="text-xs text-red-700">
+        <span role="alert" className="text-xs text-error-darker dark:text-error-lighter">
           Switch denied
         </span>
       )}

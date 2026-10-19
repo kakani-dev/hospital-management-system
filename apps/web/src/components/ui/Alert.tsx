@@ -1,14 +1,18 @@
 import type { ReactNode } from 'react'
 
+// Tailux demo "soft color" alert (js/demo .../components/alert/SoftColor.jsx).
 const tones = {
-  info: 'border-sky-200 bg-sky-50 text-sky-900',
-  warning: 'border-amber-300 bg-amber-50 text-amber-900',
-  error: 'border-red-300 bg-red-50 text-red-900',
+  info: 'this:info',
+  warning: 'this:warning',
+  error: 'this:error',
 }
 
 export function Alert({ tone = 'info', children }: { tone?: keyof typeof tones; children: ReactNode }) {
   return (
-    <div role={tone === 'error' ? 'alert' : 'status'} className={`rounded-md border px-4 py-3 text-sm ${tones[tone]}`}>
+    <div
+      role={tone === 'error' ? 'alert' : 'status'}
+      className={`${tones[tone]} rounded-lg bg-this-darker/10 px-4 py-3 text-this-darker dark:bg-this-lighter/10 dark:text-this-lighter sm:px-5`}
+    >
       {children}
     </div>
   )

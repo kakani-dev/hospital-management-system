@@ -2,6 +2,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import { fileURLToPath } from 'node:url'
 
 // https://vite.dev/config/
 const apiTarget = process.env.VITE_DEV_API_PROXY ?? 'http://localhost:8080'
@@ -13,6 +14,8 @@ const apiProxy = {
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  // Ported Tailux starter modules live in src/tailux and import each other as @tailux/...
+  resolve: { alias: { '@tailux': fileURLToPath(new URL('./src/tailux', import.meta.url)) } },
   build: {
     rolldownOptions: {
       output: {
@@ -22,6 +25,11 @@ export default defineConfig({
           groups: [
             { name: 'vendor-supabase', test: /node_modules[\\/]@supabase[\\/]/ },
             { name: 'vendor-react', test: /node_modules[\\/](react|react-dom|scheduler|react-router)[\\/]/ },
+            // Tailux UI shell dependencies (Headless UI + Floating UI, TanStack Table, Sonner).
+            {
+              name: 'vendor-ui',
+              test: /node_modules[\\/](@headlessui|@floating-ui|@react-aria|@tanstack[\\/](react-table|table-core|react-virtual|virtual-core)|sonner|clsx)[\\/]/,
+            },
           ],
         },
       },
@@ -34,5 +42,11 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./src/test/setup.ts'],
     include: ['src/**/*.test.{ts,tsx}'],
+    // Component tests use the real retry policy with tiny waits (Retry-After is capped by the max);
+    // the policy itself is unit-tested with fake timers and explicit values (client.resilience.test.ts).
+    env: {
+      VITE_API_RETRY_BASE_DELAY_MS: '10',
+      VITE_API_RETRY_MAX_DELAY_MS: '40',
+    },
   },
 })

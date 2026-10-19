@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { SEXES } from '../../lib/api/types'
-import { localToday } from '../../lib/dates'
+import { latestToday, localToday } from '../../lib/dates'
 
 /** Returns the IANA zone "today" is computed in; undefined = the workstation's zone. */
 export type TimeZoneGetter = () => string | undefined
@@ -14,6 +14,9 @@ export const DOB_ERROR = 'Date of birth must be between 1900-01-01 and today'
  * checks DOB ≤ today **in the registering branch's time zone**, so "today" comes from
  * `getTimeZone` (the selected branch), evaluated per validation — not the workstation's zone.
  */
+/** "Today" in the branch zone; with no zone known yet, the latest date anywhere (the API re-checks). */
+const todayIn = (timeZone: string | undefined) => (timeZone ? localToday(new Date(), timeZone) : latestToday())
+
 export function createPatientSchema(getTimeZone: TimeZoneGetter = () => undefined) {
   return z.object({
   mrn: z
@@ -24,7 +27,7 @@ export function createPatientSchema(getTimeZone: TimeZoneGetter = () => undefine
   lastName: z.string().trim().min(1, { error: 'Last name is required' }).max(100, { error: 'Max 100 characters' }),
   dateOfBirth: z
     .string()
-    .refine((v) => v === '' || (/^\d{4}-\d{2}-\d{2}$/.test(v) && v >= '1900-01-01' && v <= localToday(new Date(), getTimeZone())), {
+    .refine((v) => v === '' || (/^\d{4}-\d{2}-\d{2}$/.test(v) && v >= '1900-01-01' && v <= todayIn(getTimeZone())), {
       error: DOB_ERROR,
     }),
   sex: z.enum(SEXES),
@@ -34,7 +37,7 @@ export function createPatientSchema(getTimeZone: TimeZoneGetter = () => undefine
 })
 }
 
-/** Workstation-zone schema (kept for callers without a branch context). */
+/** Schema without a branch context: DOB is only checked against the latest date anywhere. */
 export const patientSchema = createPatientSchema()
 
 export type PatientFormValues = z.infer<typeof patientSchema>

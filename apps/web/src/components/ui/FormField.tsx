@@ -1,11 +1,15 @@
-import { useId, type InputHTMLAttributes } from 'react'
+import { useId, type InputHTMLAttributes, type ReactNode } from 'react'
+import { Input } from '@tailux/components/ui'
 
-interface FormFieldProps extends InputHTMLAttributes<HTMLInputElement> {
+interface FormFieldProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'prefix'> {
   label: string
   error?: string
   hint?: string
+  /** Tailux input prefix (icon). */
+  prefix?: ReactNode
 }
 
+/** Labelled text input: the Tailux Input with HMS error/hint wiring (aria-describedby, role="alert"). */
 export function FormField({ label, error, hint, id, ...inputProps }: FormFieldProps) {
   const generatedId = useId()
   const inputId = id ?? generatedId
@@ -14,27 +18,21 @@ export function FormField({ label, error, hint, id, ...inputProps }: FormFieldPr
   const describedBy = [hint ? hintId : null, error ? errorId : null].filter(Boolean).join(' ') || undefined
 
   return (
-    <div className="space-y-1">
-      <label htmlFor={inputId} className="block text-sm font-medium text-slate-800">
-        {label}
-      </label>
-      <input
-        id={inputId}
-        aria-invalid={error ? true : undefined}
-        aria-describedby={describedBy}
-        className={`block w-full rounded-md border px-3 py-2 text-sm shadow-sm ${error ? 'border-red-600' : 'border-slate-300'}`}
-        {...inputProps}
-      />
-      {hint && (
-        <p id={hintId} className="text-xs text-slate-600">
-          {hint}
-        </p>
-      )}
-      {error && (
-        <p id={errorId} role="alert" className="text-sm text-red-700">
-          {error}
-        </p>
-      )}
-    </div>
+    <Input
+      id={inputId}
+      label={label}
+      aria-invalid={error ? true : undefined}
+      aria-describedby={describedBy}
+      classNames={{ label: 'font-medium text-gray-800 dark:text-dark-100' }}
+      error={
+        error ? (
+          <span id={errorId} role="alert">
+            {error}
+          </span>
+        ) : undefined
+      }
+      description={hint ? <span id={hintId}>{hint}</span> : undefined}
+      {...inputProps}
+    />
   )
 }

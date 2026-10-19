@@ -147,3 +147,59 @@ describe('patient search by phone and date of birth', () => {
     expect(within(screen.getByTestId('patient-row')).getByText('Active')).toBeInTheDocument()
   })
 })
+
+describe('patient list paging (Tailux pagination, server-side)', () => {
+  it('requests the next page from the API and starts again at page 1 when the search changes', async () => {
+    const calls = stubFetch({
+      'GET /api/v1/me': () => json(meFor({ roles: ['receptionist'] })),
+      'GET /api/v1/patients': (url) => {
+        const page = Number(url.searchParams.get('page') ?? '1')
+        return json({ items: [{ ...patient, id: `p${page}`, mrn: `ALP-P${page}` }], page, pageSize: 25, totalCount: 60 })
+      },
+      'POST /api/v1/patients/search': () => json({ items: [patient], page: 1, pageSize: 25, totalCount: 1 }),
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: '/patients', auth: fakeAuthClient({ session: fakeSession() }) })
+    expect(await screen.findByTestId('patient-row')).toHaveTextContent('ALP-P1')
+    expect(screen.getByText('1 - 25 of 60 entries')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Page 2' }))
+    await waitFor(() => expect(screen.getByTestId('patient-row')).toHaveTextContent('ALP-P2'))
+    expect(calls.filter((c) => c.method === 'GET' && c.path === '/api/v1/patients').at(-1)!.url).toBe('/api/v1/patients?page=2&pageSize=25')
+    expect(screen.getByRole('button', { name: 'Page 2' })).toHaveAttribute('aria-current', 'page')
+
+    await user.type(screen.getByLabelText('Search patients'), 'Synthetic')
+    await waitFor(() => expect(screen.getByTestId('patients-total')).toHaveTextContent('1 patient'))
+    const searches = calls.filter((c) => c.path === '/api/v1/patients/search')
+    expect(searches).toHaveLength(1)
+    expect(searches[0]!.body).toEqual({ search: 'Synthetic', pageSize: 25 })
+    expect(screen.queryByRole('navigation', { name: 'Pagination' })).not.toBeInTheDocument()
+  })
+})
+
+describe('patient list exact-MRN first', () => {
+  it('shows the patient whose MRN exactly matches the search at the top', async () => {
+    const others = [
+      { ...patient, id: 'p10', mrn: 'ALP-00010', firstName: 'Anil', lastName: 'Synthetic-A' },
+      { ...patient, id: 'p11', mrn: 'ALP-00011', firstName: 'Bina', lastName: 'Synthetic-B' },
+    ]
+    stubFetch({
+      'GET /api/v1/me': () => json(meFor({ roles: ['receptionist'] })),
+      'GET /api/v1/patients': () => json({ items: [], page: 1, pageSize: 25, totalCount: 0 }),
+      'POST /api/v1/patients/search': () => json({ items: [...others, patient], page: 1, pageSize: 25, totalCount: 3 }),
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: '/patients', auth: fakeAuthClient({ session: fakeSession() }) })
+    await screen.findByTestId('patients-empty')
+    await user.type(screen.getByLabelText('Search patients'), 'ALP-0001')
+    await waitFor(() => expect(screen.getAllByTestId('patient-row')).toHaveLength(3))
+    const rows = screen.getAllByTestId('patient-row')
+    expect(rows[0]).toHaveTextContent('ALP-0001')
+    expect(within(rows[0]!).getByTestId('exact-mrn-badge')).toBeInTheDocument()
+    expect(rows.map((r) => within(r).getByTestId('patient-link').textContent)).toEqual([
+      'Synthetic-Alpha, Asha',
+      'Synthetic-A, Anil',
+      'Synthetic-B, Bina',
+    ])
+  })
+})

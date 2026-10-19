@@ -29,7 +29,8 @@ describe('StaffSchedulePage', () => {
     expect(cells[0]).toHaveTextContent('09:00–13:00')
     expect(cells[0]).toHaveTextContent('15-min slots')
     expect(cells[5]).toHaveTextContent('Off')
-    expect(screen.getByTestId('calendar-range')).toHaveTextContent('Asia/Kolkata')
+    // the zone label waits for the branch zone (never the workstation's)
+    await waitFor(() => expect(screen.getByTestId('calendar-range')).toHaveTextContent('Asia/Kolkata'))
     expect(calls.find((c) => c.path === '/api/v1/schedules')!.url).toBe(`/api/v1/schedules?branchId=${ALPHA_MAIN}`)
   })
 

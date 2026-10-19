@@ -115,7 +115,7 @@ test.describe('Sprint 2: book -> check in -> OPD queue', () => {
     await form.getByLabel('Practitioner').selectOption(practitioner.id)
     await form.getByLabel('Appointment date').fill(today)
     await form.getByLabel('Find patient').fill(patient.lastName)
-    await form.getByRole('radio', { name: new RegExp(patient.lastName) }).check()
+    await form.getByRole('option', { name: new RegExp(patient.lastName) }).click()
 
     const firstSlot = form.getByTestId('slot-list').locator('label').first()
     await expect(firstSlot).toBeVisible()

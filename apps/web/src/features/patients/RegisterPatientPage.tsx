@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
-import { Link, useNavigate } from 'react-router'
+import { Link, useLocation, useNavigate } from 'react-router'
+import { RetryAlert } from '../../components/ui/RetryAlert'
+import { transientWriteMessage } from '../../lib/api/errors'
+import type { RegisterPatientState, ReturnedPatientState } from './registerReturn'
 import { Card } from '../../components/ui/Card'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
@@ -16,24 +19,44 @@ import { useBranchToday, useBranchZonedResolver } from './useBranchZonedResolver
 
 export function RegisterPatientPage() {
   const navigate = useNavigate()
+  const location = useLocation()
+  // Opened from a patient picker's "No match: register new patient": pre-fill and go back after.
+  const [origin] = useState(() => (location.state as RegisterPatientState | null) ?? {})
   const { branches, activeBranchId, activeTenant } = useCurrentContext()
   const createPatient = useCreatePatient()
   const resolver = useBranchZonedResolver<PatientFormValues>(createPatientSchema)
   const [formError, setFormError] = useState<string | null>(null)
   const [duplicates, setDuplicates] = useState<{ matches: DuplicateCandidate[]; values: PatientFormValues } | null>(null)
   const [creatingAnyway, setCreatingAnyway] = useState(false)
+  const [retryValues, setRetryValues] = useState<PatientFormValues | null>(null)
   const {
     register,
     handleSubmit,
     setError,
     setValue,
     getValues,
+    setFocus,
     control,
     formState: { errors, isSubmitting },
   } = useForm<PatientFormValues>({
     resolver,
-    defaultValues: { mrn: '', firstName: '', lastName: '', dateOfBirth: '', sex: 'unknown', registeredBranchId: '', phone: '', email: '' },
+    defaultValues: {
+      mrn: origin.prefill?.mrn ?? '',
+      firstName: origin.prefill?.firstName ?? '',
+      lastName: origin.prefill?.lastName ?? '',
+      dateOfBirth: '',
+      sex: 'unknown',
+      registeredBranchId: '',
+      phone: '',
+      email: '',
+    },
   })
+
+  // Keyboard flow: start typing straight away, in the first field the search did not fill.
+  useEffect(() => {
+    const p = origin.prefill ?? {}
+    setFocus(!p.mrn ? 'mrn' : !p.firstName ? 'firstName' : !p.lastName ? 'lastName' : 'dateOfBirth')
+  }, [origin, setFocus])
 
   // DOB "today" is the selected branch's date — the API validates in the branch's zone.
   const branchToday = useBranchToday(useWatch({ control, name: 'registeredBranchId' }))
@@ -48,11 +71,24 @@ export function RegisterPatientPage() {
 
   const create = async (values: PatientFormValues) => {
     setFormError(null)
+    setRetryValues(null)
     try {
       const created = await createPatient.mutateAsync(toCreatePatientRequest(values))
-      navigate('/patients', { replace: true, state: { registered: created.mrn } })
+      if (origin.returnTo) {
+        const back: ReturnedPatientState = { ...origin.returnState, pickedPatient: created }
+        navigate(origin.returnTo, { replace: true, state: back })
+      } else {
+        navigate('/patients', { replace: true, state: { registered: created.mrn } })
+      }
     } catch (error) {
       setDuplicates(null)
+      // Cold server / timeout: never auto-retried; offer Retry (a duplicate MRN is still caught by 409).
+      const transient = transientWriteMessage(error, 'register the patient')
+      if (transient) {
+        setFormError(transient)
+        setRetryValues(values)
+        return
+      }
       if (error instanceof ApiError && error.status === 409) {
         setError('mrn', { message: 'This MRN already exists in this hospital' })
         return
@@ -98,18 +134,22 @@ export function RegisterPatientPage() {
   return (
     <div className="max-w-2xl space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Register patient</h1>
-        <Link to="/patients" className="text-sm text-brand-800 underline">
-          Back to patients
+        <h1 className="text-xl font-semibold text-gray-800 dark:text-dark-50">Register patient</h1>
+        <Link to={origin.returnTo ?? '/patients'} className="text-sm font-medium text-primary-600 hover:underline dark:text-primary-400">
+          {origin.returnTo ? 'Back' : 'Back to patients'}
         </Link>
       </div>
       <Card>
-        <p className="mb-4 text-sm text-slate-600">
+        <p className="mb-4 text-sm text-gray-600 dark:text-dark-200">
           Registering in <strong>{activeTenant?.name ?? '—'}</strong>. MRNs must be unique within this hospital.
         </p>
         {formError && (
           <div className="mb-4">
-            <Alert tone="error">{formError}</Alert>
+            {retryValues ? (
+              <RetryAlert message={formError} busy={createPatient.isPending} onRetry={() => void create(retryValues)} />
+            ) : (
+              <Alert tone="error">{formError}</Alert>
+            )}
           </div>
         )}
         {duplicates && (

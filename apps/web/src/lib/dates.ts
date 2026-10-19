@@ -64,7 +64,15 @@ export function formatTime(instant: string | Date, timeZone?: string, locale = '
   )
 }
 
-/** The browser's IANA zone — the fallback when a branch has no timezone on record. */
+/**
+ * Latest calendar date anywhere (UTC+14). Only a permissive upper bound ("not in the future") while
+ * no branch or hospital zone is known; the API re-checks in the branch zone. Never a display zone.
+ */
+export function latestToday(now: Date = new Date()): string {
+  return localToday(now, 'Pacific/Kiritimati')
+}
+
+/** The browser's IANA zone. Not used for branch dates or times (branch → hospital zone only). */
 export function browserTimeZone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone
 }

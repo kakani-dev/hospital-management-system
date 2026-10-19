@@ -13,6 +13,7 @@ import { BranchesPage } from "./features/admin/BranchesPage";
 import { MembersPage } from "./features/admin/MembersPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { RequireCapability } from "./features/auth/RequireCapability";
+import { WakingBanner } from "./components/layout/WakingBanner";
 
 // Scheduling and OPD screens are split into their own chunks: most sessions (billing, patient
 // registration) never open them, and together they pushed the entry chunk past 500 kB.
@@ -31,6 +32,15 @@ const CheckInPage = lazy(() =>
     default: m.CheckInPage,
   })),
 );
+const PractitionersPage = lazy(() =>
+  import("./features/admin/PractitionersPage").then((m) => ({ default: m.PractitionersPage })),
+);
+const WorkingHoursPage = lazy(() =>
+  import("./features/admin/WorkingHoursPage").then((m) => ({ default: m.WorkingHoursPage })),
+);
+const HospitalSettingsPage = lazy(() =>
+  import("./features/admin/HospitalSettingsPage").then((m) => ({ default: m.HospitalSettingsPage })),
+);
 const QueueBoardPage = lazy(() =>
   import("./features/opd/QueueBoardPage").then((m) => ({
     default: m.QueueBoardPage,
@@ -41,7 +51,7 @@ function Lazy({ children }: { children: ReactNode }) {
   return (
     <Suspense
       fallback={
-        <p role="status" className="p-6 text-sm text-slate-600">
+        <p role="status" className="p-6 text-sm text-gray-600 dark:text-dark-200">
           Loading…
         </p>
       }
@@ -56,6 +66,8 @@ export function App() {
   // components never keep rendering data from a removed cache entry.
   const { cacheEpoch } = useAuth();
   return (
+    <>
+    <WakingBanner />
     <Routes key={cacheEpoch}>
       <Route path="/login" element={<LoginPage />} />
       <Route element={<RequireAuth />}>
@@ -107,10 +119,35 @@ export function App() {
           <Route path="admin" element={<RequireAdmin />}>
             <Route path="branches" element={<BranchesPage />} />
             <Route path="members" element={<MembersPage />} />
+            <Route
+              path="practitioners"
+              element={
+                <Lazy>
+                  <PractitionersPage />
+                </Lazy>
+              }
+            />
+            <Route
+              path="working-hours"
+              element={
+                <Lazy>
+                  <WorkingHoursPage />
+                </Lazy>
+              }
+            />
+            <Route
+              path="hospital"
+              element={
+                <Lazy>
+                  <HospitalSettingsPage />
+                </Lazy>
+              }
+            />
           </Route>
           <Route path="*" element={<NotFoundPage />} />
         </Route>
       </Route>
     </Routes>
+    </>
   );
 }

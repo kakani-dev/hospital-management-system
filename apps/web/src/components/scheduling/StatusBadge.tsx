@@ -1,12 +1,15 @@
-const STYLES: Record<string, string> = {
-  booked: 'bg-sky-100 text-sky-900',
-  checked_in: 'bg-amber-100 text-amber-900',
-  waiting: 'bg-amber-100 text-amber-900',
-  in_consultation: 'bg-violet-100 text-violet-900',
-  completed: 'bg-emerald-100 text-emerald-900',
-  done: 'bg-emerald-100 text-emerald-900',
-  cancelled: 'bg-slate-200 text-slate-700 line-through',
-  no_show: 'bg-red-100 text-red-900',
+import { Badge, type TailuxColor } from '@tailux/components/ui'
+
+/** Appointment / queue status as a Tailux soft Badge. */
+const COLORS: Record<string, TailuxColor> = {
+  booked: 'info',
+  checked_in: 'warning',
+  waiting: 'warning',
+  in_consultation: 'secondary',
+  completed: 'success',
+  done: 'success',
+  cancelled: 'neutral',
+  no_show: 'error',
 }
 
 const LABELS: Record<string, string> = {
@@ -26,8 +29,13 @@ function statusLabel(status: string): string {
 
 export function StatusBadge({ status }: { status: string }) {
   return (
-    <span className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${STYLES[status] ?? 'bg-slate-100 text-slate-800'}`} data-status={status}>
+    <Badge
+      color={COLORS[status] ?? 'neutral'}
+      variant="soft"
+      className={status === 'cancelled' ? 'line-through' : undefined}
+      data-status={status}
+    >
       {statusLabel(status)}
-    </span>
+    </Badge>
   )
 }

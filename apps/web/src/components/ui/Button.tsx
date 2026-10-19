@@ -1,12 +1,18 @@
 import type { ComponentPropsWithRef } from 'react'
+import { Button as TxButton, type TailuxColor } from '@tailux/components/ui'
 
+/**
+ * HMS button API on top of the Tailux Button. The HMS variant names are kept so screens and tests
+ * don't change: primary = filled primary, secondary = outlined neutral, ghost = flat neutral,
+ * danger = filled error.
+ */
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger'
 
-const styles: Record<Variant, string> = {
-  primary: 'bg-brand-700 text-white hover:bg-brand-800 disabled:bg-slate-400',
-  secondary: 'border border-slate-300 bg-white text-slate-800 hover:bg-slate-100 disabled:text-slate-400',
-  ghost: 'text-slate-700 hover:bg-slate-100',
-  danger: 'bg-red-700 text-white hover:bg-red-800 disabled:bg-slate-400',
+const map: Record<Variant, { color: TailuxColor; variant: 'filled' | 'outlined' | 'flat' }> = {
+  primary: { color: 'primary', variant: 'filled' },
+  secondary: { color: 'neutral', variant: 'outlined' },
+  ghost: { color: 'neutral', variant: 'flat' },
+  danger: { color: 'error', variant: 'filled' },
 }
 
 export function Button({
@@ -14,12 +20,9 @@ export function Button({
   className = '',
   type = 'button',
   ...props
-}: ComponentPropsWithRef<'button'> & { variant?: Variant }) {
-  return (
-    <button
-      type={type}
-      className={`inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed ${styles[variant]} ${className}`}
-      {...props}
-    />
-  )
+}: Omit<ComponentPropsWithRef<'button'>, 'color'> & { variant?: Variant }) {
+  const m = map[variant]
+  // White on the base error tone is 3.1:1; the darker tone meets WCAG AA.
+  const tone = variant === 'danger' ? 'bg-this-darker! hover:bg-this-darker/90!' : ''
+  return <TxButton type={type} color={m.color} variant={m.variant} className={`gap-2 px-4 text-sm ${tone} ${className}`} {...props} />
 }
