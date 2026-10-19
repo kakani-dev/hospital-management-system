@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router'
 import { RetryAlert } from '../../components/ui/RetryAlert'
 import { transientWriteMessage } from '../../lib/api/errors'
@@ -11,6 +11,7 @@ import { ApiError, fieldErrors, problemCode } from '../../lib/api/client'
 import { formatDayLabel, formatTime } from '../../lib/dates'
 import type { Appointment, PatientSummary, Practitioner, Slot } from '../../lib/api/types'
 import { PatientPicker } from '../patients/PatientPicker'
+import { SlotPicker } from './SlotPicker'
 
 /** Booking panel fields that survive a round trip through "Register new patient" (router state). */
 export interface BookingDraft {
@@ -55,7 +56,6 @@ export function BookingPanel({
   }, [initial?.patient])
   const slots = useSlots(branchId, practitionerId, date)
   const create = useCreateAppointment()
-  const slotGroup = useId()
 
   const submit = async () => {
     setError(null)
@@ -138,30 +138,7 @@ export function BookingPanel({
             setSlot(null)
           }}
         />
-        <fieldset aria-describedby={`${slotGroup}-tz`} data-testid="slot-list">
-          <legend className="text-sm font-medium text-gray-800 dark:text-dark-100">Free slots</legend>
-          <p id={`${slotGroup}-tz`} className="text-xs text-gray-600 dark:text-dark-200">
-            Times in {timeZone}
-          </p>
-          {!practitionerId && <p className="text-sm text-gray-600 dark:text-dark-200">Choose a practitioner first.</p>}
-          {practitionerId && slots.isPending && <p className="text-sm text-gray-600 dark:text-dark-200">Loading slots…</p>}
-          {slots.isError && <p className="text-sm text-error dark:text-error-lighter">Slots are unavailable right now.</p>}
-          {slots.data?.length === 0 && !slots.isPlaceholderData && <p className="text-sm text-gray-600 dark:text-dark-200">No free slots on this day.</p>}
-          <div className={`mt-2 flex flex-wrap gap-2 ${slots.isPlaceholderData ? 'opacity-50' : ''}`} aria-busy={slots.isFetching}>
-            {slots.data?.map((s) => {
-              const checked = slot?.startsAt === s.startsAt
-              return (
-                <label
-                  key={s.startsAt}
-                  className={`cursor-pointer rounded border px-2 py-1 text-sm font-mono ${checked ? 'border-primary-600 dark:border-primary-400 bg-primary-50 dark:bg-primary-500/15' : 'border-gray-300 dark:border-dark-450'}`}
-                >
-                  <input type="radio" name={slotGroup} className="sr-only" checked={checked} disabled={slots.isPlaceholderData} onChange={() => setSlot(s)} />
-                  {formatTime(s.startsAt, timeZone)}
-                </label>
-              )
-            })}
-          </div>
-        </fieldset>
+        <SlotPicker timeZone={timeZone} practitionerId={practitionerId} slots={slots} value={slot} onChange={setSlot} />
       </div>
       <div className="space-y-4">
         <PatientPicker
