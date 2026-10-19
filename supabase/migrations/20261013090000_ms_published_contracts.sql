@@ -13,7 +13,7 @@
 --     bypasses RLS, plus a role check where the data is personal;
 --   * no definer views and no cross-service security_invoker views (B4);
 --   * additive changes only; a breaking change ships as _v2 next to _v1.
--- Signatures are pinned by supabase/tests/20_ms_published_contracts_test.sql.
+-- Signatures are pinned by supabase/tests/22_ms_published_contracts_test.sql.
 --
 -- Added here:
 --   identity.my_tenant_grant_v1(tenant)                       -> every service (tenant resolution)
@@ -25,12 +25,17 @@
 -- patient.soft_delete_patient now calls the canonical name.
 -- =============================================================================
 
+set local lock_timeout = '5s';
+set local statement_timeout = '120s';
+
 -- ---------------------------------------------------------------- identity ----
 -- The calling user's ACTIVE, non-deleted memberships in an ACTIVE, non-deleted tenant plus that
 -- tenant's live branches with their EFFECTIVE zone (branch override, else the tenant zone):
 --   {"tenant_time_zone", "memberships":[{"role","branch_id"}],"branches":[{"id","timezone"}]}
--- NULL when the tenant is not live or the caller has no live membership in it. Definer, but scoped
+-- NULL when the tenant is not live or the caller has no live membership in it. A branch-scoped
+-- membership counts only while its branch is live (code review MAJ-2); zones read timezone_override. Definer, but scoped
 -- to auth.uid() explicitly.
+-- cross-schema: approved (published v1 contract, docs/contracts/db.md)
 create or replace function identity.my_tenant_grant_v1(p_tenant_id uuid)
 returns jsonb
 language sql
@@ -44,16 +49,18 @@ as $$
                  where t.id = p_tenant_id and t.status = 'active' and not t.is_deleted)
      and exists (select 1 from identity.memberships m
                  where m.user_id = (select auth.uid()) and m.tenant_id = p_tenant_id
-                   and m.status = 'active' and not m.is_deleted) then
+                   and m.status = 'active' and not m.is_deleted
+                   and (m.branch_id is null or exists (select 1 from identity.branches mb where mb.id = m.branch_id and not mb.is_deleted))) then
       jsonb_build_object(
         'tenant_time_zone', (select t.time_zone from identity.tenants t where t.id = p_tenant_id),
         'memberships', coalesce((
           select jsonb_agg(jsonb_build_object('role', m.role, 'branch_id', m.branch_id) order by m.role, m.branch_id)
           from identity.memberships m
           where m.user_id = (select auth.uid()) and m.tenant_id = p_tenant_id
-            and m.status = 'active' and not m.is_deleted), '[]'::jsonb),
+            and m.status = 'active' and not m.is_deleted
+            and (m.branch_id is null or exists (select 1 from identity.branches mb where mb.id = m.branch_id and not mb.is_deleted))), '[]'::jsonb),
         'branches', coalesce((
-          select jsonb_agg(jsonb_build_object('id', b.id, 'timezone', coalesce(b.timezone, t.time_zone)) order by b.id)
+          select jsonb_agg(jsonb_build_object('id', b.id, 'timezone', coalesce(b.timezone_override, t.time_zone)) order by b.id)
           from identity.branches b
           join identity.tenants t on t.id = b.tenant_id
           where b.tenant_id = p_tenant_id and b.is_active and not b.is_deleted), '[]'::jsonb))
@@ -69,8 +76,10 @@ comment on function identity.my_tenant_grant_v1(uuid) is
 -- queue board). Definer with explicit checks: the tenant must be one of the caller's, and the caller
 -- must hold a role that may read appointments/patients in it (otherwise: empty, the same answer as
 -- "no such patients", so it cannot be used to probe). INCLUDES soft-deleted patients
--- (is_deleted = true) so appointment history keeps a name. Only the agreed columns: no phone, email
+-- (is_deleted = true) so appointment history keeps a name. (R4: the checks key on the session role,
+-- not only on a sub claim, so an authenticated caller without sub gets nothing.) Only the agreed columns: no phone, email
 -- or DOB. At most 500 ids per call. Trusted callers without a user (service_role) skip the checks.
+-- cross-schema: approved (published v1 contract, docs/contracts/db.md)
 create or replace function patient.patient_summary_v1(p_tenant_id uuid, p_patient_ids uuid[])
 returns table (id uuid, tenant_id uuid, mrn text, first_name text, last_name text, is_deleted boolean)
 language plpgsql
@@ -86,7 +95,7 @@ begin
     raise exception 'at most 500 patient ids per call' using errcode = '22023';
   end if;
   if p_tenant_id is null
-     or (auth.uid() is not null
+     or ((auth.uid() is not null or pg_catalog.current_setting('role', true) in ('authenticated', 'anon'))
          and (p_tenant_id not in (select identity.current_tenant_ids())
               or not identity.has_tenant_role(p_tenant_id, array['tenant_admin', 'doctor', 'nurse', 'receptionist', 'billing']))) then
     return;
@@ -106,7 +115,9 @@ comment on function patient.patient_summary_v1(uuid, uuid[]) is
 -- ------------------------------------------------------------- appointment ----
 -- Canonical name (docs/contracts/db.md). Open appointment (booked / checked_in / in_consultation) or
 -- active queue entry (waiting / in_consultation) for the patient? Same tenant check as the rest of
--- the v1 surface: a signed-in caller must be a member of p_tenant_id, else P0002 (404-not-403).
+-- the v1 surface (R4 role check): an authenticated/anon caller must be a member of p_tenant_id, else
+-- P0002 (404-not-403). Granted to service_role only (R6); soft_delete_patient calls it as owner.
+-- cross-schema: approved (published v1 contract, docs/contracts/db.md)
 create or replace function appointment.patient_has_open_visits_v1(p_tenant_id uuid, p_patient_id uuid)
 returns boolean
 language plpgsql
@@ -115,7 +126,7 @@ security definer
 set search_path = ''
 as $$
 begin
-  if auth.uid() is not null
+  if (auth.uid() is not null or pg_catalog.current_setting('role', true) in ('authenticated', 'anon'))
      and (p_tenant_id is null or p_tenant_id not in (select identity.current_tenant_ids())) then
     raise exception 'tenant not found' using errcode = 'P0002';
   end if;
@@ -128,11 +139,12 @@ begin
 end;
 $$;
 revoke all on function appointment.patient_has_open_visits_v1(uuid, uuid) from public, anon;
-grant execute on function appointment.patient_has_open_visits_v1(uuid, uuid) to authenticated, service_role;
+grant execute on function appointment.patient_has_open_visits_v1(uuid, uuid) to service_role;  -- R6: not to every member
 comment on function appointment.patient_has_open_visits_v1(uuid, uuid) is
   'v1 (published by scheduling): true when the patient has open appointments or active queue entries.';
 
 -- DEPRECATED alias (audit-tz name). Same signature and grants; delegates so the two can never drift.
+-- cross-schema: approved (published v1 contract, docs/contracts/db.md)
 create or replace function appointment.patient_has_active_visits_v1(p_tenant_id uuid, p_patient_id uuid)
 returns boolean
 language plpgsql

@@ -49,13 +49,16 @@ insert into t_v1 values
   ('identity.branch_exists_v1(uuid,uuid)', false), ('identity.branch_tenant_id_v1(uuid)', false),
   ('appointment.branch_has_open_activity_v1(uuid,uuid)', false), ('appointment.queue_has_entries_v1(uuid,uuid[],date[])', false),
   ('appointment.patient_has_active_visits_v1(uuid,uuid)', false), ('patient.patient_exists_v1(uuid,uuid)', false),
-  ('appointment.future_bookings_count_v1(uuid,uuid[])', false);
+  ('appointment.future_bookings_count_v1(uuid,uuid[])', false),
+  -- microservices contracts (20261013090000): the two client-facing reads + the service-only guard
+  ('identity.my_tenant_grant_v1(uuid)', true), ('patient.patient_summary_v1(uuid,uuid[])', true),
+  ('appointment.patient_has_open_visits_v1(uuid,uuid)', false);
 grant select on t_v1 to public;
 select tests.ok(
-  (select count(*) = 9 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+  (select count(*) = 12 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
    where p.proname like '%\_v1' and n.nspname in ('identity', 'patient', 'appointment')
      and p.proname not in ('change_time_zone_v1', 'assert_zone_change_allowed_v1')),
-  'N5: exactly the 9 published v1 read functions exist (plus the change_time_zone_v1 / assert_zone_change_allowed_v1 commands)');
+  'N5: exactly the 12 published v1 read functions exist (plus the change_time_zone_v1 / assert_zone_change_allowed_v1 commands)');
 select tests.ok(
   (select prosecdef and proconfig @> array['search_path=""'] and has_function_privilege('authenticated', oid, 'execute')
           and not has_function_privilege('anon', oid, 'execute')
@@ -79,7 +82,7 @@ select tests.ok(
   'N5: service_role may execute every v1 function');
 select tests.ok(
   (select bool_and(has_function_privilege('authenticated', p.oid, 'execute') = t_v1.client_ok) from t_v1 join pg_proc p on p.oid = t_v1.fn),
-  'R6: authenticated may execute ONLY branch_time_zone_v1 and branch_local_date_v1');
+  'R6: authenticated may execute ONLY the zone reads, my_tenant_grant_v1 and patient_summary_v1');
 select tests.ok(
   (select pg_get_function_result(oid) = 'TABLE(changed boolean, future_bookings integer, time_zone text)'
           and prosecdef and has_function_privilege('authenticated', oid, 'execute')
