@@ -167,8 +167,6 @@ select tests.ok('a1111111-0000-4000-8000-0000000000c1' = any (array(select ident
 select identity.soft_delete_branch('a1111111-0000-4000-8000-0000000000c1');
 select tests.ok(not ('a1111111-0000-4000-8000-0000000000c1' = any (array(select identity.current_branch_ids('11111111-1111-4111-8111-111111111111')))),
   'a soft-deleted branch disappears from current_branch_ids()');
-select tests.ok(coalesce(current_setting('hms.soft_delete', true), '') = '',
-  'the soft-delete flag is cleared again after the function');
 insert into identity.branches (tenant_id, code, name) values ('11111111-1111-4111-8111-111111111111', 'reuse', 'Reuse again (synthetic)');
 select tests.ok(true, 'the code of a deleted branch can be reused');
 select tests.throws_ok($$select identity.restore_branch('a1111111-0000-4000-8000-0000000000c1')$$,
@@ -184,5 +182,29 @@ insert into identity.memberships (tenant_id, user_id, branch_id, role, status)
 values ('11111111-1111-4111-8111-111111111111', '0c000000-0000-4000-8000-000000000001', null, 'billing', 'invited');
 select tests.throws_ok($$select identity.restore_membership('cc000000-0000-4000-8000-0000000000c1')$$,
   '23505', 'restoring a membership for a user who was re-added -> 23505');
+
+-- ============================== re-review R2: patients' deleted_at is guarded (generated is_deleted) ==
+select tests.as_superuser();
+set local role service_role;
+select tests.throws_ok(
+  $$update patient.patients set deleted_at = now() where id = 'aa000000-0000-4000-8000-000000000001'$$,
+  '42501', 'R2: service_role cannot soft-delete a patient by writing deleted_at (skips the open-visits check)');
+select tests.throws_ok(
+  $$update patient.patients set is_deleted = true where id = 'aa000000-0000-4000-8000-000000000001'$$,
+  '428C9', 'R2: the generated is_deleted itself cannot be written');
+select tests.ok(
+  tests.affected_rows($$update patient.patients set first_name = first_name where id = 'aa000000-0000-4000-8000-000000000001'$$) = 1,
+  'R2: other patient columns stay writable for service_role (only the soft-delete state is guarded)');
+reset role;
+select tests.authenticate_as('admin@alpha.example');
+select patient.soft_delete_patient('aa000000-0000-4000-8000-000000000004', 'synthetic R2');
+select tests.as_superuser();
+select tests.ok((select is_deleted and deleted_by is not null from patient.patients where id = 'aa000000-0000-4000-8000-000000000004'),
+  'R2: the SECURITY DEFINER soft_delete_patient (owner) still soft-deletes, with deleted_by');
+set local role service_role;
+select tests.throws_ok(
+  $$update patient.patients set deleted_at = null where id = 'aa000000-0000-4000-8000-000000000004'$$,
+  '42501', 'R2: service_role cannot restore a patient by clearing deleted_at');
+reset role;
 
 rollback;

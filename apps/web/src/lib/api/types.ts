@@ -18,6 +18,8 @@ export interface ProblemDetails {
   /** Sprint 2 machine-readable reason, e.g. appointment_overlap, already_checked_in, invalid_state. */
   code?: string
   errors?: Record<string, string[]>
+  /** 409 time_zone_has_future_bookings: bookings that would move on the wall clock; resend with confirmFutureBookings. */
+  futureBookings?: number
 }
 
 export interface PagedResult<T> {
@@ -123,6 +125,8 @@ export interface UpdateBranchRequest {
   timezone?: string
   /** true clears the override so the branch follows the tenant zone again. */
   inheritTimezone?: boolean
+  /** Required (true) to change the zone of a branch that has future bookings; otherwise the API answers 409. */
+  confirmFutureBookings?: boolean
   isActive?: boolean
 }
 

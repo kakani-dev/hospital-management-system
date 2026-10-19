@@ -29,7 +29,9 @@ insert into patient.patients (id, tenant_id, registered_branch_id, mrn, first_na
 values ('aa000000-0000-4000-8000-0000000000de', '11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001',
         'ALP-DEL', 'Deleted', 'Synthetic-Alpha', '1980-01-01');
 -- rows are never born deleted (audit trigger); soft-delete it afterwards
+select tests.as_owner('patient.patients');  -- the soft-delete state is owner-only (re-review R2)
 update patient.patients set deleted_at = now() where id = 'aa000000-0000-4000-8000-0000000000de';
+select tests.as_superuser();
 
 -- ---------- privileges ----------
 select tests.ok(

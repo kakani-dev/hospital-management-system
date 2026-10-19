@@ -184,25 +184,36 @@ select tests.ok(
   and (select bool_and(created_at = created_on and updated_at = updated_on) from identity.memberships),
   'back-filled rows: created_on/updated_on equal the legacy values');
 
--- ======================================================= is_deleted fails closed (S3) ==
+-- ======================================================= is_deleted fails closed (S3, R1) ==
 select tests.as_superuser();
 set local role service_role;
 select tests.throws_ok(
   $$update appointment.practitioners set is_deleted = true where id = 'c1111111-0000-4000-8000-0000000000f1'$$,
   '42501', 'a non-owner, non-client role (service_role) cannot flip is_deleted directly');
-select set_config('hms.soft_delete', 'c1111111-0000-4000-8000-000000000002', true);
+-- re-review R1: a session setting is not a capability (set_config is callable by every role)
+select set_config('hms.soft_delete', 'c1111111-0000-4000-8000-0000000000f1', true);
 select tests.throws_ok(
   $$update appointment.practitioners set is_deleted = true where id = 'c1111111-0000-4000-8000-0000000000f1'$$,
-  '42501', 'the soft-delete flag only unlocks the row it names');
-select set_config('hms.soft_delete', 'c1111111-0000-4000-8000-0000000000f1', true);
+  '42501', 'R1: setting hms.soft_delete to the row id does NOT unlock is_deleted for a non-owner');
+select set_config('hms.soft_delete', 'a1111111-0000-4000-8000-000000000002', true);
+select tests.throws_ok(
+  $$update identity.branches set is_deleted = true where id = 'a1111111-0000-4000-8000-000000000002'$$,
+  '42501', 'R1: service_role cannot skip soft_delete_branch''s open-activity / last-branch checks via the flag');
+select set_config('hms.soft_delete', '', true);
+select tests.ok(
+  (select prosrc not like '%hms.soft_delete%' from pg_proc where oid = 'audit.stamp_audit_columns()'::regprocedure)
+  and not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                  where n.nspname in ('identity', 'patient', 'appointment', 'audit') and p.prosrc like '%hms.soft_delete%'),
+  'R1: no function reads or sets the hms.soft_delete flag any more');
+-- Become the actual table owner: on the Supabase stack the tests run as supabase_admin
+-- (a superuser that does NOT own the tables), and superuser alone must not bypass the guard.
+select tests.as_owner('appointment.practitioners');
 select tests.ok(
   tests.affected_rows($$update appointment.practitioners set is_deleted = true where id = 'c1111111-0000-4000-8000-0000000000f1'$$) = 1,
-  'with the transaction-local flag for that row, a non-owner writer may change is_deleted');
-select set_config('hms.soft_delete', '', true);
-reset role;
-select tests.ok(
-  tests.affected_rows($$update appointment.practitioners set is_deleted = false where id = 'c1111111-0000-4000-8000-0000000000f1'$$) = 1,
   'the table owner (what SECURITY DEFINER functions run as) may change is_deleted');
+select tests.ok((select is_deleted from appointment.practitioners where id = 'c1111111-0000-4000-8000-0000000000f1'),
+  'the owner''s change took effect');
+update appointment.practitioners set is_deleted = false where id = 'c1111111-0000-4000-8000-0000000000f1';
 
 -- ======================================== status-lifecycle tables never deleted (S4) ==
 select tests.throws_ok($$update appointment.appointments set is_deleted = true where id = 'e1111111-0000-4000-8000-000000000001'$$,
@@ -214,6 +225,7 @@ select tests.ok(
      ('appointments_never_deleted', 'queue_entries_never_deleted', 'queue_counters_never_deleted', 'tenants_never_deleted')
      and contype = 'c' and pg_get_constraintdef(oid) ilike '%NOT is_deleted%') = 4,
   'appointments / queue_entries / queue_counters / tenants all carry CHECK (not is_deleted)');
+reset role;
 
 -- ======================================================== patients: one predicate (S5) ==
 select tests.ok(

@@ -49,6 +49,24 @@ public class EfMembershipStoreTests
     }
 
     [Fact]
+    public async Task A_deleted_branch_revokes_the_roles_scoped_to_it()
+    {
+        // code review MAJ-2: MixedRoles is billing@Main + nurse@East; deleting East drops "nurse" entirely.
+        var db = Seeded();
+        db.Branches.Single(b => b.Id == AlphaEast).IsDeleted = true;
+        db.SaveChanges();
+
+        var grant = await new EfMembershipStore(db).FindActiveGrantAsync(MixedRoles, Alpha, null, default);
+        Assert.NotNull(grant);
+        Assert.Equal([HmsRoles.Billing], grant.Roles);
+        Assert.Equal([AlphaMain], grant.AccessibleBranchIds);
+
+        db.Memberships.RemoveRange(db.Memberships.Where(m => m.UserId == MixedRoles && m.BranchId == AlphaMain));
+        db.SaveChanges();
+        Assert.Null(await new EfMembershipStore(db).FindActiveGrantAsync(MixedRoles, Alpha, null, default));
+    }
+
+    [Fact]
     public async Task Soft_deleted_membership_grants_nothing()
     {
         var db = Seeded();

@@ -14,8 +14,7 @@ insert into auth.users (id, email, aud, role) values
   ('0b000000-0000-4000-8000-000000000001', 'admin@beta.example',        'authenticated', 'authenticated'),
   ('0b000000-0000-4000-8000-000000000002', 'doctor@beta.example',       'authenticated', 'authenticated'),
   ('0c000000-0000-4000-8000-000000000001', 'outsider@example.test',     'authenticated', 'authenticated'),
-  ('0d000000-0000-4000-8000-000000000001', 'consultant@shared.example', 'authenticated', 'authenticated'),
-  ('0e000000-0000-4000-8000-000000000001', 'platform@medicore.example', 'authenticated', 'authenticated')
+  ('0d000000-0000-4000-8000-000000000001', 'consultant@shared.example', 'authenticated', 'authenticated')
 on conflict (id) do nothing;
 
 insert into identity.user_profiles (id, email, display_name) values
@@ -25,13 +24,8 @@ insert into identity.user_profiles (id, email, display_name) values
   ('0b000000-0000-4000-8000-000000000001', 'admin@beta.example',        'Beta Admin (synthetic)'),
   ('0b000000-0000-4000-8000-000000000002', 'doctor@beta.example',       'Beta Doctor (synthetic)'),
   ('0c000000-0000-4000-8000-000000000001', 'outsider@example.test',     'Outsider (synthetic)'),
-  ('0d000000-0000-4000-8000-000000000001', 'consultant@shared.example', 'Visiting Consultant (synthetic)'),
-  ('0e000000-0000-4000-8000-000000000001', 'platform@medicore.example', 'MediCore Platform Operator (synthetic)')
+  ('0d000000-0000-4000-8000-000000000001', 'consultant@shared.example', 'Visiting Consultant (synthetic)')
 on conflict (id) do nothing;
-
--- Platform operator: may create tenants (identity.create_tenant). Not a member of any tenant.
-insert into identity.platform_admins (user_id) values ('0e000000-0000-4000-8000-000000000001')
-on conflict (user_id) do nothing;
 
 -- time_zone is REQUIRED (20261012090100). Branches inherit it unless they override it.
 insert into identity.tenants (id, code, name, time_zone) values

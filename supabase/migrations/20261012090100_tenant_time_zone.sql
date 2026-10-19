@@ -3,23 +3,39 @@
 --
 --  1. identity.tenants.time_zone: REQUIRED IANA zone. identity.is_valid_time_zone() (review S6) is a
 --     cheap check: Area/City shape (or UTC), a denylist (localtime, posixrules, Factory, posix/*,
---     right/*) and a probe of the zone; legacy aliases such as Asia/Calcutta are accepted (the API
---     canonicalises them to Asia/Kolkata before storing).
+--     right/*, and every Etc/* except Etc/UTC: Etc/GMT+5 means UTC-5, re-review N3) and a probe of
+--     the zone; legacy aliases such as Asia/Calcutta are accepted and stored canonically
+--     (Asia/Kolkata) by the guard trigger, including existing branch overrides (re-review N4).
 --     Existing tenants are back-filled with 'Asia/Kolkata' (the only zone in use so far).
---  2. identity.branches.timezone becomes an OPTIONAL override (decision E1): NULL = inherit the
---     tenant zone. Existing branches whose zone equals their tenant's are reset to NULL.
+--  2. Branch override (decision E1), EXPAND-then-contract (code review MAJ-1): the new nullable
+--     identity.branches.timezone_override holds the override (NULL = inherit the tenant zone).
+--     identity.branches.timezone keeps its old shape (NOT NULL) as a DERIVED mirror of the effective
+--     zone, so readers built before this migration (main's API, services deploying independently)
+--     keep working; legacy writes to it are read as an override (same validation and locks).
+--     A tenant zone change cascades to the mirror of inheriting branches. Existing branches: a zone
+--     different from the tenant's becomes timezone_override. Contract step: docs/runbooks/audit-columns-contract.md.
 --  3. identity.branch_time_zone_v1(branch) = coalesce(branch override, tenant zone) and
 --     identity.branch_local_date_v1(branch, at) (published to every service; P0002 for an unknown or
 --     foreign branch) are the ONLY places that decide a branch's calendar
 --     day. Queue day / token reset (issue_queue_token), the "today" check in check_in, slot
---     generation (available_slots) and the schedules.valid_from default all use them.
+--     generation (available_slots, DST-safe: code review MIN-1) and the schedules.valid_from default all use them.
 --  4. schedules.valid_from no longer defaults to current_date (that is the UTC date on Supabase,
 --     i.e. "yesterday" between 00:00 and 05:30 IST); a missing value is filled branch-locally.
---  5. A zone change (tenant zone, or a branch override) is refused with 55000 while the affected
---     branches have queue entries for today (decision E3): it would move "today" and restart tokens.
---  6. identity.platform_admins + identity.create_tenant(): the create-tenant flow (code, name,
---     time zone, default branch, optional first-admin invitation). Platform admins only.
+--  5. Zone changes (tenant zone, or a branch override) go through identity.change_time_zone_v1:
+--     refused with 55000 time_zone_locked while the affected branches have queue entries for today
+--     (decision E3), and they need confirmation when future bookings would shift (re-review R5):
+--     without it nothing changes and the count is returned. Clients have no direct UPDATE grant on
+--     tenants.time_zone / branches.timezone_override; any non-owner writer that bypasses the function
+--     (service_role, a legacy writer of branches.timezone) gets 55000 time_zone_has_future_bookings.
+--  6. identity.platform_admins + identity.create_tenant(): the create-tenant SQL (code, name, time
+--     zone, default branch, optional first-admin invitation) for platform admins or the identity
+--     service (service_role). The HTTP endpoint lives in the identity service (code review MIN-5).
 -- =============================================================================
+
+-- Hosted rollout (code review MIN-4): never queue behind live traffic for long; see
+-- docs/runbooks/deploy-sprint-2-hosted.md (order, quiet window, verification).
+set local lock_timeout = '5s';
+set local statement_timeout = '120s';
 
 -- Legacy IANA aliases still produced by some browsers/OSes -> canonical names. Stored values are
 -- always canonical (the guard trigger rewrites them), so every service sees one spelling.
@@ -54,12 +70,16 @@ begin
   if p_zone is null or length(p_zone) not between 3 and 64 then
     return false;
   end if;
-  -- shape: UTC, or Area/City[/Sub] (rejects abbreviations such as IST/EST and lower-case pseudo zones)
-  if p_zone !~ '^(UTC|[A-Z][A-Za-z_-]+(/[A-Za-z0-9_+-]+){1,2})$' then
+  -- shape: UTC, or Area/City[/Sub] (rejects abbreviations such as IST/EST and lower-case pseudo
+  -- zones). No '+' and no digits after a letter-led segment: the probe below would accept a POSIX
+  -- suffix ('Asia/Kolkata+5' = UTC-5, code review MIN-2). Etc/* is handled by the denylist.
+  if p_zone !~ '^(UTC|[A-Z][A-Za-z_-]+(/[A-Z][A-Za-z_-]*){1,2})$' then
     return false;
   end if;
-  -- pseudo zones that resolve but must never be stored (localtime = the SERVER zone, UTC on Supabase)
-  if p_zone in ('localtime', 'posixrules', 'Factory') or p_zone like 'posix/%' or p_zone like 'right/%' then
+  -- pseudo zones that resolve but must never be stored (localtime = the SERVER zone, UTC on Supabase);
+  -- Etc/GMT+N has the POSIX inverted sign (Etc/GMT+5 = UTC-5), so only Etc/UTC is allowed from Etc/*
+  if p_zone in ('localtime', 'posixrules', 'Factory') or p_zone like 'posix/%' or p_zone like 'right/%'
+     or (p_zone like 'Etc/%' and p_zone <> 'Etc/UTC') then
     return false;
   end if;
   -- cheap probe instead of scanning the tz name catalog view (~14 ms per call); legacy aliases are
@@ -84,30 +104,41 @@ alter table identity.tenants alter column time_zone set not null;
 comment on column identity.tenants.time_zone is
   'REQUIRED IANA zone of the hospital. Every day-based rule (queue day, today''s board, slots, schedule defaults) uses it unless a branch overrides it.';
 
-alter table identity.branches alter column timezone drop not null;
-alter table identity.branches alter column timezone drop default;
+-- EXPAND (code review MAJ-1): branches.timezone keeps its old meaning and shape (NOT NULL, the
+-- branch's zone) so readers built before this migration keep working; it becomes a DERIVED mirror
+-- of the effective zone. The override lives in the new nullable column timezone_override.
+alter table identity.branches add column timezone_override text;
+alter table identity.branches alter column timezone drop default;  -- the guard trigger fills it
 alter table identity.branches disable trigger user;
-update identity.branches b set timezone = null
+-- stored values are always canonical (re-review N4): existing aliases (Asia/Calcutta) too
+update identity.branches set timezone = identity.canonical_time_zone(timezone)
+ where timezone is distinct from identity.canonical_time_zone(timezone);
+-- a branch whose zone differs from its tenant's keeps it as an explicit override
+update identity.branches b set timezone_override = b.timezone
   from identity.tenants t
- where t.id = b.tenant_id and b.timezone = t.time_zone;
+ where t.id = b.tenant_id and b.timezone is distinct from identity.canonical_time_zone(t.time_zone);
 alter table identity.branches enable trigger user;
--- existing overrides must be valid too (the trigger below only checks future writes)
+-- existing zones must be valid too (the trigger below only checks future writes)
 do $$
 declare
   v_bad text;
 begin
   select string_agg(distinct b.timezone, ', ') into v_bad
-  from identity.branches b where b.timezone is not null and not identity.is_valid_time_zone(b.timezone);
+  from identity.branches b where not identity.is_valid_time_zone(b.timezone);
   if v_bad is not null then
-    raise exception 'invalid branch time zone override(s): % (fix them before applying this migration)', v_bad
+    raise exception 'invalid branch time zone(s): % (fix them before applying this migration)', v_bad
       using errcode = '22023';
   end if;
 end;
 $$;
+comment on column identity.branches.timezone_override is
+  'Optional IANA override of identity.tenants.time_zone for this branch. NULL = inherit the tenant zone. Changed through identity.change_time_zone_v1.';
 comment on column identity.branches.timezone is
-  'Optional IANA override of identity.tenants.time_zone for this branch. NULL = inherit the tenant zone.';
+  'DEPRECATED (expand/contract, code review MAJ-1): DERIVED effective zone = coalesce(timezone_override, tenant time_zone), kept by identity.guard_time_zone / cascade_tenant_time_zone. Legacy writers may still write it (read as an override, same locks); new code uses timezone_override. Dropped in the contract migration.';
 
-grant update (time_zone) on identity.tenants to authenticated;
+-- New clients may set an override when creating a branch; changes go through change_time_zone_v1.
+-- UPDATE (timezone) stays granted (20261012090000) for readers/writers built before this migration.
+grant insert (timezone_override) on identity.branches to authenticated;
 
 -- --------------------------------------------------------- zone resolution ----
 -- cross-schema: approved (published v1 surface, DB review B2 / S7)
@@ -122,13 +153,15 @@ declare
   v_tenant uuid;
   v_zone text;
 begin
-  select b.tenant_id, coalesce(b.timezone, t.time_zone) into v_tenant, v_zone
+  select b.tenant_id, coalesce(b.timezone_override, t.time_zone) into v_tenant, v_zone
   from identity.branches b
   join identity.tenants t on t.id = b.tenant_id
   where b.id = p_branch_id;
-  -- unknown, or (for a client caller) another tenant's branch: 404-not-403 (review N1)
+  -- unknown, or (for a client session: JWT sub OR session role authenticated/anon, re-review R4)
+  -- another tenant's branch: 404-not-403 (review N1)
   if v_zone is null
-     or (auth.uid() is not null and v_tenant not in (select identity.current_tenant_ids())) then
+     or ((auth.uid() is not null or pg_catalog.current_setting('role', true) in ('authenticated', 'anon'))
+         and v_tenant not in (select identity.current_tenant_ids())) then
     raise exception 'branch not found' using errcode = 'P0002';
   end if;
   return v_zone;
@@ -137,6 +170,7 @@ $$;
 comment on function identity.branch_time_zone_v1(uuid) is
   'v1 (published by identity): effective IANA zone of a branch = its override, else the tenant zone. P0002 for unknown/foreign branches.';
 
+-- cross-schema: approved (published v1 surface, DB review B2 / S7)
 create or replace function identity.branch_local_date_v1(p_branch_id uuid, p_at timestamptz default now())
 returns date
 language plpgsql
@@ -156,17 +190,93 @@ revoke all on function identity.branch_local_date_v1(uuid, timestamptz) from pub
 grant execute on function identity.branch_time_zone_v1(uuid) to authenticated, service_role;
 grant execute on function identity.branch_local_date_v1(uuid, timestamptz) to authenticated, service_role;
 
--- ------------------------------------------------- validation + change lock ----
-create or replace function identity.guard_time_zone()
-returns trigger
+-- ------------------------------------------- zone change: locks + confirmation ----
+-- cross-schema: approved (published v1, DB review B2 / re-review R5)
+create or replace function appointment.future_bookings_count_v1(p_tenant_id uuid, p_branch_ids uuid[])
+returns integer
 language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+begin
+  if (auth.uid() is not null or pg_catalog.current_setting('role', true) in ('authenticated', 'anon'))
+     and (p_tenant_id is null or p_tenant_id not in (select identity.current_tenant_ids())) then
+    raise exception 'tenant not found' using errcode = 'P0002';
+  end if;
+  return (select count(*)::integer from appointment.appointments a
+          where a.tenant_id = p_tenant_id and a.branch_id = any (p_branch_ids)
+            and a.status = 'booked' and a.starts_at > pg_catalog.now());
+end;
+$$;
+comment on function appointment.future_bookings_count_v1(uuid, uuid[]) is
+  'v1 (published by scheduling): number of booked appointments starting after now() in the branches (zone-change confirmation).';
+revoke all on function appointment.future_bookings_count_v1(uuid, uuid[]) from public, anon, authenticated;
+grant execute on function appointment.future_bookings_count_v1(uuid, uuid[]) to service_role;
+
+-- Raises when a zone change of these branches is not allowed (re-review R5):
+--   55000 time_zone_locked                 today's queue (old or new local day) has entries (decision E3)
+--   55000 time_zone_has_future_bookings    future bookings would shift, and the change is not confirmed
+-- Clients: member (else P0002) with tenant_admin (else 42501). p_confirmed is decided by the caller:
+-- identity.guard_time_zone passes "the writer is the table owner" (change_time_zone_v1 after its
+-- confirmation step, migrations); a client calling this directly only gets the checks.
+create or replace function identity.assert_zone_change_allowed_v1(
+  p_tenant_id uuid, p_branch_ids uuid[], p_old_zone text, p_new_zone text, p_confirmed boolean)
+returns void
+language plpgsql
+stable
 security definer
 set search_path = ''
 as $$
 declare
-  v_old_zone text;
-  v_new_zone text;
+  v_count integer;
 begin
+  if auth.uid() is not null or pg_catalog.current_setting('role', true) in ('authenticated', 'anon') then
+    if p_tenant_id is null or p_tenant_id not in (select identity.current_tenant_ids()) then
+      raise exception 'tenant not found' using errcode = 'P0002';
+    end if;
+    if not identity.has_tenant_role(p_tenant_id, array['tenant_admin']) then
+      raise exception 'only tenant admins can change the time zone' using errcode = '42501';
+    end if;
+  end if;
+  if p_old_zone is not distinct from p_new_zone or coalesce(cardinality(p_branch_ids), 0) = 0 then
+    return;
+  end if;
+  if appointment.queue_has_entries_v1(
+       p_tenant_id, p_branch_ids,
+       array[(pg_catalog.now() at time zone p_old_zone)::date, (pg_catalog.now() at time zone p_new_zone)::date]) then
+    raise exception 'time_zone_locked: today''s queue already has entries; change the time zone after the day ends'
+      using errcode = '55000';
+  end if;
+  if not coalesce(p_confirmed, false) then
+    v_count := appointment.future_bookings_count_v1(p_tenant_id, p_branch_ids);
+    if v_count > 0 then
+      raise exception 'time_zone_has_future_bookings: % future booking(s) would shift; use identity.change_time_zone_v1 with confirmation', v_count
+        using errcode = '55000';
+    end if;
+  end if;
+end;
+$$;
+revoke all on function identity.assert_zone_change_allowed_v1(uuid, uuid[], text, text, boolean) from public, anon;
+grant execute on function identity.assert_zone_change_allowed_v1(uuid, uuid[], text, text, boolean) to authenticated, service_role;
+
+-- Validation, canonicalisation, the branches.timezone mirror and the change locks.
+-- SECURITY INVOKER on purpose: current_user is the real writer, so the owner (the definer
+-- change_time_zone_v1 after confirmation, cascade, migrations) is told apart from service_role,
+-- other service roles and legacy client writers, who can never skip the future-bookings lock.
+create or replace function identity.guard_time_zone()
+returns trigger
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  v_tenant_tz text;
+  v_zone      text;
+  v_owner     name;
+begin
+  select pg_catalog.pg_get_userbyid(c.relowner) into v_owner from pg_catalog.pg_class c where c.oid = tg_relid;
+
   if tg_table_name = 'tenants' then
     new.time_zone := identity.canonical_time_zone(new.time_zone);
     -- NULL is left to the NOT NULL constraint (23502)
@@ -175,30 +285,46 @@ begin
         using errcode = '22023';
     end if;
     if tg_op = 'UPDATE' and new.time_zone is distinct from old.time_zone then
-      -- branches that inherit the tenant zone and have a queue for "today" in the old or new zone
-      if appointment.queue_has_entries_v1(
-           new.id,
-           array(select b.id from identity.branches b where b.tenant_id = new.id and b.timezone is null),
-           array[(now() at time zone old.time_zone)::date, (now() at time zone new.time_zone)::date]) then
-        raise exception 'time_zone_locked: today''s queue already has entries; change the time zone after the day ends'
-          using errcode = '55000';
-      end if;
+      -- the live branches that inherit the tenant zone move with it
+      perform identity.assert_zone_change_allowed_v1(
+        new.id,
+        array(select b.id from identity.branches b
+              where b.tenant_id = new.id and b.timezone_override is null and not b.is_deleted),
+        old.time_zone, new.time_zone, current_user = v_owner);
     end if;
-  else -- branches
-    new.timezone := identity.canonical_time_zone(new.timezone);
-    if new.timezone is not null and not identity.is_valid_time_zone(new.timezone) then
-      raise exception 'invalid_time_zone: % is not a known IANA time zone', new.timezone using errcode = '22023';
+    return new;
+  end if;
+
+  -- branches
+  select t.time_zone into v_tenant_tz from identity.tenants t where t.id = new.tenant_id;
+  if v_tenant_tz is null then
+    -- tenant unknown or invisible to this writer: leave the verdict to RLS (42501) / the FK (23503),
+    -- which run after BEFORE triggers; the placeholder mirror can never be stored
+    new.timezone := coalesce(new.timezone_override, new.timezone, 'UTC');
+    return new;
+  end if;
+  if tg_op = 'UPDATE' and new.timezone_override is distinct from old.timezone_override then
+    new.timezone_override := identity.canonical_time_zone(new.timezone_override);          -- new writers
+  elsif (tg_op = 'INSERT' and new.timezone_override is null and new.timezone is not null)
+        or (tg_op = 'UPDATE' and new.timezone is distinct from old.timezone) then
+    -- legacy writers (or the tenant cascade) write the zone itself: equal to the tenant zone = inherit
+    v_zone := identity.canonical_time_zone(new.timezone);
+    if v_zone is not null and not identity.is_valid_time_zone(v_zone) then
+      raise exception 'invalid_time_zone: % is not a known IANA time zone', v_zone using errcode = '22023';
     end if;
-    if tg_op = 'UPDATE' and new.timezone is distinct from old.timezone then
-      select coalesce(old.timezone, t.time_zone), coalesce(new.timezone, t.time_zone) into v_old_zone, v_new_zone
-      from identity.tenants t where t.id = new.tenant_id;
-      if v_old_zone is distinct from v_new_zone and appointment.queue_has_entries_v1(
-           new.tenant_id, array[new.id],
-           array[(now() at time zone v_old_zone)::date, (now() at time zone v_new_zone)::date]) then
-        raise exception 'time_zone_locked: today''s queue at this branch already has entries; change the time zone after the day ends'
-          using errcode = '55000';
-      end if;
-    end if;
+    new.timezone_override := case when v_zone = v_tenant_tz then null else v_zone end;
+  else
+    new.timezone_override := identity.canonical_time_zone(new.timezone_override);
+  end if;
+  if new.timezone_override is not null and not identity.is_valid_time_zone(new.timezone_override) then
+    raise exception 'invalid_time_zone: % is not a known IANA time zone', new.timezone_override using errcode = '22023';
+  end if;
+  new.timezone := coalesce(new.timezone_override, v_tenant_tz);  -- the mirror is always the effective zone
+
+  if tg_op = 'UPDATE' and new.timezone_override is distinct from old.timezone_override
+     and new.timezone is distinct from old.timezone then
+    perform identity.assert_zone_change_allowed_v1(
+      new.tenant_id, array[new.id], old.timezone, new.timezone, current_user = v_owner);
   end if;
   return new;
 end;
@@ -209,6 +335,110 @@ create trigger tenants_time_zone before insert or update on identity.tenants
   for each row execute function identity.guard_time_zone();
 create trigger branches_time_zone before insert or update on identity.branches
   for each row execute function identity.guard_time_zone();
+
+-- keeps the branches.timezone mirror of inheriting branches equal to a changed tenant zone
+create or replace function identity.cascade_tenant_time_zone()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  update identity.branches b set timezone = new.time_zone
+   where b.tenant_id = new.id and b.timezone_override is null and b.timezone is distinct from new.time_zone;
+  return null;
+end;
+$$;
+revoke all on function identity.cascade_tenant_time_zone() from public;
+create trigger tenants_time_zone_cascade after update of time_zone on identity.tenants
+  for each row when (new.time_zone is distinct from old.time_zone)
+  execute function identity.cascade_tenant_time_zone();
+
+-- The only client path for a zone change (tenant zone, or a branch override; p_branch_id NULL = the
+-- tenant). p_time_zone NULL on a branch = inherit the tenant zone. With future bookings in the
+-- affected branches and p_confirm = false nothing changes and (false, N, current) is returned, so
+-- the caller can show N and ask for confirmation (re-review R5).
+create or replace function identity.change_time_zone_v1(
+  p_tenant_id uuid,
+  p_branch_id uuid,
+  p_time_zone text,
+  p_confirm boolean default false)
+returns table (changed boolean, future_bookings integer, time_zone text)
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_zone      text := identity.canonical_time_zone(nullif(btrim(p_time_zone), ''));
+  v_tenant_tz text;
+  v_override  text;
+  v_old_eff   text;
+  v_new_eff   text;
+  v_branches  uuid[];
+  v_count     integer := 0;
+begin
+  -- client sessions: foreign or unknown tenant -> P0002, member without tenant_admin -> 42501
+  if auth.uid() is not null or pg_catalog.current_setting('role', true) in ('authenticated', 'anon') then
+    if p_tenant_id is null or p_tenant_id not in (select identity.current_tenant_ids()) then
+      raise exception 'tenant not found' using errcode = 'P0002';
+    end if;
+    if not identity.has_tenant_role(p_tenant_id, array['tenant_admin']) then
+      raise exception 'only tenant admins can change the time zone' using errcode = '42501';
+    end if;
+  end if;
+
+  select t.time_zone into v_tenant_tz from identity.tenants t
+  where t.id = p_tenant_id and not t.is_deleted
+  for update;
+  if not found then
+    raise exception 'tenant not found' using errcode = 'P0002';
+  end if;
+
+  if v_zone is not null and not identity.is_valid_time_zone(v_zone) then
+    raise exception 'invalid_time_zone: % is not a known IANA time zone', v_zone using errcode = '22023';
+  end if;
+
+  if p_branch_id is null then
+    if v_zone is null then
+      raise exception 'invalid_time_zone: the hospital time zone is required' using errcode = '22023';
+    end if;
+    v_old_eff := v_tenant_tz;
+    v_new_eff := v_zone;
+    v_branches := array(select b.id from identity.branches b
+                        where b.tenant_id = p_tenant_id and b.timezone_override is null and not b.is_deleted);
+  else
+    select b.timezone_override into v_override from identity.branches b
+    where b.tenant_id = p_tenant_id and b.id = p_branch_id and not b.is_deleted
+    for update;
+    if not found then
+      raise exception 'branch not found' using errcode = 'P0002';
+    end if;
+    v_old_eff := coalesce(v_override, v_tenant_tz);
+    v_new_eff := coalesce(v_zone, v_tenant_tz);
+    v_branches := array[p_branch_id];
+  end if;
+
+  if v_old_eff is distinct from v_new_eff then
+    v_count := appointment.future_bookings_count_v1(p_tenant_id, v_branches);
+    if v_count > 0 and not coalesce(p_confirm, false) then
+      return query select false, v_count, case when p_branch_id is null then v_tenant_tz else v_override end;
+      return;
+    end if;
+  end if;
+
+  -- the guard trigger still validates and applies today's-queue lock (55000 time_zone_locked)
+  if p_branch_id is null then
+    update identity.tenants t set time_zone = v_zone where t.id = p_tenant_id;
+  else
+    update identity.branches b set timezone_override = v_zone where b.id = p_branch_id;
+  end if;
+  return query select true, v_count, v_zone;
+end;
+$$;
+comment on function identity.change_time_zone_v1(uuid, uuid, text, boolean) is
+  'Changes the tenant zone (p_branch_id NULL) or a branch override (p_time_zone NULL = inherit). With future bookings and p_confirm = false nothing changes and (false, count, current) is returned. tenant_admin only for clients.';
+revoke all on function identity.change_time_zone_v1(uuid, uuid, text, boolean) from public, anon;
+grant execute on function identity.change_time_zone_v1(uuid, uuid, text, boolean) to authenticated, service_role;
 
 -- ------------------------------------------------- schedules.valid_from default ----
 alter table appointment.schedules alter column valid_from drop default;
@@ -376,17 +606,26 @@ begin
              and days.day >= s.valid_from and (s.valid_to is null or days.day <= s.valid_to)
     where s.tenant_id = p_tenant_id and s.branch_id = p_branch_id and s.is_active and not s.is_deleted
       and (p_practitioner_id is null or s.practitioner_id = p_practitioner_id)
-  ), slots as (
-    select sch.practitioner_id,
-           ((sch.day + sch.start_time) + make_interval(mins => k * sch.slot_minutes)) at time zone v_tz as s_start,
-           ((sch.day + sch.start_time) + make_interval(mins => (k + 1) * sch.slot_minutes)) at time zone v_tz as s_end
+  ), local_slots as (
+    select sch.practitioner_id, sch.slot_minutes,
+           (sch.day + sch.start_time) + make_interval(mins => k * sch.slot_minutes) as l_start
     from sch
     cross join lateral generate_series(
       0, (floor(extract(epoch from (sch.end_time - sch.start_time)) / 60 / sch.slot_minutes))::int - 1) k
+  ), slots as (
+    -- DST (code review MIN-1): each wall-clock slot is offered at most once and lasts slot_minutes
+    -- of real time. A local start that does not exist (spring-forward gap) does not round-trip and is
+    -- skipped; an ambiguous one (fall-back hour) resolves to one instant (PostgreSQL: standard time).
+    select ls.practitioner_id,
+           ls.l_start at time zone v_tz as s_start,
+           (ls.l_start at time zone v_tz) + make_interval(mins => ls.slot_minutes) as s_end,
+           ls.l_start
+    from local_slots ls
   )
   select sl.practitioner_id, p_branch_id, sl.s_start, sl.s_end
   from slots sl
   where sl.s_start > now()
+    and (sl.s_start at time zone v_tz) = sl.l_start
     and not exists (
       select 1 from appointment.appointments a
       where a.tenant_id = p_tenant_id and a.practitioner_id = sl.practitioner_id
@@ -445,7 +684,10 @@ declare
   v_user uuid;
   v_email text;
 begin
-  if auth.uid() is null or not identity.is_platform_admin() then
+  -- client sessions must be platform admins; trusted callers (the identity service as service_role)
+  -- may create tenants on behalf of an operator
+  if (auth.uid() is not null or pg_catalog.current_setting('role', true) in ('authenticated', 'anon'))
+     and not identity.is_platform_admin() then
     raise exception 'only platform admins can create tenants' using errcode = '42501';
   end if;
   if not identity.is_valid_time_zone(p_time_zone) then
@@ -457,7 +699,7 @@ begin
   returning id into v_tenant;
 
   -- default branch inherits the tenant zone (no override)
-  insert into identity.branches (tenant_id, code, name, timezone)
+  insert into identity.branches (tenant_id, code, name, timezone_override)
   values (v_tenant, coalesce(nullif(btrim(p_branch_code), ''), 'main'), coalesce(nullif(btrim(p_branch_name), ''), 'Main'), null)
   returning id into v_branch;
 

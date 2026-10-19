@@ -9,41 +9,35 @@ namespace Hms.IntegrationTests.AuditTz;
 public sealed class TenantTimeZoneApiTests(HmsApiFactory factory) : IClassFixture<HmsApiFactory>
 {
     [Fact]
-    public async Task Create_tenant_requires_a_platform_admin_and_a_valid_zone()
+    public async Task The_monolith_has_no_create_tenant_endpoint()
     {
-        var body = new { code = ATz.Code(), name = "Synthetic Hospital", timeZone = "Asia/Kolkata" };
-
-        // A tenant admin of another hospital is not a platform admin: 403 from identity.create_tenant().
+        // code review MIN-5: identity.create_tenant stays in the DB; the HTTP endpoint lives in the identity service.
         using var alphaAdmin = factory.ClientAs(AlphaAdmin, Alpha);
-        Assert.Equal(HttpStatusCode.Forbidden, (await alphaAdmin.PostAsJsonAsync("/api/v1/platform/tenants", body)).StatusCode);
-        using var anonymous = factory.CreateClient();
-        Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.PostAsJsonAsync("/api/v1/platform/tenants", body)).StatusCode);
+        var response = await alphaAdmin.PostAsJsonAsync("/api/v1/platform/tenants", new { code = ATz.Code(), name = "Synthetic", timeZone = "Asia/Kolkata" });
+        Assert.True(response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed, $"got {(int)response.StatusCode}");
+        Assert.Equal(0L, await ATz.ScalarAsync<long>("select count(*) from identity.platform_admins"));
+    }
 
-        using var platform = factory.ClientAs(ATz.PlatformAdmin);
-        var missing = await platform.PostAsJsonAsync("/api/v1/platform/tenants", new { code = ATz.Code(), name = "No zone" });
-        Assert.Equal(HttpStatusCode.BadRequest, missing.StatusCode);
-        Assert.Contains("timeZone", await missing.Content.ReadAsStringAsync(), StringComparison.Ordinal);
-        Assert.Equal(HttpStatusCode.BadRequest, (await platform.PostAsJsonAsync("/api/v1/platform/tenants", new { code = ATz.Code(), name = "Bad", timeZone = "Mars/Olympus" })).StatusCode);
-        Assert.Equal(HttpStatusCode.BadRequest, (await platform.PostAsJsonAsync("/api/v1/platform/tenants", new { code = ATz.Code(), name = "Windows id", timeZone = "India Standard Time" })).StatusCode);
+    [Fact]
+    public async Task Tenant_zone_validation_rejects_pseudo_zones_and_suggests_the_canonical_id()
+    {
+        var t = await ATz.NewTenantAsync(factory);
+        using var admin = factory.ClientAs(t.AdminId, t.TenantId);
+        foreach (var bad in new[] { "localtime", "IST", "India Standard Time", "Asia/Kolkata+5", "Etc/GMT+5", "Mars/Olympus" })
+        {
+            var response = await admin.PatchAsJsonAsync("/api/v1/tenants/current", new { timeZone = bad });
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        }
 
-        Assert.Equal(HttpStatusCode.BadRequest, (await platform.PostAsJsonAsync("/api/v1/platform/tenants", new { code = ATz.Code(), name = "Server zone", timeZone = "localtime" })).StatusCode);
-        Assert.Equal(HttpStatusCode.BadRequest, (await platform.PostAsJsonAsync("/api/v1/platform/tenants", new { code = ATz.Code(), name = "Abbrev", timeZone = "IST" })).StatusCode);
+        var posix = await (await admin.PatchAsJsonAsync("/api/v1/tenants/current", new { timeZone = "Asia/Kolkata+5" })).Content.ReadAsStringAsync();
+        Assert.Contains("Did you mean 'Asia/Kolkata'?", posix, StringComparison.Ordinal);
+        var gmt = await (await admin.PatchAsJsonAsync("/api/v1/tenants/current", new { timeZone = "GMT" })).Content.ReadAsStringAsync();
+        Assert.Contains("Did you mean 'UTC'?", gmt, StringComparison.Ordinal);
 
-        // A legacy alias (still sent by some browsers) is accepted and stored canonically.
-        var alias = await ATz.ReadAsync<ATzCreatedTenant>(
-            await platform.PostAsJsonAsync("/api/v1/platform/tenants", new { code = ATz.Code(), name = "Alias", timeZone = "Asia/Calcutta" }), HttpStatusCode.Created);
+        // A legacy alias is accepted and stored canonically.
+        var alias = await ATz.ReadAsync<ATzTenant>(await admin.PatchAsJsonAsync("/api/v1/tenants/current", new { timeZone = "Asia/Calcutta" }), HttpStatusCode.OK);
         Assert.Equal("Asia/Kolkata", alias.TimeZone);
-        Assert.Equal("Asia/Kolkata", await ATz.ScalarAsync<string>("select time_zone from identity.tenants where id = @t", ("t", alias.Id)));
-
-        var created = await ATz.ReadAsync<ATzCreatedTenant>(await platform.PostAsJsonAsync("/api/v1/platform/tenants", body), HttpStatusCode.Created);
-        Assert.Equal("Asia/Kolkata", created.TimeZone);
-        Assert.Equal("Asia/Kolkata", await ATz.ScalarAsync<string>("select time_zone from identity.tenants where id = @t", ("t", created.Id)));
-        // default branch inherits (no override) and is attributed to the platform admin
-        Assert.Equal(1L, await ATz.ScalarAsync<long>("select count(*) from identity.branches where tenant_id = @t and timezone is null", ("t", created.Id)));
-        Assert.Equal(ATz.PlatformAdmin, await ATz.ScalarAsync<Guid>("select created_by from identity.tenants where id = @t", ("t", created.Id)));
-
-        var duplicate = await platform.PostAsJsonAsync("/api/v1/platform/tenants", body);
-        Assert.Equal(HttpStatusCode.Conflict, duplicate.StatusCode);
+        Assert.Equal("Asia/Kolkata", await ATz.ScalarAsync<string>("select time_zone from identity.tenants where id = @t", ("t", t.TenantId)));
     }
 
     [Fact]
@@ -98,6 +92,46 @@ public sealed class TenantTimeZoneApiTests(HmsApiFactory factory) : IClassFixtur
         Assert.NotNull(branches);
         Assert.Equal("America/New_York", branches.Single(b => b.Id == t.MainBranchId).Timezone); // inherits
         Assert.Equal("Asia/Dubai", branches.Single(b => b.Id == dubai.Id).Timezone);              // override kept
+    }
+
+    [Fact]
+    public async Task Zone_change_with_future_bookings_needs_confirmation()
+    {
+        // DB re-review R5: schedules are wall-clock; a zone change moves future slots while bookings
+        // keep their instant. 409 with the count, then confirmFutureBookings = true proceeds.
+        var t = await ATz.NewTenantAsync(factory);
+        using var admin = factory.ClientAs(t.AdminId, t.TenantId);
+        var practitioner = await ATz.CreatePractitionerAsync(admin);
+        var patient = await Sprint2.S2.CreatePatientAsync(admin, t.MainBranchId);
+        Assert.Equal(HttpStatusCode.Created,
+            (await Sprint2.S2.BookAsync(admin, t.MainBranchId, practitioner.Id, patient.Id, Sprint2.S2.FutureSlot(dayOffset: 30))).StatusCode);
+
+        var unconfirmed = await admin.PatchAsJsonAsync("/api/v1/tenants/current", new { timeZone = "Europe/London", name = "Not saved" });
+        Assert.Equal(HttpStatusCode.Conflict, unconfirmed.StatusCode);
+        Assert.Equal("time_zone_has_future_bookings", await ATz.CodeAsync(unconfirmed));
+        using (var body = System.Text.Json.JsonDocument.Parse(await unconfirmed.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(1, body.RootElement.GetProperty("futureBookings").GetInt32());
+        }
+
+        Assert.Equal("Asia/Kolkata", await ATz.ScalarAsync<string>("select time_zone from identity.tenants where id = @t", ("t", t.TenantId)));
+        Assert.NotEqual("Not saved", await ATz.ScalarAsync<string>("select name from identity.tenants where id = @t", ("t", t.TenantId)));
+
+        var confirmed = await ATz.ReadAsync<ATzTenant>(
+            await admin.PatchAsJsonAsync("/api/v1/tenants/current", new { timeZone = "Europe/London", confirmFutureBookings = true }), HttpStatusCode.OK);
+        Assert.Equal("Europe/London", confirmed.TimeZone);
+        // the legacy branches.timezone mirror follows (code review MAJ-1: old readers see the effective zone)
+        Assert.Equal("Europe/London", await ATz.ScalarAsync<string>("select timezone from identity.branches where id = @b", ("b", t.MainBranchId)));
+
+        // Same for a branch override.
+        var branchUnconfirmed = await admin.PatchAsJsonAsync($"/api/v1/branches/{t.MainBranchId}", new { timezone = "Asia/Dubai" });
+        Assert.Equal(HttpStatusCode.Conflict, branchUnconfirmed.StatusCode);
+        Assert.Equal("time_zone_has_future_bookings", await ATz.CodeAsync(branchUnconfirmed));
+        var branchConfirmed = await ATz.ReadAsync<ATzBranch>(
+            await admin.PatchAsJsonAsync($"/api/v1/branches/{t.MainBranchId}", new { timezone = "Asia/Dubai", confirmFutureBookings = true }), HttpStatusCode.OK);
+        Assert.Equal("Asia/Dubai", branchConfirmed.Timezone);
+        Assert.Equal("Asia/Dubai", branchConfirmed.TimezoneOverride);
+        Assert.Equal("Asia/Dubai", await ATz.ScalarAsync<string>("select timezone from identity.branches where id = @b", ("b", t.MainBranchId)));
     }
 
     [Fact]

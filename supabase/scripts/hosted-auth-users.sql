@@ -1,7 +1,7 @@
 -- =============================================================================
 -- HOSTED SUPABASE ONLY (never needed locally — the local shim's auth.users is minimal).
 --
--- Creates the 8 SYNTHETIC demo users referenced by supabase/seed.sql directly in the
+-- Creates the 7 SYNTHETIC demo users referenced by supabase/seed.sql directly in the
 -- real auth.users table, filling the columns GoTrue expects to be non-NULL
 -- (instance_id, token columns as '', app metadata). Run it BEFORE seed.sql; seed.sql's
 -- own auth.users insert then hits ON CONFLICT DO NOTHING.
@@ -29,7 +29,6 @@ from (values
   ('0b000000-0000-4000-8000-000000000001', 'admin@beta.example'),
   ('0b000000-0000-4000-8000-000000000002', 'doctor@beta.example'),
   ('0c000000-0000-4000-8000-000000000001', 'outsider@example.test'),
-  ('0d000000-0000-4000-8000-000000000001', 'consultant@shared.example'),
-  ('0e000000-0000-4000-8000-000000000001', 'platform@medicore.example')
+  ('0d000000-0000-4000-8000-000000000001', 'consultant@shared.example')
 ) as u(id, email)
 on conflict (id) do nothing;

@@ -9,8 +9,12 @@ select tests.ok(
   'tenants.time_zone is required (NOT NULL, no default)');
 select tests.ok(
   (select is_nullable = 'YES' and column_default is null from information_schema.columns
+   where table_schema = 'identity' and table_name = 'branches' and column_name = 'timezone_override'),
+  'branches.timezone_override is an optional override (nullable, no default)');
+select tests.ok(
+  (select is_nullable = 'NO' from information_schema.columns
    where table_schema = 'identity' and table_name = 'branches' and column_name = 'timezone'),
-  'branches.timezone is an optional override (nullable, no default)');
+  'MAJ-1: branches.timezone keeps its old shape (NOT NULL) for readers built before this migration');
 select tests.ok(
   (select column_default is null from information_schema.columns
    where table_schema = 'appointment' and table_name = 'schedules' and column_name = 'valid_from'),
@@ -27,14 +31,17 @@ select tests.throws_ok($$insert into identity.tenants (code, name) values ('tz-m
 select tests.throws_ok($$insert into identity.tenants (code, name, time_zone) values ('tz-bad', 'Bad zone (synthetic)', 'Mars/Olympus_Mons')$$,
   '22023', 'an unknown time zone is rejected');
 select tests.throws_ok($$update identity.branches set timezone = 'Not/AZone' where id = 'a1111111-0000-4000-8000-000000000002'$$,
+  '22023', 'an unknown zone written by a legacy writer is rejected');
+select tests.throws_ok($$update identity.branches set timezone_override = 'Not/AZone' where id = 'a1111111-0000-4000-8000-000000000002'$$,
   '22023', 'an unknown branch override is rejected');
 select tests.ok(
-  (select bool_and(timezone is null) from identity.branches) and (select bool_and(time_zone = 'Asia/Kolkata') from identity.tenants),
-  'seed: tenants are Asia/Kolkata and branches inherit it (no override)');
+  (select bool_and(timezone_override is null and timezone = 'Asia/Kolkata') from identity.branches)
+  and (select bool_and(time_zone = 'Asia/Kolkata') from identity.tenants),
+  'seed: tenants are Asia/Kolkata and branches inherit it (no override; the mirror shows the effective zone)');
 
 -- ============================================================== zone resolution ==
 select tests.ok(identity.branch_time_zone_v1('a1111111-0000-4000-8000-000000000001') = 'Asia/Kolkata', 'a branch inherits the tenant zone');
-update identity.branches set timezone = 'UTC' where id = 'a1111111-0000-4000-8000-000000000002';
+update identity.branches set timezone_override = 'UTC' where id = 'a1111111-0000-4000-8000-000000000002';
 select tests.ok(identity.branch_time_zone_v1('a1111111-0000-4000-8000-000000000002') = 'UTC', 'a branch override wins');
 
 -- the midnight-05:30 IST edge: 2026-10-09 19:00Z is 00:30 on Oct 10 in India, still Oct 9 in UTC
@@ -72,7 +79,7 @@ select tests.ok(
 
 -- queue day + token reset follow the branch-local day
 select tests.as_superuser();
-update identity.branches set timezone = 'Pacific/Kiritimati', is_active = true where id = 'a1111111-0000-4000-8000-000000000002';
+update identity.branches set timezone_override = 'Pacific/Kiritimati', is_active = true where id = 'a1111111-0000-4000-8000-000000000002';
 select tests.authenticate_as('admin@alpha.example');
 create temporary table t_tok on commit drop as
   select * from appointment.check_in_walk_in('a1111111-0000-4000-8000-000000000002', 'aa000000-0000-4000-8000-000000000003');
@@ -86,28 +93,53 @@ select tests.ok(
   'an inheriting branch issues tokens on the tenant-zone day');
 
 -- =============================================================== zone-change lock ==
+-- clients change zones only through identity.change_time_zone_v1 (re-review R5)
 select tests.throws_ok($$update identity.tenants set time_zone = 'Europe/London' where id = '11111111-1111-4111-8111-111111111111'$$,
-  '55000', 'tenant zone change is blocked while an inheriting branch has queue entries today');
+  '42501', 'R5: a client cannot UPDATE tenants.time_zone directly (no column grant)');
+select tests.throws_ok($$update identity.branches set timezone_override = 'Asia/Dubai' where id = 'a1111111-0000-4000-8000-000000000001'$$,
+  '42501', 'R5: a client cannot UPDATE branches.timezone_override directly (no column grant)');
 select tests.throws_ok($$update identity.branches set timezone = 'Asia/Dubai' where id = 'a1111111-0000-4000-8000-000000000001'$$,
-  '55000', 'a branch override change is blocked while that branch has queue entries today');
+  '55000', 'MAJ-1/R5: a legacy client write of branches.timezone gets the same locks (today''s queue here)');
+select tests.throws_ok($$select * from identity.change_time_zone_v1('11111111-1111-4111-8111-111111111111', null, 'Europe/London', true)$$,
+  '55000', 'tenant zone change is blocked while an inheriting branch has queue entries today (even confirmed)');
+select tests.throws_ok($$select * from identity.change_time_zone_v1('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'Asia/Dubai', true)$$,
+  '55000', 'a branch override change is blocked while that branch has queue entries today (even confirmed)');
 select tests.authenticate_as('admin@beta.example');
+create temporary table t_cz on commit drop as
+  select * from identity.change_time_zone_v1('22222222-2222-4222-8222-222222222222', null, 'Asia/Dubai');
+grant select on t_cz to public;
+select tests.ok((select not changed and future_bookings = 1 and time_zone = 'Asia/Kolkata' from t_cz)
+                and (select time_zone = 'Asia/Kolkata' from identity.tenants where id = '22222222-2222-4222-8222-222222222222'),
+  'R5: with a future booking and no confirmation nothing changes; the count (1) is returned');
 select tests.ok(
-  tests.affected_rows($$update identity.tenants set time_zone = 'Asia/Dubai' where id = '22222222-2222-4222-8222-222222222222'$$) = 1,
-  'tenant_admin changes their tenant zone when no queue is open today');
+  (select changed and future_bookings = 1 and time_zone = 'Asia/Dubai'
+   from identity.change_time_zone_v1('22222222-2222-4222-8222-222222222222', null, 'Asia/Dubai', true)),
+  'R5: confirmed, the tenant_admin changes their tenant zone');
 select tests.ok(identity.is_valid_time_zone((select time_zone from identity.tenants where id = '22222222-2222-4222-8222-222222222222')),
   'the stored zone is valid');
-select tests.throws_ok($$update identity.tenants set time_zone = 'Nowhere/Land' where id = '22222222-2222-4222-8222-222222222222'$$,
+select tests.ok(
+  (select changed and future_bookings = 0
+   from identity.change_time_zone_v1('22222222-2222-4222-8222-222222222222', null, 'Asia/Dubai')),
+  'R5: no effective change -> no confirmation needed (count 0)');
+select tests.throws_ok($$select * from identity.change_time_zone_v1('22222222-2222-4222-8222-222222222222', null, 'Nowhere/Land', true)$$,
   '22023', 'tenant_admin cannot store an invalid zone');
+select tests.throws_ok($$select * from identity.change_time_zone_v1('22222222-2222-4222-8222-222222222222', null, null, true)$$,
+  '22023', 'the tenant zone cannot be cleared');
+select tests.throws_ok($$select * from identity.change_time_zone_v1('22222222-2222-4222-8222-222222222222', 'a1111111-0000-4000-8000-000000000001', 'UTC', true)$$,
+  'P0002', 'another tenant''s branch -> P0002');
 select tests.authenticate_as('doctor@beta.example');
-select tests.ok(
-  tests.affected_rows($$update identity.tenants set time_zone = 'UTC' where id = '22222222-2222-4222-8222-222222222222'$$) = 0,
-  'non-admins cannot change the tenant zone (0 rows)');
+select tests.throws_ok($$select * from identity.change_time_zone_v1('22222222-2222-4222-8222-222222222222', null, 'UTC', true)$$,
+  '42501', 'non-admins cannot change the tenant zone (403)');
 select tests.authenticate_as('admin@alpha.example');
-select tests.ok(
-  tests.affected_rows($$update identity.tenants set time_zone = 'UTC' where id = '22222222-2222-4222-8222-222222222222'$$) = 0,
-  'another tenant''s admin cannot change it (0 rows)');
+select tests.throws_ok($$select * from identity.change_time_zone_v1('22222222-2222-4222-8222-222222222222', null, 'UTC', true)$$,
+  'P0002', 'another tenant''s admin cannot change it (404)');
 
 -- ================================================================= create_tenant ==
+-- No platform operator is seeded (code review MIN-5): create one for this transaction only.
+select tests.as_superuser();
+insert into auth.users (id, email, role, aud) values
+  ('0e000000-0000-4000-8000-000000000001', 'platform@medicore.example', 'authenticated', 'authenticated');
+insert into identity.platform_admins (user_id) values ('0e000000-0000-4000-8000-000000000001');
 select tests.authenticate_as('admin@alpha.example');
 select tests.throws_ok($$select identity.create_tenant('tz-new', 'New (synthetic)', 'Asia/Kolkata')$$,
   '42501', 'a tenant admin is not a platform admin: create_tenant -> 42501');
@@ -127,7 +159,7 @@ select tests.ok(
    from identity.tenants where id = (select id from t_new)),
   'create_tenant stores the zone; created_by is the platform admin');
 select tests.ok(
-  (select count(*) = 1 and bool_and(code = 'main' and timezone is null)
+  (select count(*) = 1 and bool_and(code = 'main' and timezone_override is null and timezone = 'America/New_York')
    from identity.branches where tenant_id = (select id from t_new)),
   'create_tenant adds a default branch that inherits the tenant zone');
 select tests.ok(
@@ -140,16 +172,28 @@ select tests.ok(
 select tests.authenticate_as('outsider@example.test');
 select tests.ok(not exists (select 1 from identity.tenants where id = (select id from t_new)),
   'the invitee sees nothing before accepting');
+select tests.as_superuser();
+set local role service_role;
+select tests.ok(identity.create_tenant('tz-svc', 'Service-created (synthetic)', 'Asia/Calcutta') is not null,
+  'MIN-5: the identity service (service_role, trusted) may call create_tenant');
+reset role;
+select tests.ok((select time_zone = 'Asia/Kolkata' from identity.tenants where code = 'tz-svc'),
+  'create_tenant stores the zone canonically');
+select tests.ok(not exists (select 1 from identity.platform_admins where user_id <> '0e000000-0000-4000-8000-000000000001'),
+  'MIN-5: no platform operator is seeded');
 
 -- ======================================================== review S6: zone validation ==
 select tests.as_superuser();
 select tests.ok(identity.is_valid_time_zone('Asia/Calcutta'), 'legacy alias Asia/Calcutta (still sent by some browsers) is accepted');
-update identity.tenants set time_zone = 'Asia/Calcutta' where id = '22222222-2222-4222-8222-222222222222';
+select * from identity.change_time_zone_v1('22222222-2222-4222-8222-222222222222', null, 'Asia/Calcutta', true);
 select tests.ok((select time_zone = 'Asia/Kolkata' from identity.tenants where id = '22222222-2222-4222-8222-222222222222'),
   'an alias is stored canonically (Asia/Calcutta -> Asia/Kolkata)');
-select tests.ok(identity.is_valid_time_zone('UTC') and identity.is_valid_time_zone('Etc/GMT+5')
+select tests.ok(identity.is_valid_time_zone('UTC') and identity.is_valid_time_zone('Etc/UTC')
                 and identity.is_valid_time_zone('America/Argentina/Buenos_Aires'),
-  'UTC, Etc/GMT+5 and three-part names are accepted');
+  'UTC, Etc/UTC and three-part names are accepted');
+select tests.ok(not identity.is_valid_time_zone('Etc/GMT+5') and not identity.is_valid_time_zone('Etc/GMT-14')
+                and not identity.is_valid_time_zone('Etc/GMT') and not identity.is_valid_time_zone('Etc/Universal'),
+  'N3: Etc/GMT+N (inverted POSIX sign: Etc/GMT+5 = UTC-5) and other Etc/* except Etc/UTC are rejected');
 select tests.ok(not identity.is_valid_time_zone('localtime'), 'localtime (= the server zone) is rejected');
 select tests.ok(not identity.is_valid_time_zone('posixrules'), 'posixrules is rejected');
 select tests.ok(not identity.is_valid_time_zone('Factory'), 'Factory is rejected');
@@ -173,10 +217,13 @@ insert into t_v1 values
   ('appointment.patient_has_active_visits_v1(uuid,uuid)'), ('patient.patient_exists_v1(uuid,uuid)');
 select tests.ok(
   (select bool_and(p.prosecdef and p.proconfig @> array['search_path=""']
+                   and has_function_privilege('service_role', p.oid, 'execute')
+                   and not has_function_privilege('anon', p.oid, 'execute')
+                   -- re-review R6: only the two zone resolvers are granted to authenticated
                    and has_function_privilege('authenticated', p.oid, 'execute')
-                   and not has_function_privilege('anon', p.oid, 'execute'))
+                       = (p.proname in ('branch_time_zone_v1', 'branch_local_date_v1')))
    from t_v1 join pg_proc p on p.oid = t_v1.fn),
-  'SIGNATURES: the 8 published v1 functions exist, SECURITY DEFINER, search_path pinned, authenticated only');
+  'SIGNATURES: the 8 published v1 functions exist, SECURITY DEFINER, search_path pinned, service_role; authenticated only for the 2 zone resolvers');
 select tests.ok(
   not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
               where n.nspname = 'identity' and p.prosrc ~ 'appointment\.(appointments|queue_entries|queue_counters|schedules|practitioners)\M'),
@@ -205,10 +252,18 @@ select tests.throws_ok($$select identity.branch_time_zone_v1('b2222222-0000-4000
 select tests.throws_ok($$select identity.branch_time_zone_v1('00000000-0000-4000-8000-0000000000aa')$$,
   'P0002', 'unknown branch -> P0002 instead of a NULL zone (review N1)');
 select tests.throws_ok($$select appointment.queue_has_entries_v1('22222222-2222-4222-8222-222222222222', array['b2222222-0000-4000-8000-000000000001'::uuid], array[current_date])$$,
-  'P0002', 'a client cannot probe another tenant''s queue through the v1 function');
+  '42501', 'R6: a client cannot call queue_has_entries_v1 at all');
+select tests.throws_ok($$select patient.patient_exists_v1('11111111-1111-4111-8111-111111111111', 'aa000000-0000-4000-8000-000000000001')$$,
+  '42501', 'R6: a client cannot call patient_exists_v1 at all (no same-tenant existence oracle)');
+-- the tenant check itself, as reached through a SECURITY DEFINER caller (owner role + the user's claims)
+select tests.as_superuser();
+select set_config('request.jwt.claims', json_build_object('sub', '0a000000-0000-4000-8000-000000000002', 'role', 'authenticated')::text, true);
+select tests.throws_ok($$select appointment.queue_has_entries_v1('22222222-2222-4222-8222-222222222222', array['b2222222-0000-4000-8000-000000000001'::uuid], array[current_date])$$,
+  'P0002', 'via a definer path a user cannot probe another tenant''s queue');
 select tests.throws_ok($$select patient.patient_exists_v1('22222222-2222-4222-8222-222222222222', 'bb000000-0000-4000-8000-000000000001')$$,
-  'P0002', 'a client cannot probe another tenant''s patients through the v1 function');
+  'P0002', 'via a definer path a user cannot probe another tenant''s patients');
 select tests.ok(identity.branch_tenant_id_v1('b2222222-0000-4000-8000-000000000001') is null,
   'branch_tenant_id_v1 hides a foreign branch (NULL)');
+select tests.as_superuser();
 
 rollback;
