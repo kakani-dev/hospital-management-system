@@ -1,6 +1,16 @@
 # MediCore HMS microservices: CI per service + Azure Container Apps plan (PLAN ONLY)
 
 Status: **PLAN, nothing executed.** Written 9 Oct 2026, ~18:40 IST, from `main @ 1306b8a` (Sprint 2 merged).
+**Update 19 Oct 2026 (IST), rebased on main @ 495f987 (PRs #4, #5, #6 merged):** the code gaps listed at prep time are
+closed on main: edge-key / pool-size / routing code is committed, `backend/edge/Dockerfile` plus one Dockerfile per service
+exist, and CI builds and health-smokes every image (non-required). Still open before Deploy day: (1) no workflow *publishes*
+images to GHCR yet (the draft deploy workflow builds and pushes them itself once enabled); (2) the edge still has no catch-all to
+the monolith, so the cutover moves every route at once; (3) the deploy script gives all three services one `hms-db` secret
+(the shared `hms_api_login`) with the outbox dispatcher disabled. Per-service logins (`hms_<svc>_login`, migration
+20261013090100) need a hosted write and are a follow-up approval. Note B1: on the upgraded schema `hms_api` no longer holds
+`hms_dispatcher`, so the legacy API's outbox dispatcher cannot claim rows; it must stay disabled on the F1 app.
+Hosted Supabase does not yet have the Sprint 2, audit-tz or microservices migrations.
+
 Companion to `/workspace/MICROSERVICES-PLAN.md` (approved shape, §0.1: `identity`, `patients`, `scheduling` + YARP `edge`,
 one Supabase Postgres with a schema per service, Azure Container Apps Consumption in Central India).
 
