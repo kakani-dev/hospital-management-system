@@ -22,5 +22,7 @@ export function Button({
   ...props
 }: Omit<ComponentPropsWithRef<'button'>, 'color'> & { variant?: Variant }) {
   const m = map[variant]
-  return <TxButton type={type} color={m.color} variant={m.variant} className={`gap-2 px-4 text-sm ${className}`} {...props} />
+  // White on the base error tone is 3.1:1; the darker tone meets WCAG AA.
+  const tone = variant === 'danger' ? 'bg-this-darker! hover:bg-this-darker/90!' : ''
+  return <TxButton type={type} color={m.color} variant={m.variant} className={`gap-2 px-4 text-sm ${tone} ${className}`} {...props} />
 }

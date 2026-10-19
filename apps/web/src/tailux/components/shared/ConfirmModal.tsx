@@ -77,7 +77,13 @@ export function ConfirmModal({
               <Button ref={cancelRef} onClick={onClose} variant="outlined" className="h-9 min-w-[7rem]" disabled={confirmLoading}>
                 Cancel
               </Button>
-              <Button onClick={onOk} color={color} className="h-9 min-w-[7rem] space-x-2" disabled={confirmLoading}>
+              <Button
+                onClick={onOk}
+                color={color}
+                // HMS: white on the base error tone is 3.1:1; the darker tone meets WCAG AA (4.5:1).
+                className={`h-9 min-w-[7rem] space-x-2 ${color === 'error' ? 'bg-this-darker! hover:bg-this-darker/90!' : ''}`}
+                disabled={confirmLoading}
+              >
                 {confirmLoading && <GhostSpinner variant="soft" className="size-4 border-2" />}
                 <span>{actionText}</span>
               </Button>

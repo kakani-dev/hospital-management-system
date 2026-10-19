@@ -16,7 +16,7 @@ export function TenantSwitcher() {
   const branchSelectId = useId()
 
   if (me.isPending) return <span className="text-xs-plus text-gray-500 dark:text-dark-300">Loading context…</span>
-  if (me.isError || !me.data) return <span className="text-xs-plus text-error dark:text-error-lighter">Context unavailable</span>
+  if (me.isError || !me.data) return <span className="text-xs-plus text-error-darker dark:text-error-lighter">Context unavailable</span>
   if (tenants.length === 0) {
     return (
       <span className="text-xs-plus text-gray-600 dark:text-dark-200" data-testid="tenant-name">
@@ -81,7 +81,7 @@ export function TenantSwitcher() {
         {roles.length ? roles.map((r) => r.replace('_', ' ')).join(', ') : 'no role'}
       </Badge>
       {switchContext.isError && (
-        <span role="alert" className="text-xs text-error dark:text-error-lighter">
+        <span role="alert" className="text-xs text-error-darker dark:text-error-lighter">
           Switch denied
         </span>
       )}

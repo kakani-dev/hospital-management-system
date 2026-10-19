@@ -169,7 +169,7 @@ export function PatientPicker({
       >
         <div role="status" className="px-4 text-sm text-gray-600 dark:text-dark-200">
           {expanded && searching && results.isPending && <p className="py-2">Searching…</p>}
-          {expanded && results.isError && <p className="py-2 text-error dark:text-error-lighter">Patient search is unavailable.</p>}
+          {expanded && results.isError && <p className="py-2 text-error-darker dark:text-error-lighter">Patient search is unavailable.</p>}
           {expanded && fresh && items.length === 0 && <p className="py-2">No matching patients.</p>}
         </div>
         <ul

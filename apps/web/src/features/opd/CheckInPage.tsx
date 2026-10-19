@@ -224,7 +224,7 @@ function WalkInCard({
       >
         <PatientPicker value={picked} onChange={setPicked} label="Find walk-in patient" shortcut="walk-in" registerReturn={{ to: registerReturnTo }} />
         {missing && (
-          <p role="alert" className="text-sm text-error dark:text-error-lighter">
+          <p role="alert" className="text-sm text-error-darker dark:text-error-lighter">
             Choose a patient first.
           </p>
         )}
