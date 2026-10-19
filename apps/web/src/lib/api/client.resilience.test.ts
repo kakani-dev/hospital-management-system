@@ -151,7 +151,7 @@ describe('ApiClient resilience', () => {
     const always401 = vi.fn().mockImplementation(async () => problem(401, {}, 'unauthorized'))
     const refresh = vi.fn(async () => true)
     const client2 = new ApiClient({ fetchImpl: always401, onUnauthorized: refresh, resilience: fast })
-    await expect(client2.patients.create({ mrn: 'X', firstName: 'A', lastName: 'B', sex: 'unknown', registeredBranchId: 'b' })).rejects.toMatchObject({ status: 401 })
+    await expect(client2.patients.create({ firstName: 'A', lastName: 'B', sex: 'unknown', registeredBranchId: 'b' })).rejects.toMatchObject({ status: 401 })
     expect(refresh).toHaveBeenCalledTimes(1)
     expect(always401).toHaveBeenCalledTimes(2)
   })

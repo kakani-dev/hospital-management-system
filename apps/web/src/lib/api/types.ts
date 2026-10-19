@@ -46,8 +46,21 @@ export interface PatientSummary {
   deletedAt?: string | null
 }
 
+/** WhatsApp on create / update: the phone itself, a separate number, or none (null). */
+export interface WhatsappInput {
+  sameAsPhone: boolean
+  number?: string | null
+}
+
+/** One stored number (E.164). Phone and WhatsApp being the same number is ONE entry with both flags. */
+export interface PatientPhone {
+  number: string
+  isPrimary: boolean
+  isWhatsapp: boolean
+}
+
+/** POST /api/v1/patients. There is no MRN: the server generates it (TENANTCODE-000123) and returns it. */
 export interface CreatePatientRequest {
-  mrn: string
   firstName: string
   lastName: string
   dateOfBirth?: string | null
@@ -55,6 +68,7 @@ export interface CreatePatientRequest {
   registeredBranchId: Guid
   phone?: string | null
   email?: string | null
+  whatsapp?: WhatsappInput | null
 }
 
 export const ROLES = [
@@ -334,6 +348,10 @@ export interface PatientDetail extends PatientSummary {
   email: string | null
   createdOn?: string
   updatedOn?: string
+  /** Level 1: normalized numbers (E.164); `phone` is the primary one. */
+  phones?: PatientPhone[]
+  /** Level 1: the phone number is also the WhatsApp number. */
+  whatsappSameAsPhone?: boolean
 }
 
 /**
@@ -348,6 +366,8 @@ export interface UpdatePatientRequest {
   registeredBranchId?: Guid
   phone?: string | null
   email?: string | null
+  /** null removes WhatsApp; absent leaves it unchanged. */
+  whatsapp?: WhatsappInput | null
 }
 
 /** POST /api/v1/patients/duplicates (advisory, D3). */

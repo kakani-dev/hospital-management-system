@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { SEXES } from '../../lib/api/types'
+import { SEXES, type WhatsappInput } from '../../lib/api/types'
 import { latestToday, localToday } from '../../lib/dates'
 
 /** Returns the IANA zone "today" is computed in; undefined = the workstation's zone. */
@@ -19,10 +19,6 @@ const todayIn = (timeZone: string | undefined) => (timeZone ? localToday(new Dat
 
 export function createPatientSchema(getTimeZone: TimeZoneGetter = () => undefined) {
   return z.object({
-  mrn: z
-    .string()
-    .trim()
-    .regex(/^[A-Za-z0-9-]{1,32}$/, { error: 'MRN is required: 1-32 letters, digits or hyphens' }),
   firstName: z.string().trim().min(1, { error: 'First name is required' }).max(100, { error: 'Max 100 characters' }),
   lastName: z.string().trim().min(1, { error: 'Last name is required' }).max(100, { error: 'Max 100 characters' }),
   dateOfBirth: z
@@ -32,9 +28,27 @@ export function createPatientSchema(getTimeZone: TimeZoneGetter = () => undefine
     }),
   sex: z.enum(SEXES),
   registeredBranchId: z.uuid({ error: 'Choose a branch' }),
-  phone: optionalText(32),
+  phone: optionalText(32).refine((v) => v === '' || PHONE_SHAPE.test(v), { error: PHONE_ERROR }),
   email: z.union([z.literal(''), z.email({ error: 'Enter a valid email address' })]),
+  /** "Same as phone number" (checked by default). */
+  whatsappSameAsPhone: z.boolean(),
+  whatsappNumber: optionalText(32).refine((v) => v === '' || PHONE_SHAPE.test(v), { error: WHATSAPP_ERROR }),
 })
+}
+
+/**
+ * Loose client-side shape check (digits with optional +, spaces, dashes, brackets; 7+ digits). The
+ * server normalizes to E.164 with the hospital's calling code and is the authority.
+ */
+const PHONE_SHAPE = /^\+?[0-9()\s.-]*$/
+export const PHONE_ERROR = 'Enter a valid phone number, e.g. 98765 43210 or +971 50 123 4567'
+export const WHATSAPP_ERROR = 'Enter a valid WhatsApp number, e.g. 98765 43210 or +971 50 123 4567'
+
+/** The WhatsApp part of a create / update body from the form values. */
+export function toWhatsappInput(v: Pick<PatientFormValues, 'phone' | 'whatsappSameAsPhone' | 'whatsappNumber'>): WhatsappInput | null {
+  if (v.whatsappSameAsPhone) return v.phone.trim() ? { sameAsPhone: true } : null
+  const number = v.whatsappNumber.trim()
+  return number ? { sameAsPhone: false, number } : null
 }
 
 /** Schema without a branch context: DOB is only checked against the latest date anywhere. */
@@ -44,7 +58,6 @@ export type PatientFormValues = z.infer<typeof patientSchema>
 
 export function toCreatePatientRequest(v: PatientFormValues) {
   return {
-    mrn: v.mrn.trim(),
     firstName: v.firstName.trim(),
     lastName: v.lastName.trim(),
     dateOfBirth: v.dateOfBirth || null,
@@ -52,11 +65,12 @@ export function toCreatePatientRequest(v: PatientFormValues) {
     registeredBranchId: v.registeredBranchId,
     phone: v.phone.trim() || null,
     email: v.email || null,
+    whatsapp: toWhatsappInput(v),
   }
 }
 
-/** Edit form: MRN is immutable after registration (PATCH never sends it). */
-export const createPatientEditSchema = (getTimeZone: TimeZoneGetter = () => undefined) => createPatientSchema(getTimeZone).omit({ mrn: true })
+/** Edit form: same fields (the MRN is server-generated and never part of either form). */
+export const createPatientEditSchema = (getTimeZone: TimeZoneGetter = () => undefined) => createPatientSchema(getTimeZone)
 export const patientEditSchema = createPatientEditSchema()
 export type PatientEditValues = z.infer<typeof patientEditSchema>
 
@@ -70,5 +84,6 @@ export function toUpdatePatientRequest(v: PatientEditValues) {
     registeredBranchId: v.registeredBranchId,
     phone: v.phone.trim() || null,
     email: v.email || null,
+    whatsapp: toWhatsappInput(v),
   }
 }

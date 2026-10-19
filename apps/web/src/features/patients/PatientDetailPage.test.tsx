@@ -43,7 +43,8 @@ describe('PatientDetailPage', () => {
 
     await user.click(screen.getByRole('button', { name: 'Edit patient' }))
     const form = screen.getByRole('form', { name: 'Edit patient' })
-    expect(within(form).queryByLabelText('MRN')).not.toBeInTheDocument() // MRN is immutable
+    expect(within(form).queryByLabelText('MRN')).not.toBeInTheDocument() // MRN is immutable: read-only text
+    expect(within(form).getByTestId('edit-mrn')).toHaveTextContent('ALP-0001')
     await user.clear(within(form).getByLabelText('Phone (optional)'))
     await user.selectOptions(within(form).getByLabelText('Registered branch'), ALPHA_EAST)
     await user.click(within(form).getByRole('button', { name: 'Save changes' }))
@@ -58,9 +59,53 @@ describe('PatientDetailPage', () => {
       registeredBranchId: ALPHA_EAST,
       phone: null,
       email: null,
+      whatsapp: null,
     })
     expect(patch.body).not.toHaveProperty('mrn')
     expect(within(screen.getByTestId('patient-details')).getByText('Alpha East')).toBeInTheDocument()
+  })
+
+  it('shows a WhatsApp badge when the phone is the WhatsApp number, else a WhatsApp line', async () => {
+    const same = { ...detail, phone: '+919845000001', whatsappSameAsPhone: true, phones: [{ number: '+919845000001', isPrimary: true, isWhatsapp: true }] }
+    stubFetch({
+      'GET /api/v1/me': () => json(meWithRoles(['nurse'])),
+      [`GET /api/v1/patients/${PID}`]: () => json(same),
+    })
+    const { unmount } = renderWithProviders(<App />, { path: `/patients/${PID}`, auth: fakeAuthClient({ session: fakeSession() }) })
+    expect(await screen.findByTestId('whatsapp-same-badge')).toHaveTextContent('WhatsApp')
+    expect(screen.queryByTestId('patient-whatsapp')).not.toBeInTheDocument()
+    unmount()
+    vi.unstubAllGlobals()
+
+    const other = {
+      ...detail,
+      phone: '+919845000001',
+      whatsappSameAsPhone: false,
+      phones: [
+        { number: '+919845000001', isPrimary: true, isWhatsapp: false },
+        { number: '+971501234567', isPrimary: false, isWhatsapp: true },
+      ],
+    }
+    const calls = stubFetch({
+      'GET /api/v1/me': () => json(meWithRoles(['nurse'])),
+      [`GET /api/v1/patients/${PID}`]: () => json(other),
+      [`PATCH /api/v1/patients/${PID}`]: (_u, init) => json({ ...other, ...JSON.parse(String(init.body)) }),
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: `/patients/${PID}`, auth: fakeAuthClient({ session: fakeSession() }) })
+    expect(await screen.findByTestId('patient-whatsapp')).toHaveTextContent('+971501234567')
+    expect(screen.queryByTestId('whatsapp-same-badge')).not.toBeInTheDocument()
+
+    // edit: the separate number is pre-filled with "Same as phone number" unticked; ticking sends sameAsPhone
+    await user.click(screen.getByRole('button', { name: 'Edit patient' }))
+    const form = screen.getByRole('form', { name: 'Edit patient' })
+    const box = within(form).getByRole('checkbox', { name: 'Same as phone number' })
+    expect(box).not.toBeChecked()
+    expect(within(form).getByLabelText('WhatsApp number')).toHaveValue('+971501234567')
+    await user.click(box)
+    await user.click(within(form).getByRole('button', { name: 'Save changes' }))
+    await screen.findByText('Changes saved.')
+    expect(calls.find((c) => c.method === 'PATCH')!.body).toMatchObject({ whatsapp: { sameAsPhone: true } })
   })
 
   it('maps server validation errors onto the edit form', async () => {
