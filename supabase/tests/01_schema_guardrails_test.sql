@@ -8,8 +8,9 @@ select tests.ok(
     from information_schema.tables t
     where t.table_schema in ('identity', 'patient', 'audit')
       and t.table_type = 'BASE TABLE'
-      and t.table_name not in ('tenants', 'user_profiles', 'platform_admins', 'audit_log')
-      -- tenant root, global profile, platform operators, and audit_log (tenant_id NULL for global rows since 20261012090000)
+      and t.table_name not in ('tenants', 'user_profiles', 'platform_admins', 'audit_log', 'tenant_signup_requests')
+      -- tenant root, global profile, platform operators, audit_log (tenant_id NULL for global rows since 20261012090000),
+      -- and public hospital sign-up requests (no tenant exists until a platform admin approves, 20261019090000)
       and not exists (
         select 1 from information_schema.columns c
         where c.table_schema = t.table_schema and c.table_name = t.table_name

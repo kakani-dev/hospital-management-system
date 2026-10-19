@@ -179,8 +179,9 @@ select tests.ok(identity.create_tenant('tz-svc', 'Service-created (synthetic)', 
 reset role;
 select tests.ok((select time_zone = 'Asia/Kolkata' from identity.tenants where code = 'tz-svc'),
   'create_tenant stores the zone canonically');
-select tests.ok(not exists (select 1 from identity.platform_admins where user_id <> '0e000000-0000-4000-8000-000000000001'),
-  'MIN-5: no platform operator is seeded');
+select tests.ok(not exists (select 1 from identity.platform_admins
+                            where user_id not in ('0e000000-0000-4000-8000-000000000001', '0e900000-0000-4000-8000-000000000001')),
+  'MIN-5: seed.sql seeds no platform operator (only the local/CI synthetic operator from local-platform-operator-seed.sql)');
 
 -- ======================================================== review S6: zone validation ==
 select tests.as_superuser();

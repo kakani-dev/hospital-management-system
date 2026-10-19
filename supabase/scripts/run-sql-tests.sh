@@ -29,6 +29,9 @@ done
 echo "==> Seeding synthetic data"
 "${PSQL[@]}" "$TEST_URL" --single-transaction -f "$ROOT/seed.sql"
 
+echo "==> Local/CI platform operator (synthetic; never hosted)"
+"${PSQL[@]}" "$TEST_URL" --single-transaction -f "$ROOT/scripts/local-platform-operator-seed.sql"
+
 echo "==> Ensuring local API login role (hms_api_login)"
 "${PSQL[@]}" "$TEST_URL" -f "$ROOT/scripts/local-api-login-role.sql"
 
