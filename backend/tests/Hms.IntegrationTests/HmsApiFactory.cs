@@ -21,6 +21,18 @@ public class HmsApiFactory : WebApplicationFactory<Program>
         Environment.GetEnvironmentVariable("HMS_API_TEST_CONNECTION")
         ?? "Host=localhost;Port=5432;Database=hms_sql_test;Username=hms_api_login;Password=hms_api_local_only";
 
+    /// <summary>
+    /// A per-service login (hms_&lt;svc&gt;_login, supabase/scripts/local-api-login-role.sql) on the same
+    /// database as <see cref="ApiConnection"/>; HMS_&lt;SVC&gt;_TEST_CONNECTION overrides it.
+    /// </summary>
+    public static string ServiceConnection(string service) =>
+        Environment.GetEnvironmentVariable($"HMS_{service.ToUpperInvariant()}_TEST_CONNECTION")
+        ?? new NpgsqlConnectionStringBuilder(ApiConnection)
+        {
+            Username = $"hms_{service}_login",
+            Password = $"hms_{service}_local_only",
+        }.ConnectionString;
+
     public static readonly string AdminConnection =
         Environment.GetEnvironmentVariable("HMS_DB_TEST_CONNECTION")
         ?? "Host=localhost;Port=5432;Database=hms_sql_test;Username=postgres;Password=postgres";

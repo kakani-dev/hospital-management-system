@@ -1,11 +1,25 @@
--- LOCAL / CI ONLY: login role the API uses in local dev, tests and docker-compose.
--- The password is a well-known local value; on Supabase create the login role
--- out-of-band with a real secret (see migration 20261007090000).
+-- LOCAL / CI ONLY: login roles the API hosts use in local dev, tests and docker-compose.
+-- The passwords are well-known local values; on Supabase create the login roles
+-- out-of-band with real secrets (see migrations 20261007090000 and 20261011090100; group roles hms_svc_*).
 do $$
 begin
+  -- Legacy all-in-one host (Hms.Gateway; still the live API until the Container Apps cutover).
   if not exists (select 1 from pg_roles where rolname = 'hms_api_login') then
     create role hms_api_login login noinherit password 'hms_api_local_only';
+  end if;
+  -- One login per microservice (identity / patients / scheduling).
+  if not exists (select 1 from pg_roles where rolname = 'hms_identity_login') then
+    create role hms_identity_login login noinherit password 'hms_identity_local_only';
+  end if;
+  if not exists (select 1 from pg_roles where rolname = 'hms_patients_login') then
+    create role hms_patients_login login noinherit password 'hms_patients_local_only';
+  end if;
+  if not exists (select 1 from pg_roles where rolname = 'hms_scheduling_login') then
+    create role hms_scheduling_login login noinherit password 'hms_scheduling_local_only';
   end if;
 end
 $$;
 grant hms_api to hms_api_login;
+grant hms_svc_identity to hms_identity_login;
+grant hms_svc_patients to hms_patients_login;
+grant hms_svc_scheduling to hms_scheduling_login;
