@@ -41,7 +41,8 @@ test('shortcuts: Alt+C / Alt+W / Alt+Q / Alt+N, "/" search and the "?" help dial
 
   await page.keyboard.press('Alt+KeyN')
   await expect(page.getByRole('form', { name: 'Register patient' })).toBeVisible()
-  await expect(page.getByLabel('MRN')).toBeFocused()
+  await expect(page.getByLabel('First name')).toBeFocused() // no MRN input: it is generated
+  await expect(page.getByLabel('MRN')).toHaveCount(0)
 
   await page.getByRole('heading', { name: /register/i }).first().click()
   await page.keyboard.press('Shift+Slash')
@@ -75,16 +76,15 @@ test('combobox: no match → register new (pre-filled, nothing in the URL) → b
   expect(page.url()).not.toContain('Kiran')
   await expect(page.getByLabel('First name')).toHaveValue('Kiran')
   await expect(page.getByLabel('Last name')).toHaveValue('Synthetic-New')
-  await expect(page.getByLabel('MRN')).toBeFocused()
-  await page.keyboard.type('NEW-0042')
+  await expect(page.getByLabel('Date of birth')).toBeFocused() // first empty field; no MRN input
   await page.getByRole('button', { name: /register patient/i }).click()
 
   await expect(page.getByRole('heading', { name: 'Reception check-in' })).toBeVisible()
-  await expect(page.getByTestId('picked-patient')).toContainText('Synthetic-New, Kiran NEW-0042')
+  await expect(page.getByTestId('picked-patient')).toContainText('Synthetic-New, Kiran ALPHA-000001')
   await expect(page.getByRole('button', { name: 'Issue walk-in token' })).toBeFocused()
   await page.keyboard.press('Enter')
   await expect(page.getByTestId('token-number')).toHaveText('1')
-  const created = backend.patients.find((p) => p.mrn === 'NEW-0042')!
+  const created = backend.patients.find((p) => p.mrn === 'ALPHA-000001')!
   expect(backend.calls.find((c) => c.path === '/api/v1/queue/walk-in')!.body).toMatchObject({ patientId: created.id })
   expect(backend.calls.filter((c) => /Kiran/.test(c.url))).toEqual([])
 })

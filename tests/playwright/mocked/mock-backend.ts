@@ -27,6 +27,11 @@ import type { BrowserContext, Page, Request, Route } from '@playwright/test'
  * Writes check the role held *at the row's branch*; branch-bound members only see their branches.
  * The resolved tenant is per USER (server-side), like identity.user_profiles, so a "switch on
  * another device" is simulated with `backend.setActiveTenant()`.
+ * Level 1 (MRN + phones): POST /patients ignores a client `mrn` and assigns `<TENANT>-<6 digits>`
+ * from a per-tenant counter; PATCH with a different `mrn` → 400. Phones are normalised to E.164
+ * (+91 default); `whatsapp: {sameAsPhone, number?}` on create/update; detail responses carry
+ * `phones[] {number, isPrimary, isWhatsapp}` + `whatsappSameAsPhone`; phone search/duplicates
+ * compare every live number (the last 10 digits).
  */
 
 export const MOCK_AUTH_URL = 'http://127.0.0.1:59999'
@@ -67,7 +72,10 @@ interface MockPatient {
   dateOfBirth: string | null
   sex: string
   registeredBranchId: string
+  /** Primary phone, E.164 (mirrors patients.phone). */
   phone: string | null
+  /** WhatsApp: 'same' = the phone row carries the flag; a string = a separate E.164 number. */
+  whatsapp?: 'same' | string | null
   email: string | null
   deletedAt: string | null
   /** Set for patients registered during the test (GET /patients/stats). */
@@ -75,8 +83,8 @@ interface MockPatient {
 }
 
 const seedPatients = (): MockPatient[] => [
-  { id: patientIds.asha, tenantId: ids.alpha, mrn: 'ALP-0001', firstName: 'Asha', lastName: 'Synthetic-Alpha', dateOfBirth: '1990-01-01', sex: 'female', registeredBranchId: ids.alphaMain, phone: '+91 98450 00001', email: null, deletedAt: null },
-  { id: patientIds.ravi, tenantId: ids.alpha, mrn: 'ALP-0002', firstName: 'Ravi', lastName: 'Synthetic-Alpha', dateOfBirth: '1985-05-05', sex: 'male', registeredBranchId: ids.alphaEast, phone: '+91 98450 00002', email: null, deletedAt: null },
+  { id: patientIds.asha, tenantId: ids.alpha, mrn: 'ALP-0001', firstName: 'Asha', lastName: 'Synthetic-Alpha', dateOfBirth: '1990-01-01', sex: 'female', registeredBranchId: ids.alphaMain, phone: '+919845000001', whatsapp: '+919800000101', email: null, deletedAt: null },
+  { id: patientIds.ravi, tenantId: ids.alpha, mrn: 'ALP-0002', firstName: 'Ravi', lastName: 'Synthetic-Alpha', dateOfBirth: '1985-05-05', sex: 'male', registeredBranchId: ids.alphaEast, phone: '+919845000002', whatsapp: 'same', email: null, deletedAt: null },
   { id: patientIds.meera, tenantId: ids.beta, mrn: 'BET-0001', firstName: 'Meera', lastName: 'Synthetic-Beta', dateOfBirth: '1970-07-07', sex: 'female', registeredBranchId: ids.betaMain, phone: null, email: null, deletedAt: null },
 ]
 
@@ -167,6 +175,22 @@ interface MockQueueEntry {
 
 const BLOCKING = ['booked', 'checked_in', 'in_consultation', 'completed']
 const QUEUE_TRANSITIONS: Record<string, string[]> = { waiting: ['in_consultation', 'cancelled'], in_consultation: ['done', 'cancelled'], done: [], cancelled: [] }
+/** Mirror of PhoneE164.Normalize / patient.to_e164 (tenant default calling code; +91 here). */
+export const toE164 = (raw: unknown, countryCode = '+91'): string | null => {
+  if (typeof raw !== 'string' || !raw.trim()) return null
+  const v = raw.replace(/[\s().-]/g, '')
+  const cc = countryCode.replace(/^\+/, '')
+  let candidate: string
+  if (v.startsWith('+')) candidate = v
+  else if (v.startsWith('00')) candidate = '+' + v.slice(2)
+  else if (!/^\d+$/.test(v)) return null
+  else if (v.length > 10 && v.startsWith(cc)) candidate = '+' + v
+  else candidate = '+' + cc + v.replace(/^0+/, '')
+  return /^\+[1-9]\d{7,14}$/.test(candidate) ? candidate : null
+}
+const PHONE_ERROR = 'Enter a valid phone number, e.g. 98765 43210 or +971 50 123 4567.'
+const WHATSAPP_ERROR = 'Enter a valid WhatsApp number, e.g. 98765 43210 or +971 50 123 4567.'
+const WHATSAPP_NEEDS_PHONE = 'Enter a phone number, or untick "Same as phone number" and enter the WhatsApp number.'
 const normalizePhone = (p: string | null | undefined) => {
   const digits = (p ?? '').replace(/\D/g, '')
   return digits.length < 7 ? null : digits.slice(-10)
@@ -323,6 +347,8 @@ export class MockBackend {
   }
   /** Renamed hospitals/branches (admin screens). */
   readonly tenantNames = new Map<string, string>()
+  /** patient.mrn_counters: per-tenant MRN sequence (seed MRNs use the legacy format). */
+  readonly mrnCounters = new Map<string, number>()
   readonly branchNames = new Map<string, string>()
   readonly appointments: MockAppointment[] = []
   readonly queue: MockQueueEntry[] = []
@@ -550,7 +576,7 @@ export class MockBackend {
           activeBranchId: scopedBranches && scopedBranches.size === 1 ? [...scopedBranches][0] : null,
           roles,
           accessibleBranches: tenant ? tenants[tenant]!.branches.filter((b) => !scopedBranches || scopedBranches.has(b.id)).map(({ id, name }) => ({ id, name })) : [],
-          memberships: active.filter((m) => this.tenantIsActive(m.tenantId)).map((m) => ({ tenantId: m.tenantId, tenantName: tenants[m.tenantId]!.name, branchId: m.branchId, branchName: null, role: m.role })),
+          memberships: active.filter((m) => this.tenantIsActive(m.tenantId)).map((m) => ({ tenantId: m.tenantId, tenantName: this.tenantNames.get(m.tenantId) ?? tenants[m.tenantId]!.name, branchId: m.branchId, branchName: null, role: m.role })),
           isPlatformAdmin: user.platformAdmin === true,
         },
         tenant,
@@ -601,8 +627,33 @@ export class MockBackend {
     const forbidden = () => problem(403, 'forbidden')
 
     const livePatients = this.patients.filter((p) => p.tenantId === tenant && !p.deletedAt)
-    const dto = ({ tenantId: _t, email: _e, ...p }: MockPatient) => p
-    const detailDto = ({ tenantId: _t, ...p }: MockPatient) => p
+    // Level 1: phones[] + derived whatsappSameAsPhone (patient.patient_phones); the WhatsApp choice itself is internal.
+    const phonesOf = (p: MockPatient) => [
+      ...(p.phone ? [{ number: p.phone, isPrimary: true, isWhatsapp: p.whatsapp === 'same' }] : []),
+      ...(p.whatsapp && p.whatsapp !== 'same' ? [{ number: p.whatsapp, isPrimary: false, isWhatsapp: true }] : []),
+    ]
+    const dto = ({ tenantId: _t, email: _e, whatsapp: _w, ...p }: MockPatient) => p
+    const detailDto = (p: MockPatient) => {
+      const { tenantId: _t, whatsapp: _w, ...rest } = p
+      return { ...rest, phones: phonesOf(p), whatsappSameAsPhone: !!p.phone && p.whatsapp === 'same' }
+    }
+    const validationError = (errors: Record<string, string[]>) => reply(400, { title: 'Validation', status: 400, errors }, tenant)
+    /** Like PatientPhones.ResolveWhatsapp: undefined = no change requested. */
+    const resolveWhatsapp = (input: unknown, rawPhone: unknown, phone: string | null, errors: Record<string, string[]>): MockPatient['whatsapp'] => {
+      if (input == null || typeof input !== 'object') return null
+      const w = input as { sameAsPhone?: boolean; number?: string }
+      if (w.sameAsPhone) {
+        if (!phone && !(typeof rawPhone === 'string' && rawPhone.trim())) errors.whatsapp = [WHATSAPP_NEEDS_PHONE]
+        return phone ? 'same' : null
+      }
+      if (!w.number?.trim()) return null
+      const e164 = toE164(w.number)
+      if (!e164) {
+        errors.whatsapp = [WHATSAPP_ERROR]
+        return null
+      }
+      return e164 === phone ? 'same' : e164
+    }
     const page = (items: unknown[]) => ({ items, page: 1, pageSize: 25, totalCount: items.length })
     const patientMatch = /^\/api\/v1\/patients\/(?!stats$)([^/]+)$/.exec(path)
     const restoreMatch = /^\/api\/v1\/patients\/([^/]+)\/restore$/.exec(path)
@@ -624,7 +675,7 @@ export class MockBackend {
       const hits = pool.filter(
         (p) =>
           (!t || [p.mrn, p.firstName, p.lastName].some((v) => v.toLowerCase().includes(t))) &&
-          (body.phone === undefined || normalizePhone(p.phone) === normalizePhone(String(body.phone))) &&
+          (body.phone === undefined || phonesOf(p).some((x) => normalizePhone(x.number) === normalizePhone(String(body.phone)))) &&
           (body.dateOfBirth === undefined || p.dateOfBirth === body.dateOfBirth),
       )
       return reply(200, page(hits.map(dto)), tenant)
@@ -636,7 +687,7 @@ export class MockBackend {
         .map((p) => {
           const reasons: string[] = []
           if (body.dateOfBirth && p.dateOfBirth === body.dateOfBirth && norm(p.firstName) === norm(body.firstName) && norm(p.lastName) === norm(body.lastName)) reasons.push('name_dob')
-          if (normalizePhone(p.phone) && normalizePhone(p.phone) === normalizePhone(body.phone as string)) reasons.push('phone')
+          if (normalizePhone(body.phone as string) && phonesOf(p).some((x) => normalizePhone(x.number) === normalizePhone(body.phone as string))) reasons.push('phone')
           return { p, reasons }
         })
         .filter((x) => x.reasons.length > 0 && x.p.id !== body.excludePatientId)
@@ -649,9 +700,16 @@ export class MockBackend {
     if (method === 'POST' && path === '/api/v1/patients') {
       if (!has(REG_WRITE, rolesAt(String(body.registeredBranchId)))) return forbidden()
       if (dobInFuture(body.dateOfBirth, String(body.registeredBranchId))) return dobProblem()
-      const mrn = String(body.mrn).toUpperCase()
-      if (this.patients.some((p) => p.tenantId === tenant && p.mrn === mrn)) return problem(409, 'duplicate_mrn')
-      const created: MockPatient = { id: uuid('ab000000'), tenantId: tenant, mrn, firstName: String(body.firstName), lastName: String(body.lastName), dateOfBirth: (body.dateOfBirth as string) ?? null, sex: String(body.sex ?? 'unknown'), registeredBranchId: String(body.registeredBranchId), phone: (body.phone as string) ?? null, email: (body.email as string) ?? null, deletedAt: null, createdOn: new Date().toISOString() }
+      // Any client `mrn` is ignored: the MRN comes from a per-tenant counter (<TENANT CODE>-<6 digits>).
+      const errors: Record<string, string[]> = {}
+      const phone = toE164(body.phone)
+      if (typeof body.phone === 'string' && body.phone.trim() && !phone) errors.phone = [PHONE_ERROR]
+      const whatsapp = resolveWhatsapp(body.whatsapp, body.phone, phone, errors)
+      if (Object.keys(errors).length) return validationError(errors)
+      const next = (this.mrnCounters.get(tenant) ?? 0) + 1
+      this.mrnCounters.set(tenant, next)
+      const mrn = `${tenant === ids.alpha ? 'ALPHA' : 'BETA'}-${String(next).padStart(6, '0')}`
+      const created: MockPatient = { id: uuid('ab000000'), tenantId: tenant, mrn, firstName: String(body.firstName), lastName: String(body.lastName), dateOfBirth: (body.dateOfBirth as string) ?? null, sex: String(body.sex ?? 'unknown'), registeredBranchId: String(body.registeredBranchId), phone, whatsapp, email: (body.email as string) ?? null, deletedAt: null, createdOn: new Date().toISOString() }
       this.patients.push(created)
       return reply(201, { ...detailDto(created), duplicateWarnings: [] }, tenant)
     }
@@ -664,9 +722,17 @@ export class MockBackend {
       if (!patient) return notFound()
       if (method === 'PATCH') {
         if (!has(REG_WRITE, rolesAt(patient.registeredBranchId))) return forbidden()
-        if ('mrn' in body) return reply(400, { title: 'Validation', status: 400, errors: { mrn: ['MRN is immutable.'] } }, tenant)
+        if ('mrn' in body && String(body.mrn).toUpperCase() !== patient.mrn.toUpperCase())
+          return validationError({ mrn: ['The MRN is generated by the system and cannot be changed.'] })
         if (dobInFuture(body.dateOfBirth, String(body.registeredBranchId ?? patient.registeredBranchId))) return dobProblem()
-        Object.assign(patient, body)
+        const errors: Record<string, string[]> = {}
+        const { mrn: _m, phone: rawPhone, whatsapp: rawWhatsapp, ...rest } = body
+        const phone = 'phone' in body ? toE164(rawPhone) : patient.phone
+        if (typeof rawPhone === 'string' && rawPhone.trim() && !phone) errors.phone = [PHONE_ERROR]
+        // No whatsapp in the patch: "same" follows the phone, a separate number is kept.
+        const whatsapp = 'whatsapp' in body ? resolveWhatsapp(rawWhatsapp, rawPhone, phone, errors) : patient.whatsapp === 'same' ? (phone ? 'same' : null) : (patient.whatsapp ?? null)
+        if (Object.keys(errors).length) return validationError(errors)
+        Object.assign(patient, rest, { phone, whatsapp: whatsapp === phone ? 'same' : whatsapp })
         return reply(200, detailDto(patient), tenant)
       }
       if (method === 'DELETE') {

@@ -80,7 +80,6 @@ test.describe('2.1 patients', () => {
   test('duplicate warning on register: open the existing record or register anyway', async ({ page }) => {
     await signIn(page, 'reception@alpha.example')
     await page.goto('/patients/new')
-    await page.getByLabel('MRN').fill('ALP-0100')
     await page.getByLabel('First name').fill('Ravi')
     await page.getByLabel('Last name').fill('Synthetic-Alpha')
     await page.getByLabel('Date of birth').fill('1985-05-05')
@@ -94,7 +93,7 @@ test.describe('2.1 patients', () => {
     await expect(warning.getByRole('link', { name: 'Open existing record ALP-0002' })).toHaveAttribute('href', `/patients/${patientIds.ravi}`)
 
     await warning.getByRole('button', { name: 'Register anyway' }).click()
-    await expect(page.getByText('Patient ALP-0100 registered.')).toBeVisible()
+    await expect(page.getByText('Patient ALPHA-000001 registered.')).toBeVisible()
   })
 
   test.describe('workstation and branch in different time zones', () => {
@@ -110,7 +109,6 @@ test.describe('2.1 patients', () => {
       const dob = page.getByLabel('Date of birth')
       await expect(dob).toHaveAttribute('max', branchDay)
 
-      await page.getByLabel('MRN').fill('NB-0001')
       await page.getByLabel('First name').fill('Baby')
       await page.getByLabel('Last name').fill('Synthetic-Alpha')
       // Tomorrow at the branch is rejected client-side (the API would 400 too)
@@ -121,7 +119,7 @@ test.describe('2.1 patients', () => {
 
       await dob.fill(branchDay)
       await page.getByRole('button', { name: 'Register patient' }).click()
-      await expect(page.getByText('Patient NB-0001 registered.')).toBeVisible()
+      await expect(page.getByText('Patient ALPHA-000001 registered.')).toBeVisible()
       expect(backend.calls.find((c) => c.method === 'POST' && c.path === '/api/v1/patients')!.body).toMatchObject({ dateOfBirth: branchDay, registeredBranchId: ids.alphaMain })
     })
   })

@@ -200,7 +200,7 @@ test.describe('Level 1: branches and appointments', () => {
     const weekday = ((day.getUTCDay() + 6) % 7) + 1
     expect((await request.post('/api/v1/schedules', { headers: admin, data: { practitionerId: practitioner.id, branchId: ids.alphaMain, weekday, startTime: '08:00', endTime: '20:00', slotMinutes: 15, validFrom: date, validTo: date } })).status()).toBe(201)
     const lastName = `Zz-L1-${unique('C')}`
-    const patient = (await (await request.post('/api/v1/patients', { headers: reception, data: { mrn: unique('L1').toUpperCase(), firstName: 'Cancel', lastName, registeredBranchId: ids.alphaMain, sex: 'female' } })).json()) as { id: string }
+    const patient = (await (await request.post('/api/v1/patients', { headers: reception, data: { firstName: 'Cancel', lastName, registeredBranchId: ids.alphaMain, sex: 'female' } })).json()) as { id: string }
     const slots = (await (await request.get(`/api/v1/slots?branchId=${ids.alphaMain}&from=${date}&to=${date}&practitionerId=${practitioner.id}`, { headers: reception })).json()) as { startsAt: string; endsAt: string }[]
     expect(slots.length).toBeGreaterThan(0)
     const booked = await request.post('/api/v1/appointments', { headers: reception, data: { branchId: ids.alphaMain, practitionerId: practitioner.id, patientId: patient.id, startsAt: slots[0]!.startsAt, endsAt: slots[0]!.endsAt, reason: 'Synthetic follow-up' } })
@@ -229,5 +229,22 @@ test.describe('Level 1: branches and appointments', () => {
     await expect(item).toHaveCount(1)
     const after = (await (await request.get(`/api/v1/appointments/${appointment.id}`, { headers: reception })).json()) as { status: string; cancelReason: string | null }
     expect(after).toMatchObject({ status: 'cancelled', cancelReason: 'Patient travelling (synthetic)' })
+  })
+})
+
+test.describe('phone viewport (390×844)', () => {
+  test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true })
+
+  test('the header keeps a compact hospital/branch summary; the selects live in the drawer', async ({ page }) => {
+    await signIn(page, users.alphaAdmin)
+    const header = page.locator('header.app-header')
+    const compact = header.getByTestId('compact-context')
+    await expect(compact).toBeVisible()
+    await expect(header.getByRole('combobox')).toHaveCount(0)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+    await compact.tap()
+    const drawer = page.getByTestId('sidebar-context')
+    await expect(drawer).toBeInViewport()
+    await expect(drawer.getByRole('combobox', { name: 'Branch' })).toBeVisible()
   })
 })

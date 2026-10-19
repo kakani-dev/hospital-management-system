@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
-import { INVITEE_EMAIL, MockBackend, OPERATOR_EMAIL, PASSWORD, ids, signIn } from './mock-backend'
+import { INVITEE_EMAIL, MockBackend, OPERATOR_EMAIL, PASSWORD, ids, patientIds, signIn } from './mock-backend'
 
 /**
  * Level 1 (tenants, branches, appointments) against the mocked API: public hospital registration,
@@ -135,6 +135,8 @@ test('branches can be deleted and restored; members move between branch scopes',
   await page.getByRole('button', { name: 'Delete Alpha East Clinic' }).click()
   await page.getByRole('alertdialog').getByRole('button', { name: 'Delete branch' }).click()
   await expect(page.getByTestId('branch-row')).toHaveCount(1)
+  // let the dialog's leave transition (and its backdrop) finish before clicking the page again
+  await expect(page.locator('#headlessui-portal-root [data-closed]')).toHaveCount(0)
   await page.getByLabel('Show deleted branches').check()
   await page.getByRole('button', { name: 'Restore Alpha East Clinic' }).click()
   await expect(page.getByText('Alpha East Clinic was restored as inactive. Activate it to use it again.')).toBeVisible()
@@ -171,6 +173,106 @@ async function seriousViolations(page: Page) {
   return results.violations
     .filter((v) => v.impact === 'serious' || v.impact === 'critical')
     .map((v) => `${v.id}: ${v.help} (${v.nodes.map((n) => `${n.target.join(' ')} :: ${n.failureSummary ?? ''}`).join(' | ')})`)
+}
+
+test('register: no MRN input, the generated MRN is in the toast; WhatsApp same-as-phone by default, or a separate number', async ({ page }) => {
+  await signIn(page, 'reception@alpha.example')
+  await page.goto('/patients/new')
+  await expect(page.getByLabel('MRN')).toHaveCount(0)
+  await expect(page.getByText('The MRN is assigned automatically when you register.')).toBeVisible()
+  await page.getByLabel('First name').fill('Wanda')
+  await page.getByLabel('Last name').fill('Synthetic-Level1')
+  await page.getByLabel('Phone (optional)').fill('098450 12345')
+  const same = page.getByRole('checkbox', { name: 'Same as phone number' })
+  await expect(same).toBeChecked()
+  await expect(page.getByLabel('WhatsApp number')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Register patient' }).click()
+
+  await expect(page.getByText('Patient registered. MRN ALPHA-000001')).toBeVisible() // toast
+  const post = backend.calls.find((c) => c.method === 'POST' && c.path === '/api/v1/patients')!
+  expect(post.body).not.toHaveProperty('mrn')
+  expect(post.body).toMatchObject({ phone: '098450 12345', whatsapp: { sameAsPhone: true } })
+  const created = backend.patients.find((p) => p.mrn === 'ALPHA-000001')!
+  expect(created.phone).toBe('+919845012345') // normalised to E.164 with the hospital's +91
+
+  // MRN search still works
+  await page.getByLabel('Search patients').fill('ALPHA-000001')
+  await expect(page.getByTestId('patient-row').filter({ hasText: 'ALPHA-000001' })).toBeVisible()
+
+  await page.goto(`/patients/${created.id}`)
+  await expect(page.getByTestId('whatsapp-same-badge')).toBeVisible()
+  await page.getByRole('button', { name: 'Edit patient' }).click()
+  const form = page.getByRole('form', { name: 'Edit patient' })
+  await expect(form.getByTestId('edit-mrn')).toContainText('ALPHA-000001')
+  await expect(form.getByLabel('MRN')).toHaveCount(0)
+  await form.getByRole('checkbox', { name: 'Same as phone number' }).uncheck()
+  await form.getByLabel('WhatsApp number').fill('+971 50 123 4567')
+  await form.getByRole('button', { name: 'Save changes' }).click()
+  await expect(page.getByText('Changes saved.')).toBeVisible()
+  await expect(page.getByTestId('patient-whatsapp')).toContainText('+971501234567')
+  await expect(page.getByTestId('whatsapp-same-badge')).toHaveCount(0)
+  expect(backend.calls.find((c) => c.method === 'PATCH')!.body).toMatchObject({ whatsapp: { sameAsPhone: false, number: '+971 50 123 4567' } })
+})
+
+test('register: a bad WhatsApp number is refused by the server and shown on the field', async ({ page }) => {
+  await signIn(page, 'reception@alpha.example')
+  await page.goto('/patients/new')
+  await page.getByLabel('First name').fill('Xena')
+  await page.getByLabel('Last name').fill('Synthetic-Level1')
+  await page.getByLabel('Phone (optional)').fill('98450 12346')
+  await page.getByRole('checkbox', { name: 'Same as phone number' }).uncheck()
+  await page.getByLabel('WhatsApp number').fill('12')
+  await page.getByRole('button', { name: 'Register patient' }).click()
+  await expect(page.getByText(/valid WhatsApp number/).first()).toBeVisible()
+  expect(backend.patients.some((p) => p.firstName === 'Xena')).toBe(false)
+})
+
+test.describe('phone viewport', () => {
+  test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true })
+
+  test('header: compact hospital/branch summary that opens the drawer with the full selects', async ({ page }) => {
+    backend.tenantNames.set(ids.alpha, 'Synthetic Sri Venkateswara Multi-Speciality Hospital & Research Centre')
+    await signIn(page, 'admin@alpha.example')
+    const header = page.locator('header.app-header')
+    const compact = header.getByTestId('compact-context')
+    await expect(compact).toBeVisible()
+    await expect(header.getByRole('combobox')).toHaveCount(0)
+    // Nothing in the header overflows the viewport (the long name truncates).
+    const overflow = await header.evaluate((h) => h.scrollWidth - h.clientWidth)
+    expect(overflow).toBeLessThanOrEqual(0)
+    const box = (await compact.boundingBox())!
+    expect(box.x + box.width).toBeLessThanOrEqual(390)
+
+    await compact.tap()
+    const drawer = page.getByTestId('sidebar-context')
+    await expect(drawer).toBeInViewport()
+    await expect(drawer).toContainText('Synthetic Sri Venkateswara Multi-Speciality Hospital & Research Centre')
+    await drawer.getByLabel('Branch').selectOption(ids.alphaEast)
+    await expect.poll(() => backend.calls.find((c) => c.method === 'POST' && c.path === '/api/v1/me/context')?.body).toMatchObject({ tenantId: ids.alpha, branchId: ids.alphaEast })
+  })
+})
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`axe, ${theme}: register (WhatsApp section), patient detail, phone header and drawer`, async ({ page, context }) => {
+    await context.addInitScript((themeMode) => window.localStorage.setItem('hms.theme', JSON.stringify({ themeMode, cardSkin: 'shadow' })), theme)
+    await signIn(page, 'reception@alpha.example')
+    await page.goto('/patients/new')
+    await page.getByRole('checkbox', { name: 'Same as phone number' }).uncheck()
+    await expect(page.getByLabel('WhatsApp number')).toBeVisible()
+    expect(await seriousViolations(page)).toEqual([])
+    await page.goto(`/patients/${patientIds.asha}`)
+    await expect(page.getByTestId('patient-whatsapp')).toBeVisible()
+    expect(await seriousViolations(page)).toEqual([])
+    await page.goto(`/patients/${patientIds.ravi}`)
+    await expect(page.getByTestId('whatsapp-same-badge')).toBeVisible()
+    expect(await seriousViolations(page)).toEqual([])
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect(page.getByTestId('compact-context')).toBeVisible()
+    expect(await seriousViolations(page)).toEqual([])
+    await page.getByTestId('compact-context').click()
+    await expect(page.getByTestId('sidebar-context')).toBeInViewport()
+    expect(await seriousViolations(page)).toEqual([])
+  })
 }
 
 for (const theme of ['light', 'dark'] as const) {
