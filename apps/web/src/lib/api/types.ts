@@ -94,6 +94,8 @@ export interface CurrentUser {
   memberships: MembershipDto[]
   /** Effective zone of the active branch (else the tenant zone); null without a resolved tenant. Newer API only. */
   timeZone?: string | null
+  /** Platform operator (identity.platform_admins): opens /platform. Grants NO tenant access. */
+  isPlatformAdmin?: boolean
 }
 
 /** GET /api/v1/tenants/current. `timeZone` (the hospital's required zone) comes with the audit/TZ API. */
@@ -203,6 +205,124 @@ export interface PatientSearchRequest {
 export interface UpdateMemberRequest {
   role?: Role
   status?: 'active' | 'suspended'
+  /** Move a branch-scoped member to this branch. */
+  branchId?: Guid
+  /** Make the membership tenant-wide (all branches). */
+  allBranches?: boolean
+}
+
+// ---------------------------------------------------------------------------------------------
+// Level 1: invite links, public hospital registration and the platform console.
+// ---------------------------------------------------------------------------------------------
+
+/** A one-time invite link (token shown once; the server keeps only its hash). */
+export interface InviteLinkIssued {
+  id: Guid
+  token: string
+  /** App path of the invite page: `/invite/<token>`. */
+  path: string
+  expiresOn: string
+}
+
+export interface InviteLink {
+  id: Guid
+  email: string
+  role: string
+  branchId: Guid | null
+  status: 'pending' | 'claimed' | 'revoked' | 'expired' | string
+  expiresOn: string
+  createdOn: string
+  claimedOn: string | null
+}
+
+export interface CreateInviteLinkRequest {
+  email: string
+  role: Role
+  branchId?: Guid | null
+}
+
+export interface InvitePreview {
+  tenantName: string
+  role: string
+  branchName: string | null
+  emailHint: string
+  expiresOn: string
+}
+
+export interface ClaimedInvite {
+  tenantId: Guid
+  tenantName: string
+  role: string
+  branchId: Guid | null
+}
+
+export interface HospitalSignupRequest {
+  hospitalName: string
+  timeZone: string
+  contactName: string
+  contactEmail: string
+  phone: string
+  city: string
+  /** Honeypot; always empty for people. */
+  website?: string
+}
+
+export type HospitalRequestStatus = 'pending' | 'approved' | 'rejected'
+
+export interface HospitalRequest {
+  id: Guid
+  hospitalName: string
+  timeZone: string
+  contactName: string
+  contactEmail: string
+  phone: string
+  city: string
+  status: HospitalRequestStatus
+  decisionReason: string | null
+  decidedOn: string | null
+  tenantId: Guid | null
+  tenantCode: string | null
+  createdOn: string
+}
+
+export interface HospitalApproved {
+  tenantId: Guid
+  invite: InviteLinkIssued
+}
+
+export type PlatformTenantStatus = 'active' | 'suspended' | 'archived'
+
+export interface PlatformTenant {
+  id: Guid
+  code: string
+  name: string
+  status: PlatformTenantStatus | string
+  timeZone: string
+  createdOn: string
+  branchCount: number
+  userCount: number
+  pendingInvites: number
+  statusReason: string | null
+}
+
+export interface TenantStatusChange {
+  fromStatus: string
+  toStatus: string
+  reason: string
+  changedOn: string
+  changedBy: string | null
+}
+
+export interface PlatformTenantDetail {
+  tenant: PlatformTenant
+  history: TenantStatusChange[]
+}
+
+export interface PlatformCreateTenantRequest {
+  code: string
+  name: string
+  timeZone: string
+  adminEmail: string
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -385,6 +505,8 @@ export interface AppointmentQuery {
   from: string
   to: string
   practitionerId?: Guid
+  /** Server-side status filter (one status). */
+  status?: AppointmentStatus
   page?: number
   pageSize?: number
 }

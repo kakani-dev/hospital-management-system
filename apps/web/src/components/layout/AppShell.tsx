@@ -12,6 +12,8 @@ import {
   UserGroupIcon,
   UsersIcon,
   CalendarIcon,
+  GlobeAltIcon,
+  InboxStackIcon,
 } from '@heroicons/react/24/outline'
 import { ArrowLeftStartOnRectangleIcon, CommandLineIcon } from '@heroicons/react/24/outline'
 import { ShortcutHelp } from '../../features/shortcuts/ShortcutHelp'
@@ -39,7 +41,8 @@ function initialsSource(email: string | null | undefined) {
  */
 export function AppShell() {
   const { email, signOut } = useAuth()
-  const { isAdmin, roles } = useCurrentContext()
+  const { isAdmin, roles, me } = useCurrentContext()
+  const isPlatformAdmin = me.data?.isPlatformAdmin === true
   const navigate = useNavigate()
   const [helpOpen, setHelpOpen] = useState(false)
   const openHelp = useCallback(() => setHelpOpen(true), [])
@@ -90,8 +93,19 @@ export function AppShell() {
           ]
         : [],
     }
-    return [clinical, reception, admin].filter((g) => g.childs.length > 0)
-  }, [roles, isAdmin])
+    // Server-checked flag (identity.is_platform_admin); every /platform endpoint re-checks it.
+    const platform: NavGroup = {
+      id: 'platform',
+      title: 'Platform',
+      childs: isPlatformAdmin
+        ? [
+            { id: 'platform-hospitals', path: '/platform', title: 'Hospitals', Icon: GlobeAltIcon },
+            { id: 'platform-requests', path: '/platform/requests', title: 'Hospital requests', Icon: InboxStackIcon },
+          ]
+        : [],
+    }
+    return [clinical, reception, admin, platform].filter((g) => g.childs.length > 0)
+  }, [roles, isAdmin, isPlatformAdmin])
 
   const avatarName = initialsSource(email)
 

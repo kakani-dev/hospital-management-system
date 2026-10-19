@@ -20,7 +20,7 @@ export function TenantSwitcher() {
   if (tenants.length === 0) {
     return (
       <span className="text-xs-plus text-gray-600 dark:text-dark-200" data-testid="tenant-name">
-        No hospital memberships
+        {me.data.isPlatformAdmin ? 'Platform console (no hospital access)' : 'No hospital memberships'}
       </span>
     )
   }

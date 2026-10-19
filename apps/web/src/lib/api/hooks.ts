@@ -1,6 +1,9 @@
 import { keepPreviousData, useMutation, useMutationState, useQueries, useQuery, useQueryClient, type Query } from '@tanstack/react-query'
 import { ApiError, apiClient } from './client'
 import type {
+  CreateInviteLinkRequest,
+  HospitalSignupRequest,
+  PlatformCreateTenantRequest,
   AddMemberRequest,
   Appointment,
   AppointmentQuery,
@@ -46,6 +49,12 @@ export const queryKeys = {
   appointmentCount: (q: AppointmentQuery) => ['appointments', 'count', q] as const,
   adminPractitioners: ['practitioners', 'admin'] as const,
   adminSchedules: (branchId: string) => ['schedules', 'admin', branchId] as const,
+  adminBranches: ['branches', 'admin'] as const,
+  inviteLinks: ['members', 'invite-links'] as const,
+  invitePreview: (token: string) => ['public', 'invite', token] as const,
+  platformTenants: (params: { search?: string; status?: string }) => ['platform', 'tenants', params] as const,
+  platformTenant: (id: string) => ['platform', 'tenant', id] as const,
+  hospitalRequests: (status?: string) => ['platform', 'requests', status ?? 'all'] as const,
 }
 
 /**
@@ -609,3 +618,98 @@ export function useUpdateCurrentTenant() {
     },
   })
 }
+
+// ----------------------------------------------------------------- Level 1
+
+/** Admin branch list incl. soft-deleted rows (for restore). */
+export function useAdminBranches(includeDeleted: boolean) {
+  return useQuery({
+    queryKey: [...queryKeys.adminBranches, includeDeleted],
+    queryFn: () => apiClient.branches.list({ includeDeleted }),
+    placeholderData: keepPreviousData,
+    retry: false,
+  })
+}
+
+function useBranchWrite<T>(fn: (id: string) => Promise<T>) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: fn,
+    onSettled: () => Promise.all([qc.invalidateQueries({ queryKey: queryKeys.branches }), qc.invalidateQueries({ queryKey: queryKeys.me })]),
+  })
+}
+
+export const useDeleteBranch = () => useBranchWrite((id) => apiClient.branches.remove(id))
+export const useRestoreBranch = () => useBranchWrite((id) => apiClient.branches.restore(id))
+
+export function useRemoveMember() {
+  const qc = useQueryClient()
+  return useMutation({ mutationFn: (id: string) => apiClient.members.remove(id), onSettled: () => qc.invalidateQueries({ queryKey: queryKeys.members }) })
+}
+
+export function useInviteLinks(enabled = true) {
+  return useQuery({ queryKey: queryKeys.inviteLinks, queryFn: () => apiClient.members.inviteLinks.list(), retry: false, enabled })
+}
+
+export function useCreateInviteLink() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: CreateInviteLinkRequest) => apiClient.members.inviteLinks.create(body),
+    onSettled: () => qc.invalidateQueries({ queryKey: queryKeys.inviteLinks }),
+  })
+}
+
+export function useRevokeInviteLink() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => apiClient.members.inviteLinks.revoke(id),
+    onSettled: () => qc.invalidateQueries({ queryKey: queryKeys.inviteLinks }),
+  })
+}
+
+export function useInvitePreview(token: string) {
+  return useQuery({ queryKey: queryKeys.invitePreview(token), queryFn: () => apiClient.publicApi.previewInvite(token), retry: false })
+}
+
+export function useClaimInvite() {
+  const qc = useQueryClient()
+  return useMutation({ mutationFn: (token: string) => apiClient.claimInvite(token), onSettled: () => qc.invalidateQueries({ queryKey: queryKeys.me }) })
+}
+
+export function useSubmitHospitalSignup() {
+  return useMutation({ mutationFn: (body: HospitalSignupRequest) => apiClient.publicApi.submitHospitalSignup(body) })
+}
+
+export function usePlatformTenants(params: { search?: string; status?: string }) {
+  return useQuery({
+    queryKey: queryKeys.platformTenants(params),
+    queryFn: () => apiClient.platform.tenants(params),
+    retry: false,
+    placeholderData: (previous) => previous,
+  })
+}
+
+export function usePlatformTenant(id: string) {
+  return useQuery({ queryKey: queryKeys.platformTenant(id), queryFn: () => apiClient.platform.tenant(id), retry: false })
+}
+
+export function useHospitalRequests(status?: string) {
+  return useQuery({ queryKey: queryKeys.hospitalRequests(status), queryFn: () => apiClient.platform.requests(status), retry: false })
+}
+
+function usePlatformWrite<TVars, TResult>(fn: (vars: TVars) => Promise<TResult>) {
+  const qc = useQueryClient()
+  return useMutation({ mutationFn: fn, onSettled: () => qc.invalidateQueries({ queryKey: ['platform'] }) })
+}
+
+export const usePlatformCreateTenant = () => usePlatformWrite((body: PlatformCreateTenantRequest) => apiClient.platform.createTenant(body))
+export const useSetTenantStatus = () =>
+  usePlatformWrite(({ id, status, reason }: { id: string; status: 'active' | 'suspended'; reason: string }) =>
+    status === 'suspended' ? apiClient.platform.suspend(id, reason) : apiClient.platform.reactivate(id, reason),
+  )
+export const useReissueAdminInvite = () =>
+  usePlatformWrite(({ id, email }: { id: string; email: string }) => apiClient.platform.reissueAdminInvite(id, email))
+export const useApproveHospitalRequest = () =>
+  usePlatformWrite(({ id, tenantCode }: { id: string; tenantCode: string }) => apiClient.platform.approve(id, tenantCode))
+export const useRejectHospitalRequest = () =>
+  usePlatformWrite(({ id, reason }: { id: string; reason: string }) => apiClient.platform.reject(id, reason))

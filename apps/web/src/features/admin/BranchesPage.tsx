@@ -9,7 +9,7 @@ import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 import { Badge, Checkbox } from '@tailux/components/ui'
 import { DataTable, type ColumnDef } from '../../components/table/DataTable'
 import type { Branch, CreateBranchRequest, UpdateBranchRequest } from '../../lib/api/types'
-import { useBranches, useCreateBranch, useCurrentTenant, useUpdateBranch } from '../../lib/api/hooks'
+import { useAdminBranches, useCreateBranch, useCurrentTenant, useDeleteBranch, useRestoreBranch, useUpdateBranch } from '../../lib/api/hooks'
 import { ApiError, fieldErrors } from '../../lib/api/client'
 import { Drawer } from '@tailux/components/shared/Drawer'
 import { branchEditSchema, branchSchema, type BranchEditValues, type BranchFormValues } from './adminSchemas'
@@ -23,7 +23,11 @@ function zoneLabel(b: Branch) {
 }
 
 export function BranchesPage() {
-  const branches = useBranches()
+  const [showDeleted, setShowDeleted] = useState(false)
+  const branches = useAdminBranches(showDeleted)
+  const deleteBranch = useDeleteBranch()
+  const restoreBranch = useRestoreBranch()
+  const [deleting, setDeleting] = useState<Branch | null>(null)
   const tenant = useCurrentTenant()
   const hospitalZone = tenant.data?.timeZone || null
   const createBranch = useCreateBranch()
@@ -99,6 +103,25 @@ export function BranchesPage() {
     }
   }
 
+  const conflictText = (error: unknown, fallback: string) =>
+    error instanceof ApiError && error.status === 409 && error.problem?.detail ? `${fallback}: ${error.problem.detail}.` : `${fallback}.`
+
+  const onDelete = () => {
+    if (!deleting) return
+    const b = deleting
+    deleteBranch.mutate(b.id, {
+      onSuccess: () => setMessage({ tone: 'info', text: `${b.name} was deleted. Turn on “Show deleted branches” to restore it.` }),
+      onError: (error) => setMessage({ tone: 'error', text: conflictText(error, `Could not delete ${b.name}`) }),
+      onSettled: () => setDeleting(null),
+    })
+  }
+
+  const onRestore = (b: Branch) =>
+    restoreBranch.mutate(b.id, {
+      onSuccess: () => setMessage({ tone: 'info', text: `${b.name} was restored${b.isActive ? '' : ' as inactive. Activate it to use it again'}.` }),
+      onError: (error) => setMessage({ tone: 'error', text: conflictText(error, `Could not restore ${b.name}`) }),
+    })
+
   const inherit = (b: Branch) => void patchBranch(b, { inheritTimezone: true }, `${b.name} now uses the hospital time zone.`)
 
   const columns: ColumnDef<Branch, unknown>[] = [
@@ -107,11 +130,11 @@ export function BranchesPage() {
     { id: 'timezone', accessorFn: zoneLabel, header: 'Time zone' },
     {
       id: 'status',
-      accessorFn: (b) => (b.isActive ? 'Active' : 'Inactive'),
+      accessorFn: (b) => (b.isDeleted ? 'Deleted' : b.isActive ? 'Active' : 'Inactive'),
       header: 'Status',
       cell: ({ row: { original: b } }) => (
-        <Badge color={b.isActive ? 'success' : 'neutral'} variant="soft">
-          {b.isActive ? 'Active' : 'Inactive'}
+        <Badge color={b.isDeleted ? 'error' : b.isActive ? 'success' : 'neutral'} variant="soft">
+          {b.isDeleted ? 'Deleted' : b.isActive ? 'Active' : 'Inactive'}
         </Badge>
       ),
     },
@@ -119,7 +142,14 @@ export function BranchesPage() {
       id: 'actions',
       enableSorting: false,
       header: () => <span className="sr-only">Actions</span>,
-      cell: ({ row: { original: b } }) => (
+      cell: ({ row: { original: b } }) =>
+        b.isDeleted ? (
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" className="h-8" disabled={restoreBranch.isPending} aria-label={`Restore ${b.name}`} onClick={() => onRestore(b)}>
+              Restore
+            </Button>
+          </div>
+        ) : (
         <div className="flex justify-end gap-2">
           <Button
             variant="secondary"
@@ -153,8 +183,20 @@ export function BranchesPage() {
           >
             {b.isActive ? 'Deactivate' : 'Activate'}
           </Button>
+          <Button
+            variant="ghost"
+            className="h-8"
+            disabled={deleteBranch.isPending}
+            aria-label={`Delete ${b.name}`}
+            onClick={() => {
+              setMessage(null)
+              setDeleting(b)
+            }}
+          >
+            Delete
+          </Button>
         </div>
-      ),
+        ),
     },
   ]
 
@@ -184,6 +226,9 @@ export function BranchesPage() {
         </form>
       </Card>
       <Card>
+        <div className="mb-4">
+          <Checkbox label="Show deleted branches" classNames={{ labelText: 'text-sm' }} checked={showDeleted} onChange={(e) => setShowDeleted(e.target.checked)} />
+        </div>
         {branches.isError && <Alert tone="error">Could not load branches.</Alert>}
         <DataTable
           data={branches.data ?? []}
@@ -192,7 +237,8 @@ export function BranchesPage() {
           isLoading={branches.isPending}
           empty="No branches yet."
           getRowId={(b) => b.id}
-          getRowProps={() => ({ 'data-testid': 'branch-row' })}
+          isStale={branches.isPlaceholderData}
+          getRowProps={(row) => ({ 'data-testid': 'branch-row', 'data-deleted': row.original.isDeleted ? 'true' : undefined })}
         />
       </Card>
       {editing && (
@@ -214,6 +260,19 @@ export function BranchesPage() {
           />
         </Drawer>
       )}
+      <ConfirmDialog
+        open={deleting !== null}
+        title={`Delete ${deleting?.name ?? 'branch'}?`}
+        confirmLabel="Delete branch"
+        busy={deleteBranch.isPending}
+        onCancel={() => setDeleting(null)}
+        onConfirm={onDelete}
+      >
+        <p>
+          The branch disappears from booking, queues and the branch switcher. Its history is kept and an admin can restore it. Branches with open
+          appointments or queue entries, and a hospital’s last branch, cannot be deleted.
+        </p>
+      </ConfirmDialog>
       <ConfirmDialog
         open={!!confirmZone}
         title="Move future bookings?"

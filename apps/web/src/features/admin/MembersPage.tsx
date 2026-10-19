@@ -8,13 +8,15 @@ import { FormField } from '../../components/ui/FormField'
 import { SelectField } from '../../components/ui/SelectField'
 import { Badge, Select } from '@tailux/components/ui'
 import { DataTable, type ColumnDef } from '../../components/table/DataTable'
-import { useAddMember, useBranches, useMembers, useUpdateMember } from '../../lib/api/hooks'
+import { useAddMember, useBranches, useMembers, useRemoveMember, useUpdateMember } from '../../lib/api/hooks'
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
+import { InviteLinksCard } from './InviteLinksCard'
 import { ApiError, fieldErrors } from '../../lib/api/client'
-import { ROLES, type Member, type Role } from '../../lib/api/types'
+import { ROLES, type Member, type Role, type UpdateMemberRequest } from '../../lib/api/types'
 import { memberSchema, type MemberFormValues } from './adminSchemas'
 import { useMe } from '../../lib/api/hooks'
 
-const roleLabel = (r: string) => r.replace('_', ' ')
+const roleLabel = (r: string) => r.replace(/_/g, ' ')
 
 export function MembersPage() {
   const members = useMembers()
@@ -22,6 +24,9 @@ export function MembersPage() {
   const me = useMe()
   const addMember = useAddMember()
   const updateMember = useUpdateMember()
+  const removeMember = useRemoveMember()
+  const [removing, setRemoving] = useState<Member | null>(null)
+  const activeBranches = branches.data?.filter((b) => b.isActive) ?? []
   const [message, setMessage] = useState<{ tone: 'info' | 'error'; text: string } | null>(null)
   const {
     register,
@@ -65,17 +70,36 @@ export function MembersPage() {
     }
   }
 
-  const onUpdate = (id: string, body: { role?: Role; status?: 'active' | 'suspended' }) =>
+  const onUpdate = (id: string, body: UpdateMemberRequest) =>
     updateMember.mutate(
       { id, body },
       {
         onError: (error) =>
           setMessage({
             tone: 'error',
-            text: error instanceof ApiError && error.status === 409 ? 'You cannot change your own membership.' : 'Update failed.',
+            text:
+              error instanceof ApiError && error.status === 409
+                ? (error.problem?.detail ?? 'You cannot change your own membership.')
+                : error instanceof ApiError && error.status === 400
+                  ? (Object.values(fieldErrors(error))[0] ?? 'That change is not allowed.')
+                  : 'Update failed.',
           }),
       },
     )
+
+  const onRemove = () => {
+    if (!removing) return
+    const m = removing
+    removeMember.mutate(m.id, {
+      onSuccess: () => setMessage({ tone: 'info', text: `${m.email ?? 'The member'} was removed from this hospital.` }),
+      onError: (error) =>
+        setMessage({
+          tone: 'error',
+          text: error instanceof ApiError && error.status === 409 ? (error.problem?.detail ?? 'This member cannot be removed.') : 'Could not remove the member.',
+        }),
+      onSettled: () => setRemoving(null),
+    })
+  }
 
   const columns: ColumnDef<Member, unknown>[] = [
     { id: 'email', accessorFn: (m) => m.email ?? m.userId, header: 'Email' },
@@ -104,7 +128,37 @@ export function MembersPage() {
         </>
       ),
     },
-    { id: 'branch', accessorFn: (m) => m.branchName ?? 'All branches', header: 'Branch' },
+    {
+      id: 'branch',
+      accessorFn: (m) => m.branchName ?? 'All branches',
+      header: 'Branch scope',
+      cell: ({ row: { original: m } }) =>
+        // tenant_admin is tenant-wide by rule; your own membership is not editable here.
+        m.role === 'tenant_admin' || m.userId === me.data?.userId ? (
+          <span>{m.branchName ?? 'All branches'}</span>
+        ) : (
+          <>
+            <label className="sr-only" htmlFor={`branch-${m.id}`}>
+              Branch scope for {m.email}
+            </label>
+            <Select
+              id={`branch-${m.id}`}
+              className="h-8 py-1 text-sm"
+              value={m.branchId ?? ''}
+              disabled={updateMember.isPending}
+              onChange={(e) => onUpdate(m.id, e.target.value ? { branchId: e.target.value } : { allBranches: true })}
+            >
+              <option value="">All branches</option>
+              {activeBranches.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+              {m.branchId && !activeBranches.some((b) => b.id === m.branchId) && <option value={m.branchId}>{m.branchName ?? 'Inactive branch'}</option>}
+            </Select>
+          </>
+        ),
+    },
     {
       id: 'status',
       accessorKey: 'status',
@@ -120,7 +174,7 @@ export function MembersPage() {
       enableSorting: false,
       header: () => <span className="sr-only">Actions</span>,
       cell: ({ row: { original: m } }) => (
-        <div className="text-right">
+        <div className="flex justify-end gap-2">
           {m.userId !== me.data?.userId && m.status !== 'invited' && (
             <Button
               variant="secondary"
@@ -130,6 +184,11 @@ export function MembersPage() {
               onClick={() => onUpdate(m.id, { status: m.status === 'active' ? 'suspended' : 'active' })}
             >
               {m.status === 'active' ? 'Suspend' : 'Reactivate'}
+            </Button>
+          )}
+          {m.userId !== me.data?.userId && (
+            <Button variant="ghost" className="h-8" aria-label={`Remove ${m.email ?? 'member'}`} disabled={removeMember.isPending} onClick={() => setRemoving(m)}>
+              Remove
             </Button>
           )}
         </div>
@@ -170,6 +229,7 @@ export function MembersPage() {
           </Button>
         </form>
       </Card>
+      <InviteLinksCard branches={branches.data ?? []} />
       <Card>
         {members.isError && <Alert tone="error">Could not load members.</Alert>}
         <DataTable
@@ -182,6 +242,19 @@ export function MembersPage() {
           getRowProps={() => ({ 'data-testid': 'member-row' })}
         />
       </Card>
+      <ConfirmDialog
+        open={removing !== null}
+        title={`Remove ${removing?.email ?? 'member'}?`}
+        confirmLabel="Remove member"
+        busy={removeMember.isPending}
+        onCancel={() => setRemoving(null)}
+        onConfirm={onRemove}
+      >
+        <p>
+          They lose access to this hospital{removing?.branchName ? ` (${removing.branchName})` : ''} immediately. Their account and the records they
+          created are kept.
+        </p>
+      </ConfirmDialog>
     </div>
   )
 }
