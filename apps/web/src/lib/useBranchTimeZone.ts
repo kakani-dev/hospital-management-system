@@ -24,7 +24,8 @@ export function useBranchTimeZones() {
     branches.data?.find((b) => b.id === branchId)?.timezone ||
     undefined
 
-  const listsSettled = !me.isPending && !branches.isPending
+  // Without an active hospital there is no branch list to wait for (useBranches does not run).
+  const listsSettled = !me.isPending && (!branches.enabled || !branches.isPending)
   const activeZone = me.data?.timeZone || (me.data?.activeBranchId ? ownZone(me.data.activeBranchId) : undefined)
   const firstBranchZone = accessible.map((b) => ownZone(b.id)).find(Boolean)
   // Only ask for the hospital zone when a branch (or the user's default) has none of its own.

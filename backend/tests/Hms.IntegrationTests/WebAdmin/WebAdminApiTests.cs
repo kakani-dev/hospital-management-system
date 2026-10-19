@@ -69,7 +69,8 @@ public sealed class WebAdminApiTests(HmsApiFactory factory) : IClassFixture<HmsA
         Assert.DoesNotContain(live, p => p.Id == practitioner.Id);
         var all = (await admin.GetFromJsonAsync<List<AdminPractitioner>>("/api/v1/practitioners?activeOnly=false&includeDeleted=true"))!;
         Assert.True(Assert.Single(all, p => p.Id == practitioner.Id).IsDeleted);
-        Assert.All(all.Where(p => p.Id != practitioner.Id && !p.IsDeleted), p => Assert.Contains(live, l => l.Id == p.Id));
+        // live ⊆ all (other tests create practitioners in parallel, so the reverse can race)
+        Assert.All(live, l => Assert.Contains(all, p => p.Id == l.Id));
 
         Assert.Empty((await admin.GetFromJsonAsync<List<AdminSchedule>>($"/api/v1/schedules?practitionerId={practitioner.Id}"))!);
         var deletedSchedules = (await admin.GetFromJsonAsync<List<AdminSchedule>>($"/api/v1/schedules?practitionerId={practitioner.Id}&includeDeleted=true"))!;

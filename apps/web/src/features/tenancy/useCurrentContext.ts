@@ -26,6 +26,21 @@ export function rolesAtBranch(me: CurrentUser | undefined, branchId: string | nu
   return [...new Set(roles)]
 }
 
+/**
+ * Branch to pre-select on a form when the user has not picked one: the active branch; with
+ * "All my branches", the branch of the user's own branch-bound membership (their primary branch);
+ * else the first (or only) accessible branch. Only ever an id from accessibleBranches; null when
+ * the user has none.
+ */
+export function defaultBranchId(me: CurrentUser | undefined): string | null {
+  const accessible = me?.accessibleBranches ?? []
+  const ok = (id: string | null | undefined): id is string => !!id && accessible.some((b) => b.id === id)
+  if (ok(me?.activeBranchId)) return me!.activeBranchId!
+  const primary = me?.memberships.find((m) => m.tenantId === me.activeTenantId && ok(m.branchId))?.branchId
+  if (ok(primary)) return primary
+  return accessible[0]?.id ?? null
+}
+
 /** Context as resolved and validated by the server (GET /api/v1/me) — the UI never decides it. */
 export function useCurrentContext() {
   const me = useMe()

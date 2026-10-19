@@ -35,6 +35,8 @@ const REQUEST = {
   createdOn: '2026-10-19T02:00:00Z',
 }
 const INVITE = { id: '1c000000-0000-4000-8000-000000000001', token: 'cd'.repeat(32), path: `/invite/${'cd'.repeat(32)}`, expiresOn: '2026-11-02T03:30:00Z' }
+/** Endpoints that need an active hospital (403 for an operator without one). */
+const TENANT_SCOPED = /^\/api\/v1\/(patients|appointments|queue|branches|members|practitioners|schedules|slots|tenants\/current|invite-links)/
 const session = () => fakeAuthClient({ session: fakeSession('operator@medicore.example') })
 
 describe('Platform console', () => {
@@ -53,8 +55,24 @@ describe('Platform console', () => {
     const primary = screen.getByRole('navigation', { name: 'Primary' })
     expect(within(primary).queryByRole('link', { name: 'Patients' })).not.toBeInTheDocument()
     expect(within(primary).getByRole('link', { name: 'Hospital requests' })).toBeInTheDocument()
-    // No clinical endpoint is ever called for the operator.
-    expect(calls.some((c) => /\/api\/v1\/(patients|appointments|queue)/.test(c.path))).toBe(false)
+    // No clinical or tenant-scoped endpoint is ever called for the operator (GET /branches was a 403).
+    await waitFor(() => expect(calls.some((c) => c.path === '/api/v1/me/invitations')).toBe(true))
+    expect(calls.filter((c) => TENANT_SCOPED.test(c.path)).map((c) => `${c.method} ${c.path}`)).toEqual([])
+  })
+
+  it('no tenant-scoped calls on any console page (requests, hospital detail) without a hospital', async () => {
+    const calls = stubFetch({
+      'GET /api/v1/me': () => json(OPERATOR),
+      'GET /api/v1/platform/tenants': () => json([LOTUS]),
+      [`GET /api/v1/platform/tenants/${LOTUS.id}`]: () => json({ ...LOTUS, branches: [], admins: [], inviteLinks: [] }),
+      'GET /api/v1/platform/hospital-requests': () => json([REQUEST]),
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: '/platform/requests', auth: session() })
+    expect(await screen.findByRole('button', { name: 'Approve Synthetic Orchid Hospital' })).toBeInTheDocument()
+    await user.click(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('link', { name: 'Hospitals' }))
+    await screen.findByTestId('platform-tenant-row')
+    expect(calls.filter((c) => TENANT_SCOPED.test(c.path)).map((c) => `${c.method} ${c.path}`)).toEqual([])
   })
 
   it('sends search and status to the API', async () => {

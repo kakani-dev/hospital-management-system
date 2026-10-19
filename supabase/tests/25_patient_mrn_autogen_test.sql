@@ -1,14 +1,15 @@
 -- Level 1: server-generated MRNs (migration 20261019100000). Per-tenant counter, TENANTCODE-000123,
--- client MRNs refused / ignored, immutable, seeded above the existing numeric suffixes.
+-- client MRNs refused / ignored, immutable, seeded above existing MRNs in the tenant's own format
+-- (20261019130000: foreign/legacy prefixes such as ALP-0003 or MRN-1001 never count).
 -- The parallel-insert proof (many connections at once) is Hms.DatabaseTests.MrnConcurrencyTests.
 begin;
 select tests.as_superuser();
 
 -- ------------------------------------------------------------ seeding ----
 select tests.ok(
-  (select last_value from patient.mrn_counters where tenant_id = '11111111-1111-4111-8111-111111111111') = 1001
-  and (select last_value from patient.mrn_counters where tenant_id = '22222222-2222-4222-8222-222222222222') = 1001,
-  'counters are seeded with the largest numeric suffix of existing MRNs (ALP-0003, MRN-1001 -> 1001)');
+  (select last_value from patient.mrn_counters where tenant_id = '11111111-1111-4111-8111-111111111111') = 0
+  and (select last_value from patient.mrn_counters where tenant_id = '22222222-2222-4222-8222-222222222222') = 0,
+  'seed MRNs with a foreign/legacy prefix (ALP-0003, MRN-1001, BET-0002) do not move the counters');
 select tests.ok(
   (select bool_and(mrn in ('ALP-0001', 'ALP-0002', 'ALP-0003', 'MRN-1001', 'BET-0001', 'BET-0002'))
    from patient.patients where id::text like 'aa%' or id::text like 'bb%'),
@@ -25,8 +26,8 @@ values ('aa000000-0000-4000-8000-0000000000a1', '11111111-1111-4111-8111-1111111
 insert into patient.patients (id, tenant_id, registered_branch_id, first_name, last_name)
 values ('aa000000-0000-4000-8000-0000000000a2', '11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'Gen', 'Two');
 select tests.ok(
-  (select mrn from patient.patients where id = 'aa000000-0000-4000-8000-0000000000a1') = 'DEMO-ALPHA-001002'
-  and (select mrn from patient.patients where id = 'aa000000-0000-4000-8000-0000000000a2') = 'DEMO-ALPHA-001003',
+  (select mrn from patient.patients where id = 'aa000000-0000-4000-8000-0000000000a1') = 'DEMO-ALPHA-000001'
+  and (select mrn from patient.patients where id = 'aa000000-0000-4000-8000-0000000000a2') = 'DEMO-ALPHA-000002',
   'client inserts get <TENANT CODE>-<6 digits> from the tenant counter, in order');
 select tests.throws_ok(
   $$insert into patient.patients (tenant_id, registered_branch_id, mrn, first_name, last_name)
@@ -42,7 +43,7 @@ select tests.authenticate_as('admin@beta.example');
 insert into patient.patients (id, tenant_id, registered_branch_id, first_name, last_name)
 values ('bb000000-0000-4000-8000-0000000000a1', '22222222-2222-4222-8222-222222222222', 'b2222222-0000-4000-8000-000000000001', 'Beta', 'Gen');
 select tests.ok(
-  (select mrn from patient.patients where id = 'bb000000-0000-4000-8000-0000000000a1') = 'DEMO-BETA-001002',
+  (select mrn from patient.patients where id = 'bb000000-0000-4000-8000-0000000000a1') = 'DEMO-BETA-000001',
   'each tenant has its own counter (Beta is not advanced by Alpha inserts)');
 
 -- service_role (PostgREST trusted writer) sending an MRN: ignored and replaced
@@ -51,7 +52,7 @@ set local role service_role;
 insert into patient.patients (id, tenant_id, registered_branch_id, mrn, first_name, last_name)
 values ('aa000000-0000-4000-8000-0000000000a3', '11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'IGNORED-1', 'Svc', 'Role');
 select tests.ok(
-  (select mrn from patient.patients where id = 'aa000000-0000-4000-8000-0000000000a3') = 'DEMO-ALPHA-001004',
+  (select mrn from patient.patients where id = 'aa000000-0000-4000-8000-0000000000a3') = 'DEMO-ALPHA-000003',
   'an MRN supplied by a non-owner role is ignored and generated');
 
 -- ----------------------------------------------------- immutability ----

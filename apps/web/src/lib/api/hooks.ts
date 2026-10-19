@@ -241,8 +241,15 @@ export function useSwitchContext({ refresh, resetCache, expectTenant }: SwitchCo
   })
 }
 
+/**
+ * GET /branches is tenant-scoped: it only runs once /me has resolved an active hospital. A platform
+ * operator signed in without a hospital (or anyone between hospitals) never calls it (no 403s).
+ */
 export function useBranches() {
-  return useQuery({ queryKey: queryKeys.branches, queryFn: () => apiClient.branches.list(), retry: false })
+  const me = useMe()
+  const hasTenant = !!me.data?.activeTenantId
+  const query = useQuery({ queryKey: queryKeys.branches, queryFn: () => apiClient.branches.list(), retry: false, enabled: hasTenant })
+  return Object.assign(query, { enabled: hasTenant })
 }
 
 export function useCreateBranch() {
