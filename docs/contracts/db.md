@@ -94,8 +94,10 @@ adds a cross-schema reference must carry the header line `-- cross-schema: appro
   `a_patients_assign_mrn` runs `insert … on conflict (tenant_id) do update set last_value = last_value + 1
   returning last_value`, so concurrent registrations serialise on the tenant's counter row (not a global
   sequence) and get distinct, consecutive numbers. Format: `<UPPER(tenant code)>-<at least 6 digits>`, e.g.
-  `DEMO-ALPHA-001003`. Existing MRNs are kept; counters are seeded above each tenant's highest numeric
-  suffix. `authenticated` has no `insert (mrn)` / `update (mrn)` grant and the `patients_mrn_immutable`
+  `DEMO-ALPHA-000001`. Existing MRNs are kept. Only MRNs in the tenant's **own** format
+  (`<UPPER(code)>-<digits>`, case-insensitive; `patient.mrn_own_suffix`) seed or bump the counter
+  (20261019130000): legacy or foreign-prefixed MRNs such as `MRN-1001` or `SMOKE-20261009114530` can
+  never collide with a generated MRN and are ignored. Counters are never lowered automatically. `authenticated` has no `insert (mrn)` / `update (mrn)` grant and the `patients_mrn_immutable`
   trigger raises `42501 mrn is immutable` for everyone else; only an owner/superuser import session may
   supply an MRN (the counter is bumped past it).
 - **`identity.tenants.default_country_code`** (`^\+[1-9][0-9]{0,2}$`, NOT NULL) is the calling code used to
