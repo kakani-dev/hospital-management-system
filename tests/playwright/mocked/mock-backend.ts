@@ -70,6 +70,8 @@ interface MockPatient {
   phone: string | null
   email: string | null
   deletedAt: string | null
+  /** Set for patients registered during the test (GET /patients/stats). */
+  createdOn?: string
 }
 
 const seedPatients = (): MockPatient[] => [
@@ -97,17 +99,42 @@ export const practitionerIds = {
   betaDoc: 'd0000000-0000-4000-8000-000000000003',
 }
 
-const practitioners = [
+const seedPractitioners = (): MockPractitioner[] => [
   { id: practitionerIds.rao, tenantId: ids.alpha, userId: null, displayName: 'Dr. Rao (synthetic)', specialty: 'General medicine', isActive: true },
   { id: practitionerIds.iyer, tenantId: ids.alpha, userId: null, displayName: 'Dr. Iyer (synthetic)', specialty: 'Paediatrics', isActive: true },
   { id: practitionerIds.betaDoc, tenantId: ids.beta, userId: null, displayName: 'Dr. Beta (synthetic)', specialty: null, isActive: true },
 ]
 
 /** Dr. Rao: every day 09:00–13:00 at Alpha Main (15 min). Dr. Iyer: every day 14:00–16:00 at Alpha East (20 min). */
-const schedules = [
+const seedSchedules = (): MockSchedule[] => [
   ...[1, 2, 3, 4, 5, 6, 7].map((weekday) => ({ id: `5c000000-0000-4000-8000-00000000000${weekday}`, tenantId: ids.alpha, practitionerId: practitionerIds.rao, branchId: ids.alphaMain, weekday, startTime: '09:00', endTime: '13:00', slotMinutes: 15, validFrom: '2026-01-01', validTo: null as string | null, isActive: true })),
   ...[1, 2, 3, 4, 5, 6, 7].map((weekday) => ({ id: `5c000000-0000-4000-8000-00000000010${weekday}`, tenantId: ids.alpha, practitionerId: practitionerIds.iyer, branchId: ids.alphaEast, weekday, startTime: '14:00', endTime: '16:00', slotMinutes: 20, validFrom: '2026-01-01', validTo: null as string | null, isActive: true })),
 ]
+
+interface MockPractitioner {
+  id: string
+  tenantId: string
+  userId: string | null
+  displayName: string
+  specialty: string | null
+  isActive: boolean
+  isDeleted?: boolean
+}
+
+interface MockSchedule {
+  id: string
+  tenantId: string
+  practitionerId: string
+  branchId: string
+  weekday: number
+  startTime: string
+  endTime: string
+  slotMinutes: number
+  validFrom: string
+  validTo: string | null
+  isActive: boolean
+  isDeleted?: boolean
+}
 
 interface MockAppointment {
   id: string
@@ -229,10 +256,22 @@ export class MockBackend {
   /** Per-branch IANA zone overrides (default BRANCH_TZ). */
   readonly branchTimeZones = new Map<string, string>()
   branchZone(branchId: string) {
-    return this.branchTimeZones.get(branchId) ?? BRANCH_TZ
+    const tenantId = Object.entries(tenants).find(([, t]) => t.branches.some((b) => b.id === branchId))?.[0]
+    return this.branchTimeZones.get(branchId) ?? (tenantId ? this.tenantZone(tenantId) : BRANCH_TZ)
   }
 
   readonly patients: MockPatient[] = seedPatients()
+  /** Per instance (admin screens write to them). */
+  readonly practitioners: MockPractitioner[] = seedPractitioners()
+  readonly schedules: MockSchedule[] = seedSchedules()
+  /** Hospital (tenant) zone; branches without an override in branchTimeZones follow it. */
+  readonly tenantTimeZones = new Map<string, string>()
+  tenantZone(tenantId: string) {
+    return this.tenantTimeZones.get(tenantId) ?? BRANCH_TZ
+  }
+  /** Renamed hospitals/branches (admin screens). */
+  readonly tenantNames = new Map<string, string>()
+  readonly branchNames = new Map<string, string>()
   readonly appointments: MockAppointment[] = []
   readonly queue: MockQueueEntry[] = []
   private tokenCounters = new Map<string, number>()
@@ -460,7 +499,7 @@ export class MockBackend {
     const dto = ({ tenantId: _t, email: _e, ...p }: MockPatient) => p
     const detailDto = ({ tenantId: _t, ...p }: MockPatient) => p
     const page = (items: unknown[]) => ({ items, page: 1, pageSize: 25, totalCount: items.length })
-    const patientMatch = /^\/api\/v1\/patients\/([^/]+)$/.exec(path)
+    const patientMatch = /^\/api\/v1\/patients\/(?!stats$)([^/]+)$/.exec(path)
     const restoreMatch = /^\/api\/v1\/patients\/([^/]+)\/restore$/.exec(path)
 
     if (method === 'GET' && path === '/api/v1/patients') {
@@ -507,7 +546,7 @@ export class MockBackend {
       if (dobInFuture(body.dateOfBirth, String(body.registeredBranchId))) return dobProblem()
       const mrn = String(body.mrn).toUpperCase()
       if (this.patients.some((p) => p.tenantId === tenant && p.mrn === mrn)) return problem(409, 'duplicate_mrn')
-      const created: MockPatient = { id: uuid('ab000000'), tenantId: tenant, mrn, firstName: String(body.firstName), lastName: String(body.lastName), dateOfBirth: (body.dateOfBirth as string) ?? null, sex: String(body.sex ?? 'unknown'), registeredBranchId: String(body.registeredBranchId), phone: (body.phone as string) ?? null, email: (body.email as string) ?? null, deletedAt: null }
+      const created: MockPatient = { id: uuid('ab000000'), tenantId: tenant, mrn, firstName: String(body.firstName), lastName: String(body.lastName), dateOfBirth: (body.dateOfBirth as string) ?? null, sex: String(body.sex ?? 'unknown'), registeredBranchId: String(body.registeredBranchId), phone: (body.phone as string) ?? null, email: (body.email as string) ?? null, deletedAt: null, createdOn: new Date().toISOString() }
       this.patients.push(created)
       return reply(201, { ...detailDto(created), duplicateWarnings: [] }, tenant)
     }
@@ -551,17 +590,99 @@ export class MockBackend {
       // null when soft-deleted (or not readable), like the API's RLS-scoped LEFT JOIN
       return { ...strip(row), patient: p && !p.deletedAt ? { id: p.id, mrn: p.mrn, firstName: p.firstName, lastName: p.lastName } : null }
     }
+    const isAdmin = roles.includes('tenant_admin')
+    const livePractitioners = this.practitioners.filter((p) => p.tenantId === tenant && !p.isDeleted)
+    const schedules = this.schedules.filter((x) => x.tenantId === tenant && !x.isDeleted && livePractitioners.some((p) => p.id === x.practitionerId))
+    const practitioners = livePractitioners
+    const scheduleOverlaps = (c: MockSchedule) =>
+      this.schedules.some((o) => o.id !== c.id && !o.isDeleted && o.isActive && o.practitionerId === c.practitionerId && o.weekday === c.weekday && o.startTime < c.endTime && o.endTime > c.startTime && o.validFrom <= (c.validTo ?? '9999-12-31') && c.validFrom <= (o.validTo ?? '9999-12-31'))
     if (method === 'GET' && path === '/api/v1/practitioners') {
       const branchId = url.searchParams.get('branchId')
+      const includeDeleted = url.searchParams.get('includeDeleted') === 'true'
+      if (includeDeleted && !isAdmin) return forbidden()
       if (branchId && this.legacyApi) return reply(400, { title: 'Validation', status: 400, errors: { branchId: ['Unknown parameter.'] } }, tenant)
       if (branchId && !tenants[tenant]!.branches.some((b) => b.id === branchId)) return notFound() // foreign branch (v2)
       // v2: practitioners with an active schedule at the branch (validTo null or ≥ branch today)
       const atBranch = branchId ? new Set(schedules.filter((s) => s.branchId === branchId && s.isActive && (!s.validTo || s.validTo >= todayIn(this.branchZone(branchId)))).map((s) => s.practitionerId)) : null
-      return reply(200, practitioners.filter((p) => p.tenantId === tenant && (url.searchParams.get('activeOnly') !== 'true' || p.isActive) && (!atBranch || atBranch.has(p.id))).map(strip), tenant)
+      const pool = includeDeleted ? this.practitioners.filter((p) => p.tenantId === tenant) : practitioners
+      return reply(200, pool.filter((p) => (url.searchParams.get('activeOnly') !== 'true' || p.isActive) && (!atBranch || atBranch.has(p.id))).map((p) => ({ ...strip(p), isDeleted: !!p.isDeleted })), tenant)
     }
     if (method === 'GET' && path === '/api/v1/schedules') {
       const branchId = url.searchParams.get('branchId')
-      return reply(200, schedules.filter((s) => s.tenantId === tenant && (!branchId || s.branchId === branchId)).map(strip), tenant)
+      const practitionerId = url.searchParams.get('practitionerId')
+      const includeDeleted = url.searchParams.get('includeDeleted') === 'true'
+      if (includeDeleted && !isAdmin) return forbidden()
+      const pool = includeDeleted ? this.schedules.filter((x) => x.tenantId === tenant) : schedules
+      return reply(200, pool.filter((x) => (!branchId || x.branchId === branchId) && (!practitionerId || x.practitionerId === practitionerId)).map((x) => ({ ...strip(x), isDeleted: !!x.isDeleted })), tenant)
+    }
+    const practitionerMatch = /^\/api\/v1\/practitioners\/([^/]+)(\/restore)?$/.exec(path)
+    if (method === 'POST' && path === '/api/v1/practitioners') {
+      if (!isAdmin) return forbidden()
+      if (!String(body.displayName ?? '').trim()) return reply(400, { title: 'Validation', status: 400, errors: { displayName: ['Display name is required.'] } }, tenant)
+      const created: MockPractitioner = { id: crypto.randomUUID(), tenantId: tenant, userId: (body.userId as string) ?? null, displayName: String(body.displayName).trim(), specialty: (body.specialty as string) ?? null, isActive: true }
+      this.practitioners.push(created)
+      return reply(201, { ...strip(created), isDeleted: false }, tenant)
+    }
+    if (practitionerMatch) {
+      const p = this.practitioners.find((x) => x.tenantId === tenant && x.id === practitionerMatch[1])
+      if (!isAdmin) return forbidden()
+      if (!p) return notFound()
+      if (method === 'POST' && practitionerMatch[2]) {
+        if (!p.isDeleted) return notFound()
+        p.isDeleted = false
+        return reply(204, undefined, tenant)
+      }
+      if (p.isDeleted) return notFound()
+      if (method === 'PATCH') {
+        if (body.displayName !== undefined) p.displayName = String(body.displayName)
+        if (body.specialty !== undefined) p.specialty = (body.specialty as string | null) ?? null
+        if (body.isActive !== undefined) p.isActive = !!body.isActive
+        if (body.userId) p.userId = String(body.userId)
+        if (body.unlinkUser) p.userId = null
+        return reply(200, { ...strip(p), isDeleted: false }, tenant)
+      }
+      if (method === 'DELETE') {
+        if (this.appointments.some((x) => x.practitionerId === p.id && ['booked', 'checked_in', 'in_consultation'].includes(x.status))) return problem(409, 'invalid_state', { detail: 'The practitioner has open appointments.' })
+        // like appointment.soft_delete_practitioner: deleted and inactive (restore keeps it inactive)
+        p.isDeleted = true
+        p.isActive = false
+        return reply(204, undefined, tenant)
+      }
+    }
+    const scheduleMatch = /^\/api\/v1\/schedules\/([^/]+)(\/restore)?$/.exec(path)
+    if (method === 'POST' && path === '/api/v1/schedules') {
+      if (!isAdmin) return forbidden()
+      if (!practitioners.some((p) => p.id === body.practitionerId) || !tenants[tenant]!.branches.some((b) => b.id === body.branchId)) return notFound()
+      const created: MockSchedule = { id: crypto.randomUUID(), tenantId: tenant, practitionerId: String(body.practitionerId), branchId: String(body.branchId), weekday: Number(body.weekday), startTime: String(body.startTime), endTime: String(body.endTime), slotMinutes: Number(body.slotMinutes ?? 15), validFrom: String(body.validFrom), validTo: (body.validTo as string | null) ?? null, isActive: true }
+      if (scheduleOverlaps(created)) return problem(409, 'schedule_overlap', { detail: 'The practitioner already has an overlapping active schedule on that weekday.' })
+      this.schedules.push(created)
+      return reply(201, { ...strip(created), isDeleted: false }, tenant)
+    }
+    if (scheduleMatch) {
+      const x = this.schedules.find((y) => y.tenantId === tenant && y.id === scheduleMatch[1])
+      if (!isAdmin) return forbidden()
+      if (!x) return notFound()
+      if (method === 'POST' && scheduleMatch[2]) {
+        if (!x.isDeleted) return notFound()
+        if (x.isActive && scheduleOverlaps(x)) return problem(409, 'schedule_overlap')
+        x.isDeleted = false
+        return reply(204, undefined, tenant)
+      }
+      if (x.isDeleted) return notFound()
+      if (method === 'PATCH') {
+        const next: MockSchedule = { ...x }
+        for (const k of ['weekday', 'slotMinutes'] as const) if (body[k] !== undefined) next[k] = Number(body[k])
+        for (const k of ['startTime', 'endTime', 'validFrom', 'validTo'] as const) if (body[k] !== undefined) next[k] = String(body[k])
+        if (body.clearValidTo) next.validTo = null
+        if (body.isActive !== undefined) next.isActive = !!body.isActive
+        if (next.isActive && scheduleOverlaps(next)) return problem(409, 'schedule_overlap')
+        Object.assign(x, next)
+        return reply(200, { ...strip(x), isDeleted: false }, tenant)
+      }
+      if (method === 'DELETE') {
+        x.isDeleted = true
+        return reply(204, undefined, tenant)
+      }
     }
     if (method === 'GET' && path === '/api/v1/slots') {
       if (!has(REG_READ)) return forbidden()
@@ -582,7 +703,7 @@ export class MockBackend {
       }
       return reply(200, slots, tenant)
     }
-    const apptAction = /^\/api\/v1\/appointments\/([^/]+)\/(cancel|check-in)$/.exec(path)
+    const apptAction = /^\/api\/v1\/appointments\/([^/]+)\/(cancel|check-in|reschedule|no-show)$/.exec(path)
     if (method === 'GET' && path === '/api/v1/appointments') {
       if (!has(REG_READ)) return forbidden()
       const q = url.searchParams
@@ -590,7 +711,8 @@ export class MockBackend {
         .filter((a) => a.tenantId === tenant && (!q.get('branchId') || a.branchId === q.get('branchId')) && (!q.get('practitionerId') || a.practitionerId === q.get('practitionerId')) && (!q.get('from') || a.endsAt > new Date(q.get('from')!).toISOString()) && (!q.get('to') || a.startsAt < new Date(q.get('to')!).toISOString()))
         .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
         .map(withPatient)
-      return reply(200, { items, page: 1, pageSize: Number(q.get('pageSize') ?? 25), totalCount: items.length }, tenant)
+      const size = Number(q.get('pageSize') ?? 25)
+      return reply(200, { items: items.slice(0, size), page: 1, pageSize: size, totalCount: items.length }, tenant)
     }
     if (method === 'POST' && path === '/api/v1/appointments') {
       const branchId = String(body.branchId)
@@ -609,6 +731,22 @@ export class MockBackend {
     if (method === 'POST' && apptAction) {
       const appt = this.appointments.find((a) => a.tenantId === tenant && a.id === apptAction[1])
       if (!appt) return notFound()
+      if (apptAction[2] === 'reschedule') {
+        if (!has(REG_WRITE, rolesAt(appt.branchId))) return forbidden()
+        if (appt.status !== 'booked') return problem(409, 'invalid_transition')
+        const practitionerId = (body.practitionerId as string) || appt.practitionerId
+        const startsAt = new Date(String(body.startsAt)).toISOString()
+        const endsAt = new Date(String(body.endsAt)).toISOString()
+        if (this.appointments.some((a) => a.id !== appt.id && a.practitionerId === practitionerId && BLOCKING.includes(a.status) && a.startsAt < endsAt && a.endsAt > startsAt)) return problem(409, 'appointment_overlap')
+        Object.assign(appt, { practitionerId, startsAt, endsAt })
+        return reply(200, withPatient(appt), tenant)
+      }
+      if (apptAction[2] === 'no-show') {
+        if (!has(REG_WRITE, rolesAt(appt.branchId))) return forbidden()
+        if (appt.status !== 'booked' || appt.startsAt > new Date().toISOString()) return problem(409, 'invalid_transition')
+        appt.status = 'no_show'
+        return reply(200, withPatient(appt), tenant)
+      }
       if (apptAction[2] === 'cancel') {
         if (!has(REG_WRITE, rolesAt(appt.branchId))) return forbidden()
         if (!['booked', 'checked_in'].includes(appt.status)) return problem(409, 'invalid_transition')
@@ -659,8 +797,51 @@ export class MockBackend {
       return reply(200, withPatient(entry), tenant)
     }
 
+    const branchDto = (b: { id: string; name: string; code: string }) => ({
+      ...b,
+      name: this.branchNames.get(b.id) ?? b.name,
+      timezone: this.branchZone(b.id),
+      timezoneOverride: this.branchTimeZones.get(b.id) ?? null,
+      isActive: true,
+    })
+    // Future bookings whose wall-clock time would move with a zone change (identity.change_time_zone_v1).
+    const futureBookings = (branchIds: string[]) =>
+      this.appointments.filter((a) => branchIds.includes(a.branchId) && a.status === 'booked' && a.startsAt > new Date().toISOString()).length
     if (method === 'GET' && path === '/api/v1/branches') {
-      return reply(200, tenants[tenant]!.branches.map((b) => ({ ...b, timezone: this.branchZone(b.id), isActive: true })), tenant)
+      return reply(200, tenants[tenant]!.branches.map(branchDto), tenant)
+    }
+    const branchMatch = /^\/api\/v1\/branches\/([^/]+)$/.exec(path)
+    if (method === 'PATCH' && branchMatch) {
+      if (!isAdmin) return forbidden()
+      const b = tenants[tenant]!.branches.find((x) => x.id === branchMatch[1])
+      if (!b) return notFound()
+      const zoneChange = body.inheritTimezone ? this.branchTimeZones.has(b.id) : typeof body.timezone === 'string' && body.timezone !== this.branchZone(b.id)
+      if (zoneChange && !body.confirmFutureBookings && futureBookings([b.id]) > 0) return problem(409, 'time_zone_has_future_bookings', { futureBookings: futureBookings([b.id]) })
+      if (body.inheritTimezone) this.branchTimeZones.delete(b.id)
+      else if (typeof body.timezone === 'string') this.branchTimeZones.set(b.id, body.timezone)
+      if (typeof body.name === 'string') this.branchNames.set(b.id, body.name)
+      return reply(200, branchDto(b), tenant)
+    }
+    const tenantDto = () => ({ id: tenant, code: tenant === ids.alpha ? 'alpha' : 'beta', name: this.tenantNames.get(tenant) ?? tenants[tenant]!.name, activeBranchId: null, roles, timeZone: this.tenantZone(tenant) })
+    if (method === 'GET' && path === '/api/v1/tenants/current') return reply(200, tenantDto(), tenant)
+    if (method === 'PATCH' && path === '/api/v1/tenants/current') {
+      if (!isAdmin) return forbidden()
+      if (typeof body.timeZone === 'string' && body.timeZone !== this.tenantZone(tenant)) {
+        const following = tenants[tenant]!.branches.filter((b) => !this.branchTimeZones.has(b.id)).map((b) => b.id)
+        const n = futureBookings(following)
+        if (n > 0 && !body.confirmFutureBookings) return problem(409, 'time_zone_has_future_bookings', { futureBookings: n })
+        this.tenantTimeZones.set(tenant, body.timeZone)
+      }
+      if (typeof body.name === 'string') this.tenantNames.set(tenant, body.name)
+      return reply(200, tenantDto(), tenant)
+    }
+    if (method === 'GET' && path === '/api/v1/patients/stats') {
+      if (!has(REG_READ)) return forbidden()
+      const branchId = url.searchParams.get('branchId')
+      if (branchId && !tenants[tenant]!.branches.some((b) => b.id === branchId)) return notFound()
+      const rows = livePatients.filter((p) => !branchId || p.registeredBranchId === branchId)
+      const today = (p: MockPatient) => !!p.createdOn && todayIn(this.branchZone(p.registeredBranchId), new Date(p.createdOn!)) === todayIn(this.branchZone(p.registeredBranchId))
+      return reply(200, { total: rows.length, registeredToday: rows.filter(today).length }, tenant)
     }
     if (method === 'GET' && path === '/api/v1/members') {
       const rows = [...this.users.values()].flatMap((u) =>

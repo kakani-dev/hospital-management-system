@@ -35,19 +35,19 @@ test.describe('tenant and branch switching', () => {
 
   test('admin narrows to a branch and back to all branches', async ({ page }) => {
     await signIn(page, users.alphaAdmin)
-    const branch = page.getByLabel('Branch')
+    const branch = page.getByLabel('Branch', { exact: true })
     await expect(branch.locator('option')).toHaveText(['All my branches', 'Alpha East Clinic', 'Alpha Main Campus'])
     await branch.selectOption({ label: 'Alpha East Clinic' })
     await expect(page.getByTestId('dashboard-branch')).toHaveText('Alpha East Clinic')
     await page.reload()
-    await expect(page.getByLabel('Branch')).toHaveValue(ids.alphaEast)
-    await page.getByLabel('Branch').selectOption({ label: 'All my branches' })
+    await expect(page.getByLabel('Branch', { exact: true })).toHaveValue(ids.alphaEast)
+    await page.getByLabel('Branch', { exact: true }).selectOption({ label: 'All my branches' })
     await expect(page.getByTestId('dashboard-branch')).toHaveText('All my branches')
   })
 
   test('branch-scoped receptionist only sees her branch', async ({ page }) => {
     await signIn(page, users.alphaReception)
-    await expect(page.getByLabel('Branch').locator('option')).toHaveText(['Alpha Main Campus'])
+    await expect(page.getByLabel('Branch', { exact: true }).locator('option')).toHaveText(['Alpha Main Campus'])
     await expect(page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Members' })).toHaveCount(0)
   })
 })
