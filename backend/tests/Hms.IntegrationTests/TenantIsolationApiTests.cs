@@ -110,23 +110,28 @@ public sealed class TenantIsolationApiTests(HmsApiFactory factory) : IClassFixtu
     }
 
     [Fact]
-    public async Task Register_patient_then_duplicate_mrn_is_409_and_same_mrn_in_other_tenant_is_fine()
+    public async Task Register_patient_gets_a_server_generated_mrn_per_tenant_and_client_mrns_are_ignored()
     {
-        var mrn = $"T-{Guid.NewGuid():N}"[..20];
+        var typed = $"T-{Guid.NewGuid():N}"[..20];
         using var alpha = factory.ClientAs(AlphaReception, Alpha);
-        var created = await alpha.PostAsJsonAsync("/api/v1/patients", new { mrn, firstName = "New", lastName = "Patient", registeredBranchId = AlphaMain, sex = "female" });
+        var created = await alpha.PostAsJsonAsync("/api/v1/patients", new { mrn = typed, firstName = "New", lastName = "Patient", registeredBranchId = AlphaMain, sex = "female" });
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
         var patient = await created.Content.ReadFromJsonAsync<PatientView>();
-        Assert.Equal(mrn.ToUpperInvariant(), patient!.Mrn); // MRNs are stored upper-case
+        Assert.Matches("^DEMO-ALPHA-[0-9]{6,}$", patient!.Mrn); // <tenant code>-<counter>, returned in the 201
 
-        var duplicate = await alpha.PostAsJsonAsync("/api/v1/patients", new { mrn, firstName = "Dup", lastName = "Patient", registeredBranchId = AlphaMain });
-        Assert.Equal(HttpStatusCode.Conflict, duplicate.StatusCode);
-        var caseVariant = await alpha.PostAsJsonAsync("/api/v1/patients", new { mrn = mrn.ToLowerInvariant(), firstName = "Dup", lastName = "Case", registeredBranchId = AlphaMain });
-        Assert.Equal(HttpStatusCode.Conflict, caseVariant.StatusCode);
+        var again = await alpha.PostAsJsonAsync("/api/v1/patients", new { mrn = patient.Mrn, firstName = "Dup", lastName = "Patient", registeredBranchId = AlphaMain });
+        Assert.Equal(HttpStatusCode.Created, again.StatusCode);
+        var second = await again.Content.ReadFromJsonAsync<PatientView>();
+        Assert.NotEqual(patient.Mrn, second!.Mrn);
 
         using var beta = factory.ClientAs(BetaAdmin, Beta);
-        var otherTenant = await beta.PostAsJsonAsync("/api/v1/patients", new { mrn, firstName = "Same", lastName = "Mrn", registeredBranchId = BetaMain });
+        var otherTenant = await beta.PostAsJsonAsync("/api/v1/patients", new { mrn = typed, firstName = "Same", lastName = "Mrn", registeredBranchId = BetaMain });
         Assert.Equal(HttpStatusCode.Created, otherTenant.StatusCode);
+        Assert.Matches("^DEMO-BETA-[0-9]{6,}$", (await otherTenant.Content.ReadFromJsonAsync<PatientView>())!.Mrn);
+
+        // The MRN is immutable through the API.
+        var change = await alpha.PatchAsJsonAsync($"/api/v1/patients/{patient.Id}", new { mrn = "DEMO-ALPHA-999999" });
+        Assert.Equal(HttpStatusCode.BadRequest, change.StatusCode);
 
         // And Beta still cannot see Alpha's new patient.
         Assert.Equal(HttpStatusCode.NotFound, (await beta.GetAsync($"/api/v1/patients/{patient.Id}")).StatusCode);

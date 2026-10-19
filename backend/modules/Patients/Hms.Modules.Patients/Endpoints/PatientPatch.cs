@@ -11,7 +11,7 @@ public sealed class PatientPatch
 {
     private static readonly HashSet<string> Known = new(StringComparer.OrdinalIgnoreCase)
     {
-        "firstName", "lastName", "dateOfBirth", "sex", "phone", "email", "registeredBranchId", "mrn",
+        "firstName", "lastName", "dateOfBirth", "sex", "phone", "email", "registeredBranchId", "mrn", "whatsapp",
     };
 
     // Accepted and ignored everywhere in the API: the tenant always comes from the server context.
@@ -25,6 +25,9 @@ public sealed class PatientPatch
     public Field<string?> Email { get; private set; }
     public Field<Guid?> RegisteredBranchId { get; private set; }
     public Field<string?> Mrn { get; private set; }
+
+    /// <summary>Absent = unchanged; null = no WhatsApp; object = { sameAsPhone, number }.</summary>
+    public Field<WhatsappInput?> Whatsapp { get; private set; }
 
     public static PatientPatch Parse(JsonElement body, Dictionary<string, string[]> errors)
     {
@@ -58,6 +61,7 @@ public sealed class PatientPatch
                 case "PHONE": patch.Phone = Text(value, "phone", errors); break;
                 case "EMAIL": patch.Email = Text(value, "email", errors); break;
                 case "MRN": patch.Mrn = Text(value, "mrn", errors); break;
+                case "WHATSAPP": patch.Whatsapp = WhatsappValue(value, errors); break;
                 case "DATEOFBIRTH": patch.DateOfBirth = Date(value, errors); break;
                 case "REGISTEREDBRANCHID": patch.RegisteredBranchId = BranchId(value, errors); break;
             }
@@ -76,6 +80,41 @@ public sealed class PatientPatch
                 errors[field] = ["Must be a string or null."];
                 return default;
         }
+    }
+
+    private static Field<WhatsappInput?> WhatsappValue(JsonElement value, Dictionary<string, string[]> errors)
+    {
+        if (value.ValueKind == JsonValueKind.Null)
+        {
+            return new Field<WhatsappInput?>(true, null);
+        }
+
+        if (value.ValueKind == JsonValueKind.Object)
+        {
+            bool? same = null;
+            string? number = null;
+            foreach (var p in value.EnumerateObject())
+            {
+                if (p.NameEquals("sameAsPhone") && p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False)
+                {
+                    same = p.Value.GetBoolean();
+                }
+                else if (p.NameEquals("number") && p.Value.ValueKind is JsonValueKind.String or JsonValueKind.Null)
+                {
+                    number = p.Value.ValueKind == JsonValueKind.String ? p.Value.GetString() : null;
+                }
+                else
+                {
+                    errors["whatsapp"] = ["Must be { sameAsPhone: boolean, number?: string } or null."];
+                    return default;
+                }
+            }
+
+            return new Field<WhatsappInput?>(true, new WhatsappInput(same, number));
+        }
+
+        errors["whatsapp"] = ["Must be { sameAsPhone: boolean, number?: string } or null."];
+        return default;
     }
 
     private static Field<DateOnly?> Date(JsonElement value, Dictionary<string, string[]> errors)

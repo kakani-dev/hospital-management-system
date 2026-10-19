@@ -1,3 +1,4 @@
+using Hms.Modules.Patients.Domain;
 using Hms.Modules.Patients.Endpoints;
 using Hms.Modules.Patients.Persistence;
 using Hms.Modules.Patients.Registry;
@@ -65,6 +66,68 @@ internal sealed class InMemoryPatientRegistryFunctions(PatientsDbContext db, ITe
         patient.DeletedAt = null;
         patient.IsDeleted = false;
         await db.SaveChangesAsync(ct);
+    }
+
+    public Task<string?> DefaultCountryCodeAsync(Guid tenantId, CancellationToken ct) =>
+        Task.FromResult<string?>(tenantId == tenant.TenantId ? "+91" : null);
+
+    /// <summary>Mirrors patient.set_patient_phones: desired state, changed rows replaced (soft delete), mirror kept.</summary>
+    public async Task SetPhonesAsync(Guid patientId, string? phone, bool whatsappSameAsPhone, string? whatsapp, CancellationToken ct)
+    {
+        var patient = await db.Patients.SingleOrDefaultAsync(p => p.Id == patientId, ct) ?? throw new FakeDbException("P0002");
+        if (!tenant.HasRoleAtBranch(patient.RegisteredBranchId, HmsRoles.TenantAdmin, HmsRoles.Doctor, HmsRoles.Nurse, HmsRoles.Receptionist))
+        {
+            throw new FakeDbException("42501");
+        }
+
+        if ((phone is not null && !PhoneE164.IsE164(phone)) || (whatsapp is not null && !PhoneE164.IsE164(whatsapp)) || (whatsappSameAsPhone && phone is null))
+        {
+            throw new FakeDbException("22023");
+        }
+
+        var wa = whatsappSameAsPhone ? phone : whatsapp;
+        var live = await db.PatientPhones.Where(p => p.PatientId == patientId).ToListAsync(ct);
+        foreach (var row in live.Where(r => r.IsPrimary != (r.PhoneE164 == phone) || r.IsWhatsapp != (r.PhoneE164 == wa)))
+        {
+            row.IsDeleted = true;
+        }
+
+        var kept = live.Where(r => !r.IsDeleted).Select(r => r.PhoneE164).ToHashSet(StringComparer.Ordinal);
+        if (phone is not null && !kept.Contains(phone))
+        {
+            db.PatientPhones.Add(new PatientPhoneNumber { PatientId = patientId, PhoneE164 = phone, IsPrimary = true, IsWhatsapp = phone == wa });
+        }
+
+        if (wa is not null && wa != phone && !kept.Contains(wa))
+        {
+            db.PatientPhones.Add(new PatientPhoneNumber { PatientId = patientId, PhoneE164 = wa, IsWhatsapp = true });
+        }
+
+        patient.Phone = phone;
+        await db.SaveChangesAsync(ct);
+    }
+}
+
+/// <summary>Unit-test stand-in for the patient.assign_mrn() trigger: per-tenant counter, CODE-000001.</summary>
+internal sealed class FakeMrnTrigger : Microsoft.EntityFrameworkCore.Diagnostics.SaveChangesInterceptor
+{
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, long> Counters = new();
+
+    public override ValueTask<Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<int>> SavingChangesAsync(
+        Microsoft.EntityFrameworkCore.Diagnostics.DbContextEventData eventData,
+        Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<int> result,
+        CancellationToken cancellationToken = default)
+    {
+        foreach (var entry in eventData.Context!.ChangeTracker.Entries<Hms.Modules.Patients.Domain.Patient>())
+        {
+            if (entry.State == EntityState.Added)
+            {
+                var n = Counters.AddOrUpdate(entry.Entity.TenantId, 1, (_, v) => v + 1);
+                entry.Entity.Mrn = $"TEST-{n:D6}";
+            }
+        }
+
+        return base.SavingChangesAsync(eventData, result, cancellationToken);
     }
 }
 

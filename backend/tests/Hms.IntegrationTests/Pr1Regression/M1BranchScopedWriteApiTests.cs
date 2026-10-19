@@ -27,14 +27,15 @@ public sealed class M1BranchScopedWriteApiTests(HmsApiFactory factory) : IClassF
     private static Task<Guid> BillingAtMainNurseAtEastAsync() =>
         CreateUserAsync("m1-split", (Alpha, AlphaMain, "billing"), (Alpha, AlphaEast, "nurse"));
 
-    private static object NewPatient(string mrn, Guid branch) =>
-        new { mrn, firstName = "Branch", lastName = "Scoped", registeredBranchId = branch, sex = "female" };
+    // MRNs are server-generated (Level 1): the unique marker travels in the last name instead.
+    private static object NewPatient(string marker, Guid branch) =>
+        new { firstName = "Branch", lastName = marker, registeredBranchId = branch, sex = "female" };
 
     private static async Task<int> CountByMrnAsync(string mrn)
     {
         await using var conn = new NpgsqlConnection(AdminConnection);
         await conn.OpenAsync();
-        await using var cmd = new NpgsqlCommand("select count(*)::int from patient.patients where upper(mrn) = upper(@m)", conn);
+        await using var cmd = new NpgsqlCommand("select count(*)::int from patient.patients where last_name = @m", conn);
         cmd.Parameters.AddWithValue("m", mrn);
         return (int)(await cmd.ExecuteScalarAsync())!;
     }

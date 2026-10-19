@@ -49,14 +49,15 @@ public sealed class N1SecondBranchInviteApiTests(HmsApiFactory factory) : IClass
         return shape;
     }
 
-    private static object NewPatient(string mrn, Guid branch) =>
-        new { mrn, firstName = "Second", lastName = "Branch", registeredBranchId = branch, sex = "female" };
+    // MRNs are server-generated (Level 1): the unique marker travels in the last name instead.
+    private static object NewPatient(string marker, Guid branch) =>
+        new { firstName = "Second", lastName = marker, registeredBranchId = branch, sex = "female" };
 
     private static async Task<int> CountByMrnAsync(string mrn)
     {
         await using var conn = new NpgsqlConnection(AdminConnection);
         await conn.OpenAsync();
-        await using var cmd = new NpgsqlCommand("select count(*)::int from patient.patients where upper(mrn) = upper(@m)", conn);
+        await using var cmd = new NpgsqlCommand("select count(*)::int from patient.patients where last_name = @m", conn);
         cmd.Parameters.AddWithValue("m", mrn);
         return (int)(await cmd.ExecuteScalarAsync())!;
     }

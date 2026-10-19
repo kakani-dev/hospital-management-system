@@ -28,7 +28,7 @@ public sealed class S2PatientApiTests(HmsApiFactory factory) : IClassFixture<Hms
         var patient = await S2.CreatePatientAsync(nurse, AlphaEast, dob: "1980-02-02", phone: "+91 98450 11111");
 
         var detail = await nurse.GetFromJsonAsync<S2Patient>($"/api/v1/patients/{patient.Id}");
-        Assert.Equal("+91 98450 11111", detail!.Phone);
+        Assert.Equal("+919845011111", detail!.Phone); // E.164
 
         var patch = await nurse.PatchAsJsonAsync($"/api/v1/patients/{patient.Id}", new { firstName = "Edited", phone = (string?)null, email = "e@synthetic.example" });
         Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
@@ -109,9 +109,10 @@ public sealed class S2PatientApiTests(HmsApiFactory factory) : IClassFixture<Hms
         var dupes = await (await reception.PostAsJsonAsync("/api/v1/patients/duplicates", new { firstName = "Synth", lastName = last, dateOfBirth = "1977-07-07" })).Content.ReadAsStringAsync();
         Assert.DoesNotContain(patient.Id.ToString(), dupes, StringComparison.OrdinalIgnoreCase);
 
-        // MRN stays reserved after delete (D1).
+        // MRN stays reserved after delete (D1): a new registration never gets it (a typed MRN is ignored).
         var reuse = await reception.PostAsJsonAsync("/api/v1/patients", new { mrn = patient.Mrn, firstName = "Re", lastName = "Use", registeredBranchId = AlphaEast });
-        Assert.Equal(HttpStatusCode.Conflict, reuse.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, reuse.StatusCode);
+        Assert.DoesNotContain(patient.Mrn, await reuse.Content.ReadAsStringAsync(), StringComparison.Ordinal);
 
         Assert.Equal(HttpStatusCode.Forbidden, (await reception.PostAsync($"/api/v1/patients/{patient.Id}/restore", null)).StatusCode);
         using var admin = factory.ClientAs(AlphaAdmin, Alpha);

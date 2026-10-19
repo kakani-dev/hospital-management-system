@@ -20,7 +20,7 @@ public sealed class QaPatientEditDeleteApiTests(HmsApiFactory factory) : IClassF
 
         var renamed = await Qa.ReadAsync<QaPatient>(
             await admin.PatchAsJsonAsync(QaRoutes.Patient(created.Id), new { firstName = "Edited", email = "edited@patients.example" }), HttpStatusCode.OK);
-        Assert.Equal(("Edited", created.LastName, created.Mrn, created.DateOfBirth, phone, "edited@patients.example"),
+        Assert.Equal(("Edited", created.LastName, created.Mrn, created.DateOfBirth, "+91" + phone, "edited@patients.example"),
             (renamed.FirstName, renamed.LastName, renamed.Mrn, renamed.DateOfBirth, renamed.Phone, renamed.Email));
 
         var cleared = await Qa.ReadAsync<QaPatient>(
@@ -90,9 +90,11 @@ public sealed class QaPatientEditDeleteApiTests(HmsApiFactory factory) : IClassF
             await admin.PostAsJsonAsync(QaRoutes.PatientSearch, new { search = patient.Mrn, includeDeleted = true }), HttpStatusCode.OK);
         Assert.NotNull(Assert.Single(withDeleted.Items).DeletedAt);
 
-        // The MRN stays reserved (D1).
-        var reuse = await admin.PostAsJsonAsync(QaRoutes.Patients, new { mrn = patient.Mrn, firstName = "Reuse", lastName = "Attempt", registeredBranchId = AlphaMain });
-        Assert.Equal(HttpStatusCode.Conflict, reuse.StatusCode);
+        // The MRN stays reserved (D1): it is never handed out again (a typed MRN is ignored).
+        var reuse = await Qa.ReadAsync<QaPatient>(
+            await admin.PostAsJsonAsync(QaRoutes.Patients, new { mrn = patient.Mrn, firstName = "Reuse", lastName = "Attempt", registeredBranchId = AlphaMain }),
+            HttpStatusCode.Created);
+        Assert.NotEqual(patient.Mrn, reuse.Mrn);
     }
 
     [Fact]

@@ -125,8 +125,10 @@ public static class PatientEndpoints
 
         if (phone is not null)
         {
-            // normalize_phone(phone) = @normalized: hits patients_tenant_phone_norm_idx.
-            query = query.Where(x => PatientsDbContext.NormalizePhone(x.Phone) == phone);
+            // Any live number (phone or WhatsApp) in patient.patient_phones; normalize_phone(phone_e164)
+            // = @normalized hits patient_phones_tenant_norm_idx.
+            var phones = db.PatientPhones.AsNoTracking();
+            query = query.Where(x => phones.Any(ph => ph.PatientId == x.Id && PatientsDbContext.NormalizePhone(ph.PhoneE164) == phone));
         }
 
         if (request.DateOfBirth is { } dob)
@@ -251,7 +253,9 @@ public static class PatientEndpoints
 
         // Another tenant's id / a soft-deleted patient is indistinguishable from a non-existent one.
         var patient = await db.Patients.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct);
-        return patient is null ? HmsProblems.NotFound("Patient not found.") : TypedResults.Ok(PatientDetailDto.From(patient));
+        return patient is null
+            ? HmsProblems.NotFound("Patient not found.")
+            : TypedResults.Ok(PatientDetailDto.From(patient, await PatientPhones.LoadAsync(db, patient.Id, ct)));
     }
 
     private static async Task<Results<Created<PatientCreatedDto>, ValidationProblem, ProblemHttpResult>> CreateAsync(
@@ -266,6 +270,11 @@ public static class PatientEndpoints
 
         var branchTimeZone = tenant.TimeZoneFor(request.RegisteredBranchId);
         var errors = CreatePatientValidator.Validate(request, BranchClock.Today(timeProvider, branchTimeZone));
+
+        // Phones (Level 1): normalized to E.164 with the tenant's calling code (tenant from the token only).
+        var countryCode = await registry.DefaultCountryCodeAsync(tenant.TenantId, ct) ?? PhoneE164.FallbackCountryCode;
+        var phoneE164 = PatientPhones.NormalizePhone(request.Phone, countryCode, errors);
+        var (whatsappSame, whatsappE164) = PatientPhones.ResolveWhatsapp(request.Whatsapp, request.Phone, phoneE164, countryCode, errors);
         if (errors.Count > 0)
         {
             return TypedResults.ValidationProblem(errors);
@@ -279,28 +288,19 @@ public static class PatientEndpoints
             return await BranchScope.DenyAsync(db, tenant, request.RegisteredBranchId, "You cannot register patients at this branch.", ct);
         }
 
-        var mrn = CreatePatientValidator.NormalizeMrn(request.Mrn!);
-#pragma warning disable CA1862 // must translate to upper(mrn) = @mrn (matches the unique upper(mrn) index; catches legacy mixed-case rows)
-        // IgnoreQueryFilters (tenant re-applied): a soft-deleted patient's MRN stays reserved (D1).
-        if (await db.Patients.IgnoreQueryFilters().AnyAsync(x => x.TenantId == tenant.TenantId && x.Mrn.ToUpper() == mrn, ct))
-#pragma warning restore CA1862
-        {
-            return DuplicateMrn();
-        }
-
+        // The MRN is server-generated (Level 1): any client-supplied "mrn" is ignored. The DB trigger
+        // patient.assign_mrn() takes the next number from the tenant's counter and EF reads it back.
         // Advisory duplicate detection (D3). Runs before the insert so the new row never matches itself.
         var warnings = await FindDuplicatesAsync(
-            registry, tenant, request.FirstName, request.LastName, request.DateOfBirth, request.Phone, null, ct);
+            registry, tenant, request.FirstName, request.LastName, request.DateOfBirth, phoneE164 ?? whatsappE164, null, ct);
 
         var patient = new Patient
         {
-            Mrn = mrn,
             FirstName = request.FirstName!.Trim(),
             LastName = request.LastName!.Trim(),
             DateOfBirth = request.DateOfBirth,
             Sex = request.Sex ?? PatientSex.Unknown,
             RegisteredBranchId = request.RegisteredBranchId,
-            Phone = request.Phone,
             Email = request.Email,
             // TenantId is assigned by TenantSaveChangesInterceptor from the resolved context.
             // Audit columns are DB-managed and never sent (see AuditColumnConventions).
@@ -315,11 +315,26 @@ public static class PatientEndpoints
             return problem;
         }
 
-        return TypedResults.Created($"/api/v1/patients/{patient.Id}", PatientCreatedDto.From(patient, warnings));
+        if (phoneE164 is not null || whatsappE164 is not null)
+        {
+            try
+            {
+                await registry.SetPhonesAsync(patient.Id, phoneE164, whatsappSame, whatsappE164, ct);
+                patient.Phone = phoneE164; // the DB function rewrote the deprecated mirror
+            }
+            catch (Exception ex) when (HmsProblems.FromDatabase(ex) is { } problem)
+            {
+                return problem;
+            }
+        }
+
+        var phones = await PatientPhones.LoadAsync(db, patient.Id, ct);
+        return TypedResults.Created($"/api/v1/patients/{patient.Id}", PatientCreatedDto.From(patient, warnings, phones));
     }
 
     private static async Task<Results<Ok<PatientDetailDto>, ValidationProblem, ProblemHttpResult>> UpdateAsync(
-        Guid id, JsonElement body, PatientsDbContext db, ITenantContext tenant, TimeProvider timeProvider, CancellationToken ct)
+        Guid id, JsonElement body, PatientsDbContext db, ITenantContext tenant, TimeProvider timeProvider,
+        IPatientRegistryFunctions registry, CancellationToken ct)
     {
         if (!CanWriteAtAnyBranch(tenant))
         {
@@ -351,13 +366,15 @@ public static class PatientEndpoints
             return await BranchScope.DenyAsync(db, tenant, targetBranch, "You cannot move patients to that branch.", ct);
         }
 
-        if (patch.Mrn.IsSet && (patch.Mrn.Value is null || CreatePatientValidator.NormalizeMrn(patch.Mrn.Value) != patient.Mrn))
+        // The MRN is server-generated and immutable: sending the current value (any case) is a no-op,
+        // anything else is rejected (the DB also refuses UPDATE of mrn).
+        if (patch.Mrn.IsSet && (patch.Mrn.Value is null
+            || !string.Equals(CreatePatientValidator.NormalizeMrn(patch.Mrn.Value), patient.Mrn.ToUpperInvariant(), StringComparison.Ordinal)))
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["mrn"] = ["The MRN cannot be changed."] });
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["mrn"] = ["The MRN is generated by the system and cannot be changed."] });
         }
 
         var merged = new CreatePatientRequest(
-            patient.Mrn,
             patch.FirstName.Or(patient.FirstName),
             patch.LastName.Or(patient.LastName),
             patch.DateOfBirth.Or(patient.DateOfBirth),
@@ -368,7 +385,39 @@ public static class PatientEndpoints
 
         var branchTimeZone = tenant.TimeZoneFor(targetBranch);
         errors = CreatePatientValidator.Validate(merged, BranchClock.Today(timeProvider, branchTimeZone));
-        errors.Remove("mrn"); // legacy rows may predate the MRN rule; the MRN is immutable here anyway
+
+        // Phones: only touched when the patch names phone and/or whatsapp.
+        var phonesChange = patch.Phone.IsSet || patch.Whatsapp.IsSet;
+        var current = await PatientPhones.LoadRowsAsync(db, patient.Id, ct);
+        string? phoneE164 = null;
+        bool whatsappSame = false;
+        string? whatsappE164 = null;
+        if (phonesChange)
+        {
+            var countryCode = await registry.DefaultCountryCodeAsync(tenant.TenantId, ct) ?? PhoneE164.FallbackCountryCode;
+            var currentPrimary = current.FirstOrDefault(x => x.IsPrimary);
+            var currentWhatsapp = current.FirstOrDefault(x => x.IsWhatsapp);
+            phoneE164 = patch.Phone.IsSet
+                ? PatientPhones.NormalizePhone(patch.Phone.Value, countryCode, errors)
+                : currentPrimary?.PhoneE164 ?? PhoneE164.Normalize(patient.Phone, countryCode);
+            if (patch.Whatsapp.IsSet)
+            {
+                (whatsappSame, whatsappE164) = PatientPhones.ResolveWhatsapp(
+                    patch.Whatsapp.Value ?? new WhatsappInput(false, null), patch.Phone.IsSet ? patch.Phone.Value : phoneE164, phoneE164, countryCode, errors);
+            }
+            else if (currentWhatsapp is not null && currentWhatsapp.IsPrimary)
+            {
+                // WhatsApp followed the phone: it keeps following it; if the phone is removed, the
+                // old number stays as the WhatsApp number.
+                (whatsappSame, whatsappE164) = phoneE164 is not null ? (true, null) : (false, currentWhatsapp.PhoneE164);
+            }
+            else
+            {
+                whatsappE164 = currentWhatsapp?.PhoneE164;
+                whatsappSame = whatsappE164 is not null && whatsappE164 == phoneE164;
+            }
+        }
+
         if (errors.Count > 0)
         {
             return TypedResults.ValidationProblem(errors);
@@ -379,7 +428,6 @@ public static class PatientEndpoints
         patient.DateOfBirth = merged.DateOfBirth;
         patient.Sex = merged.Sex!;
         patient.RegisteredBranchId = targetBranch;
-        patient.Phone = merged.Phone;
         patient.Email = merged.Email;
 
         try
@@ -396,7 +444,20 @@ public static class PatientEndpoints
             return problem;
         }
 
-        return TypedResults.Ok(PatientDetailDto.From(patient));
+        if (phonesChange)
+        {
+            try
+            {
+                await registry.SetPhonesAsync(patient.Id, phoneE164, whatsappSame, whatsappE164, ct);
+                patient.Phone = phoneE164; // the DB function rewrote the deprecated mirror
+            }
+            catch (Exception ex) when (HmsProblems.FromDatabase(ex) is { } problem)
+            {
+                return problem;
+            }
+        }
+
+        return TypedResults.Ok(PatientDetailDto.From(patient, await PatientPhones.LoadAsync(db, patient.Id, ct)));
     }
 
     private static async Task<Results<NoContent, ValidationProblem, ProblemHttpResult>> DeleteAsync(
@@ -484,5 +545,4 @@ public static class PatientEndpoints
 
     private const string DuplicateMrnDetail = "A patient with this MRN already exists in this hospital.";
 
-    private static ProblemHttpResult DuplicateMrn() => HmsProblems.Conflict(HmsProblems.Codes.DuplicateMrn, DuplicateMrnDetail);
 }
