@@ -5,7 +5,7 @@ begin;
 
 select tests.as_superuser();
 create temporary table t_ctx on commit drop as
-  select (now() at time zone b.timezone)::date as today, b.timezone as tz
+  select identity.branch_local_date_v1(b.id) as today, identity.branch_time_zone_v1(b.id) as tz
   from identity.branches b where b.id = 'a1111111-0000-4000-8000-000000000001';
 grant select on t_ctx to public;
 
@@ -25,9 +25,13 @@ insert into identity.memberships (tenant_id, user_id, branch_id, role, status) v
   ('11111111-1111-4111-8111-111111111111', '0a000000-0000-4000-8000-0000000000d1', 'a1111111-0000-4000-8000-000000000001', 'doctor', 'active');
 insert into appointment.practitioners (id, tenant_id, display_name, is_active)
 values ('c1111111-0000-4000-8000-0000000000ff', '11111111-1111-4111-8111-111111111111', 'Dr. Retired (synthetic)', false);
-insert into patient.patients (id, tenant_id, registered_branch_id, mrn, first_name, last_name, date_of_birth, deleted_at)
+insert into patient.patients (id, tenant_id, registered_branch_id, mrn, first_name, last_name, date_of_birth)
 values ('aa000000-0000-4000-8000-0000000000de', '11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001',
-        'ALP-DEL', 'Deleted', 'Synthetic-Alpha', '1980-01-01', now());
+        'ALP-DEL', 'Deleted', 'Synthetic-Alpha', '1980-01-01');
+-- rows are never born deleted (audit trigger); soft-delete it afterwards
+select tests.as_owner('patient.patients');  -- the soft-delete state is owner-only (re-review R2)
+update patient.patients set deleted_at = now() where id = 'aa000000-0000-4000-8000-0000000000de';
+select tests.as_superuser();
 
 -- ---------- privileges ----------
 select tests.ok(

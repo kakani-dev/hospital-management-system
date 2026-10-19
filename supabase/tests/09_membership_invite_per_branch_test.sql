@@ -4,9 +4,9 @@ begin;
 
 -- ---------- schema / grants ----------
 select tests.ok(
-  (select pg_get_constraintdef(oid) from pg_constraint where conname = 'memberships_tenant_user_branch_key')
-    = 'UNIQUE NULLS NOT DISTINCT (tenant_id, user_id, branch_id)',
-  'unique key is (tenant_id, user_id, branch_id) NULLS NOT DISTINCT: several branches per (tenant, user) are allowed');
+  (select pg_get_indexdef('identity.memberships_tenant_user_branch_key'::regclass))
+    = 'CREATE UNIQUE INDEX memberships_tenant_user_branch_key ON identity.memberships USING btree (tenant_id, user_id, branch_id) NULLS NOT DISTINCT WHERE (NOT is_deleted)',
+  'unique key is (tenant_id, user_id, branch_id) NULLS NOT DISTINCT over live rows: several branches per (tenant, user) are allowed');
 select tests.ok(
   (select array_agg(c.relname::text order by c.relname) from pg_index i join pg_class c on c.oid = i.indexrelid
    where i.indrelid = 'identity.memberships'::regclass and i.indisunique)

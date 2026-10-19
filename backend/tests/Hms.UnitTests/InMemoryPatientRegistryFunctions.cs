@@ -53,6 +53,7 @@ internal sealed class InMemoryPatientRegistryFunctions(PatientsDbContext db, ITe
         }
 
         patient.DeletedAt = clock.GetUtcNow();
+        patient.IsDeleted = true; // generated from deleted_at in PostgreSQL
         await db.SaveChangesAsync(ct);
     }
 
@@ -62,6 +63,7 @@ internal sealed class InMemoryPatientRegistryFunctions(PatientsDbContext db, ITe
             .SingleOrDefaultAsync(p => p.Id == patientId && p.TenantId == tenant.TenantId && p.DeletedAt != null, ct)
             ?? throw new FakeDbException("P0002");
         patient.DeletedAt = null;
+        patient.IsDeleted = false;
         await db.SaveChangesAsync(ct);
     }
 }

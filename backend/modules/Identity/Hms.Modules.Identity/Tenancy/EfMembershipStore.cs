@@ -34,15 +34,21 @@ internal sealed class EfMembershipStore(IdentityDbContext db) : IMembershipStore
 
     private async Task<MembershipGrant?> FindGrantCoreAsync(Guid userId, Guid tenantId, Guid? branchId, CancellationToken cancellationToken)
     {
-        var tenantActive = await db.Tenants.AsNoTracking()
-            .AnyAsync(t => t.Id == tenantId && t.Status == TenantStatus.Active, cancellationToken);
-        if (!tenantActive)
+        var tenantZone = await db.Tenants.AsNoTracking()
+            .Where(t => t.Id == tenantId && t.Status == TenantStatus.Active)
+            .Select(t => t.TimeZone)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (tenantZone is null)
         {
             return null;
         }
 
         var memberships = await db.Memberships.AsNoTracking()
             .Where(m => m.UserId == userId && m.TenantId == tenantId && m.Status == MembershipStatus.Active)
+            // A branch-scoped membership counts only while its branch is live (code review MAJ-2;
+            // identity.has_tenant_role / current_tenant_ids agree): deleting a branch revokes the
+            // tenant-wide roles of staff scoped to it.
+            .Where(m => m.BranchId == null || db.Branches.Any(b => b.Id == m.BranchId && !b.IsDeleted))
             .Select(m => new { m.Role, m.BranchId })
             .ToListAsync(cancellationToken);
         if (memberships.Count == 0)
@@ -86,9 +92,10 @@ internal sealed class EfMembershipStore(IdentityDbContext db) : IMembershipStore
             .Distinct(StringComparer.Ordinal)
             .ToList();
 
-        var timeZones = tenantBranches.Where(b => rolesByBranch.ContainsKey(b.Id)).ToDictionary(b => b.Id, b => b.Timezone);
+        // Effective zone: branch override, else the tenant zone (identity.branch_time_zone()).
+        var timeZones = tenantBranches.Where(b => rolesByBranch.ContainsKey(b.Id)).ToDictionary(b => b.Id, b => Hms.SharedKernel.Time.TenantTimeZones.Effective(b.Timezone, tenantZone));
 
-        return new MembershipGrant(roles, accessible, rolesByBranch, timeZones);
+        return new MembershipGrant(roles, accessible, rolesByBranch, timeZones, tenantZone);
     }
 
     private async Task<T?> InTransactionAsync<T>(Func<CancellationToken, Task<T?>> work, CancellationToken ct)

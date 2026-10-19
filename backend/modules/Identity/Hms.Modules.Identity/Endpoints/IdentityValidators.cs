@@ -32,6 +32,26 @@ public static partial class IdentityValidators
         return errors;
     }
 
+    public static Dictionary<string, string[]> Validate(UpdateTenantRequest r)
+    {
+        var errors = new Dictionary<string, string[]>();
+        if (r.Name is null && r.TimeZone is null)
+        {
+            errors["request"] = ["Provide name and/or timeZone."];
+        }
+
+        if (r.Name is not null)
+        {
+            ValidateName(r.Name, errors, required: true);
+        }
+
+        ValidateTimezone(r.TimeZone, errors, "timeZone");
+        return errors;
+    }
+
+    /// <summary>True for an IANA id this runtime knows (the database re-checks against pg_timezone_names).</summary>
+    public static bool IsIanaTimeZone(string? timezone) => Hms.SharedKernel.Time.TenantTimeZones.IsValidIana(timezone);
+
     public static Dictionary<string, string[]> Validate(AddMemberRequest r)
     {
         var errors = new Dictionary<string, string[]>();
@@ -85,14 +105,15 @@ public static partial class IdentityValidators
         }
     }
 
-    private static void ValidateTimezone(string? timezone, Dictionary<string, string[]> errors)
+    private static void ValidateTimezone(string? timezone, Dictionary<string, string[]> errors, string field = "timezone")
     {
-        // HasIanaId: on ICU runtimes Windows ids ("India Standard Time") resolve too, but PostgreSQL
-        // AT TIME ZONE only understands IANA names, and the stored value must round-trip there.
-        if (timezone is not null
-            && !(TimeZoneInfo.TryFindSystemTimeZoneById(timezone, out var tz) && tz.HasIanaId && string.Equals(tz.Id, timezone, StringComparison.Ordinal)))
+        if (timezone is not null && !IsIanaTimeZone(timezone))
         {
-            errors["timezone"] = ["Unknown IANA timezone."];
+            // code review MIN-2 / re-review N3: say which canonical id to use
+            var suggestion = Hms.SharedKernel.Time.TenantTimeZones.Suggest(timezone);
+            errors[field] = [suggestion is null
+                ? "Unknown or unsupported IANA timezone. Use a canonical IANA id such as Asia/Kolkata."
+                : $"Unknown or unsupported IANA timezone. Did you mean '{suggestion}'?"];
         }
     }
 

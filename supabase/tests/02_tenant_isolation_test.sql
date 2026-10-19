@@ -34,9 +34,9 @@ select tests.ok(
 select tests.ok(
   tests.affected_rows($$update identity.tenants set name = 'Hacked' where id = '22222222-2222-4222-8222-222222222222'$$) = 0,
   'alpha admin UPDATE of Beta tenant affects 0 rows');
-select tests.ok(
-  tests.affected_rows($$delete from identity.branches where tenant_id = '22222222-2222-4222-8222-222222222222'$$) = 0,
-  'alpha admin DELETE of Beta branches affects 0 rows');
+select tests.throws_ok(
+  $$delete from identity.branches where tenant_id = '22222222-2222-4222-8222-222222222222'$$,
+  '42501', 'DELETE on branches is not granted at all (soft delete only); Beta branches stay untouched');
 
 select tests.throws_ok(
   $$insert into patient.patients (tenant_id, registered_branch_id, mrn, first_name, last_name)

@@ -51,6 +51,13 @@ public static class HmsProblems
     public static ProblemHttpResult Conflict(string code, string detail) =>
         Problem(StatusCodes.Status409Conflict, "Conflict", detail, code);
 
+    /// <summary>409 with extra machine-readable members next to <c>code</c> (e.g. futureBookings).</summary>
+    public static ProblemHttpResult Conflict(string code, string detail, IReadOnlyDictionary<string, object?> extensions)
+    {
+        var all = new Dictionary<string, object?>(extensions) { ["code"] = code };
+        return TypedResults.Problem(title: "Conflict", detail: detail, statusCode: StatusCodes.Status409Conflict, extensions: all);
+    }
+
     public static ProblemHttpResult BadRequest(string code, string detail) =>
         Problem(StatusCodes.Status400BadRequest, "Bad request", detail, code);
 

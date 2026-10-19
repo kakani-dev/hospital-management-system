@@ -91,7 +91,7 @@ public static class AppointmentEndpoints
 
         if (date is { } day)
         {
-            tenant.BranchTimeZones.TryGetValue(branchId!.Value, out var tz);
+            var tz = tenant.TimeZoneFor(branchId!.Value);
             var (dayStart, dayEnd) = BranchTime.DayRangeUtc(day, tz);
             query = query.Where(a => a.StartsAt >= dayStart && a.StartsAt < dayEnd);
         }

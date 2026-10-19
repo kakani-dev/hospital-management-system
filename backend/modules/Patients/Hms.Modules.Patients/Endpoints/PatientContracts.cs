@@ -13,20 +13,20 @@ public sealed record PatientSummaryDto(
 
 public sealed record PatientDetailDto(
     Guid Id, string Mrn, string FirstName, string LastName, DateOnly? DateOfBirth, string Sex, Guid RegisteredBranchId,
-    string? Phone, DateTimeOffset? DeletedAt, string? Email, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt)
+    string? Phone, DateTimeOffset? DeletedAt, string? Email, DateTimeOffset CreatedOn, DateTimeOffset UpdatedOn)
 {
     public static PatientDetailDto From(Patient p) =>
-        new(p.Id, p.Mrn, p.FirstName, p.LastName, p.DateOfBirth, p.Sex, p.RegisteredBranchId, p.Phone, p.DeletedAt, p.Email, p.CreatedAt, p.UpdatedAt);
+        new(p.Id, p.Mrn, p.FirstName, p.LastName, p.DateOfBirth, p.Sex, p.RegisteredBranchId, p.Phone, p.DeletedAt, p.Email, p.CreatedOn, p.UpdatedOn);
 }
 
 /// <summary>201 body of POST /patients: the detail plus advisory duplicate warnings (D3; [] when none).</summary>
 public sealed record PatientCreatedDto(
     Guid Id, string Mrn, string FirstName, string LastName, DateOnly? DateOfBirth, string Sex, Guid RegisteredBranchId,
-    string? Phone, DateTimeOffset? DeletedAt, string? Email, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt,
+    string? Phone, DateTimeOffset? DeletedAt, string? Email, DateTimeOffset CreatedOn, DateTimeOffset UpdatedOn,
     IReadOnlyList<DuplicateCandidateDto> DuplicateWarnings)
 {
     public static PatientCreatedDto From(Patient p, IReadOnlyList<DuplicateCandidateDto> warnings) =>
-        new(p.Id, p.Mrn, p.FirstName, p.LastName, p.DateOfBirth, p.Sex, p.RegisteredBranchId, p.Phone, p.DeletedAt, p.Email, p.CreatedAt, p.UpdatedAt, warnings);
+        new(p.Id, p.Mrn, p.FirstName, p.LastName, p.DateOfBirth, p.Sex, p.RegisteredBranchId, p.Phone, p.DeletedAt, p.Email, p.CreatedOn, p.UpdatedOn, warnings);
 }
 
 public sealed record DuplicateCandidateDto(

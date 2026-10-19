@@ -112,5 +112,6 @@ public sealed class PatientRef
     public string Mrn { get; set; } = "";
     public string FirstName { get; set; } = "";
     public string LastName { get; set; } = "";
-    public DateTimeOffset? DeletedAt { get; set; }
+    /// <summary>patient.patients.is_deleted (generated from deleted_at): the single soft-delete predicate.</summary>
+    public bool IsDeleted { get; set; }
 }

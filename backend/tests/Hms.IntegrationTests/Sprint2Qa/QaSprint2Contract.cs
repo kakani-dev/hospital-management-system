@@ -193,7 +193,7 @@ internal static class Qa
         new DateTimeOffset(2031, 6, 2, hour, minute, 0, TimeSpan.FromHours(5.5)).AddDays(dayOffset);
 
     public static async Task<TimeZoneInfo> BranchZoneAsync(Guid branch) =>
-        TimeZoneInfo.FindSystemTimeZoneById((await ScalarAsync<string>("select timezone from identity.branches where id = @b", ("b", branch)))!);
+        TimeZoneInfo.FindSystemTimeZoneById((await ScalarAsync<string>("select identity.branch_time_zone_v1(@b)", ("b", branch)))!);
 
     /// <summary>Branch-local "today" (the date check-in and the queue use, contract §3.1/D6).</summary>
     public static async Task<DateOnly> BranchTodayAsync(Guid branch) =>

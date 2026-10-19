@@ -8,7 +8,8 @@ select tests.ok(
     from information_schema.tables t
     where t.table_schema in ('identity', 'patient', 'audit')
       and t.table_type = 'BASE TABLE'
-      and t.table_name not in ('tenants', 'user_profiles') -- tenant root + global profile (documented exceptions)
+      and t.table_name not in ('tenants', 'user_profiles', 'platform_admins', 'audit_log')
+      -- tenant root, global profile, platform operators, and audit_log (tenant_id NULL for global rows since 20261012090000)
       and not exists (
         select 1 from information_schema.columns c
         where c.table_schema = t.table_schema and c.table_name = t.table_name
@@ -44,8 +45,10 @@ select tests.ok(
 
 select tests.ok(
   (select count(*) from pg_constraint where conname in (
-    'branches_tenant_code_key', 'patients_tenant_mrn_key', 'memberships_branch_same_tenant', 'patients_branch_same_tenant')) = 4,
-  'tenant-scoped unique and composite FK constraints exist');
+    'patients_tenant_mrn_key', 'memberships_branch_same_tenant', 'patients_branch_same_tenant')) = 3
+  and exists (select 1 from pg_index i where i.indexrelid = 'identity.branches_tenant_code_key'::regclass and i.indisunique
+              and pg_get_expr(i.indpred, i.indrelid) = '(NOT is_deleted)'),
+  'tenant-scoped unique (branch code: live rows only) and composite FK constraints exist');
 
 select tests.ok(
   not has_function_privilege('anon', 'audit.log_row_change()', 'execute')

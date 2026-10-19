@@ -99,7 +99,7 @@ select tests.throws_ok(
   '23514', 'invalid role is rejected');
 select tests.throws_ok(
   $$select identity.add_member('11111111-1111-4111-8111-111111111111', 'doctor@beta.example', 'nurse', 'b2222222-0000-4000-8000-000000000001')$$,
-  '23503', 'branch from another tenant is rejected');
+  'P0002', 'branch from another tenant is rejected (looks unknown: 404-not-403)');
 select tests.throws_ok(
   $$select identity.add_member('22222222-2222-4222-8222-222222222222', 'admin@alpha.example', 'tenant_admin')$$,
   '42501', 'admin cannot add members to another tenant');

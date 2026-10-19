@@ -21,8 +21,8 @@ public class EfMembershipStoreTests
     {
         var db = new IdentityDbContext(new DbContextOptionsBuilder<IdentityDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
         db.Tenants.AddRange(
-            new Tenant { Id = Alpha, Code = "demo-alpha", Name = "Alpha", Status = tenantStatus },
-            new Tenant { Id = Beta, Code = "demo-beta", Name = "Beta" });
+            new Tenant { Id = Alpha, Code = "demo-alpha", Name = "Alpha", Status = tenantStatus, TimeZone = "Asia/Kolkata" },
+            new Tenant { Id = Beta, Code = "demo-beta", Name = "Beta", TimeZone = "Europe/London" });
         db.Branches.AddRange(
             new Branch { Id = AlphaMain, TenantId = Alpha, Code = "main", Name = "Main" },
             new Branch { Id = AlphaEast, TenantId = Alpha, Code = "east", Name = "East", Timezone = "Asia/Dubai" });
@@ -36,6 +36,58 @@ public class EfMembershipStoreTests
             new Membership { TenantId = Alpha, UserId = Invitee, BranchId = null, Role = HmsRoles.Doctor, Status = MembershipStatus.Invited });
         db.SaveChanges();
         return db;
+    }
+
+    [Fact]
+    public async Task Branch_without_override_inherits_the_tenant_zone()
+    {
+        var grant = await new EfMembershipStore(Seeded()).FindActiveGrantAsync(Admin, Alpha, null, default);
+        Assert.NotNull(grant);
+        Assert.Equal("Asia/Kolkata", grant.TenantTimeZone);
+        Assert.Equal("Asia/Kolkata", grant.BranchTimeZones[AlphaMain]); // no override
+        Assert.Equal("Asia/Dubai", grant.BranchTimeZones[AlphaEast]);   // override wins
+    }
+
+    [Fact]
+    public async Task A_deleted_branch_revokes_the_roles_scoped_to_it()
+    {
+        // code review MAJ-2: MixedRoles is billing@Main + nurse@East; deleting East drops "nurse" entirely.
+        var db = Seeded();
+        db.Branches.Single(b => b.Id == AlphaEast).IsDeleted = true;
+        db.SaveChanges();
+
+        var grant = await new EfMembershipStore(db).FindActiveGrantAsync(MixedRoles, Alpha, null, default);
+        Assert.NotNull(grant);
+        Assert.Equal([HmsRoles.Billing], grant.Roles);
+        Assert.Equal([AlphaMain], grant.AccessibleBranchIds);
+
+        db.Memberships.RemoveRange(db.Memberships.Where(m => m.UserId == MixedRoles && m.BranchId == AlphaMain));
+        db.SaveChanges();
+        Assert.Null(await new EfMembershipStore(db).FindActiveGrantAsync(MixedRoles, Alpha, null, default));
+    }
+
+    [Fact]
+    public async Task Soft_deleted_membership_grants_nothing()
+    {
+        var db = Seeded();
+        foreach (var m in db.Memberships.Where(m => m.UserId == Receptionist))
+        {
+            m.IsDeleted = true;
+        }
+
+        db.SaveChanges();
+        Assert.Null(await new EfMembershipStore(db).FindActiveGrantAsync(Receptionist, Alpha, null, default));
+    }
+
+    [Fact]
+    public async Task Soft_deleted_branch_is_not_accessible()
+    {
+        var db = Seeded();
+        db.Branches.Single(b => b.Id == AlphaEast).IsDeleted = true;
+        db.SaveChanges();
+        var grant = await new EfMembershipStore(db).FindActiveGrantAsync(Admin, Alpha, null, default);
+        Assert.Equal([AlphaMain], grant!.AccessibleBranchIds);
+        Assert.Null(await new EfMembershipStore(db).FindActiveGrantAsync(Admin, Alpha, AlphaEast, default));
     }
 
     [Fact]

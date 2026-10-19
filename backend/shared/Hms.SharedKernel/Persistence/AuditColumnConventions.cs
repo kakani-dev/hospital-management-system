@@ -16,15 +16,16 @@ public static class AuditColumnConventions
 
     private static readonly string[] DbManagedColumns =
     [
-        nameof(AuditableEntity.CreatedAt),
+        nameof(AuditableEntity.CreatedOn),
         nameof(AuditableEntity.CreatedBy),
-        nameof(AuditableEntity.UpdatedAt),
+        nameof(AuditableEntity.UpdatedOn),
         nameof(AuditableEntity.UpdatedBy),
+        nameof(AuditableEntity.IsDeleted),
     ];
 
     /// <summary>
-    /// For every <see cref="AuditableEntity"/>: created_at/created_by/updated_at/updated_by are
-    /// ignored on INSERT and UPDATE; deleted_at (when mapped) is ignored on INSERT so no row can be
+    /// For every <see cref="AuditableEntity"/>: created_on/created_by/updated_on/updated_by/is_deleted are
+    /// ignored on INSERT and UPDATE (is_deleted only changes through the soft-delete functions); deleted_at (when mapped) is ignored on INSERT so no row can be
     /// born soft-deleted, but can still be set by an UPDATE (soft delete). Call at the END of
     /// OnModelCreating.
     /// </summary>

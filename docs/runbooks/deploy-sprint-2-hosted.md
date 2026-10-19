@@ -253,6 +253,43 @@ and web work against the migrated schema (additive).
 - **NO-GO** on: any pre-check mismatch, any guard error, any `*_ok = f`, ready not stable, smoke failure that is
   not a known data/time-of-day skip → stop, report, forward-fix plan.
 
+## 9. PR #4: audit columns, soft delete, tenant time zone (after §4; separate GO)
+
+Order: N1 (§3) → Sprint 2 (§4) → `20261012090000_audit_columns_and_soft_delete` → `20261012090100_tenant_time_zone`
+→ `20261012090200_enforce_appointment_transition_v1` → API deploy (§7.1, from the merged main). Apply the three files in one
+`execute_sql` each, in that order, in a quiet window (no clinic hours: no check-ins, nobody editing branches).
+
+- **Locks.** Each file starts with `set local lock_timeout = '5s'; set local statement_timeout = '120s';`. 090000 adds
+  columns + triggers on every identity/patient/appointment table (brief ACCESS EXCLUSIVE each); 090100 alters
+  `identity.tenants`/`identity.branches`. A `55P03 lock_not_available` (or `57014` statement timeout) aborts that file's
+  transaction with nothing applied: wait a minute and retry the same file; after 3 failures stop and look for the blocker
+  (`select pid, state, query_start, left(query, 80) from pg_stat_activity where datname = current_database() and state <> 'idle';`).
+  Never raise the timeouts to force it through.
+- **Compatibility.** The pre-PR-4 API keeps working on the new schema (`branches.timezone` stays NOT NULL and mirrors
+  the effective zone; `created_at`/`updated_at` stay, derived). Proven locally: main's integration suite against main's
+  schema + these three files passes except the schedules hard-delete test (DELETE is revoked by design; schedules are
+  soft-deleted via `appointment.soft_delete_schedule`). So deploy the API right after the DB, not days later.
+- **Data.** Existing `Asia/Calcutta` values are canonicalised to `Asia/Kolkata`; a branch zone equal to its tenant's zone
+  becomes "inherit" (`timezone_override` null), any other becomes the override. No rows are deleted.
+- **Verification (read-only):**
+  ```sql
+  select
+    (select count(*) from identity.branches where timezone is null) = 0                                   as mirror_not_null_ok,
+    (select count(*) from identity.branches b join identity.tenants t on t.id = b.tenant_id
+      where b.timezone <> coalesce(b.timezone_override, t.time_zone)) = 0                                  as mirror_matches_ok,
+    (select count(*) from identity.branches where timezone like 'Asia/Calcutta' or timezone_override like 'Asia/Calcutta')
+      + (select count(*) from identity.tenants where time_zone = 'Asia/Calcutta') = 0                     as calcutta_ok,
+    not exists (select 1 from pg_proc where proname like '%\_v1' and pronamespace::regnamespace::text in
+      ('identity','patient','appointment') and has_function_privilege('authenticated', oid, 'execute')
+      and proname not in ('branch_time_zone_v1','branch_local_date_v1',
+                          'assert_zone_change_allowed_v1','change_time_zone_v1'))                as v1_grants_ok,
+    (select count(*) from pg_proc where prosrc like '%hms.soft_delete%') = 0                               as no_soft_delete_flag_ok;
+  ```
+  All columns `t`, then MCP `get_advisors` (no new ERROR/WARN) and the §7 smoke, plus `PATCH /api/v1/tenants/current`
+  with the current zone (200, no change).
+- **Rollback.** Forward-fix only (the expand step is additive, and reverting would lose `*_on`/`*_by` stamps and soft-delete
+  state). The contract step (dropping the legacy columns) is tracked in `docs/runbooks/audit-columns-contract.md`.
+
 ## Appendix: local dry run (2026-10-09, PG 17.11 throwaway cluster in /tmp, removed afterwards)
 
 - **Stage A (hosted order)**: shim → migrations 1–9 → main `seed.sql` (7 patients) → `20261009090000` → Sprint 2 five:

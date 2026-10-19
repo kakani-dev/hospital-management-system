@@ -27,18 +27,29 @@ public sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> option
         {
             e.ToTable("tenants");
             e.HasIndex(x => x.Code).IsUnique();
+            e.HasQueryFilter(x => !x.IsDeleted);
+            // Zone changes go through identity.change_time_zone_v1 (future-bookings confirmation,
+            // DB re-review R5); clients have no UPDATE grant on the column, so EF never sends it.
+            e.Property(x => x.TimeZone).Metadata.SetAfterSaveBehavior(Microsoft.EntityFrameworkCore.Metadata.PropertySaveBehavior.Ignore);
         });
 
         modelBuilder.Entity<Branch>(e =>
         {
             e.ToTable("branches");
             e.HasIndex(x => new { x.TenantId, x.Code }).IsUnique();
+            // soft-deleted branches are invisible unless a query opts out (admin includeDeleted)
+            e.HasQueryFilter(x => !x.IsDeleted);
+            // INSERT may carry an override; UPDATEs go through identity.change_time_zone_v1 (R5).
+            e.Property(x => x.Timezone).HasColumnName("timezone_override");
+            e.Property(x => x.Timezone).Metadata.SetAfterSaveBehavior(Microsoft.EntityFrameworkCore.Metadata.PropertySaveBehavior.Ignore);
         });
 
         modelBuilder.Entity<Membership>(e =>
         {
             e.ToTable("memberships");
             e.HasIndex(x => new { x.UserId, x.TenantId });
+            // a soft-deleted membership grants nothing (the RLS helpers agree)
+            e.HasQueryFilter(x => !x.IsDeleted);
         });
 
         modelBuilder.Entity<UserProfile>(e => e.ToTable("user_profiles"));

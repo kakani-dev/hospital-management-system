@@ -13,7 +13,8 @@ Owner: Backend. Version **API v2, 2026-10-09 16:50 IST** (v4 status codes + embe
 
 ### A.1 Error shape (RFC 7807) and DB → HTTP mapping
 ```ts
-ProblemDetails   { type: string, title: string, status: int, detail?: string, code?: string, traceId?: string }
+ProblemDetails   { type: string, title: string, status: int, detail?: string, code?: string, traceId?: string,
+                   futureBookings?: int /* only with code time_zone_has_future_bookings (PR #4) */ }
 ValidationProblem{ type, title: "One or more validation errors occurred.", status: 400, errors: { [field: string]: string[] } }
 ```
 | Status | When | `code` |
@@ -22,7 +23,7 @@ ValidationProblem{ type, title: "One or more validation errors occurred.", statu
 | 401 | no / invalid / expired token (empty body) | — |
 | 403 | role not allowed, same-tenant branch not allowed, SQLSTATE `42501` | `forbidden` |
 | 404 | not found / other tenant (any id, incl. branch) / soft-deleted, SQLSTATE `P0002` | `not_found` |
-| 409 | `23505` unique, `23P01` overlap, `23514 invalid_transition:*`, `55000` wrong state, `40P01` deadlock / `40001` serialization failure | `duplicate_mrn`, `already_checked_in`, `schedule_overlap`, `appointment_overlap`, `invalid_transition`, `invalid_state`, `conflict` (`appointment_overlap` for `40P01`/`40001` on booking) |
+| 409 | `23505` unique, `23P01` overlap, `23514 invalid_transition:*`, `55000` wrong state, `40P01` deadlock / `40001` serialization failure | `duplicate_mrn`, `already_checked_in`, `schedule_overlap`, `appointment_overlap`, `invalid_transition`, `invalid_state`, `conflict` (`appointment_overlap` for `40P01`/`40001` on booking); zone changes (PR #4): `time_zone_locked`, `time_zone_has_future_bookings` (+ `futureBookings`) |
 | 429 | rate limited | — |
 
 ### A.2 Role shorthand (same as DB §0)
@@ -34,7 +35,7 @@ REG_READ = tenant_admin, doctor, nurse, receptionist, billing · REG_WRITE = ten
 PatientSummaryDto { id: uuid, mrn: string, firstName: string, lastName: string, dateOfBirth: date|null,
                     sex: "female"|"male"|"other"|"unknown", registeredBranchId: uuid, phone: string|null,
                     deletedAt: instant|null /* only ever non-null for admins with includeDeleted */ }
-PatientDetailDto  = PatientSummaryDto & { email: string|null, createdAt: instant, updatedAt: instant }
+PatientDetailDto  = PatientSummaryDto & { email: string|null, createdOn: instant, updatedOn: instant }   // PR #4: was createdAt/updatedAt
 DuplicateCandidateDto { id: uuid, mrn, firstName, lastName, dateOfBirth: date|null, phone: string|null,
                         registeredBranchId: uuid, matchReasons: ("name_dob"|"phone")[] }
 PatientCreatedDto = PatientDetailDto & { duplicateWarnings: DuplicateCandidateDto[] }   // [] when none; advisory only (D3)
@@ -90,7 +91,7 @@ AppointmentStatus = "booked"|"checked_in"|"in_consultation"|"completed"|"cancell
 AppointmentDto { id: uuid, branchId: uuid, practitionerId: uuid, patientId: uuid, startsAt: instant, endsAt: instant,
                  status: AppointmentStatus, reason: string|null, cancelReason: string|null,
                  checkedInAt: instant|null, startedAt: instant|null, completedAt: instant|null, cancelledAt: instant|null,
-                 createdAt: instant, updatedAt: instant,
+                 createdOn: instant, updatedOn: instant,   // PR #4: was createdAt/updatedAt
                  patient: PatientRef|null /* v2 */ }
 PatientRef { id: uuid, mrn: string, firstName: string, lastName: string }   // v2, see "Embedded patient" below
 CreateAppointmentRequest     { branchId, practitionerId, patientId, startsAt: instant, endsAt: instant /* > startsAt, ≤ 8 h */, reason?: string /* ≤500 */ }
@@ -132,6 +133,25 @@ UpdateQueueStatusRequest { status: "in_consultation"|"done"|"cancelled" }
 ### A.7 Outbox (2.4, no HTTP routes)
 - Events are written by **DB triggers only** (D8) in the same transaction as the appointment/queue change; the API never inserts into `messaging.outbox`. Every API write runs in one transaction (`WithDbTransaction`), so a rolled-back request leaves no event.
 - `OutboxDispatcher` (BackgroundService in the gateway): per batch it opens a transaction, `SET LOCAL ROLE hms_dispatcher`, calls `messaging.claim_outbox(worker, batch, lease)` (FOR UPDATE SKIP LOCKED), publishes through `IOutboxPublisher`, then `complete_outbox` / `fail_outbox` (back-off). At-least-once; consumers dedupe on `eventId`. Config `Outbox:Dispatcher:Enabled` (default **false** until the DB migration is deployed), `BatchSize` (50), `PollIntervalSeconds` (5), `LeaseSeconds` (30), `RetryBaseSeconds` (30, doubles per attempt, cap 1 h), `DedupCapacity` (10 000 recently published `eventId`s skipped on re-claim). S2 publisher = structured log of `eventId/eventType/aggregateId` only (no payload, no PHI).
+
+### A.9 PR #4 additions: audit fields, soft delete, time zones
+```ts
+CurrentTenantDto     { id: uuid, code: string, name: string, activeBranchId: uuid|null, roles: string[], timeZone: string /* IANA */ }
+UpdateTenantRequest  { name?: string, timeZone?: string, confirmFutureBookings?: boolean }
+BranchOptionDto      { id: uuid, name: string, timeZone: string /* effective */ }      // /me accessibleBranches; /me also has timeZone
+BranchDto            { id, code, name, timezone: string /* effective */, isActive, timezoneOverride: string|null, isDeleted: boolean }
+CreateBranchRequest  { code, name, timezone?: string /* override; omit = inherit */ }
+UpdateBranchRequest  { name?, timezone?: string, inheritTimezone?: boolean, isActive?: boolean, confirmFutureBookings?: boolean }
+```
+| Method | Path | Who | Success | Errors |
+|---|---|---|---|---|
+| PATCH | `/tenants/current` | ADMIN | 200 `CurrentTenantDto` | 400 invalid zone (canonical IANA only; `Asia/Calcutta` → `Asia/Kolkata`; `Etc/GMT±N`, `Asia/Kolkata+5`, abbreviations rejected with a suggestion), 403, 409 `time_zone_locked` (queue entries today), 409 `time_zone_has_future_bookings` + `futureBookings` (nothing saved; resend with `confirmFutureBookings: true`) |
+| PATCH | `/branches/{id}` | ADMIN | 200 `BranchDto` | as above for zone changes; 404 foreign |
+| DELETE / POST …/restore | `/branches/{id}`, `/members/{id}`, `/practitioners/{id}`, `/schedules/{id}` | ADMIN | 204 | 403, 404 (foreign/unknown/wrong deleted state), 409 (restore would duplicate a live key / overlap) |
+
+- A branch-scoped membership grants nothing while its branch is deleted (API grant and DB helpers alike).
+- Slots (`/slots`) are generated in the branch's effective zone and are DST-safe (no duplicated fall-back slots, no non-existent spring-forward slots).
+- `POST /platform/tenants` is not part of the monolith; tenant creation belongs to the identity service (DB: `identity.create_tenant`).
 
 ### A.8 Backend notes / assumptions
 - Patient soft delete, restore, duplicates, check-in, walk-in and queue status changes go through the DB RPCs (§1.3, §1.5, §3.3, D11); PATCH/create of patients, practitioners, schedules and appointments use EF under RLS.
