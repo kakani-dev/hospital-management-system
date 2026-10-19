@@ -58,8 +58,9 @@ test('the operator lands on the console, approves a request and the contact join
   await page.getByRole('alertdialog').getByRole('button', { name: 'Approve and create' }).click()
   const link = await page.getByTestId('invite-link-url').inputValue()
   expect(link).toMatch(/\/invite\/[0-9a-f]{64}$/)
-  // The operator still has no access to clinical data.
-  expect(backend.calls.some((c) => /\/api\/v1\/(patients|appointments|queue|members)/.test(c.path))).toBe(false)
+  // The operator still has no access to clinical data, and no tenant-scoped endpoint is called
+  // without a hospital (GET /branches used to 403 on /platform).
+  expect(backend.calls.filter((c) => /^\/api\/v1\/(patients|appointments|queue|members|branches|practitioners|schedules|slots|tenants\/current|invite-links)/.test(c.path)).map((c) => c.path)).toEqual([])
 
   // The contact opens the link in a fresh browser (no session): preview, then sign in to accept.
   const other = await context.browser()!.newContext()
@@ -212,6 +213,20 @@ test('register: no MRN input, the generated MRN is in the toast; WhatsApp same-a
   await expect(page.getByTestId('patient-whatsapp')).toContainText('+971501234567')
   await expect(page.getByTestId('whatsapp-same-badge')).toHaveCount(0)
   expect(backend.calls.find((c) => c.method === 'PATCH')!.body).toMatchObject({ whatsapp: { sameAsPhone: false, number: '+971 50 123 4567' } })
+})
+
+test('register with "All my branches": a branch is pre-selected and can be changed', async ({ page }) => {
+  await signIn(page, 'admin@alpha.example')
+  await expect(page.getByTestId('tenant-context').getByLabel('Branch')).toHaveValue('') // All my branches
+  await page.goto('/patients/new')
+  const branch = page.getByLabel('Registered branch')
+  await expect(branch).toHaveValue(ids.alphaEast) // first accessible branch
+  await branch.selectOption(ids.alphaMain)
+  await page.getByLabel('First name').fill('Branchy')
+  await page.getByLabel('Last name').fill('Synthetic-Level1')
+  await page.getByRole('button', { name: 'Register patient' }).click()
+  await expect(page.getByText(/Patient registered\. MRN ALPHA-/)).toBeVisible()
+  expect(backend.calls.find((c) => c.method === 'POST' && c.path === '/api/v1/patients')!.body).toMatchObject({ registeredBranchId: ids.alphaMain })
 })
 
 test('register: a bad WhatsApp number is refused by the server and shown on the field', async ({ page }) => {
