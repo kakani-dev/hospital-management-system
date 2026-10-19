@@ -56,12 +56,12 @@ select tests.ok(
   'invited membership grants nothing');
 
 -- Soft-deleted membership grants nothing (audit-tz is_deleted).
-select tests.as_superuser();
+select tests.as_owner('identity.memberships');
 do $$
 declare r uuid;
 begin
-  -- the is_deleted guard only lets a writer that names the row (hms.soft_delete) change it,
-  -- which also holds for a non-owner superuser such as supabase_admin
+  -- the is_deleted guard (re-review R1) only lets the TABLE OWNER that names the row
+  -- (hms.soft_delete) change it; a non-owner superuser such as supabase_admin is refused
   for r in select m.id from identity.memberships m
            where m.user_id = (select id from auth.users where email = 'consultant@shared.example')
              and m.tenant_id = '22222222-2222-4222-8222-222222222222' loop
@@ -75,12 +75,12 @@ select tests.authenticate_as('consultant@shared.example');
 select tests.ok(
   identity.my_tenant_grant_v1('22222222-2222-4222-8222-222222222222') is null,
   'a soft-deleted membership grants nothing');
-select tests.as_superuser();
+select tests.as_owner('identity.memberships');
 do $$
 declare r uuid;
 begin
-  -- the is_deleted guard only lets a writer that names the row (hms.soft_delete) change it,
-  -- which also holds for a non-owner superuser such as supabase_admin
+  -- the is_deleted guard (re-review R1) only lets the TABLE OWNER that names the row
+  -- (hms.soft_delete) change it; a non-owner superuser such as supabase_admin is refused
   for r in select m.id from identity.memberships m
            where m.user_id = (select id from auth.users where email = 'consultant@shared.example')
              and m.tenant_id = '22222222-2222-4222-8222-222222222222' loop
