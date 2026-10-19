@@ -2,9 +2,9 @@
 begin;
 
 select tests.authenticate_as('reception@alpha.example');
-insert into patient.patients (id, tenant_id, registered_branch_id, mrn, first_name, last_name)
-values ('aa000000-0000-4000-8000-0000000000ff', '11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'ALP-5000', 'Audit', 'Synthetic-Alpha');
-update patient.patients set phone = '+1-555-0199' where id = 'aa000000-0000-4000-8000-0000000000ff';
+insert into patient.patients (id, tenant_id, registered_branch_id, first_name, last_name)
+values ('aa000000-0000-4000-8000-0000000000ff', '11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'Audit', 'Synthetic-Alpha');
+update patient.patients set email = 'audit@patients.example' where id = 'aa000000-0000-4000-8000-0000000000ff';
 
 select tests.as_superuser();
 select tests.ok(

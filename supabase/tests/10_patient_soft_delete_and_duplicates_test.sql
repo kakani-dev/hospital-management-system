@@ -141,7 +141,13 @@ select tests.ok(
 select tests.throws_ok(
   $$insert into patient.patients (tenant_id, registered_branch_id, mrn, first_name, last_name, date_of_birth)
     values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'ALP-0002', 'New', 'Person', '2000-01-01')$$,
-  '23505', 'the MRN of a deleted patient stays reserved -> 23505');
+  '42501', 'clients cannot supply an MRN at all (server-generated) -> 42501');
+select tests.as_superuser();
+select tests.throws_ok(
+  $$insert into patient.patients (tenant_id, registered_branch_id, mrn, first_name, last_name, date_of_birth)
+    values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'ALP-0002', 'New', 'Person', '2000-01-01')$$,
+  '23505', 'the MRN of a deleted patient stays reserved, even for an explicit import -> 23505');
+select tests.authenticate_as('admin@alpha.example');
 
 -- ---------- restore ----------
 select tests.authenticate_as('reception@alpha.example');

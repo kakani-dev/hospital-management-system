@@ -9,12 +9,12 @@ select tests.ok(
     = array['a1111111-0000-4000-8000-000000000001'::uuid],
   'receptionist branch scope is Alpha Main only');
 select tests.ok(
-  tests.affected_rows($$insert into patient.patients (tenant_id, registered_branch_id, mrn, first_name, last_name)
-    values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'ALP-9001', 'New', 'Synthetic-Alpha')$$) = 1,
+  tests.affected_rows($$insert into patient.patients (tenant_id, registered_branch_id, first_name, last_name)
+    values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'New', 'Synthetic-Alpha')$$) = 1,
   'receptionist can register a patient at their own branch');
 select tests.throws_ok(
-  $$insert into patient.patients (tenant_id, registered_branch_id, mrn, first_name, last_name)
-    values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000002', 'ALP-9002', 'Other', 'Synthetic-Alpha')$$,
+  $$insert into patient.patients (tenant_id, registered_branch_id, first_name, last_name)
+    values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000002', 'Other', 'Synthetic-Alpha')$$,
   '42501', 'receptionist cannot register a patient at a branch they are not assigned to');
 select tests.throws_ok(
   $$insert into identity.branches (tenant_id, code, name) values ('11111111-1111-4111-8111-111111111111', 'west', 'West')$$,
