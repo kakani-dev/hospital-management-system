@@ -14,7 +14,7 @@ import { useCreatePatient } from '../../lib/api/hooks'
 import { ApiError, apiClient, fieldErrors } from '../../lib/api/client'
 import { SEXES, type DuplicateCandidate } from '../../lib/api/types'
 import { DuplicateWarning } from './DuplicateWarning'
-import { useCurrentContext } from '../tenancy/useCurrentContext'
+import { defaultBranchId, useCurrentContext } from '../tenancy/useCurrentContext'
 import { createPatientSchema, toCreatePatientRequest, type PatientFormValues } from './patientSchema'
 import { useBranchToday, useBranchZonedResolver } from './useBranchZonedResolver'
 import { WhatsappFields } from './WhatsappFields'
@@ -24,7 +24,7 @@ export function RegisterPatientPage() {
   const location = useLocation()
   // Opened from a patient picker's "No match: register new patient": pre-fill and go back after.
   const [origin] = useState(() => (location.state as RegisterPatientState | null) ?? {})
-  const { branches, activeBranchId, activeTenant } = useCurrentContext()
+  const { branches, activeTenant, me } = useCurrentContext()
   const createPatient = useCreatePatient()
   const resolver = useBranchZonedResolver<PatientFormValues>(createPatientSchema)
   const [formError, setFormError] = useState<string | null>(null)
@@ -64,13 +64,18 @@ export function RegisterPatientPage() {
   // DOB "today" is the selected branch's date — the API validates in the branch's zone.
   const branchToday = useBranchToday(useWatch({ control, name: 'registeredBranchId' }))
 
-  // Default the branch to the active one once /me has loaded.
+  // Pre-select a branch once /me has loaded, also with "All my branches" (defaultBranchId: active →
+  // primary → first/only). Re-applied whenever the options change, so the native <select> never shows
+  // "Select a branch…" while the form holds a stale or inaccessible id; a branch the user picked
+  // themselves is kept as long as it is still offered.
+  const branchKey = branches.map((b) => b.id).join(',')
+  const fallbackBranch = defaultBranchId(me.data)
   useEffect(() => {
-    if (!getValues('registeredBranchId')) {
-      const initial = activeBranchId ?? branches[0]?.id
-      if (initial) setValue('registeredBranchId', initial)
-    }
-  }, [activeBranchId, branches, getValues, setValue])
+    if (!branchKey) return
+    const current = getValues('registeredBranchId')
+    const next = current && branchKey.split(',').includes(current) ? current : fallbackBranch
+    if (next) setValue('registeredBranchId', next)
+  }, [branchKey, fallbackBranch, getValues, setValue])
 
   const create = async (values: PatientFormValues) => {
     setFormError(null)

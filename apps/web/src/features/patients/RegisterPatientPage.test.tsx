@@ -29,6 +29,41 @@ describe('RegisterPatientPage', () => {
     expect(screen.getByText(/MRN is assigned automatically/i)).toBeInTheDocument()
   })
 
+  it('"All my branches": pre-selects the first accessible branch, still changeable', async () => {
+    const calls = stubFetch({
+      'GET /api/v1/me': () => json(meFor({ activeBranchId: null })),
+      'POST /api/v1/patients': (_u, init) => json({ id: 'p5', mrn: 'DEMO-ALPHA-000105', ...JSON.parse(String(init.body)) }, 201),
+      'GET /api/v1/patients': () => json(listPage),
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: '/patients/new', auth: fakeAuthClient({ session: fakeSession() }) })
+    const branch = await screen.findByLabelText('Registered branch')
+    await waitFor(() => expect(branch).toHaveValue(ALPHA_MAIN))
+    await user.selectOptions(branch, ALPHA_EAST)
+    expect(branch).toHaveValue(ALPHA_EAST)
+    await user.type(screen.getByLabelText('First name'), 'Kiran')
+    await user.type(screen.getByLabelText('Last name'), 'Synthetic')
+    await user.click(screen.getByRole('button', { name: /register patient/i }))
+    await screen.findByText(/patient DEMO-ALPHA-000105 registered/i)
+    expect(calls.find((c) => c.method === 'POST' && c.path === '/api/v1/patients')!.body).toMatchObject({ registeredBranchId: ALPHA_EAST })
+  })
+
+  it('"All my branches": a branch-bound member gets their own (primary) branch; an inaccessible active id is ignored', async () => {
+    stubFetch({
+      'GET /api/v1/me': () =>
+        json(
+          meFor({
+            activeBranchId: 'a1111111-0000-4000-8000-0000000000ff',
+            roles: ['receptionist'],
+            memberships: [{ tenantId: meFor().activeTenantId!, tenantName: 'Demo Alpha Hospital', branchId: ALPHA_EAST, branchName: 'Alpha East', role: 'receptionist' }],
+          }),
+        ),
+    })
+    renderWithProviders(<App />, { path: '/patients/new', auth: fakeAuthClient({ session: fakeSession() }) })
+    const branch = await screen.findByLabelText('Registered branch')
+    await waitFor(() => expect(branch).toHaveValue(ALPHA_EAST))
+  })
+
   it('submits the patient with the chosen branch and never a tenant id', async () => {
     const calls = stubFetch({
       'GET /api/v1/me': () => json(meFor({ activeBranchId: ALPHA_MAIN })),
