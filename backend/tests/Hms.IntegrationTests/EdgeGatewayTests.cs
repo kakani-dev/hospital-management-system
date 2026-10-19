@@ -265,6 +265,25 @@ public sealed class EdgeResilienceTests
         Assert.Equal(Prod, limited.Headers.GetValues("Access-Control-Allow-Origin").Single());
     }
 
+    [Fact]
+    public async Task Warmup_is_rate_limited_to_10_per_minute_per_client()
+    {
+        // default RateLimiting:WarmupPerMinute = 10 (not overridden here); services are down, so the 10
+        // permitted calls answer 503 and the 11th is refused by the limiter before any probe runs.
+        await using var edge = new DownstreamDownEdge(jwksDown: false);
+        using var client = edge.CreateClient();
+        client.DefaultRequestHeaders.Add("Origin", Prod);
+        for (var i = 0; i < 10; i++)
+        {
+            Assert.NotEqual(HttpStatusCode.TooManyRequests, (await client.GetAsync("/api/v1/warmup")).StatusCode);
+        }
+
+        var limited = await client.GetAsync("/api/v1/warmup");
+        Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
+        Assert.True(limited.Headers.Contains("Retry-After"));
+        Assert.Equal(Prod, limited.Headers.GetValues("Access-Control-Allow-Origin").Single());
+    }
+
     [Theory]
     [InlineData("/internal", true)]
     [InlineData("/Internal/x", true)]

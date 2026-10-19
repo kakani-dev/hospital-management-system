@@ -8,9 +8,11 @@
 -- Exempt (decision E2): audit.audit_log (immutable, own changed_at/changed_by) and messaging.outbox.
 --
 --  1. EXPAND-then-contract (DB review B3): created_on/updated_on are ADDED next to the existing
---     created_at/updated_at and back-filled from them. The shared trigger keeps the legacy pair equal
---     to the new pair on every write, so readers of either name stay correct while services deploy
---     independently. A later migration drops created_at/updated_at once every reader has moved.
+--     created_at/updated_at and back-filled from them. Sync is ONE-WAY: the shared trigger derives the
+--     legacy pair from the new pair on every INSERT/UPDATE, so a value written to created_at/updated_at
+--     is ignored (overwritten), never read back. Readers of either name stay correct while services
+--     deploy independently. A later migration drops created_at/updated_at and the 'legacy_at' trigger
+--     argument once every reader has moved (tracked: docs/runbooks/audit-columns-contract.md).
 --     audit_log JSON rows carry both keys meanwhile; consumers must read either.
 --  2. queue_counters gets the audit columns; every table gets is_deleted.
 --  3. Existing rows: missing actors are back-filled with the fixed system actor
@@ -21,7 +23,7 @@
 --     transaction-local setting hms.actor_id (system jobs), else the system actor. Client-supplied
 --     values for the five columns are ALWAYS overwritten (closes the created_by forgery gap: the
 --     old trigger kept a client-sent created_by). is_deleted may only change inside the SECURITY
---     DEFINER soft-delete/restore functions (current_user is then the owner, not a client role).
+--     DEFINER soft-delete/restore functions (current_user is then the table owner).
 --  5. Client INSERT/UPDATE privileges on the five columns are revoked (table-level grants on
 --     branches/memberships become column-level grants).
 --  6. Hard DELETE of branches, memberships, practitioners and schedules is replaced by soft delete
@@ -41,10 +43,19 @@
 -- 12. Cross-schema reads go through published, SECURITY DEFINER *_v1 functions (review B2):
 --     appointment.branch_has_open_activity_v1 / queue_has_entries_v1 / patient_has_active_visits_v1,
 --     identity.branch_exists_v1 / branch_tenant_id_v1, patient.patient_exists_v1.
--- 13. is_deleted guard fails CLOSED (review S3): only the table owner (the SECURITY DEFINER
---     soft-delete functions) or a writer that set the transaction-local flag hms.soft_delete to the
---     row id may change it; client roles never.
+-- 13. is_deleted guard fails CLOSED (review S3, re-review R1/R2): only the table owner (what the
+--     SECURITY DEFINER soft-delete/restore functions run as) may change is_deleted, or, on tables
+--     where is_deleted is generated (patients), its source column deleted_at. No session setting can
+--     unlock it: service_role and every other non-owner role get 42501 too.
+-- 14. The *_v1 functions are granted to service_role only (re-review R6); their in-DB callers are
+--     SECURITY DEFINER. Only the two zone resolvers (migration 20261012090100) are granted to
+--     authenticated. The tenant check keys on the session role (re-review R4), not on a JWT sub.
 -- =============================================================================
+
+-- Hosted rollout (code review MIN-4): never queue behind live traffic for long; see
+-- docs/runbooks/deploy-sprint-2-hosted.md (order, quiet window, verification).
+set local lock_timeout = '5s';
+set local statement_timeout = '120s';
 
 -- ------------------------------------------------------------ system actor ----
 create or replace function audit.system_actor()
@@ -59,7 +70,8 @@ revoke all on function audit.system_actor() from public;
 grant execute on function audit.system_actor() to authenticated, service_role;
 
 -- ------------------------------------------------- expand: created_on / updated_on ----
--- created_at / updated_at stay (deprecated, kept equal by audit.stamp_audit_columns('legacy_at')).
+-- created_at / updated_at stay (deprecated, derived from *_on by audit.stamp_audit_columns('legacy_at');
+-- writes to them are ignored).
 alter table identity.tenants          add column created_on timestamptz, add column updated_on timestamptz;
 alter table identity.branches         add column created_on timestamptz, add column updated_on timestamptz;
 alter table identity.user_profiles    add column created_on timestamptz, add column updated_on timestamptz;
@@ -113,9 +125,9 @@ begin
                     alter column created_on set default now(), alter column updated_on set default now()', t);
     if t <> 'appointment.queue_counters' then
       execute format('comment on column %s.created_at is %L', t,
-        'DEPRECATED (expand/contract): mirror of created_on kept by audit.stamp_audit_columns; dropped once every reader uses created_on.');
+        'DEPRECATED (expand/contract): derived from created_on by audit.stamp_audit_columns on every write; values written here are ignored. Dropped once every reader uses created_on.');
       execute format('comment on column %s.updated_at is %L', t,
-        'DEPRECATED (expand/contract): mirror of updated_on kept by audit.stamp_audit_columns; dropped once every reader uses updated_on.');
+        'DEPRECATED (expand/contract): derived from updated_on by audit.stamp_audit_columns on every write; values written here are ignored. Dropped once every reader uses updated_on.');
     end if;
   end loop;
 end;
@@ -135,8 +147,10 @@ language plpgsql
 set search_path = ''
 as $$
 -- Trigger arguments:
---   'legacy_at'            table still has created_at/updated_at (expand phase): keep them equal
---   'generated_is_deleted' is_deleted is a generated column (patients): never assign or guard it
+--   'legacy_at'            table still has created_at/updated_at (expand phase): derive them from
+--                          created_on/updated_on (one-way; values written to the legacy pair are ignored)
+--   'generated_is_deleted' is_deleted is generated from deleted_at (patients): never assign it, guard
+--                          deleted_at instead
 declare
   v_actor uuid := coalesce(
     auth.uid(),
@@ -160,14 +174,13 @@ begin
     new.created_by := old.created_by;
     new.updated_on := now();
     new.updated_by := v_actor;
-    -- is_deleted fails CLOSED (review S3): client roles never; any other role only as the table
-    -- owner (the SECURITY DEFINER soft-delete/restore functions) or with the transaction-local
-    -- flag hms.soft_delete set to this row's id by such a function.
-    if not v_generated and new.is_deleted is distinct from old.is_deleted then
+    -- soft-delete state fails CLOSED (review S3, re-review R1/R2): only the table owner, i.e. the
+    -- SECURITY DEFINER soft-delete/restore functions, may change it. No session setting unlocks it.
+    -- On generated tables the state lives in deleted_at (read through to_jsonb: shared function).
+    if (not v_generated and new.is_deleted is distinct from old.is_deleted)
+       or (v_generated and (pg_catalog.to_jsonb(new) ->> 'deleted_at') is distinct from (pg_catalog.to_jsonb(old) ->> 'deleted_at')) then
       select pg_catalog.pg_get_userbyid(c.relowner) into v_owner from pg_catalog.pg_class c where c.oid = tg_relid;
-      if current_user in ('authenticated', 'anon')
-         or (current_user <> v_owner
-             and coalesce(current_setting('hms.soft_delete', true), '') is distinct from (pg_catalog.to_jsonb(new) ->> 'id')) then
+      if current_user in ('authenticated', 'anon') or current_user <> v_owner then
         raise exception 'is_deleted can only be changed through the soft-delete / restore functions'
           using errcode = '42501';
       end if;
@@ -389,6 +402,9 @@ create policy schedules_update_admin on appointment.schedules
   with check (identity.has_tenant_role(tenant_id, array['tenant_admin']) and identity.can_access_branch(tenant_id, branch_id));
 
 -- ------------------------------------------- RLS helpers ignore deleted rows ----
+-- A membership counts only while it is live AND, when branch-scoped, its branch is live (code
+-- review MAJ-2): soft-deleting a branch revokes the tenant-wide roles of staff scoped to it.
+-- (is_active = false branches keep counting: deactivation is an operational pause, not removal.)
 create or replace function identity.current_tenant_ids()
 returns setof uuid
 language sql
@@ -402,6 +418,7 @@ as $$
   where m.user_id = auth.uid()
     and m.status = 'active'
     and not m.is_deleted
+      and (m.branch_id is null or exists (select 1 from identity.branches mb where mb.id = m.branch_id and not mb.is_deleted))
     and t.status = 'active'
     and not t.is_deleted
     and (identity.active_tenant_claim() is null or m.tenant_id = identity.active_tenant_claim())
@@ -422,6 +439,7 @@ as $$
       and m.tenant_id = p_tenant_id
       and m.status = 'active'
       and not m.is_deleted
+      and (m.branch_id is null or exists (select 1 from identity.branches mb where mb.id = m.branch_id and not mb.is_deleted))
       and t.status = 'active'
       and not t.is_deleted
       and m.role = any (p_roles)
@@ -447,6 +465,7 @@ as $$
         and m.tenant_id = p_tenant_id
         and m.status = 'active'
         and not m.is_deleted
+      and (m.branch_id is null or exists (select 1 from identity.branches mb where mb.id = m.branch_id and not mb.is_deleted))
         and (m.branch_id is null or m.branch_id = b.id)
     )
 $$;
@@ -463,6 +482,7 @@ as $$
     where m.user_id = p_user_id
       and m.status = 'active'
       and not m.is_deleted
+      and (m.branch_id is null or exists (select 1 from identity.branches mb where mb.id = m.branch_id and not mb.is_deleted))
       and m.tenant_id in (select identity.current_tenant_ids())
   )
 $$;
@@ -480,6 +500,7 @@ as $$
     where m.user_id = p_user_id
       and m.status <> 'invited'
       and not m.is_deleted
+      and (m.branch_id is null or exists (select 1 from identity.branches mb where mb.id = m.branch_id and not mb.is_deleted))
       and identity.has_tenant_role(m.tenant_id, array['tenant_admin'])
   )
 $$;
@@ -629,6 +650,7 @@ begin
     select 1 from identity.memberships m
     join identity.tenants t on t.id = m.tenant_id
     where m.user_id = v_uid and m.tenant_id = p_tenant_id and m.status = 'active' and not m.is_deleted
+      and (m.branch_id is null or exists (select 1 from identity.branches mb where mb.id = m.branch_id and not mb.is_deleted))
       and t.status = 'active' and not t.is_deleted
       and (p_branch_id is null or m.branch_id is null or m.branch_id = p_branch_id)
   ) then
@@ -675,6 +697,7 @@ begin
   from identity.memberships m
   join identity.tenants t on t.id = m.tenant_id
   where m.user_id = p_user_id and m.status = 'active' and not m.is_deleted
+      and (m.branch_id is null or exists (select 1 from identity.branches mb where mb.id = m.branch_id and not mb.is_deleted))
     and t.status = 'active' and not t.is_deleted
   order by (m.tenant_id = v_pref_tenant) desc nulls last, m.created_on, m.tenant_id
   limit 1;
@@ -698,7 +721,8 @@ begin
 
   select bool_or(m.branch_id is null) into v_all_branches
   from identity.memberships m
-  where m.user_id = p_user_id and m.tenant_id = v_tenant and m.status = 'active' and not m.is_deleted;
+  where m.user_id = p_user_id and m.tenant_id = v_tenant and m.status = 'active' and not m.is_deleted
+      and (m.branch_id is null or exists (select 1 from identity.branches mb where mb.id = m.branch_id and not mb.is_deleted));
 
   select coalesce(array_agg(b.id order by b.name, b.id), '{}') into v_branch_ids
   from identity.branches b
@@ -708,6 +732,7 @@ begin
     and (v_all_branches or exists (
       select 1 from identity.memberships m
       where m.user_id = p_user_id and m.tenant_id = v_tenant and m.status = 'active' and not m.is_deleted
+      and (m.branch_id is null or exists (select 1 from identity.branches mb where mb.id = m.branch_id and not mb.is_deleted))
         and m.branch_id = b.id));
 
   if v_tenant = v_pref_tenant and v_pref_branch = any (v_branch_ids) then
@@ -717,6 +742,7 @@ begin
   select coalesce(array_agg(distinct m.role order by m.role), '{}') into v_roles
   from identity.memberships m
   where m.user_id = p_user_id and m.tenant_id = v_tenant and m.status = 'active' and not m.is_deleted
+      and (m.branch_id is null or exists (select 1 from identity.branches mb where mb.id = m.branch_id and not mb.is_deleted))
     and (v_branch is null or m.branch_id is null or m.branch_id = v_branch);
 
   tenant_id := v_tenant;
@@ -729,12 +755,16 @@ $$;
 
 -- =========================================== published cross-schema surface (v1) ====
 -- cross-schema: approved (DB review B2). Other schemas call ONLY these, never the tables.
--- Each is SECURITY DEFINER with an explicit tenant check: whenever a signed-in user is behind the
--- call (auth.uid() set, also when reached through another SECURITY DEFINER function, where
--- current_user is the owner) they must be a member of p_tenant_id, else P0002 (404-not-403).
--- Trusted callers without a user (service_role jobs, system triggers) skip the membership check.
+-- Each is SECURITY DEFINER with an explicit tenant check: whenever a client session is behind the
+-- call (a JWT sub, OR the session role is authenticated/anon even without a sub: re-review R4; inside
+-- a definer current_user is the owner, but current_setting('role') still shows the session's SET ROLE)
+-- the caller must be a member of p_tenant_id, else P0002 (404-not-403).
+-- Trusted callers without a client role (service_role jobs, system triggers) skip the membership check.
+-- Grants (re-review R6): service_role only. Every in-DB caller is SECURITY DEFINER (runs as owner);
+-- per-service NOLOGIN roles get EXECUTE when S1 lands.
 
 -- scheduling -> published for identity (branch soft delete) -------------------------------
+-- cross-schema: approved (published v1, DB review B2)
 create or replace function appointment.branch_has_open_activity_v1(p_tenant_id uuid, p_branch_id uuid)
 returns boolean
 language plpgsql
@@ -743,7 +773,7 @@ security definer
 set search_path = ''
 as $$
 begin
-  if auth.uid() is not null
+  if (auth.uid() is not null or pg_catalog.current_setting('role', true) in ('authenticated', 'anon'))
      and (p_tenant_id is null or p_tenant_id not in (select identity.current_tenant_ids())) then
     raise exception 'tenant not found' using errcode = 'P0002';
   end if;
@@ -759,6 +789,7 @@ comment on function appointment.branch_has_open_activity_v1(uuid, uuid) is
   'v1 (published by scheduling): true when the branch has open appointments or active queue entries.';
 
 -- scheduling -> published for identity (time-zone change lock) ----------------------------
+-- cross-schema: approved (published v1, DB review B2)
 create or replace function appointment.queue_has_entries_v1(p_tenant_id uuid, p_branch_ids uuid[], p_days date[])
 returns boolean
 language plpgsql
@@ -767,7 +798,7 @@ security definer
 set search_path = ''
 as $$
 begin
-  if auth.uid() is not null
+  if (auth.uid() is not null or pg_catalog.current_setting('role', true) in ('authenticated', 'anon'))
      and (p_tenant_id is null or p_tenant_id not in (select identity.current_tenant_ids())) then
     raise exception 'tenant not found' using errcode = 'P0002';
   end if;
@@ -780,6 +811,7 @@ comment on function appointment.queue_has_entries_v1(uuid, uuid[], date[]) is
   'v1 (published by scheduling): true when any of the branches has queue entries on any of the days.';
 
 -- scheduling -> published for patients (patient soft delete) -----------------------------
+-- cross-schema: approved (published v1, DB review B2)
 create or replace function appointment.patient_has_active_visits_v1(p_tenant_id uuid, p_patient_id uuid)
 returns boolean
 language plpgsql
@@ -788,7 +820,7 @@ security definer
 set search_path = ''
 as $$
 begin
-  if auth.uid() is not null
+  if (auth.uid() is not null or pg_catalog.current_setting('role', true) in ('authenticated', 'anon'))
      and (p_tenant_id is null or p_tenant_id not in (select identity.current_tenant_ids())) then
     raise exception 'tenant not found' using errcode = 'P0002';
   end if;
@@ -804,6 +836,7 @@ comment on function appointment.patient_has_active_visits_v1(uuid, uuid) is
   'v1 (published by scheduling): true when the patient has open appointments or active queue entries.';
 
 -- identity -> published for scheduling -----------------------------------------------------
+-- cross-schema: approved (published v1, DB review B2)
 create or replace function identity.branch_exists_v1(p_tenant_id uuid, p_branch_id uuid)
 returns boolean
 language plpgsql
@@ -812,7 +845,7 @@ security definer
 set search_path = ''
 as $$
 begin
-  if auth.uid() is not null
+  if (auth.uid() is not null or pg_catalog.current_setting('role', true) in ('authenticated', 'anon'))
      and (p_tenant_id is null or p_tenant_id not in (select identity.current_tenant_ids())) then
     raise exception 'tenant not found' using errcode = 'P0002';
   end if;
@@ -823,6 +856,7 @@ $$;
 comment on function identity.branch_exists_v1(uuid, uuid) is
   'v1 (published by identity): the branch exists in the tenant and is not soft-deleted.';
 
+-- cross-schema: approved (published v1, DB review B2)
 create or replace function identity.branch_tenant_id_v1(p_branch_id uuid)
 returns uuid
 language plpgsql
@@ -834,7 +868,7 @@ declare
   v_tenant uuid;
 begin
   select b.tenant_id into v_tenant from identity.branches b where b.id = p_branch_id and not b.is_deleted;
-  if auth.uid() is not null
+  if (auth.uid() is not null or pg_catalog.current_setting('role', true) in ('authenticated', 'anon'))
      and (v_tenant is null or v_tenant not in (select identity.current_tenant_ids())) then
     return null;  -- unknown and foreign look the same
   end if;
@@ -845,6 +879,7 @@ comment on function identity.branch_tenant_id_v1(uuid) is
   'v1 (published by identity): tenant of a live branch, NULL when unknown, deleted or (for clients) foreign.';
 
 -- patients -> published for scheduling -----------------------------------------------------
+-- cross-schema: approved (published v1, DB review B2)
 create or replace function patient.patient_exists_v1(p_tenant_id uuid, p_patient_id uuid)
 returns boolean
 language plpgsql
@@ -853,7 +888,7 @@ security definer
 set search_path = ''
 as $$
 begin
-  if auth.uid() is not null
+  if (auth.uid() is not null or pg_catalog.current_setting('role', true) in ('authenticated', 'anon'))
      and (p_tenant_id is null or p_tenant_id not in (select identity.current_tenant_ids())) then
     raise exception 'tenant not found' using errcode = 'P0002';
   end if;
@@ -864,18 +899,18 @@ $$;
 comment on function patient.patient_exists_v1(uuid, uuid) is
   'v1 (published by patients): the patient exists in the tenant and is not soft-deleted.';
 
-revoke all on function appointment.branch_has_open_activity_v1(uuid, uuid) from public, anon;
-revoke all on function appointment.queue_has_entries_v1(uuid, uuid[], date[]) from public, anon;
-revoke all on function appointment.patient_has_active_visits_v1(uuid, uuid) from public, anon;
-revoke all on function identity.branch_exists_v1(uuid, uuid) from public, anon;
-revoke all on function identity.branch_tenant_id_v1(uuid) from public, anon;
-revoke all on function patient.patient_exists_v1(uuid, uuid) from public, anon;
-grant execute on function appointment.branch_has_open_activity_v1(uuid, uuid) to authenticated, service_role;
-grant execute on function appointment.queue_has_entries_v1(uuid, uuid[], date[]) to authenticated, service_role;
-grant execute on function appointment.patient_has_active_visits_v1(uuid, uuid) to authenticated, service_role;
-grant execute on function identity.branch_exists_v1(uuid, uuid) to authenticated, service_role;
-grant execute on function identity.branch_tenant_id_v1(uuid) to authenticated, service_role;
-grant execute on function patient.patient_exists_v1(uuid, uuid) to authenticated, service_role;
+revoke all on function appointment.branch_has_open_activity_v1(uuid, uuid) from public, anon, authenticated;
+revoke all on function appointment.queue_has_entries_v1(uuid, uuid[], date[]) from public, anon, authenticated;
+revoke all on function appointment.patient_has_active_visits_v1(uuid, uuid) from public, anon, authenticated;
+revoke all on function identity.branch_exists_v1(uuid, uuid) from public, anon, authenticated;
+revoke all on function identity.branch_tenant_id_v1(uuid) from public, anon, authenticated;
+revoke all on function patient.patient_exists_v1(uuid, uuid) from public, anon, authenticated;
+grant execute on function appointment.branch_has_open_activity_v1(uuid, uuid) to service_role;
+grant execute on function appointment.queue_has_entries_v1(uuid, uuid[], date[]) to service_role;
+grant execute on function appointment.patient_has_active_visits_v1(uuid, uuid) to service_role;
+grant execute on function identity.branch_exists_v1(uuid, uuid) to service_role;
+grant execute on function identity.branch_tenant_id_v1(uuid) to service_role;
+grant execute on function patient.patient_exists_v1(uuid, uuid) to service_role;
 
 -- -------------------------------- appointment helpers: deleted rows are unknown ----
 create or replace function appointment.assert_tenant_refs(p_tenant_id uuid, p_branch_id uuid)
@@ -1045,9 +1080,7 @@ begin
   if appointment.branch_has_open_activity_v1(v_b.tenant_id, v_b.id) then
     raise exception 'branch has open appointments or queue entries' using errcode = '55000';
   end if;
-  perform set_config('hms.soft_delete', v_b.id::text, true);
   update identity.branches set is_deleted = true, is_active = false where id = v_b.id;
-  perform set_config('hms.soft_delete', '', true);
 end;
 $$;
 
@@ -1071,9 +1104,7 @@ begin
     raise exception 'branch is not deleted' using errcode = 'P0002';
   end if;
   -- comes back inactive: the admin re-activates it explicitly
-  perform set_config('hms.soft_delete', v_b.id::text, true);
   update identity.branches set is_deleted = false where id = v_b.id;
-  perform set_config('hms.soft_delete', '', true);
 end;
 $$;
 
@@ -1099,9 +1130,7 @@ begin
   if v_m.user_id = auth.uid() then
     raise exception 'you cannot remove your own membership' using errcode = '55000';
   end if;
-  perform set_config('hms.soft_delete', v_m.id::text, true);
   update identity.memberships set is_deleted = true where id = v_m.id;
-  perform set_config('hms.soft_delete', '', true);
 end;
 $$;
 
@@ -1125,9 +1154,7 @@ begin
   if not v_m.is_deleted then
     raise exception 'membership is not deleted' using errcode = 'P0002';
   end if;
-  perform set_config('hms.soft_delete', v_m.id::text, true);
   update identity.memberships set is_deleted = false where id = v_m.id;
-  perform set_config('hms.soft_delete', '', true);
 end;
 $$;
 
@@ -1153,9 +1180,7 @@ begin
                and a.status in ('booked', 'checked_in', 'in_consultation')) then
     raise exception 'practitioner has open appointments' using errcode = '55000';
   end if;
-  perform set_config('hms.soft_delete', v_p.id::text, true);
   update appointment.practitioners set is_deleted = true, is_active = false where id = v_p.id;
-  perform set_config('hms.soft_delete', '', true);
 end;
 $$;
 
@@ -1179,9 +1204,7 @@ begin
   if not v_p.is_deleted then
     raise exception 'practitioner is not deleted' using errcode = 'P0002';
   end if;
-  perform set_config('hms.soft_delete', v_p.id::text, true);
   update appointment.practitioners set is_deleted = false where id = v_p.id;
-  perform set_config('hms.soft_delete', '', true);
 end;
 $$;
 
@@ -1203,9 +1226,7 @@ begin
      or not identity.can_access_branch(v_s.tenant_id, v_s.branch_id) then
     raise exception 'only tenant admins can delete schedules' using errcode = '42501';
   end if;
-  perform set_config('hms.soft_delete', v_s.id::text, true);
   update appointment.schedules set is_deleted = true where id = v_s.id;
-  perform set_config('hms.soft_delete', '', true);
 end;
 $$;
 
@@ -1230,9 +1251,7 @@ begin
   if not v_s.is_deleted then
     raise exception 'schedule is not deleted' using errcode = 'P0002';
   end if;
-  perform set_config('hms.soft_delete', v_s.id::text, true);
   update appointment.schedules set is_deleted = false where id = v_s.id;
-  perform set_config('hms.soft_delete', '', true);
 end;
 $$;
 

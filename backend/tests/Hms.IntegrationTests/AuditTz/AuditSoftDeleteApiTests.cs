@@ -200,6 +200,34 @@ public sealed class AuditSoftDeleteApiTests(HmsApiFactory factory) : IClassFixtu
     }
 
     [Fact]
+    public async Task Deleting_a_branch_revokes_the_roles_of_staff_scoped_to_it()
+    {
+        // code review MAJ-2: a doctor whose only membership is at a deleted branch must not keep a
+        // tenant-wide role (clinical roles read patients tenant-wide).
+        var t = await ATz.NewTenantAsync(factory);
+        using var admin = factory.ClientAs(t.AdminId, t.TenantId);
+        var east = await ATz.CreateBranchAsync(admin, timezone: null);
+        await Sprint2.S2.CreatePatientAsync(admin, t.MainBranchId);
+        var doctor = await CreateUserAsync("atz-east-doctor", (t.TenantId, east.Id, "doctor"));
+        using var doctorClient = factory.ClientAs(doctor, t.TenantId);
+        Assert.Equal(HttpStatusCode.OK, (await doctorClient.GetAsync("/api/v1/patients?pageSize=5")).StatusCode);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await admin.DeleteAsync($"/api/v1/branches/{east.Id}")).StatusCode);
+
+        // Same token, tenant claim still set: the API grant has no roles any more.
+        Assert.Equal(HttpStatusCode.Forbidden, (await doctorClient.GetAsync("/api/v1/patients?pageSize=5")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await doctorClient.GetAsync("/api/v1/tenants/current")).StatusCode);
+        var me = await doctorClient.GetFromJsonAsync<ATzMe>("/api/v1/me");
+        Assert.Null(me!.TenantId);
+        // ... and the DB helpers agree (RLS)
+        Assert.Equal(0L, await ATz.ScalarAsync<long>(
+            "select count(*) from identity.resolve_active_context(@u)", ("u", doctor)));
+
+        Assert.Equal(HttpStatusCode.NoContent, (await admin.PostAsync($"/api/v1/branches/{east.Id}/restore", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await doctorClient.GetAsync("/api/v1/patients?pageSize=5")).StatusCode);
+    }
+
+    [Fact]
     public async Task Cross_tenant_soft_delete_and_restore_are_404()
     {
         using var admin = factory.ClientAs(AlphaAdmin, Alpha);

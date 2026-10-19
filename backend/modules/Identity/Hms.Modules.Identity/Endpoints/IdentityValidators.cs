@@ -49,47 +49,6 @@ public static partial class IdentityValidators
         return errors;
     }
 
-    public static Dictionary<string, string[]> Validate(CreateTenantRequest r)
-    {
-        var errors = new Dictionary<string, string[]>();
-        if (r.Code is null || !CodePattern().IsMatch(r.Code))
-        {
-            errors["code"] = ["Code must be 2-40 lowercase letters, digits or hyphens, starting with a letter or digit."];
-        }
-
-        ValidateName(r.Name, errors, required: true);
-        if (string.IsNullOrWhiteSpace(r.TimeZone))
-        {
-            errors["timeZone"] = ["A time zone is required (IANA id, e.g. Asia/Kolkata)."];
-        }
-        else
-        {
-            ValidateTimezone(r.TimeZone, errors, "timeZone");
-        }
-
-        if (r.AdminEmail is not null && (!r.AdminEmail.Contains('@', StringComparison.Ordinal) || r.AdminEmail.Length > 254))
-        {
-            errors["adminEmail"] = ["adminEmail must be a valid email."];
-        }
-
-        if (r.BranchCode is not null && !CodePattern().IsMatch(r.BranchCode))
-        {
-            errors["branchCode"] = ["Branch code must be 2-40 lowercase letters, digits or hyphens."];
-        }
-
-        if (r.BranchName is not null)
-        {
-            var branchErrors = new Dictionary<string, string[]>();
-            ValidateName(r.BranchName, branchErrors, required: true);
-            if (branchErrors.Count > 0)
-            {
-                errors["branchName"] = branchErrors["name"];
-            }
-        }
-
-        return errors;
-    }
-
     /// <summary>True for an IANA id this runtime knows (the database re-checks against pg_timezone_names).</summary>
     public static bool IsIanaTimeZone(string? timezone) => Hms.SharedKernel.Time.TenantTimeZones.IsValidIana(timezone);
 
@@ -150,7 +109,11 @@ public static partial class IdentityValidators
     {
         if (timezone is not null && !IsIanaTimeZone(timezone))
         {
-            errors[field] = ["Unknown IANA timezone."];
+            // code review MIN-2 / re-review N3: say which canonical id to use
+            var suggestion = Hms.SharedKernel.Time.TenantTimeZones.Suggest(timezone);
+            errors[field] = [suggestion is null
+                ? "Unknown or unsupported IANA timezone. Use a canonical IANA id such as Asia/Kolkata."
+                : $"Unknown or unsupported IANA timezone. Did you mean '{suggestion}'?"];
         }
     }
 

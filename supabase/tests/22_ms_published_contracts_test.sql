@@ -92,7 +92,7 @@ end
 $$;
 
 -- Branch without an override inherits the tenant zone (audit-tz tenant time zone).
-update identity.branches set timezone = null where id = 'a1111111-0000-4000-8000-000000000001';
+update identity.branches set timezone_override = null where id = 'a1111111-0000-4000-8000-000000000001';
 update identity.tenants set time_zone = 'Asia/Dubai' where id = '11111111-1111-4111-8111-111111111111';
 select tests.authenticate_as('reception@alpha.example');
 select tests.ok(
@@ -137,8 +137,8 @@ select tests.ok(
       and has_function_privilege('anon', p.oid, 'execute'))
   and has_function_privilege('authenticated', 'patient.patient_summary_v1(uuid, uuid[])', 'execute')
   and has_function_privilege('authenticated', 'identity.my_tenant_grant_v1(uuid)', 'execute')
-  and has_function_privilege('authenticated', 'appointment.patient_has_open_visits_v1(uuid, uuid)', 'execute'),
-  'no _v1 function is callable by anon; the new ones are authenticated (with explicit tenant checks)');
+  and not has_function_privilege('authenticated', 'appointment.patient_has_open_visits_v1(uuid, uuid)', 'execute'),
+  'no _v1 function is callable by anon; my_tenant_grant_v1 and patient_summary_v1 are authenticated (explicit tenant checks); patient_has_open_visits_v1 is service-only (R6)');
 
 -- ---------- patient.patient_summary_v1 ----------
 select tests.ok(
@@ -217,14 +217,46 @@ select tests.ok(
   and not appointment.branch_has_open_activity_v1('22222222-2222-4222-8222-222222222222', 'a1111111-0000-4000-8000-000000000001'),
   'branch_has_open_activity_v1 sees the booked appointment, tenant-scoped');
 
-select tests.authenticate_as('admin@beta.example');
-select tests.throws_ok(
-  $$select appointment.patient_has_open_visits_v1('11111111-1111-4111-8111-111111111111', 'aa000000-0000-4000-8000-000000000003')$$,
-  'P0002', 'patient_has_open_visits_v1: a signed-in caller of another tenant gets P0002 (404-not-403)');
-
 select tests.authenticate_as('admin@alpha.example');
 select tests.throws_ok(
   $$select patient.soft_delete_patient('aa000000-0000-4000-8000-000000000003')$$, '55000',
   'soft delete is still refused with 55000 while the patient has an open appointment');
+select tests.authenticate_as('admin@beta.example');
+select tests.throws_ok(
+  $$select appointment.patient_has_open_visits_v1('11111111-1111-4111-8111-111111111111', 'aa000000-0000-4000-8000-000000000003')$$,
+  '42501', 'R6: patient_has_open_visits_v1 is not executable by signed-in members (service_role only)');
+select tests.as_superuser();
+select tests.ok(
+  not has_function_privilege('authenticated', 'appointment.patient_has_open_visits_v1(uuid,uuid)', 'execute')
+  and not has_function_privilege('authenticated', 'appointment.patient_has_active_visits_v1(uuid,uuid)', 'execute')
+  and has_function_privilege('service_role', 'appointment.patient_has_open_visits_v1(uuid,uuid)', 'execute'),
+  'R6: open-visit functions: service_role yes, authenticated no');
+
+-- R4 on the functions added here: an authenticated session WITHOUT a sub claim gets nothing.
+grant execute on function appointment.patient_has_open_visits_v1(uuid, uuid) to authenticated;  -- rolled back
+select set_config('request.jwt.claims', '{"role":"authenticated"}', true);
+set local role authenticated;
+select tests.throws_ok(
+  $$select appointment.patient_has_open_visits_v1('11111111-1111-4111-8111-111111111111', 'aa000000-0000-4000-8000-000000000003')$$,
+  'P0002', 'R4: no-sub authenticated -> patient_has_open_visits_v1 P0002');
+select tests.ok(
+  (select count(*) from patient.patient_summary_v1('11111111-1111-4111-8111-111111111111', array['aa000000-0000-4000-8000-000000000003'::uuid])) = 0,
+  'R4: no-sub authenticated -> patient_summary_v1 returns nothing');
+select tests.ok(identity.my_tenant_grant_v1('11111111-1111-4111-8111-111111111111') is null,
+  'R4: no-sub authenticated -> my_tenant_grant_v1 null');
+select tests.as_superuser();
+
+-- MAJ-2: a branch-scoped membership at a soft-deleted branch grants nothing.
+-- (guard triggers bypassed for this rolled-back transaction: only the read side is under test here)
+set local session_replication_role = replica;
+update identity.branches set is_deleted = true where id = 'a1111111-0000-4000-8000-000000000001';
+set local session_replication_role = origin;
+select tests.authenticate_as('reception@alpha.example');
+select tests.ok(
+  identity.my_tenant_grant_v1('11111111-1111-4111-8111-111111111111') is null
+  or coalesce(jsonb_array_length(identity.my_tenant_grant_v1('11111111-1111-4111-8111-111111111111') -> 'memberships'), 0) = 0,
+  'MAJ-2: a membership at a deleted branch grants nothing');
+select tests.as_superuser();
+
 
 rollback;

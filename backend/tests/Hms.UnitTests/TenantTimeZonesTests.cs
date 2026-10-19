@@ -47,9 +47,34 @@ public class TenantTimeZonesTests
     [InlineData("right/UTC", false)]
     [InlineData("IST", false)]
     [InlineData("Mars/Olympus", false)]
+    [InlineData("Asia/Kolkata+5", false)]      // code review MIN-2: POSIX suffix = UTC-5
+    [InlineData("Asia/Kolkata-05:30", false)]
+    [InlineData("UTC+5", false)]
+    [InlineData("Etc/GMT+5", false)]           // re-review N3: inverted sign
+    [InlineData("Etc/GMT-14", false)]
+    [InlineData("Etc/UTC", true)]
+    [InlineData("America/Port-au-Prince", true)]
+    [InlineData("America/North_Dakota/New_Salem", true)]
     [InlineData("", false)]
     [InlineData(null, false)]
     public void Only_iana_ids_are_valid(string? zone, bool valid) => Assert.Equal(valid, TenantTimeZones.IsValidIana(zone));
+
+    [Theory]
+    [InlineData("Asia/Kolkata+5", "Asia/Kolkata")]
+    [InlineData("Asia/Kolkata-05:30", "Asia/Kolkata")]
+    [InlineData("GMT", "UTC")]
+    [InlineData("Etc/GMT", "UTC")]
+    [InlineData("IST", "Asia/Kolkata")]
+    [InlineData("US/Eastern", "America/New_York")]
+    [InlineData("Asia/Calcutta", "Asia/Kolkata")]
+    [InlineData("Mars/Olympus", null)]
+    [InlineData(null, null)]
+    public void Rejected_zones_get_a_canonical_suggestion(string? zone, string? expected) =>
+        Assert.Equal(expected, TenantTimeZones.Suggest(zone));
+
+    [Fact]
+    public void A_windows_id_suggests_its_iana_id() =>
+        Assert.Equal("Asia/Kolkata", TenantTimeZones.Suggest("India Standard Time"));
 
     [Fact]
     public void Tenant_context_falls_back_to_the_tenant_zone_for_branches_without_an_override()

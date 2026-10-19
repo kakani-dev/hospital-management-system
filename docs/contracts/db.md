@@ -43,9 +43,13 @@ Details:
   nurse, receptionist, billing in the tenant; otherwise the result is empty.
 - Canonical names are the ones in this file (CTO decision 6). `patient_has_active_visits_v1` (the
   audit-tz name) delegates to `patient_has_open_visits_v1` and is dropped by a later contract migration.
+- Grants (re-review R6): `my_tenant_grant_v1`, `patient_summary_v1` and the two zone reads are executable by
+  `authenticated` (explicit tenant + role checks keyed on the session role, R4); every other `_v1` read,
+  including `patient_has_open_visits_v1`, is `service_role` only and is reached through definer commands.
+  A branch-scoped membership counts only while its branch is live (code review MAJ-2).
 
 Rules: additive changes only. A breaking change ships as `_v2` next to `_v1` until no caller uses
-`_v1`. Signatures are pinned by `supabase/tests/20_ms_published_contracts_test.sql`. A migration that
+`_v1`. Signatures are pinned by `supabase/tests/22_ms_published_contracts_test.sql`. A migration that
 adds a cross-schema reference must carry the header line `-- cross-schema: approved`.
 
 ## Roles

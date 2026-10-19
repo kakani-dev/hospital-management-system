@@ -57,6 +57,18 @@ public class AuditColumnConventionsTests
         }
     }
 
+    [Fact]
+    public void Zone_columns_are_never_updated_by_ef()
+    {
+        // DB re-review R5: zone changes go through identity.change_time_zone_v1 (no client UPDATE grant).
+        var tenantZone = IdentityModel().FindEntityType(typeof(Tenant))!.FindProperty(nameof(Tenant.TimeZone))!;
+        Assert.Equal(PropertySaveBehavior.Ignore, tenantZone.GetAfterSaveBehavior());
+        var branchZone = IdentityModel().FindEntityType(typeof(Branch))!.FindProperty(nameof(Branch.Timezone))!;
+        Assert.Equal(PropertySaveBehavior.Ignore, branchZone.GetAfterSaveBehavior());
+        // code review MAJ-1: the override has its own column; branches.timezone is the DB-kept mirror
+        Assert.Equal("timezone_override", branchZone.GetColumnName());
+    }
+
     private static IModel AppointmentsModel() =>
         new AppointmentsDbContext(new DbContextOptionsBuilder<AppointmentsDbContext>().UseNpgsql("Host=unused").UseSnakeCaseNamingConvention().Options, new TenantContext()).Model;
 

@@ -36,6 +36,9 @@ begin
 end
 $$;
 
+set local lock_timeout = '5s';
+set local statement_timeout = '120s';
+
 comment on role hms_svc_identity is
   'HMS identity service: no direct privileges; SET ROLE authenticated/anon per transaction so RLS applies.';
 comment on role hms_svc_patients is

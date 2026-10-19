@@ -14,8 +14,6 @@ public sealed record ATzBranch(Guid Id, string Code, string Name, string Timezon
 
 public sealed record ATzTenant(Guid Id, string Code, string Name, Guid? ActiveBranchId, List<string> Roles, string TimeZone);
 
-public sealed record ATzCreatedTenant(Guid Id, string Code, string Name, string TimeZone);
-
 public sealed record ATzBranchOption(Guid Id, string Name, string? TimeZone);
 
 public sealed record ATzMe(Guid UserId, Guid? TenantId, Guid? BranchId, List<ATzBranchOption> AccessibleBranches, string? TimeZone);
@@ -30,7 +28,7 @@ public sealed record ATzSchedule(Guid Id, Guid PractitionerId, Guid BranchId, in
 
 public sealed record ATzPatient(Guid Id, string Mrn, DateTimeOffset CreatedOn, DateTimeOffset UpdatedOn);
 
-/// <summary>A newly created tenant (through POST /api/v1/platform/tenants) with an accepted tenant_admin.</summary>
+/// <summary>A newly created tenant (identity.create_tenant) with an accepted tenant_admin.</summary>
 public sealed record ATzTenantFixture(Guid TenantId, string Code, Guid AdminId, Guid MainBranchId);
 
 /// <summary>TimeProvider whose "now" the test sets (the API's branch-local "today" comes from it).</summary>
@@ -58,9 +56,6 @@ public sealed class FixedClockApiFactory : HmsApiFactory
 
 internal static class ATz
 {
-    /// <summary>Seeded platform administrator (identity.platform_admins; supabase/seed.sql).</summary>
-    public static readonly Guid PlatformAdmin = Guid.Parse("0e000000-0000-4000-8000-000000000001");
-
     /// <summary>audit.system_actor(): the fixed "MediCore System" actor (no auth.users row).</summary>
     public static readonly Guid SystemActor = Guid.Parse("00000000-0000-4000-8000-00000000005e");
 
@@ -90,7 +85,8 @@ internal static class ATz
     public static async Task<string?> CodeAsync(HttpResponseMessage response) => await Sprint2.S2.CodeAsync(response);
 
     /// <summary>
-    /// Creates a tenant through the platform endpoint (identity.create_tenant), then the invited admin
+    /// Creates a tenant with identity.create_tenant as a trusted caller (what the identity service will
+    /// do; the monolith has no create-tenant endpoint, code review MIN-5), then the invited admin
     /// accepts the invitation through /me/invitations, exactly as a real onboarding would.
     /// </summary>
     public static async Task<ATzTenantFixture> NewTenantAsync(HmsApiFactory factory, string timeZone = "Asia/Kolkata")
@@ -98,18 +94,17 @@ internal static class ATz
         var adminId = await CreateUserAsync("atz-admin");
         var email = await EmailOfAsync(adminId);
         var code = Code();
-        using var platform = factory.ClientAs(PlatformAdmin);
-        var created = await ReadAsync<ATzCreatedTenant>(
-            await platform.PostAsJsonAsync("/api/v1/platform/tenants", new { code, name = $"Synthetic {code}", timeZone, adminEmail = email }),
-            HttpStatusCode.Created);
+        var tenantId = await ScalarAsync<Guid>(
+            "select identity.create_tenant(@code, @name, @zone, @email)",
+            ("code", code), ("name", $"Synthetic {code}"), ("zone", timeZone), ("email", email));
 
         using var invitee = factory.ClientAs(adminId);
         var invitations = await invitee.GetFromJsonAsync<List<ATzInvitation>>("/api/v1/me/invitations");
-        var invitation = Assert.Single(invitations!, i => i.TenantId == created.Id);
+        var invitation = Assert.Single(invitations!, i => i.TenantId == tenantId);
         Assert.Equal(HttpStatusCode.NoContent, (await invitee.PostAsync($"/api/v1/me/invitations/{invitation.MembershipId}/accept", content: null)).StatusCode);
 
-        var main = await ScalarAsync<Guid>("select id from identity.branches where tenant_id = @t", ("t", created.Id));
-        return new ATzTenantFixture(created.Id, code, adminId, main);
+        var main = await ScalarAsync<Guid>("select id from identity.branches where tenant_id = @t", ("t", tenantId));
+        return new ATzTenantFixture(tenantId, code, adminId, main);
     }
 
     public static async Task<ATzBranch> CreateBranchAsync(HttpClient admin, string? timezone)
