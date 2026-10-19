@@ -84,9 +84,9 @@ select tests.ok(not identity.is_admin_of_member('0b000000-0000-4000-8000-0000000
 select tests.ok(
   tests.affected_rows(format($$update identity.memberships set status = 'active' where id = %L$$, (select id from p1))) = 0,
   'admin direct UPDATE invited -> active affects 0 rows');
-select tests.ok(
-  tests.affected_rows(format($$delete from identity.memberships where id = %L$$, (select id from p1))) = 0,
-  'admin cannot delete the pending invitation either (hidden)');
+select tests.throws_ok(
+  format($$select identity.soft_delete_membership(%L)$$, (select id from p1)),
+  'P0002', 'admin cannot delete the pending invitation either (hidden -> not found)');
 select tests.throws_ok(
   $$insert into identity.memberships (tenant_id, user_id, role, status)
     values ('11111111-1111-4111-8111-111111111111', '0c000000-0000-4000-8000-000000000001', 'viewer', 'active')$$,
@@ -173,10 +173,10 @@ update identity.tenants set status = 'active' where id = '11111111-1111-4111-811
 -- ---------- default tenant = oldest membership, not tenant name ----------
 select tests.as_superuser();
 insert into auth.users (id, email) values ('0f000000-0000-4000-8000-000000000001', 'ordering@shared.example');
-set local session_replication_role = replica; -- setup only: keep the explicit created_at values
-insert into identity.memberships (tenant_id, user_id, role, status, created_at) values
-  ('22222222-2222-4222-8222-222222222222', '0f000000-0000-4000-8000-000000000001', 'doctor', 'active', now() - interval '1 day'),
-  ('11111111-1111-4111-8111-111111111111', '0f000000-0000-4000-8000-000000000001', 'doctor', 'active', now());
+set local session_replication_role = replica; -- setup only: keep the explicit created_on values
+insert into identity.memberships (tenant_id, user_id, role, status, created_on, created_by, updated_by) values
+  ('22222222-2222-4222-8222-222222222222', '0f000000-0000-4000-8000-000000000001', 'doctor', 'active', now() - interval '1 day', audit.system_actor(), audit.system_actor()),
+  ('11111111-1111-4111-8111-111111111111', '0f000000-0000-4000-8000-000000000001', 'doctor', 'active', now(), audit.system_actor(), audit.system_actor());
 set local session_replication_role = origin;
 set local role supabase_auth_admin;
 select tests.ok(

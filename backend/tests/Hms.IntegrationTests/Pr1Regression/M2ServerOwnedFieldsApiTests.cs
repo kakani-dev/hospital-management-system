@@ -36,6 +36,9 @@ public sealed class M2ServerOwnedFieldsApiTests(HmsApiFactory factory) : IClassF
             ["updatedBy"] = AlphaAdmin, ["updated_by"] = AlphaAdmin,
             ["createdAt"] = Forged, ["created_at"] = Forged,
             ["updatedAt"] = Forged, ["updated_at"] = Forged,
+            ["createdOn"] = Forged, ["created_on"] = Forged,
+            ["updatedOn"] = Forged, ["updated_on"] = Forged,
+            ["isDeleted"] = true, ["is_deleted"] = true,
             ["deletedAt"] = DateTimeOffset.UtcNow, ["deleted_at"] = DateTimeOffset.UtcNow,
         };
 
@@ -58,8 +61,8 @@ public sealed class M2ServerOwnedFieldsApiTests(HmsApiFactory factory) : IClassF
         Assert.Equal(AlphaReception, stored.CreatedBy);
         Assert.Equal(AlphaReception, stored.UpdatedBy);
         Assert.Null(stored.DeletedAt);
-        Assert.InRange(stored.CreatedAt, started.AddMinutes(-5), DateTimeOffset.UtcNow.AddMinutes(5));
-        Assert.InRange(stored.UpdatedAt, started.AddMinutes(-5), DateTimeOffset.UtcNow.AddMinutes(5));
+        Assert.InRange(stored.CreatedOn, started.AddMinutes(-5), DateTimeOffset.UtcNow.AddMinutes(5));
+        Assert.InRange(stored.UpdatedOn, started.AddMinutes(-5), DateTimeOffset.UtcNow.AddMinutes(5));
         Assert.Null(await Pr1Db.PatientAuditAsync(forgedId));
     }
 }

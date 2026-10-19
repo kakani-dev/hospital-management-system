@@ -1,7 +1,8 @@
 using Hms.Modules.Patients.Persistence;
 using Hms.Modules.Patients.Registry;
+using Hms.Platform.Persistence;
+using Hms.Platform.Tenancy;
 using Hms.SharedKernel.Persistence;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -12,14 +13,9 @@ public static class PatientsModule
 {
     public static IServiceCollection AddPatientsModule(this IServiceCollection services, IConfiguration configuration)
     {
-        var connectionString = configuration.GetConnectionString("HmsDatabase");
-        services.TryAddScoped<DbSessionContext>();
-        services.TryAddScoped<RlsTransactionInterceptor>();
-        services.TryAddScoped<TenantSaveChangesInterceptor>();
-        services.TryAddSingleton(TimeProvider.System);
+        services.AddHmsDbSession();
         services.AddDbContext<PatientsDbContext>((sp, options) => options
-            .UseNpgsql(connectionString)
-            .UseSnakeCaseNamingConvention()
+            .UseHmsNpgsql(configuration)
             .AddInterceptors(
                 sp.GetRequiredService<RlsTransactionInterceptor>(),
                 sp.GetRequiredService<TenantSaveChangesInterceptor>()));

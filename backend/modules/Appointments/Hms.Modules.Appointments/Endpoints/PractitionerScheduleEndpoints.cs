@@ -1,3 +1,4 @@
+using Hms.Platform.Http;
 using Hms.Modules.Appointments.Domain;
 using Hms.Modules.Appointments.Functions;
 using Hms.Modules.Appointments.Persistence;
@@ -23,12 +24,17 @@ public static class PractitionerScheduleEndpoints
         practitioners.MapGet("/", ListPractitionersAsync).WithName("ListPractitioners");
         practitioners.MapPost("/", CreatePractitionerAsync).WithName("CreatePractitioner");
         practitioners.MapPatch("/{id:guid}", UpdatePractitionerAsync).WithName("UpdatePractitioner");
+        practitioners.MapDelete("/{id:guid}", DeletePractitionerAsync).WithName("DeletePractitioner")
+            .WithSummary("Soft delete (appointment.soft_delete_practitioner). 409 while the practitioner has open appointments.");
+        practitioners.MapPost("/{id:guid}/restore", RestorePractitionerAsync).WithName("RestorePractitioner");
 
         var schedules = api.MapGroup("/schedules").WithTags("Schedules").RequireTenant().WithDbTransaction<AppointmentsDbContext>();
         schedules.MapGet("/", ListSchedulesAsync).WithName("ListSchedules");
         schedules.MapPost("/", CreateScheduleAsync).WithName("CreateSchedule");
         schedules.MapPatch("/{id:guid}", UpdateScheduleAsync).WithName("UpdateSchedule");
-        schedules.MapDelete("/{id:guid}", DeleteScheduleAsync).WithName("DeleteSchedule");
+        schedules.MapDelete("/{id:guid}", DeleteScheduleAsync).WithName("DeleteSchedule")
+            .WithSummary("Soft delete (appointment.soft_delete_schedule).");
+        schedules.MapPost("/{id:guid}/restore", RestoreScheduleAsync).WithName("RestoreSchedule");
 
         api.MapGroup("/slots").WithTags("Schedules").RequireTenant().WithDbTransaction<AppointmentsDbContext>()
             .MapGet("/", SlotsAsync).WithName("ListFreeSlots")
@@ -56,7 +62,7 @@ public static class PractitionerScheduleEndpoints
             }
 
             // "Active schedule at the branch": is_active and not ended before the branch-local today (future starts count).
-            tenant.BranchTimeZones.TryGetValue(branch, out var tz);
+            var tz = tenant.TimeZoneFor(branch);
             var today = BranchTime.Today(clock, tz);
             query = query.Where(p => db.Schedules.Any(s =>
                 s.PractitionerId == p.Id && s.BranchId == branch && s.IsActive && (s.ValidTo == null || s.ValidTo >= today)));
@@ -209,7 +215,7 @@ public static class PractitionerScheduleEndpoints
             errors["branchId"] = ["Branch is required."];
         }
 
-        tenant.BranchTimeZones.TryGetValue(request.BranchId, out var tz);
+        var tz = tenant.TimeZoneFor(request.BranchId);
         var schedule = new Schedule
         {
             PractitionerId = request.PractitionerId,
@@ -320,20 +326,71 @@ public static class PractitionerScheduleEndpoints
             return HmsProblems.Forbidden("Only tenant admins can manage schedules.");
         }
 
-        var schedule = await db.Schedules.SingleOrDefaultAsync(s => s.Id == id, ct);
-        if (schedule is null)
+        return await ScheduleSoftDeleteAsync(id, deleted: false, "select appointment.soft_delete_schedule(@id)", db, tenant, ct);
+    }
+
+    private static async Task<Results<NoContent, ProblemHttpResult>> RestoreScheduleAsync(
+        Guid id, AppointmentsDbContext db, ITenantContext tenant, CancellationToken ct)
+    {
+        if (!tenant.HasAnyRole(AppointmentRoles.Admin))
+        {
+            return HmsProblems.Forbidden("Only tenant admins can manage schedules.");
+        }
+
+        return await ScheduleSoftDeleteAsync(id, deleted: true, "select appointment.restore_schedule(@id)", db, tenant, ct);
+    }
+
+    // Branch-scoped admin check in the API too (the SQL function checks can_access_branch):
+    // a branch-limited admin gets 403 for a schedule at another branch of the same tenant.
+    private static async Task<Results<NoContent, ProblemHttpResult>> ScheduleSoftDeleteAsync(
+        Guid id, bool deleted, string sql, AppointmentsDbContext db, ITenantContext tenant, CancellationToken ct)
+    {
+        var branchId = await db.Schedules.IgnoreQueryFilters().AsNoTracking()
+            .Where(s => s.Id == id && s.TenantId == tenant.TenantId && s.IsDeleted == deleted)
+            .Select(s => (Guid?)s.BranchId)
+            .SingleOrDefaultAsync(ct);
+        if (branchId is null)
         {
             return HmsProblems.NotFound("Schedule not found.");
         }
 
-        if (!tenant.HasRoleAtBranch(schedule.BranchId, AppointmentRoles.Admin))
+        if (!tenant.HasRoleAtBranch(branchId.Value, AppointmentRoles.Admin))
         {
             return HmsProblems.Forbidden("You cannot manage schedules at this branch.");
         }
 
-        db.Schedules.Remove(schedule);
-        await db.SaveChangesAsync(ct);
-        return TypedResults.NoContent();
+        return await CallSoftDeleteAsync(db, sql, id, ct);
+    }
+
+    private static async Task<Results<NoContent, ProblemHttpResult>> DeletePractitionerAsync(
+        Guid id, AppointmentsDbContext db, ITenantContext tenant, CancellationToken ct) =>
+        tenant.HasAnyRole(AppointmentRoles.Admin)
+            ? await CallSoftDeleteAsync(db, "select appointment.soft_delete_practitioner(@id)", id, ct)
+            : HmsProblems.Forbidden("Only tenant admins can manage practitioners.");
+
+    private static async Task<Results<NoContent, ProblemHttpResult>> RestorePractitionerAsync(
+        Guid id, AppointmentsDbContext db, ITenantContext tenant, CancellationToken ct) =>
+        tenant.HasAnyRole(AppointmentRoles.Admin)
+            ? await CallSoftDeleteAsync(db, "select appointment.restore_practitioner(@id)", id, ct)
+            : HmsProblems.Forbidden("Only tenant admins can manage practitioners.");
+
+    // The SQL functions own is_deleted (clients cannot write it): P0002 -> 404 (unknown, other tenant,
+    // wrong state), 42501 -> 403, 55000 -> 409 (open appointments), 23P01/23505 -> 409 on restore.
+    private static async Task<Results<NoContent, ProblemHttpResult>> CallSoftDeleteAsync(AppointmentsDbContext db, string sql, Guid id, CancellationToken ct)
+    {
+        try
+        {
+            await Hms.SharedKernel.Persistence.RawSql.ScalarAsync(db, sql, ct, ("id", id));
+            return TypedResults.NoContent();
+        }
+        catch (Exception ex) when (HmsProblems.FromDatabase(
+            ex,
+            exclusionCode: HmsProblems.Codes.ScheduleOverlap,
+            exclusionDetail: "Restoring this schedule would overlap another active schedule.",
+            uniqueDetail: "A live record with the same key already exists.") is { } problem)
+        {
+            return problem;
+        }
     }
 
     private static void ApplyTimes(Schedule schedule, string? start, string? end, bool required, Dictionary<string, string[]> errors)
@@ -410,7 +467,7 @@ public static class PractitionerScheduleEndpoints
             return await BranchScope.DenyAsync(db, tenant, branch, "You cannot view slots at this branch.", ct);
         }
 
-        tenant.BranchTimeZones.TryGetValue(branch, out var tz);
+        var tz = tenant.TimeZoneFor(branch);
         var start = from ?? BranchTime.Today(clock, tz);
         var end = to ?? start;
         if (end < start || end.DayNumber - start.DayNumber > MaxSlotRangeDays)

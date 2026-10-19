@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <!--
+    YARP edge (API gateway): the ONLY public entry point. Routes /api/v1/* to the identity, patients and
+    scheduling services, owns CORS, the per-user/IP rate limit, JWT pre-validation, X-Request-Id,
+    header stripping, /internal/** blocking, the 503 "waking up" contract and /api/v1/warmup.
+    No module, no database. Boundary enforced by ArchitectureTests (references Hms.Platform only).
+  -->
+  <PropertyGroup>
+    <UserSecretsId>hms-edge-dev</UserSecretsId>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Yarp.ReverseProxy" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../platform/Hms.Platform/Hms.Platform.csproj" />
+  </ItemGroup>
+</Project>

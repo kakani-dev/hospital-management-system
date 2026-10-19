@@ -1,7 +1,9 @@
+using Hms.Platform.Http;
 using Hms.Modules.Identity.Persistence;
 using Hms.SharedKernel.Http;
 using Hms.SharedKernel.Persistence;
 using Hms.SharedKernel.Tenancy;
+using Hms.SharedKernel.Time;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -50,6 +52,13 @@ public static class MeEndpoints
             .WithTags("Identity")
             .WithName("GetCurrentTenant");
 
+        api.MapPatch("/tenants/current", UpdateCurrentTenantAsync)
+            .RequireTenant()
+            .WithDbTransaction<IdentityDbContext>()
+            .WithTags("Identity")
+            .WithName("UpdateCurrentTenant")
+            .WithSummary("Tenant settings (tenant_admin): name and the REQUIRED IANA time zone. 409 time_zone_locked while today's queue has entries; 409 time_zone_has_future_bookings (futureBookings = N) until confirmFutureBookings = true.");
+
         return api;
     }
 
@@ -71,11 +80,12 @@ public static class MeEndpoints
         if (tenant.IsResolved)
         {
             var ids = tenant.AccessibleBranchIds.ToList();
-            branches = await db.Branches.AsNoTracking()
+            var rows = await db.Branches.AsNoTracking()
                 .Where(b => ids.Contains(b.Id))
                 .OrderBy(b => b.Name)
-                .Select(b => new BranchOptionDto(b.Id, b.Name))
+                .Select(b => new { b.Id, b.Name })
                 .ToListAsync(ct);
+            branches = [.. rows.Select(b => new BranchOptionDto(b.Id, b.Name, tenant.TimeZoneFor(b.Id)))];
         }
 
         return TypedResults.Ok(new CurrentUserDto(
@@ -85,7 +95,9 @@ public static class MeEndpoints
             tenant.IsResolved ? tenant.BranchId : null,
             tenant.IsResolved ? [.. tenant.Roles.Order(StringComparer.Ordinal)] : [],
             branches,
-            memberships));
+            memberships,
+            // effective zone of the active branch (else the tenant zone): what "today" means for this user
+            tenant.IsResolved ? tenant.TimeZoneFor(tenant.BranchId) : null));
     }
 
     private static async Task<Results<NoContent, ProblemHttpResult>> SwitchContextAsync(
@@ -141,6 +153,56 @@ public static class MeEndpoints
         var row = await db.Tenants.AsNoTracking().SingleOrDefaultAsync(t => t.Id == tenant.TenantId, ct);
         return row is null
             ? TypedResults.NotFound()
-            : TypedResults.Ok(new CurrentTenantDto(row.Id, row.Code, row.Name, tenant.BranchId, [.. tenant.Roles.Order(StringComparer.Ordinal)]));
+            : TypedResults.Ok(new CurrentTenantDto(row.Id, row.Code, row.Name, tenant.BranchId, [.. tenant.Roles.Order(StringComparer.Ordinal)], row.TimeZone));
+    }
+
+    private static async Task<Results<Ok<CurrentTenantDto>, NotFound, ValidationProblem, ProblemHttpResult>> UpdateCurrentTenantAsync(
+        UpdateTenantRequest request, IdentityDbContext db, ITenantContext tenant, CancellationToken ct)
+    {
+        if (!tenant.HasAnyRole(HmsRoles.TenantAdmin))
+        {
+            return HmsProblems.Forbidden("Only tenant admins can change hospital settings.");
+        }
+
+        var errors = IdentityValidators.Validate(request);
+        if (errors.Count > 0)
+        {
+            return TypedResults.ValidationProblem(errors);
+        }
+
+        var row = await db.Tenants.SingleOrDefaultAsync(t => t.Id == tenant.TenantId, ct);
+        if (row is null)
+        {
+            return TypedResults.NotFound();
+        }
+
+        var zone = row.TimeZone;
+        try
+        {
+            // Zone first (identity.change_time_zone_v1, DB re-review R5): when it needs confirmation
+            // nothing is saved, including the name.
+            if (request.TimeZone is not null)
+            {
+                var outcome = await TimeZoneChange.ApplyAsync(db, row.Id, null, request.TimeZone, request.ConfirmFutureBookings == true, ct);
+                if (!outcome.Changed)
+                {
+                    return TimeZoneChange.NeedsConfirmation(outcome);
+                }
+
+                zone = outcome.TimeZone!; // canonical (Asia/Calcutta -> Asia/Kolkata)
+            }
+
+            if (request.Name is not null)
+            {
+                row.Name = request.Name.Trim();
+                await db.SaveChangesAsync(ct);
+            }
+        }
+        catch (Exception ex) when (TimeZoneChange.FromDatabase(ex) is { } problem)
+        {
+            return problem;
+        }
+
+        return TypedResults.Ok(new CurrentTenantDto(row.Id, row.Code, row.Name, tenant.BranchId, [.. tenant.Roles.Order(StringComparer.Ordinal)], zone));
     }
 }

@@ -1,5 +1,5 @@
 using System.Security.Claims;
-using Hms.Modules.Identity.Tenancy;
+using Hms.Platform.Tenancy;
 using Hms.SharedKernel.Persistence;
 using Hms.SharedKernel.Tenancy;
 using Microsoft.AspNetCore.Http;
@@ -28,7 +28,8 @@ public class TenantResolutionMiddlewareTests
                     roles,
                     [AlphaEast],
                     new Dictionary<Guid, IReadOnlyCollection<string>> { [AlphaEast] = roles },
-                    new Dictionary<Guid, string> { [AlphaEast] = "Asia/Kolkata" }));
+                    new Dictionary<Guid, string> { [AlphaEast] = "Asia/Kolkata" },
+                    "Asia/Kolkata"));
         }
 
         public Task<ActiveContext?> FindDefaultContextAsync(CancellationToken cancellationToken)

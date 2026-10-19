@@ -24,6 +24,18 @@ public sealed class TenantContext : ITenantContext
 
     public IReadOnlyDictionary<Guid, string> BranchTimeZones { get; private set; } = new Dictionary<Guid, string>();
 
+    private string? _tenantTimeZone;
+
+    /// <summary>The tenant's required zone. Throws when the resolver did not supply one (never defaulted).</summary>
+    public string TenantTimeZone => IsResolved
+        ? _tenantTimeZone ?? throw new Time.MissingTimeZoneException()
+        : throw new TenantNotResolvedException();
+
+    public string TimeZoneFor(Guid? branchId) =>
+        Time.TenantTimeZones.Effective(
+            branchId is { } b && BranchTimeZones.TryGetValue(b, out var zone) ? zone : null,
+            IsResolved ? _tenantTimeZone : throw new TenantNotResolvedException());
+
     /// <summary>
     /// Resolves the context. <paramref name="rolesByBranch"/> is the per-branch role map; when it is
     /// null, every accessible branch gets <paramref name="roles"/> (only for callers that have no
@@ -36,7 +48,8 @@ public sealed class TenantContext : ITenantContext
         IEnumerable<string> roles,
         IEnumerable<Guid> accessibleBranchIds,
         IReadOnlyDictionary<Guid, IReadOnlyCollection<string>>? rolesByBranch = null,
-        IReadOnlyDictionary<Guid, string>? branchTimeZones = null)
+        IReadOnlyDictionary<Guid, string>? branchTimeZones = null,
+        string? tenantTimeZone = null)
     {
         if (IsResolved)
         {
@@ -67,9 +80,10 @@ public sealed class TenantContext : ITenantContext
         Roles = roleSet;
         AccessibleBranchIds = accessible;
         RolesByBranch = map;
+        _tenantTimeZone = string.IsNullOrWhiteSpace(tenantTimeZone) ? null : tenantTimeZone;
         BranchTimeZones = branchTimeZones is null
             ? new Dictionary<Guid, string>()
-            : branchTimeZones.Where(kv => accessible.Contains(kv.Key)).ToDictionary(kv => kv.Key, kv => kv.Value);
+            : branchTimeZones.Where(kv => accessible.Contains(kv.Key) && !string.IsNullOrWhiteSpace(kv.Value)).ToDictionary(kv => kv.Key, kv => kv.Value);
         IsResolved = true;
     }
 

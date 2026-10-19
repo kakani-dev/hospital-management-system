@@ -5,7 +5,7 @@ using System.Text.Encodings.Web;
 using Hms.Modules.Appointments.Functions;
 using Hms.Modules.Appointments.Persistence;
 using Hms.Modules.Identity.Persistence;
-using Hms.Modules.Identity.Tenancy;
+using Hms.Platform.Tenancy;
 using Hms.Modules.Patients.Persistence;
 using Hms.Modules.Patients.Registry;
 using Hms.SharedKernel.Persistence;
@@ -232,6 +232,9 @@ public sealed class InProcessApiTests : IClassFixture<InProcessApiTests.ApiFacto
                 ReplaceWithInMemory<AppointmentsDbContext>(services, _db + "-appointments");
                 services.RemoveAll<IAppointmentFunctions>();
                 services.AddSingleton<IAppointmentFunctions, UnavailableAppointmentFunctions>();
+                services.RemoveAll<IPatientSummaries>();
+                services.AddSingleton<InMemoryPatientSummaries>();
+                services.AddSingleton<IPatientSummaries>(sp => sp.GetRequiredService<InMemoryPatientSummaries>());
                 services.RemoveAll<IPatientRegistryFunctions>();
                 services.AddScoped<IPatientRegistryFunctions, InMemoryPatientRegistryFunctions>();
                 services.RemoveAll<IMembershipStore>();
@@ -286,7 +289,7 @@ public sealed class InProcessApiTests : IClassFixture<InProcessApiTests.ApiFacto
             var roles = map.Values.SelectMany(r => r).Distinct(StringComparer.Ordinal).ToList();
             var branches = map.Keys.ToList();
             return Task.FromResult<MembershipGrant?>(new MembershipGrant(
-                roles, branches, map, branches.ToDictionary(b => b, b => TimeZones[b])));
+                roles, branches, map, branches.ToDictionary(b => b, b => TimeZones[b]), "Asia/Kolkata"));
         }
 
         public Task<ActiveContext?> FindDefaultContextAsync(CancellationToken cancellationToken) =>

@@ -101,9 +101,9 @@ public static class QueueStatus
 }
 
 /// <summary>
-/// Read-only projection of patient.patients used to embed { id, mrn, firstName, lastName } in
-/// appointment / queue responses with a single JOIN. RLS (patients_select_registry_roles) and the
-/// tenant + not-deleted query filter decide visibility; the API never writes through it.
+/// Patient summary embedded as { id, mrn, firstName, lastName, isDeleted } in appointment / queue
+/// responses. Comes from the patients service's published function patient.patient_summary_v1
+/// (never from patient.patients); not part of the EF model.
 /// </summary>
 public sealed class PatientRef
 {
@@ -112,5 +112,6 @@ public sealed class PatientRef
     public string Mrn { get; set; } = "";
     public string FirstName { get; set; } = "";
     public string LastName { get; set; } = "";
-    public DateTimeOffset? DeletedAt { get; set; }
+    /// <summary>patient.patient_summary_v1 is_deleted (the API embeds null for deleted patients).</summary>
+    public bool IsDeleted { get; set; }
 }

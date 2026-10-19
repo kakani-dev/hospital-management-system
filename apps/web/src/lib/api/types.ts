@@ -205,8 +205,8 @@ export interface UpdateMemberRequest {
 /** GET /api/v1/patients/{id} (PatientDetailDto). Deleted patients are 404 for everyone, admins included. */
 export interface PatientDetail extends PatientSummary {
   email: string | null
-  createdAt?: string
-  updatedAt?: string
+  createdOn?: string
+  updatedOn?: string
 }
 
 /**

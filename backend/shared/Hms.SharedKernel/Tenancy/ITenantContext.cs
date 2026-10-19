@@ -28,8 +28,20 @@ public interface ITenantContext
     /// </summary>
     IReadOnlyDictionary<Guid, IReadOnlySet<string>> RolesByBranch { get; }
 
-    /// <summary>IANA time zone of each accessible branch (identity.branches.timezone).</summary>
+    /// <summary>
+    /// EFFECTIVE IANA time zone of each accessible branch: the branch override
+    /// (identity.branches.timezone) or else the tenant zone. Prefer <see cref="TimeZoneFor"/>.
+    /// </summary>
     IReadOnlyDictionary<Guid, string> BranchTimeZones { get; }
+
+    /// <summary>The tenant's required IANA time zone (identity.tenants.time_zone).</summary>
+    string TenantTimeZone { get; }
+
+    /// <summary>
+    /// The zone every day-based rule at <paramref name="branchId"/> uses: the branch override, else
+    /// the tenant zone (for unknown/inaccessible branches too). Never UTC by accident.
+    /// </summary>
+    string TimeZoneFor(Guid? branchId);
 
     bool HasAnyRole(params string[] roles);
 

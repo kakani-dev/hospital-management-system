@@ -27,9 +27,10 @@ insert into identity.user_profiles (id, email, display_name) values
   ('0d000000-0000-4000-8000-000000000001', 'consultant@shared.example', 'Visiting Consultant (synthetic)')
 on conflict (id) do nothing;
 
-insert into identity.tenants (id, code, name) values
-  ('11111111-1111-4111-8111-111111111111', 'demo-alpha', 'Demo Alpha Hospital (synthetic)'),
-  ('22222222-2222-4222-8222-222222222222', 'demo-beta',  'Demo Beta Clinic (synthetic)');
+-- time_zone is REQUIRED (20261012090100). Branches inherit it unless they override it.
+insert into identity.tenants (id, code, name, time_zone) values
+  ('11111111-1111-4111-8111-111111111111', 'demo-alpha', 'Demo Alpha Hospital (synthetic)', 'Asia/Kolkata'),
+  ('22222222-2222-4222-8222-222222222222', 'demo-beta',  'Demo Beta Clinic (synthetic)',    'Asia/Kolkata');
 
 insert into identity.branches (id, tenant_id, code, name) values
   ('a1111111-0000-4000-8000-000000000001', '11111111-1111-4111-8111-111111111111', 'main', 'Alpha Main Campus'),

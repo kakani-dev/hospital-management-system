@@ -102,6 +102,29 @@ Set `HMS_AUTH_URL` (and `HMS_AUTH_ALLOW_HTTP=true` for the mock), plus `VITE_SUP
 
 > Docker was not available in the Sprint 0/1 build environment, so the images and compose stack **have not been built or run yet**. The DB init script logic was exercised against a local PostgreSQL.
 
+### Microservices (default)
+
+`docker compose up --build` runs the YARP edge on http://localhost:8080 (the only published API port)
+in front of identity, patients and scheduling. Each service logs in with its own role
+(`hms_<svc>_login`, `supabase/scripts/local-api-login-role.sql`) and answers 404 to anything that does
+not come through the edge (`X-Hms-Edge-Key`). The legacy monolith is opt-in:
+`docker compose --profile monolith up --build` (http://localhost:8090).
+
+Without Docker:
+
+```bash
+HMS_MS_DB="Host=localhost;Port=5432;Database=hms" \
+ASPNETCORE_ENVIRONMENT=Development \
+Auth__Supabase__ProjectUrl=http://localhost:54321 Auth__Supabase__AllowInsecureHttp=true \
+  bash scripts/dev/run-microservices.sh      # edge :8080 (API_PORT), services :8101-8103
+curl localhost:8080/health/ready             # 200 once all three services are ready
+```
+
+Playwright (`npm run e2e`) starts the same script and waits on the edge's `/health/ready`;
+`E2E_API_COMMAND` overrides it (e.g. the monolith). API integration tests pick the system under test
+with `HMS_SYSTEM_TARGET=edge` (default: in-process edge + 3 services) | `monolith` | `edge-url`
+(+ `HMS_SYSTEM_BASE_URL`). See `docs/architecture/microservices.md`.
+
 ## 6. Cleaning build artifacts
 
 ```bash

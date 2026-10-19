@@ -1,3 +1,5 @@
+using Hms.Modules.Appointments.Domain;
+using Hms.Modules.Appointments.Persistence;
 using Hms.Modules.Identity.Domain;
 using Hms.Modules.Identity.Persistence;
 using Hms.Modules.Patients.Domain;
@@ -11,7 +13,8 @@ namespace Hms.UnitTests;
 /// <summary>Review M2: EF must never send DB-managed audit columns (and never deleted_at on INSERT).</summary>
 public class AuditColumnConventionsTests
 {
-    private static readonly string[] AuditColumns = ["CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy"];
+    // The five mandatory audit columns (identity/patient/appointment tables; supabase/tests/17_audit_columns_test.sql is the DB-side guard).
+    private static readonly string[] AuditColumns = ["CreatedOn", "CreatedBy", "UpdatedOn", "UpdatedBy", "IsDeleted"];
 
     private static IModel PatientsModel() =>
         new PatientsDbContext(new DbContextOptionsBuilder<PatientsDbContext>().UseNpgsql("Host=unused").UseSnakeCaseNamingConvention().Options, new TenantContext()).Model;
@@ -51,6 +54,57 @@ public class AuditColumnConventionsTests
             var property = type.FindProperty(column)!;
             Assert.Equal(PropertySaveBehavior.Ignore, property.GetBeforeSaveBehavior());
             Assert.Equal(PropertySaveBehavior.Ignore, property.GetAfterSaveBehavior());
+        }
+    }
+
+    [Fact]
+    public void Zone_columns_are_never_updated_by_ef()
+    {
+        // DB re-review R5: zone changes go through identity.change_time_zone_v1 (no client UPDATE grant).
+        var tenantZone = IdentityModel().FindEntityType(typeof(Tenant))!.FindProperty(nameof(Tenant.TimeZone))!;
+        Assert.Equal(PropertySaveBehavior.Ignore, tenantZone.GetAfterSaveBehavior());
+        var branchZone = IdentityModel().FindEntityType(typeof(Branch))!.FindProperty(nameof(Branch.Timezone))!;
+        Assert.Equal(PropertySaveBehavior.Ignore, branchZone.GetAfterSaveBehavior());
+        // code review MAJ-1: the override has its own column; branches.timezone is the DB-kept mirror
+        Assert.Equal("timezone_override", branchZone.GetColumnName());
+    }
+
+    private static IModel AppointmentsModel() =>
+        new AppointmentsDbContext(new DbContextOptionsBuilder<AppointmentsDbContext>().UseNpgsql("Host=unused").UseSnakeCaseNamingConvention().Options, new TenantContext()).Model;
+
+    [Theory]
+    [InlineData(typeof(Practitioner))]
+    [InlineData(typeof(Schedule))]
+    [InlineData(typeof(Appointment))]
+    [InlineData(typeof(QueueEntry))]
+    public void Appointment_audit_columns_are_ignored_too(Type entity)
+    {
+        var type = AppointmentsModel().FindEntityType(entity)!;
+        foreach (var column in AuditColumns)
+        {
+            var property = type.FindProperty(column)!;
+            Assert.Equal(PropertySaveBehavior.Ignore, property.GetBeforeSaveBehavior());
+            Assert.Equal(PropertySaveBehavior.Ignore, property.GetAfterSaveBehavior());
+        }
+    }
+
+    [Fact]
+    public void Every_auditable_entity_maps_the_five_snake_case_columns()
+    {
+        string[] expected = ["created_on", "created_by", "updated_on", "updated_by", "is_deleted"];
+        foreach (var model in new[] { PatientsModel(), IdentityModel(), AppointmentsModel() })
+        {
+            foreach (var type in model.GetEntityTypes().Where(t => typeof(Hms.SharedKernel.Domain.AuditableEntity).IsAssignableFrom(t.ClrType)))
+            {
+                var columns = type.GetProperties().Select(p => p.GetColumnName()).ToHashSet(StringComparer.Ordinal);
+                foreach (var column in expected)
+                {
+                    Assert.True(columns.Contains(column), $"{type.ClrType.Name} does not map {column}");
+                }
+
+                Assert.DoesNotContain("created_at", columns);
+                Assert.DoesNotContain("updated_at", columns);
+            }
         }
     }
 

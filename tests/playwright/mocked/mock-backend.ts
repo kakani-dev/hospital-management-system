@@ -151,7 +151,7 @@ interface Membership {
   branchId: string | null
   role: string
   status: 'active' | 'invited' | 'suspended'
-  createdAt: string
+  createdOn: string
 }
 
 interface MockUser {
@@ -261,7 +261,7 @@ export class MockBackend {
   }
 
   membership(tenantId: string, branchId: string | null, role: string, status: Membership['status']): Membership {
-    return { id: uuid('cc000000'), tenantId, branchId, role, status, createdAt: new Date(Date.now() + seq).toISOString() }
+    return { id: uuid('cc000000'), tenantId, branchId, role, status, createdOn: new Date(Date.now() + seq).toISOString() }
   }
 
   /** Invite like identity.add_member(): 'invited', never displaces the default tenant. */
@@ -278,7 +278,7 @@ export class MockBackend {
 
   /** identity.resolve_active_context: persisted preference, else oldest ACTIVE membership. */
   resolvedTenant(user: MockUser): string | null {
-    const active = user.memberships.filter((m) => m.status === 'active').sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    const active = user.memberships.filter((m) => m.status === 'active').sort((a, b) => a.createdOn.localeCompare(b.createdOn))
     const pref = active.find((m) => m.tenantId === user.activeTenantId)
     const tenant = pref?.tenantId ?? active[0]?.tenantId ?? null
     if (tenant) user.activeTenantId = tenant // first resolution is persisted
@@ -431,7 +431,7 @@ export class MockBackend {
     if (method === 'GET' && path === '/api/v1/me/invitations') {
       const invitations = user.memberships
         .filter((m) => m.status === 'invited')
-        .map((m) => ({ membershipId: m.id, tenantId: m.tenantId, tenantName: tenants[m.tenantId]!.name, branchId: m.branchId, role: m.role, invitedAt: m.createdAt }))
+        .map((m) => ({ membershipId: m.id, tenantId: m.tenantId, tenantName: tenants[m.tenantId]!.name, branchId: m.branchId, role: m.role, invitedAt: m.createdOn }))
       return reply(200, invitations, tenant)
     }
     const accept = /^\/api\/v1\/me\/invitations\/([^/]+)\/accept$/.exec(path)

@@ -82,6 +82,10 @@ jobs:
       HMS_API_TEST_CONNECTION: Host=localhost;Port=5432;Database=hms_sql_test;Username=hms_api_login;Password=hms_api_local_only
     steps:
       - uses: actions/checkout@v7
+      - name: Migration chain check (14-digit versions unique; new ones newer than the base branch)
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: bash .github/scripts/check-migration-versions.sh
       - name: Install psql client
         run: sudo apt-get update -y && sudo apt-get install -y postgresql-client
       - name: Apply migrations + seed, run SQL tests (hook, API role, RLS)
@@ -89,10 +93,22 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
-      - name: Integration (JWT + HTTP) and RLS defense-in-depth tests
+      - name: Integration (JWT + HTTP) and RLS defense-in-depth tests, through the YARP edge + 3 services
         run: >-
           dotnet test backend/Hms.slnx -c Release --filter "Category=Database"
           --logger "trx;LogFilePrefix=db" --results-directory test-results
+      # Same API suite against the legacy all-in-one host (on hold, still the live Azure API until the
+      # Phase 1 cutover), on a fresh database so data from the first run cannot leak into it.
+      - name: Fresh database for the monolith run
+        run: SKIP_SQL_TESTS=1 TEST_DB=hms_sql_test_monolith bash supabase/scripts/run-sql-tests.sh
+      - name: Integration tests against the legacy monolith (HMS_SYSTEM_TARGET=monolith)
+        env:
+          HMS_SYSTEM_TARGET: monolith
+          HMS_DB_TEST_CONNECTION: Host=localhost;Port=5432;Database=hms_sql_test_monolith;Username=postgres;Password=postgres
+          HMS_API_TEST_CONNECTION: Host=localhost;Port=5432;Database=hms_sql_test_monolith;Username=hms_api_login;Password=hms_api_local_only
+        run: >-
+          dotnet test backend/tests/Hms.IntegrationTests -c Release --no-build --filter "Category=Database"
+          --logger "trx;LogFilePrefix=db-monolith" --results-directory test-results
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -100,6 +116,72 @@ jobs:
           path: test-results
           retention-days: 7
           if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # Microservices Phase 0 (MICROSERVICES-PLAN.md §9). NOT a required check yet: the four required
+  # checks above keep their names so branch protection is unchanged. Builds every container image
+  # (legacy all-in-one API + the identity / patients / scheduling service skeletons), boots each one
+  # and checks /health/live, and validates docker-compose.yml (default + "services" profile).
+  # ---------------------------------------------------------------------------
+  # CI minutes are limited: only build images when something that goes into them changed.
+  docker-changes:
+    name: Detect image-relevant changes
+    runs-on: ubuntu-latest
+    outputs:
+      docker: ${{ steps.diff.outputs.docker }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: diff
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then echo "docker=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          changed=$(git diff --name-only "origin/${{ github.base_ref }}...HEAD")
+          if echo "$changed" | grep -qE '(^|/)Dockerfile$|\.Dockerfile$|^docker-compose\.yml$|^backend/(Directory\.|global\.json|.*\.csproj$)|^\.dockerignore$|^\.github/workflows/ci\.yml$'; then
+            echo "docker=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "docker=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  images:
+    name: Service images (docker build + health smoke, non-required)
+    needs: docker-changes
+    if: needs.docker-changes.outputs.docker == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: api
+            dockerfile: infra/docker/api.Dockerfile
+          - name: edge
+            dockerfile: backend/edge/Dockerfile
+          - name: identity
+            dockerfile: backend/services/identity/Dockerfile
+          - name: patients
+            dockerfile: backend/services/patients/Dockerfile
+          - name: scheduling
+            dockerfile: backend/services/scheduling/Dockerfile
+    steps:
+      - uses: actions/checkout@v7
+      - name: Validate docker-compose.yml (default + monolith profile)
+        if: matrix.name == 'api'
+        run: |
+          docker compose -f docker-compose.yml config -q
+          docker compose -f docker-compose.yml --profile monolith config -q
+      - name: docker build ${{ matrix.name }}
+        run: docker build -f ${{ matrix.dockerfile }} -t hms-${{ matrix.name }}:ci .
+      - name: Boot ${{ matrix.name }} and check /health/live (no database needed)
+        run: |
+          docker run -d --name hms-${{ matrix.name }} -p 18080:8080 hms-${{ matrix.name }}:ci
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:18080/health/live || true)
+            if [ "$code" = "200" ]; then echo "/health/live -> 200 after ${i}s"; exit 0; fi
+            sleep 1
+          done
+          docker logs hms-${{ matrix.name }}
+          echo "/health/live never returned 200"; exit 1
 
   e2e:
     name: Playwright E2E (web + API + mock auth + Postgres)
@@ -139,9 +221,13 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Prepare E2E database (migrations + synthetic seed)
         run: npm run e2e:db
-      - name: Build API
-        run: dotnet build backend/gateway/Hms.Gateway
+      - name: Build API (edge + identity / patients / scheduling)
+        run: dotnet build backend/Hms.slnx
+      # Playwright starts scripts/dev/run-microservices.sh (edge on :8080, services on :8101-8103,
+      # one login role each) and waits on the edge's /health/ready.
       - run: npm run e2e
+        env:
+          HMS_MS_NO_BUILD: "1"
       - uses: actions/upload-artifact@v7
         if: always()
         with:

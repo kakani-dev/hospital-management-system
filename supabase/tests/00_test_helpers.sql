@@ -48,6 +48,18 @@ begin
 end;
 $$;
 
+-- Switches to the OWNER of p_table (what SECURITY DEFINER functions run as). On the Supabase stack
+-- the tests connect as supabase_admin, a superuser that does not own the tables, and the
+-- soft-delete guard (re-review R1/R2) admits only the owner. tests.as_superuser() resets it.
+create or replace function tests.as_owner(p_table regclass)
+returns void language plpgsql as $$
+begin
+  execute 'reset role';
+  perform set_config('request.jwt.claims', '', true);
+  execute format('set local role %I', (select pg_catalog.pg_get_userbyid(c.relowner) from pg_catalog.pg_class c where c.oid = p_table));
+end;
+$$;
+
 -- Runs p_sql and returns the number of affected rows.
 create or replace function tests.affected_rows(p_sql text)
 returns bigint language plpgsql as $$

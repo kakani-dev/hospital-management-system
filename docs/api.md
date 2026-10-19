@@ -6,15 +6,28 @@ The live contract is the OpenAPI document at `/openapi/v1.json`, with Swagger UI
 |---|---|---|---|
 | GET | `/health/live` | anonymous | Liveness (process only) |
 | GET | `/health/ready` | anonymous | Readiness (includes the database, as the API role) |
-| GET | `/api/v1/me` | JWT | Current user, server-resolved active tenant/branch, roles, accessible branches, **all** memberships (drives the switcher) |
+| GET | `/api/v1/me` | JWT | Current user, server-resolved active tenant/branch, roles, accessible branches `[{id, name, timeZone}]` (effective IANA zone), **all** memberships (drives the switcher), and `timeZone` (tenant zone). A branch-scoped membership only counts while its branch is not deleted. |
 | POST | `/api/v1/me/context` | JWT | `{tenantId, branchId?}`: validated against memberships in the DB (403 otherwise) and stored. Refresh the session afterwards to get a token for the new tenant. 204 on success. |
-| GET | `/api/v1/tenants/current` | JWT + tenant | The resolved tenant, active branch and the caller's roles |
-| GET | `/api/v1/branches` | JWT + tenant | Branches of the current tenant. Admins also see inactive ones. |
-| POST | `/api/v1/branches` | tenant_admin | `{code, name, timezone}`: code `^[a-z0-9][a-z0-9-]{1,39}$`, IANA timezone. 409 on duplicate code. |
-| PATCH | `/api/v1/branches/{id}` | tenant_admin | `{name?, timezone?, isActive?}`. Another tenant's id gives 404. |
+| GET | `/api/v1/tenants/current` | JWT + tenant | `{id, code, name, activeBranchId, roles, timeZone}` |
+| PATCH | `/api/v1/tenants/current` | tenant_admin | `{name?, timeZone?, confirmFutureBookings?}`. `timeZone` must be a canonical IANA id (`Asia/Calcutta` is stored as `Asia/Kolkata`; `Etc/GMT±N`, POSIX offsets like `Asia/Kolkata+5` and abbreviations are 400, with a "Did you mean" hint). 409 `time_zone_locked` while today's queue has entries at an affected branch. 409 `time_zone_has_future_bookings` with `futureBookings: N` when booked appointments would move on the wall clock: nothing is saved (name included); resend with `confirmFutureBookings: true`. Branches without an override follow the new zone. |
+| GET | `/api/v1/branches` | JWT + tenant | `BranchDto[]` `{id, code, name, timezone, isActive, timezoneOverride, isDeleted}` of the current tenant: `timezone` is the effective zone, `timezoneOverride` is null when the branch inherits the tenant zone. Admins also see inactive ones, and deleted ones with `?includeDeleted=true` (to restore them). |
+| POST | `/api/v1/branches` | tenant_admin | `{code, name, timezone?}`: code `^[a-z0-9][a-z0-9-]{1,39}$`; `timezone` is an optional override (same rules as the tenant zone), omitted = inherit. 409 on duplicate code. |
+| PATCH | `/api/v1/branches/{id}` | tenant_admin | `{name?, timezone?, inheritTimezone?, isActive?, confirmFutureBookings?}`. `timezone` sets the override, `inheritTimezone: true` clears it. Zone changes have the same 409 `time_zone_locked` / `time_zone_has_future_bookings` rules as the tenant. Another tenant's id gives 404. |
+| DELETE | `/api/v1/branches/{id}` | tenant_admin | 204 soft delete (`identity.soft_delete_branch`). Staff memberships scoped to the branch stop granting anything until it is restored. 404 foreign/unknown/already deleted. |
+| POST | `/api/v1/branches/{id}/restore` | tenant_admin | 204. 404 if foreign, unknown or not deleted; 409 if a live branch now uses the code. |
 | GET | `/api/v1/members` | tenant_admin | Memberships of the current tenant (including suspended; not pending invites), with email and branch |
 | POST | `/api/v1/members` | tenant_admin | `{email, role, branchId?}`: invites an account. Always the same **202** `{message}` whether or not the account exists or is already a member (no enumeration). A second branch creates a separate pending invite; the same branch is a no-op. 400 for a tenant_admin with a branch or another tenant's branch. |
 | PATCH | `/api/v1/members/{id}` | tenant_admin | `{role?, status? (active/suspended)}`. You can't change your own membership (409). Pending invites are not visible to admins (404). |
+| DELETE | `/api/v1/members/{id}` | tenant_admin | 204 soft delete (`identity.soft_delete_membership`). 404 foreign/unknown/already deleted. |
+| POST | `/api/v1/members/{id}/restore` | tenant_admin | 204. 404 if foreign, unknown or not deleted; 409 if a live duplicate exists. |
+
+Creating a tenant is **not** a monolith endpoint: it lives in the identity service (code review MIN-5) on top of the DB function `identity.create_tenant(code, name, time_zone, admin_email)`.
+
+### Audit fields, soft delete and time zones (PR #4)
+
+- Every identity/patient/appointment row carries `createdOn`/`updatedOn` (instants) in DTOs that expose audit times (`PatientDetailDto`, `AppointmentDto`); the former `createdAt`/`updatedAt` names are gone from the API. `createdBy`/`updatedBy` are stamped by the database and not exposed.
+- Deletes are soft (`is_deleted`), via `DELETE` + `POST …/restore` on patients, branches, members, practitioners and schedules. Deleted rows read as 404.
+- Branch-local dates and slot times use the branch's effective zone (`timezoneOverride` ?? tenant `timeZone`). Slots are DST-safe: on a fall-back night each wall-clock slot is offered once; on a spring-forward night the missing local times are not offered.
 | GET | `/api/v1/me/invitations` | JWT | The caller's pending invitations `[{membershipId, tenantId, tenantName, branchId, role, invitedAt}]` |
 | POST | `/api/v1/me/invitations/{membershipId}/accept` | JWT (the invitee) | 204; 404 if it isn't the caller's pending invitation |
 
@@ -31,7 +44,7 @@ Role shorthand: **REG_READ** = tenant_admin, doctor, nurse, receptionist, billin
 | GET | `/api/v1/patients?page=&pageSize=` | REG_READ | `Paged<PatientSummaryDto>`, soft-deleted rows excluded. `?search=` is a 400 (no PHI in URLs). |
 | POST | `/api/v1/patients/search` | REG_READ | `{search?, phone?, dateOfBirth?, includeDeleted?, page?, pageSize?}`, filters AND-ed. `search`: MRN/first/last contains (≤ 100). `phone`: exact match on the normalized last 10 digits (fewer than 7 digits is a 400). `includeDeleted`: tenant_admin only (403 otherwise). |
 | POST | `/api/v1/patients/duplicates` | REG_WRITE (any branch) | `{firstName?, lastName?, dateOfBirth?, phone?, excludePatientId?}` → `{candidates: DuplicateCandidateDto[]}`: same-tenant, non-deleted matches on name+DOB (trimmed, case-insensitive) or normalized phone, `matchReasons` ⊆ `name_dob`, `phone`; both-reasons first, then name; at most 20. Advisory only. 403 without registry access. |
-| GET | `/api/v1/patients/{id}` | REG_READ | `PatientDetailDto` (adds `email`, `createdAt`, `updatedAt`). 404 for other tenants and for deleted patients (admins too). |
+| GET | `/api/v1/patients/{id}` | REG_READ | `PatientDetailDto` (adds `email`, `createdOn`, `updatedOn`). 404 for other tenants and for deleted patients (admins too). |
 | POST | `/api/v1/patients` | REG_WRITE @registeredBranchId | 201 `PatientCreatedDto` = detail + `duplicateWarnings` (advisory; creation is never blocked). 403 for a same-tenant branch without a write role, 404 for another tenant's or an unknown branch, 409 `duplicate_mrn`. |
 | PATCH | `/api/v1/patients/{id}` | REG_WRITE @current branch, and @new branch when `registeredBranchId` changes | Merge-patch: absent = unchanged, explicit `null` clears `dateOfBirth`/`phone`/`email`. `mrn` is immutable (400); unknown properties are 400 (a `tenantId` is ignored). 404 for deleted or foreign patients, or a move to another tenant's branch. |
 | DELETE | `/api/v1/patients/{id}` | tenant_admin, or receptionist @patient's branch | Optional body `{reason?}` (≤ 500, audited). 204 soft delete through `patient.soft_delete_patient`. 409 `invalid_state` while the patient has open appointments or queue entries. The MRN stays reserved. |
@@ -57,7 +70,7 @@ Statuses: `booked` → `checked_in` (only via check-in) → `in_consultation` �
 | Method | Path | Who | Notes |
 |---|---|---|---|
 | GET | `/api/v1/appointments?branchId=&practitionerId=&patientId=&date=&from=&to=&status=&page=&pageSize=` | REG_READ (tenant-wide) | `Paged<AppointmentDto>` by `startsAt`. `date` is branch-local and needs `branchId`; otherwise use the `from`/`to` instants. |
-| GET | `/api/v1/appointments/{id}` | REG_READ | `AppointmentDto` `{id, branchId, practitionerId, patientId, patient, startsAt, endsAt, status, reason, cancelReason, checkedInAt, startedAt, completedAt, cancelledAt, createdAt, updatedAt}`. `patient` = `{id, mrn, firstName, lastName}`, or `null` when the patient is soft-deleted or not readable. |
+| GET | `/api/v1/appointments/{id}` | REG_READ | `AppointmentDto` `{id, branchId, practitionerId, patientId, patient, startsAt, endsAt, status, reason, cancelReason, checkedInAt, startedAt, completedAt, cancelledAt, createdOn, updatedOn}`. `patient` = `{id, mrn, firstName, lastName}`, or `null` when the patient is soft-deleted or not readable. |
 | POST | `/api/v1/appointments` | REG_WRITE @branchId | `{branchId, practitionerId, patientId, startsAt, endsAt (> startsAt, ≤ 8 h), reason? (≤ 500)}` → 201 `booked`. **409 `appointment_overlap`** when the practitioner already has a booked/checked-in/in-consultation/completed appointment overlapping `[startsAt, endsAt)` (back-to-back is fine; cancelled and no-show free the time; patient-side overlap is allowed). 400 for an inactive practitioner. |
 | POST | `/api/v1/appointments/{id}/reschedule` | REG_WRITE @its branch | `{startsAt, endsAt, practitionerId?}`, only while booked. 409 `appointment_overlap` / `invalid_transition`. |
 | POST | `/api/v1/appointments/{id}/cancel` | REG_WRITE @its branch | `{reason?}` → 200 `cancelled`. Cancelling a `checked_in` appointment also cancels its OPD queue entry (DB trigger, migration `20261010090400`), so it leaves the active board and no longer blocks patient delete. |
@@ -89,6 +102,10 @@ Errors use RFC 7807 problem details with an optional machine-readable `code`:
 | 403 | No membership, role not allowed, or a **same-tenant** branch outside your scope (or rejected by RLS) | `forbidden` |
 | 404 | Unknown id, **another tenant's** id (patient, practitioner, appointment, queue entry, schedule or branch, in the path or body), or a soft-deleted patient. These are indistinguishable. | `not_found` |
 | 409 | Duplicate, overlap, wrong state or invalid transition | `duplicate_mrn`, `already_checked_in`, `schedule_overlap`, `appointment_overlap`, `invalid_transition`, `invalid_state` |
-| 429 | Rate limited | |
+| 429 | Rate limited (`Retry-After`) | `rate_limited` |
+| 503 | A service is cold/unreachable, or the signing keys (JWKS) cannot be fetched. Retry after `Retry-After` (5 s). | `service_unavailable` |
+| 504 | A service took longer than 30 s | `upstream_timeout` |
+
+All of these come through the single edge (`docs/architecture/microservices.md`). `GET /api/v1/warmup` (anonymous, 10/min per IP) wakes every service and returns 200, or 503 while one is still starting.
 
 **Tenant selection.** There is no tenant header. The tenant comes from the validated token's `tenant_id` claim (set by the access token hook), or from the server-side stored context when the token has none. Either way it must match an active membership, and PostgreSQL RLS enforces the same rule again for every query.

@@ -1,9 +1,10 @@
 using Hms.Modules.Appointments.Endpoints;
 using Hms.Modules.Appointments.Functions;
 using Hms.Modules.Appointments.Persistence;
+using Hms.Platform.Persistence;
+using Hms.Platform.Tenancy;
 using Hms.SharedKernel.Persistence;
 using Microsoft.AspNetCore.Routing;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -14,18 +15,14 @@ public static class AppointmentsModule
 {
     public static IServiceCollection AddAppointmentsModule(this IServiceCollection services, IConfiguration configuration)
     {
-        var connectionString = configuration.GetConnectionString("HmsDatabase");
-        services.TryAddScoped<DbSessionContext>();
-        services.TryAddScoped<RlsTransactionInterceptor>();
-        services.TryAddScoped<TenantSaveChangesInterceptor>();
-        services.TryAddSingleton(TimeProvider.System);
+        services.AddHmsDbSession();
         services.AddDbContext<AppointmentsDbContext>((sp, options) => options
-            .UseNpgsql(connectionString)
-            .UseSnakeCaseNamingConvention()
+            .UseHmsNpgsql(configuration)
             .AddInterceptors(
                 sp.GetRequiredService<RlsTransactionInterceptor>(),
                 sp.GetRequiredService<TenantSaveChangesInterceptor>()));
         services.TryAddScoped<IAppointmentFunctions, PostgresAppointmentFunctions>();
+        services.TryAddScoped<IPatientSummaries, PostgresPatientSummaries>();
         return services;
     }
 

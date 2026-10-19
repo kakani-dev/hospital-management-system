@@ -11,6 +11,7 @@
     <PackageReference Include="xunit.runner.visualstudio" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="../../platform/Hms.Platform/Hms.Platform.csproj" />
     <ProjectReference Include="../../modules/Identity/Hms.Modules.Identity/Hms.Modules.Identity.csproj" />
     <ProjectReference Include="../../modules/Patients/Hms.Modules.Patients/Hms.Modules.Patients.csproj" />
   </ItemGroup>

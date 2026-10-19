@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Hms.Platform: host plumbing shared by every HMS service (MICROSERVICES-PLAN.md §7).
+    JWT validation, tenant resolution, problem mapping, Npgsql/connection setup, health checks,
+    security headers, the outbox dispatcher and the service-defaults pipeline.
+    Infrastructure only: no domain types, and it never references a module or a service.
+  -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" />
+    <PackageReference Include="Serilog.AspNetCore" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+    <PackageReference Include="EFCore.NamingConventions" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../shared/Hms.SharedKernel/Hms.SharedKernel.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The implicit usings of Microsoft.NET.Sdk.Web (this is a class library hosting web plumbing). -->
+    <Using Include="Microsoft.AspNetCore.Builder" />
+    <Using Include="Microsoft.AspNetCore.Http" />
+    <Using Include="Microsoft.AspNetCore.Routing" />
+    <Using Include="Microsoft.Extensions.Configuration" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+    <Using Include="Microsoft.Extensions.Hosting" />
+    <Using Include="Microsoft.Extensions.Logging" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Hms.UnitTests" />
+    <InternalsVisibleTo Include="Hms.IntegrationTests" />
+  </ItemGroup>
+</Project>

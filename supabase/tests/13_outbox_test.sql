@@ -6,7 +6,8 @@ begin;
 select tests.ok(
   (select not rolcanlogin and not rolinherit and not rolbypassrls and not rolsuper from pg_roles where rolname = 'hms_dispatcher'),
   'hms_dispatcher is NOLOGIN NOINHERIT, no BYPASSRLS');
-select tests.ok(pg_has_role('hms_api', 'hms_dispatcher', 'MEMBER'), 'hms_api may SET ROLE hms_dispatcher');
+select tests.ok(pg_has_role('hms_svc_scheduling', 'hms_dispatcher', 'MEMBER') and not pg_has_role('hms_api', 'hms_dispatcher', 'MEMBER'),
+  'only the scheduling service role may SET ROLE hms_dispatcher (B1; migration 20261011090100)');
 select tests.ok(
   (select relrowsecurity from pg_class where oid = 'messaging.outbox'::regclass)
   and not has_table_privilege('authenticated', 'messaging.outbox', 'SELECT')

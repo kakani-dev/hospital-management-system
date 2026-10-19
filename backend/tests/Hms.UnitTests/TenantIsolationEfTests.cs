@@ -107,6 +107,7 @@ public class TenantIsolationEfTests
         {
             var p = await alpha.Patients.FirstAsync(x => x.Mrn == "ALP-0001");
             p.DeletedAt = DateTimeOffset.UtcNow;
+            p.IsDeleted = true; // generated column in PostgreSQL
             await alpha.SaveChangesAsync();
         }
 

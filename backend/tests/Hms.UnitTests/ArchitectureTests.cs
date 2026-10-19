@@ -1,0 +1,74 @@
+using System.Xml.Linq;
+
+namespace Hms.UnitTests;
+
+/// <summary>
+/// Service boundaries as a test (MICROSERVICES-PLAN.md §7-§8): which project may reference which.
+/// Reads the csproj files, so a new ProjectReference across a boundary fails CI.
+/// </summary>
+public class ArchitectureTests
+{
+    private static readonly string Backend = FindBackend();
+
+    private static string FindBackend()
+    {
+        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
+        {
+            if (File.Exists(Path.Combine(dir.FullName, "Hms.slnx")))
+            {
+                return dir.FullName;
+            }
+        }
+
+        throw new InvalidOperationException("backend/Hms.slnx not found above the test output directory.");
+    }
+
+    private static List<string> References(string relativeCsproj)
+    {
+        var path = Path.Combine(Backend, relativeCsproj);
+        return XDocument.Load(path).Descendants("ProjectReference")
+            .Select(r => Path.GetFileNameWithoutExtension(r.Attribute("Include")!.Value.Replace('\\', '/')))
+            .Order(StringComparer.Ordinal)
+            .ToList();
+    }
+
+    [Fact]
+    public void Shared_kernel_references_nothing() =>
+        Assert.Empty(References("shared/Hms.SharedKernel/Hms.SharedKernel.csproj"));
+
+    [Fact]
+    public void Platform_references_only_the_shared_kernel() =>
+        Assert.Equal(["Hms.SharedKernel"], References("platform/Hms.Platform/Hms.Platform.csproj"));
+
+    [Theory]
+    [InlineData("modules/Identity/Hms.Modules.Identity/Hms.Modules.Identity.csproj")]
+    [InlineData("modules/Patients/Hms.Modules.Patients/Hms.Modules.Patients.csproj")]
+    [InlineData("modules/Appointments/Hms.Modules.Appointments/Hms.Modules.Appointments.csproj")]
+    public void Modules_never_reference_another_module(string csproj) =>
+        Assert.Equal(["Hms.Platform", "Hms.SharedKernel"], References(csproj));
+
+    [Theory]
+    [InlineData("services/identity/Hms.Identity.Api/Hms.Identity.Api.csproj", "Hms.Modules.Identity")]
+    [InlineData("services/patients/Hms.Patients.Api/Hms.Patients.Api.csproj", "Hms.Modules.Patients")]
+    [InlineData("services/scheduling/Hms.Scheduling.Api/Hms.Scheduling.Api.csproj", "Hms.Modules.Appointments")]
+    public void Each_service_hosts_exactly_its_own_module(string csproj, string module) =>
+        Assert.Equal(new[] { module, "Hms.Platform" }.Order(StringComparer.Ordinal), References(csproj));
+
+    [Fact]
+    public void Edge_references_only_the_platform_never_a_module() =>
+        Assert.Equal(["Hms.Platform"], References("edge/Hms.Edge/Hms.Edge.csproj"));
+
+    [Fact]
+    public void Only_the_legacy_all_in_one_host_references_several_modules()
+    {
+        var sep = Path.DirectorySeparatorChar;
+        var hosts = Directory.EnumerateFiles(Backend, "*.csproj", SearchOption.AllDirectories)
+            .Where(p => !p.Contains($"{sep}tests{sep}", StringComparison.Ordinal)
+                        && !p.Contains($"{sep}bin{sep}", StringComparison.Ordinal)
+                        && !p.Contains($"{sep}obj{sep}", StringComparison.Ordinal))
+            .Select(p => Path.GetRelativePath(Backend, p))
+            .Where(p => References(p).Count(r => r.StartsWith("Hms.Modules.", StringComparison.Ordinal)) > 1)
+            .ToList();
+        Assert.Equal([Path.Combine("gateway", "Hms.Gateway", "Hms.Gateway.csproj")], hosts);
+    }
+}

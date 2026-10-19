@@ -58,17 +58,19 @@ public sealed class TenantSaveChangesInterceptor(ITenantContext tenantContext, T
 
             if (entry.Entity is AuditableEntity auditable)
             {
-                Guid? actor = tenantContext.IsResolved ? tenantContext.UserId : null;
+                // In-memory mirror of audit.stamp_audit_columns(); EF never sends these columns.
+                var actor = tenantContext.IsResolved ? tenantContext.UserId : AuditActors.System;
                 if (entry.State == EntityState.Added)
                 {
-                    auditable.CreatedAt = now;
+                    auditable.CreatedOn = now;
                     auditable.CreatedBy = actor;
-                    auditable.UpdatedAt = now;
+                    auditable.UpdatedOn = now;
                     auditable.UpdatedBy = actor;
+                    auditable.IsDeleted = false;
                 }
                 else if (entry.State == EntityState.Modified)
                 {
-                    auditable.UpdatedAt = now;
+                    auditable.UpdatedOn = now;
                     auditable.UpdatedBy = actor;
                 }
             }

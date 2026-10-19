@@ -4,10 +4,10 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
-    <PackageReference Include="EFCore.NamingConventions" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../../shared/Hms.SharedKernel/Hms.SharedKernel.csproj" />
+    <ProjectReference Include="../../../platform/Hms.Platform/Hms.Platform.csproj" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Hms.UnitTests" />

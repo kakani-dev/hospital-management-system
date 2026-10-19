@@ -37,7 +37,7 @@ public sealed record Pr1InvitationView(Guid MembershipId, Guid TenantId, string 
 public sealed record MembershipRow(Guid Id, Guid? BranchId, string Role, string Status);
 
 public sealed record PatientAuditRow(
-    Guid TenantId, Guid RegisteredBranchId, Guid? CreatedBy, Guid? UpdatedBy, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, DateTimeOffset? DeletedAt);
+    Guid TenantId, Guid RegisteredBranchId, Guid? CreatedBy, Guid? UpdatedBy, DateTimeOffset CreatedOn, DateTimeOffset UpdatedOn, DateTimeOffset? DeletedAt);
 
 /// <summary>
 /// Read-back helpers. Assertions read the persisted state as the DB owner (like
@@ -51,7 +51,7 @@ internal static class Pr1Db
         await using var conn = new NpgsqlConnection(HmsApiFactory.AdminConnection);
         await conn.OpenAsync();
         await using var cmd = new NpgsqlCommand(
-            "select id, branch_id, role, status from identity.memberships where tenant_id = @t and user_id = @u order by created_at", conn);
+            "select id, branch_id, role, status from identity.memberships where tenant_id = @t and user_id = @u order by created_on", conn);
         cmd.Parameters.AddWithValue("t", tenantId);
         cmd.Parameters.AddWithValue("u", userId);
         var rows = new List<MembershipRow>();
@@ -105,7 +105,7 @@ internal static class Pr1Db
         await using var conn = new NpgsqlConnection(HmsApiFactory.AdminConnection);
         await conn.OpenAsync();
         await using var cmd = new NpgsqlCommand(
-            "select tenant_id, registered_branch_id, created_by, updated_by, created_at, updated_at, deleted_at from patient.patients where id = @id", conn);
+            "select tenant_id, registered_branch_id, created_by, updated_by, created_on, updated_on, deleted_at from patient.patients where id = @id", conn);
         cmd.Parameters.AddWithValue("id", patientId);
         await using var reader = await cmd.ExecuteReaderAsync();
         if (!await reader.ReadAsync())

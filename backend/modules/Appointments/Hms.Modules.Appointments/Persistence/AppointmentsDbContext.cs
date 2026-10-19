@@ -21,9 +21,6 @@ public sealed class AppointmentsDbContext(DbContextOptions<AppointmentsDbContext
     public DbSet<Appointment> Appointments => Set<Appointment>();
     public DbSet<QueueEntry> QueueEntries => Set<QueueEntry>();
 
-    /// <summary>Read-only view of patient.patients (embedding only; never Add/Update it).</summary>
-    public IQueryable<PatientRef> PatientRefs => Set<PatientRef>().AsNoTracking();
-
     private Guid CurrentTenantId => tenantContext.IsResolved ? tenantContext.TenantId : Guid.Empty;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -33,13 +30,14 @@ public sealed class AppointmentsDbContext(DbContextOptions<AppointmentsDbContext
         modelBuilder.Entity<Practitioner>(e =>
         {
             e.ToTable("practitioners");
-            e.HasQueryFilter(x => x.TenantId == CurrentTenantId);
+            // soft-deleted practitioners are gone for the API (restore goes through the SQL function)
+            e.HasQueryFilter(x => x.TenantId == CurrentTenantId && !x.IsDeleted);
         });
 
         modelBuilder.Entity<Schedule>(e =>
         {
             e.ToTable("schedules");
-            e.HasQueryFilter(x => x.TenantId == CurrentTenantId);
+            e.HasQueryFilter(x => x.TenantId == CurrentTenantId && !x.IsDeleted);
             // tenant_id / id are insert-only; the rest is in the update grant.
         });
 
@@ -67,17 +65,6 @@ public sealed class AppointmentsDbContext(DbContextOptions<AppointmentsDbContext
             e.HasQueryFilter(x => x.TenantId == CurrentTenantId);
         });
 
-        modelBuilder.Entity<PatientRef>(e =>
-        {
-            e.ToTable("patients", "patient", t => t.ExcludeFromMigrations());
-            // Same visibility as GET /patients/{id}: this tenant, not soft-deleted (RLS adds the role check).
-            e.HasQueryFilter(x => x.TenantId == CurrentTenantId && x.DeletedAt == null);
-            foreach (var property in e.Metadata.GetProperties().Where(p => !p.IsKey()))
-            {
-                property.SetBeforeSaveBehavior(PropertySaveBehavior.Ignore);
-                property.SetAfterSaveBehavior(PropertySaveBehavior.Ignore);
-            }
-        });
 
         modelBuilder.UseDbManagedAuditColumns();
     }

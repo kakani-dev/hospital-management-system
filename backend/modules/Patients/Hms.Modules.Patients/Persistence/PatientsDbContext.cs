@@ -36,7 +36,7 @@ public sealed class PatientsDbContext(DbContextOptions<PatientsDbContext> option
             e.ToTable("patients");
             e.Property(x => x.Mrn).HasMaxLength(32);
             e.HasIndex(x => new { x.TenantId, x.Mrn }).IsUnique();
-            e.HasQueryFilter(p => p.TenantId == CurrentTenantId && p.DeletedAt == null);
+            e.HasQueryFilter(p => p.TenantId == CurrentTenantId && !p.IsDeleted); // NOT is_deleted: matches the partial indexes
         });
 
         modelBuilder.HasDbFunction(typeof(PatientsDbContext).GetMethod(nameof(NormalizePhone), [typeof(string)])!)
