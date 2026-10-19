@@ -4,9 +4,10 @@ using Hms.Modules.Appointments.Domain;
 namespace Hms.Modules.Appointments.Endpoints;
 
 // ---------------------------------------------------------------- practitioners
-public sealed record PractitionerDto(Guid Id, Guid? UserId, string DisplayName, string? Specialty, bool IsActive)
+/// <param name="IsDeleted">Only ever true for admins listing with includeDeleted (restore).</param>
+public sealed record PractitionerDto(Guid Id, Guid? UserId, string DisplayName, string? Specialty, bool IsActive, bool IsDeleted = false)
 {
-    public static PractitionerDto From(Practitioner p) => new(p.Id, p.UserId, p.DisplayName, p.Specialty, p.IsActive);
+    public static PractitionerDto From(Practitioner p) => new(p.Id, p.UserId, p.DisplayName, p.Specialty, p.IsActive, p.IsDeleted);
 }
 
 public sealed record CreatePractitionerRequest(string? DisplayName, string? Specialty, Guid? UserId);
@@ -18,10 +19,10 @@ public sealed record UpdatePractitionerRequest(string? DisplayName, string? Spec
 /// <summary>Times are branch-local wall-clock "HH:mm"; weekday is ISO (1 = Monday … 7 = Sunday).</summary>
 public sealed record ScheduleDto(
     Guid Id, Guid PractitionerId, Guid BranchId, int Weekday, string StartTime, string EndTime, int SlotMinutes,
-    DateOnly ValidFrom, DateOnly? ValidTo, bool IsActive)
+    DateOnly ValidFrom, DateOnly? ValidTo, bool IsActive, bool IsDeleted = false)
 {
     public static ScheduleDto From(Schedule s) => new(
-        s.Id, s.PractitionerId, s.BranchId, s.Weekday, HhMm.Format(s.StartTime), HhMm.Format(s.EndTime), s.SlotMinutes, s.ValidFrom, s.ValidTo, s.IsActive);
+        s.Id, s.PractitionerId, s.BranchId, s.Weekday, HhMm.Format(s.StartTime), HhMm.Format(s.EndTime), s.SlotMinutes, s.ValidFrom, s.ValidTo, s.IsActive, s.IsDeleted);
 }
 
 public sealed record CreateScheduleRequest(

@@ -56,6 +56,9 @@ public sealed record CreatePatientRequest(
 public sealed record PatientSearchRequest(
     string? Search, int? Page, int? PageSize, string? Phone = null, DateOnly? DateOfBirth = null, bool? IncludeDeleted = null);
 
+/// <summary>GET /patients/stats: counts for the dashboard (soft-deleted patients excluded).</summary>
+public sealed record PatientStatsDto(long Total, long RegisteredToday);
+
 public sealed record DuplicateCheckRequest(string? FirstName, string? LastName, DateOnly? DateOfBirth, string? Phone, Guid? ExcludePatientId);
 
 public sealed record DeletePatientRequest(string? Reason);

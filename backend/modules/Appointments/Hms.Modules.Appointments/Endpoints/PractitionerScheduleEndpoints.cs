@@ -45,9 +45,17 @@ public static class PractitionerScheduleEndpoints
 
     // ------------------------------------------------------------- practitioners
     private static async Task<Results<Ok<List<PractitionerDto>>, ProblemHttpResult>> ListPractitionersAsync(
-        AppointmentsDbContext db, ITenantContext tenant, TimeProvider clock, bool? activeOnly, Guid? branchId, CancellationToken ct)
+        AppointmentsDbContext db, ITenantContext tenant, TimeProvider clock, bool? activeOnly, Guid? branchId, bool? includeDeleted, CancellationToken ct)
     {
-        var query = db.Practitioners.AsNoTracking();
+        // includeDeleted (tenant_admin only, for restore): RLS already lets admins see deleted rows.
+        if (includeDeleted == true && !tenant.HasAnyRole(AppointmentRoles.Admin))
+        {
+            return HmsProblems.Forbidden("Only tenant admins can list deleted practitioners.");
+        }
+
+        var query = includeDeleted == true
+            ? db.Practitioners.IgnoreQueryFilters().AsNoTracking().Where(p => p.TenantId == tenant.TenantId)
+            : db.Practitioners.AsNoTracking();
         if (activeOnly ?? true)
         {
             query = query.Where(p => p.IsActive);
@@ -178,10 +186,17 @@ public static class PractitionerScheduleEndpoints
     }
 
     // ----------------------------------------------------------------- schedules
-    private static async Task<Ok<List<ScheduleDto>>> ListSchedulesAsync(
-        AppointmentsDbContext db, Guid? branchId, Guid? practitionerId, CancellationToken ct)
+    private static async Task<Results<Ok<List<ScheduleDto>>, ProblemHttpResult>> ListSchedulesAsync(
+        AppointmentsDbContext db, ITenantContext tenant, Guid? branchId, Guid? practitionerId, bool? includeDeleted, CancellationToken ct)
     {
-        var query = db.Schedules.AsNoTracking();
+        if (includeDeleted == true && !tenant.HasAnyRole(AppointmentRoles.Admin))
+        {
+            return HmsProblems.Forbidden("Only tenant admins can list deleted schedules.");
+        }
+
+        var query = includeDeleted == true
+            ? db.Schedules.IgnoreQueryFilters().AsNoTracking().Where(s => s.TenantId == tenant.TenantId)
+            : db.Schedules.AsNoTracking();
         if (branchId is { } b)
         {
             query = query.Where(s => s.BranchId == b);
