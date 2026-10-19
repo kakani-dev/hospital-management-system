@@ -11,9 +11,11 @@
 -- seeding. Any other MRN is kept as-is but never moves the counter: it can never collide with a
 -- generated MRN, because generated MRNs always have the tenant's own prefix.
 --
--- Data: counters are NEVER lowered here (lowering could re-issue a number, and the hosted Alpha
--- counter was already reset by hand to 1001). The only data step raises a counter that is below
--- the largest own-format MRN of its tenant (a no-op on a consistent database).
+-- Data: none. Counters are NEVER changed here: lowering could re-issue a number, and raising to the
+-- largest own-format MRN is wrong too, because the bug itself issued own-format MRNs with huge numbers
+-- (hosted Alpha has DEMO-ALPHA-20261009114531 while its counter was reset by hand to 1001). Such an
+-- MRN cannot collide with generated ones for trillions of registrations, and the unique
+-- (tenant_id, mrn) index would refuse a collision rather than duplicate it.
 -- =============================================================================
 set local lock_timeout = '5s';
 set local statement_timeout = '120s';
@@ -83,13 +85,3 @@ revoke all on function patient.assign_mrn() from public, anon, authenticated;
 
 -- The any-trailing-digits helper caused the bug; nothing else uses it.
 drop function patient.mrn_numeric_suffix(text);
-
--- Safety only: never below the largest own-format MRN (deleted rows included). Never lowers.
-insert into patient.mrn_counters as c (tenant_id, last_value)
-select p.tenant_id, max(patient.mrn_own_suffix(p.mrn, identity.tenant_mrn_prefix_v1(p.tenant_id)))
-from patient.patients p
-group by p.tenant_id
-having max(patient.mrn_own_suffix(p.mrn, identity.tenant_mrn_prefix_v1(p.tenant_id))) is not null
-on conflict (tenant_id) do update
-  set last_value = excluded.last_value
-  where excluded.last_value > c.last_value;

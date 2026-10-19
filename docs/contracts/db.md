@@ -97,7 +97,8 @@ adds a cross-schema reference must carry the header line `-- cross-schema: appro
   `DEMO-ALPHA-000001`. Existing MRNs are kept. Only MRNs in the tenant's **own** format
   (`<UPPER(code)>-<digits>`, case-insensitive; `patient.mrn_own_suffix`) seed or bump the counter
   (20261019130000): legacy or foreign-prefixed MRNs such as `MRN-1001` or `SMOKE-20261009114530` can
-  never collide with a generated MRN and are ignored. Counters are never lowered automatically. `authenticated` has no `insert (mrn)` / `update (mrn)` grant and the `patients_mrn_immutable`
+  never collide with a generated MRN and are ignored. The migration changes no counter (hosted Alpha was
+  reset by hand to 1001). `authenticated` has no `insert (mrn)` / `update (mrn)` grant and the `patients_mrn_immutable`
   trigger raises `42501 mrn is immutable` for everyone else; only an owner/superuser import session may
   supply an MRN (the counter is bumped past it).
 - **`identity.tenants.default_country_code`** (`^\+[1-9][0-9]{0,2}$`, NOT NULL) is the calling code used to

@@ -65,23 +65,21 @@ select tests.as_superuser();
 select tests.ok((select mrn from patient.patients where id = 'cc000000-0000-4000-8000-0000000000b2') = 'DEMO-000001',
   'tenant "demo" is not advanced by an imported DEMO-ALPHA-000900');
 
--- ------------------------------------------------ counter re-seeding ----
--- the migration's data step: raise to the largest own-format MRN, never lower
-update patient.mrn_counters set last_value = 3 where tenant_id = '11111111-1111-4111-8111-111111111111';
-insert into patient.mrn_counters as c (tenant_id, last_value)
-select p.tenant_id, max(patient.mrn_own_suffix(p.mrn, identity.tenant_mrn_prefix_v1(p.tenant_id)))
-from patient.patients p group by p.tenant_id
-having max(patient.mrn_own_suffix(p.mrn, identity.tenant_mrn_prefix_v1(p.tenant_id))) is not null
-on conflict (tenant_id) do update set last_value = excluded.last_value where excluded.last_value > c.last_value;
-select tests.ok((select last_value from patient.mrn_counters where tenant_id = '11111111-1111-4111-8111-111111111111') = 40,
-  're-seeding raises a counter to the largest own-format MRN (SMOKE-... ignored)');
+-- ---------------------------------------- an inflated own-format MRN ----
+-- hosted Alpha: DEMO-ALPHA-20261009114531 exists (issued by the old inflated counter), the counter was
+-- reset by hand to 1001. Generation continues from the counter; the big MRN stays untouched.
 update patient.mrn_counters set last_value = 1001 where tenant_id = '11111111-1111-4111-8111-111111111111';
-insert into patient.mrn_counters as c (tenant_id, last_value)
-select p.tenant_id, max(patient.mrn_own_suffix(p.mrn, identity.tenant_mrn_prefix_v1(p.tenant_id)))
-from patient.patients p group by p.tenant_id
-having max(patient.mrn_own_suffix(p.mrn, identity.tenant_mrn_prefix_v1(p.tenant_id))) is not null
-on conflict (tenant_id) do update set last_value = excluded.last_value where excluded.last_value > c.last_value;
-select tests.ok((select last_value from patient.mrn_counters where tenant_id = '11111111-1111-4111-8111-111111111111') = 1001,
-  're-seeding never lowers a counter (e.g. a manual reset to 1001 is kept)');
+set local session_replication_role = replica;  -- plant the legacy row without the MRN trigger
+insert into patient.patients (id, tenant_id, registered_branch_id, mrn, first_name, last_name, created_by, updated_by)
+values ('aa000000-0000-4000-8000-0000000000b5', '11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001',
+        'DEMO-ALPHA-20261009114531', 'Inflated', 'Legacy', '00000000-0000-4000-8000-00000000005e', '00000000-0000-4000-8000-00000000005e');
+set local session_replication_role = origin;
+select tests.authenticate_as('reception@alpha.example');
+insert into patient.patients (id, tenant_id, registered_branch_id, first_name, last_name)
+values ('aa000000-0000-4000-8000-0000000000b6', '11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'Next', 'Alpha');
+select tests.as_superuser();
+select tests.ok((select mrn from patient.patients where id = 'aa000000-0000-4000-8000-0000000000b6') = 'DEMO-ALPHA-001002'
+  and (select last_value from patient.mrn_counters where tenant_id = '11111111-1111-4111-8111-111111111111') = 1002,
+  'with the counter at 1001 the next MRN is DEMO-ALPHA-001002, despite DEMO-ALPHA-20261009114531 existing');
 
 rollback;
