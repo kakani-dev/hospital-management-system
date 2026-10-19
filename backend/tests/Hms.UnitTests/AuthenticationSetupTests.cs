@@ -1,4 +1,4 @@
-using Hms.Gateway.Infrastructure;
+using Hms.Platform.Auth;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.FileProviders;

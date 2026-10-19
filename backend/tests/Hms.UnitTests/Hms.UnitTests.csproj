@@ -14,6 +14,7 @@
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="../../platform/Hms.Platform/Hms.Platform.csproj" />
     <ProjectReference Include="../../modules/Identity/Hms.Modules.Identity/Hms.Modules.Identity.csproj" />
     <ProjectReference Include="../../modules/Patients/Hms.Modules.Patients/Hms.Modules.Patients.csproj" />
     <ProjectReference Include="../../modules/Appointments/Hms.Modules.Appointments/Hms.Modules.Appointments.csproj" />

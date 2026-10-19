@@ -1,5 +1,5 @@
 using System.Security.Claims;
-using Hms.Modules.Identity.Tenancy;
+using Hms.Platform.Tenancy;
 using Hms.SharedKernel.Persistence;
 using Hms.SharedKernel.Tenancy;
 using Microsoft.AspNetCore.Http;

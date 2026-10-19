@@ -1,3 +1,4 @@
+using Hms.Platform.Http;
 using Hms.Modules.Appointments.Domain;
 using Hms.Modules.Appointments.Functions;
 using Hms.Modules.Appointments.Persistence;
@@ -29,7 +30,7 @@ public static class QueueEndpoints
     }
 
     private static async Task<Results<Ok<List<QueueEntryDto>>, ValidationProblem, ProblemHttpResult>> BoardAsync(
-        Guid? branchId, DateOnly? date, string? status, AppointmentsDbContext db, ITenantContext tenant, TimeProvider clock, CancellationToken ct)
+        Guid? branchId, DateOnly? date, string? status, AppointmentsDbContext db, ITenantContext tenant, TimeProvider clock, IPatientSummaries patients, CancellationToken ct)
     {
         if (!tenant.HasAnyRole(AppointmentRoles.RegRead))
         {
@@ -67,11 +68,12 @@ public static class QueueEndpoints
         }
 
         var rows = await query.WithPatient(db).OrderBy(r => r.Entry.TokenNo).ToListAsync(ct);
+        await patients.AttachAsync(rows, ct);
         return TypedResults.Ok(rows.Select(r => r.ToDto()).ToList());
     }
 
     private static async Task<Results<Created<CheckInResultDto>, ValidationProblem, ProblemHttpResult>> WalkInAsync(
-        WalkInRequest request, AppointmentsDbContext db, ITenantContext tenant, IAppointmentFunctions functions, CancellationToken ct)
+        WalkInRequest request, AppointmentsDbContext db, ITenantContext tenant, IAppointmentFunctions functions, IPatientSummaries patients, CancellationToken ct)
     {
         if (!AppointmentRoles.AnyBranch(tenant, AppointmentRoles.FrontDesk))
         {
@@ -109,13 +111,13 @@ public static class QueueEndpoints
             return problem;
         }
 
-        var entry = await PatientEmbedding.LoadQueueEntryAsync(db, token.QueueEntryId, ct);
+        var entry = await PatientEmbedding.LoadQueueEntryAsync(db, patients, token.QueueEntryId, ct);
         return TypedResults.Created(
             $"/api/v1/queue/{token.QueueEntryId}", new CheckInResultDto(token.QueueEntryId, token.TokenNo, token.QueueDate, entry));
     }
 
     private static async Task<Results<Ok<QueueEntryDto>, ValidationProblem, ProblemHttpResult>> SetStatusAsync(
-        Guid id, UpdateQueueStatusRequest request, AppointmentsDbContext db, ITenantContext tenant, IAppointmentFunctions functions, CancellationToken ct)
+        Guid id, UpdateQueueStatusRequest request, AppointmentsDbContext db, ITenantContext tenant, IAppointmentFunctions functions, IPatientSummaries patients, CancellationToken ct)
     {
         if (request.Status is null || !QueueStatus.Settable.Contains(request.Status))
         {
@@ -164,7 +166,7 @@ public static class QueueEndpoints
             return problem;
         }
 
-        return TypedResults.Ok(await PatientEmbedding.LoadQueueEntryAsync(db, id, ct));
+        return TypedResults.Ok(await PatientEmbedding.LoadQueueEntryAsync(db, patients, id, ct));
     }
 
     internal static ProblemHttpResult? CheckInProblem(Exception ex) =>

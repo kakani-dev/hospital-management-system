@@ -1,7 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
-using Hms.Gateway.Infrastructure;
-using Hms.SharedKernel.Messaging;
+using Hms.Platform.Messaging;
 using Npgsql;
 using static Hms.IntegrationTests.HmsApiFactory;
 

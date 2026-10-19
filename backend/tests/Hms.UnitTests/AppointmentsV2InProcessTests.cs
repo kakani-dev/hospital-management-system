@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using Hms.Modules.Appointments.Domain;
 using Hms.Modules.Appointments.Endpoints;
+using Hms.Modules.Appointments.Functions;
 using Hms.Modules.Appointments.Persistence;
 using Hms.SharedKernel.Tenancy;
 using Microsoft.EntityFrameworkCore;
@@ -11,7 +12,7 @@ using static Hms.UnitTests.InProcessApiTests;
 
 namespace Hms.UnitTests;
 
-/// <summary>API v2 additions: embedded patient (single JOIN) and GET /practitioners?branchId=.</summary>
+/// <summary>API v2 additions: embedded patient (via patient.patient_summary_v1) and GET /practitioners?branchId=.</summary>
 public sealed class AppointmentsV2InProcessTests(ApiFactory factory) : IClassFixture<ApiFactory>
 {
     private sealed record PatientRefBody(Guid Id, string Mrn, string FirstName, string LastName);
@@ -28,52 +29,42 @@ public sealed class AppointmentsV2InProcessTests(ApiFactory factory) : IClassFix
         new(new DbContextOptionsBuilder<AppointmentsDbContext>().UseNpgsql("Host=unused").UseSnakeCaseNamingConvention().Options, new TenantContext());
 
     [Fact]
-    public void Embedding_is_one_statement_with_a_left_join_on_visible_patients()
+    public void Scheduling_queries_never_touch_the_patient_schema()
     {
         using var db = NpgsqlModelOnly();
         var appointments = db.Appointments.AsNoTracking().WithPatient(db).OrderBy(r => r.Appointment.StartsAt).Take(25).ToQueryString();
         var queue = db.QueueEntries.AsNoTracking().WithPatient(db).ToQueryString();
         foreach (var sql in new[] { appointments, queue })
         {
-            Assert.Contains("LEFT JOIN", sql, StringComparison.Ordinal);
-            Assert.Contains("FROM patient.patients", sql, StringComparison.Ordinal);
-            Assert.Contains("NOT (p.is_deleted)", sql, StringComparison.Ordinal); // single predicate, matches the partial indexes
-            Assert.DoesNotContain(";", sql.TrimEnd().TrimEnd(';'), StringComparison.Ordinal); // a single statement
+            // Microservices rule (DB review B4): no cross-schema join; summaries come from patient.patient_summary_v1.
+            Assert.DoesNotContain("patient.", sql, StringComparison.Ordinal);
+            Assert.DoesNotContain("JOIN", sql, StringComparison.Ordinal);
         }
+
+        Assert.Contains("patient.patient_summary_v1(", PostgresPatientSummaries.Sql, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void PatientRef_is_read_only_and_not_part_of_migrations()
+    public void PatientRef_is_not_part_of_the_scheduling_EF_model()
     {
         using var db = NpgsqlModelOnly();
-        var entity = db.GetService<Microsoft.EntityFrameworkCore.Metadata.IDesignTimeModel>().Model.FindEntityType(typeof(PatientRef))!;
-        Assert.Equal("patient", entity.GetSchema());
-        Assert.Equal("patients", entity.GetTableName());
-        Assert.True(entity.IsTableExcludedFromMigrations());
-        Assert.All(entity.GetProperties().Where(p => !p.IsKey()), p =>
-        {
-            Assert.Equal(Microsoft.EntityFrameworkCore.Metadata.PropertySaveBehavior.Ignore, p.GetBeforeSaveBehavior());
-            Assert.Equal(Microsoft.EntityFrameworkCore.Metadata.PropertySaveBehavior.Ignore, p.GetAfterSaveBehavior());
-        });
+        Assert.Null(db.GetService<Microsoft.EntityFrameworkCore.Metadata.IDesignTimeModel>().Model.FindEntityType(typeof(PatientRef)));
     }
 
-    private async Task<(Guid Live, Guid Deleted)> SeedPatientsAsync()
+    private (Guid Live, Guid Deleted) SeedPatients()
     {
-        using var scope = factory.Services.CreateScope();
-        ((TenantContext)scope.ServiceProvider.GetRequiredService<ITenantContext>())
-            .Resolve(Alpha, Admin, null, [HmsRoles.TenantAdmin], [Main, East]);
-        var db = scope.ServiceProvider.GetRequiredService<AppointmentsDbContext>();
+        var summaries = factory.Services.GetRequiredService<InMemoryPatientSummaries>();
         var live = new PatientRef { Id = Guid.NewGuid(), TenantId = Alpha, Mrn = "V2-LIVE", FirstName = "Asha", LastName = "Rao" };
         var deleted = new PatientRef { Id = Guid.NewGuid(), TenantId = Alpha, Mrn = "V2-DEL", FirstName = "Old", LastName = "Gone", IsDeleted = true };
-        db.Set<PatientRef>().AddRange(live, deleted);
-        await db.SaveChangesAsync();
+        summaries.Add(live);
+        summaries.Add(deleted);
         return (live.Id, deleted.Id);
     }
 
     [Fact]
     public async Task Appointment_and_queue_responses_carry_the_patient()
     {
-        var (live, deleted) = await SeedPatientsAsync();
+        var (live, deleted) = SeedPatients();
         using var admin = factory.ClientAs(Admin);
         var pr = (await (await admin.PostAsJsonAsync("/api/v1/practitioners", new { displayName = "Dr. V2" })).Content.ReadFromJsonAsync<PractitionerBody>())!;
         var start = new DateTimeOffset(2031, 4, 7, 10, 0, 0, TimeSpan.Zero);
@@ -91,7 +82,7 @@ public sealed class AppointmentsV2InProcessTests(ApiFactory factory) : IClassFix
         var withLive = await Book(live, 0);
         Assert.Equal(new PatientRefBody(live, "V2-LIVE", "Asha", "Rao"), withLive.Patient);
         var withDeleted = await Book(deleted, 1);
-        Assert.Null(withDeleted.Patient);
+        Assert.Null(withDeleted.Patient); // API contract unchanged: soft-deleted -> null (patient_summary_v1 returns it with is_deleted)
         Assert.Null((await Book(Guid.NewGuid(), 2)).Patient); // unknown / unreadable patient
 
         var page = (await admin.GetFromJsonAsync<PageBody>($"/api/v1/appointments?practitionerId={pr.Id}"))!;

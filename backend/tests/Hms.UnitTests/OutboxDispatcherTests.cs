@@ -1,4 +1,4 @@
-using Hms.SharedKernel.Messaging;
+using Hms.Platform.Messaging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 

@@ -1,5 +1,5 @@
 using System.Security.Claims;
-using Hms.Modules.Identity.Tenancy;
+using Hms.Platform.Tenancy;
 
 namespace Hms.UnitTests;
 

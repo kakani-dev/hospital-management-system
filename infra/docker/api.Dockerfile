@@ -1,15 +1,20 @@
 # syntax=docker/dockerfile:1
-# ASP.NET Core gateway (modular monolith). Build context: repository root.
+# Legacy all-in-one API host (the modular monolith, Hms.Gateway). Build context: repository root.
 #   docker build -f infra/docker/api.Dockerfile -t hms-api .
+# Per-service images: backend/services/<service>/Dockerfile (MICROSERVICES-PLAN.md §8).
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 COPY backend/global.json backend/Directory.Build.props backend/Directory.Packages.props backend/Hms.slnx ./
 COPY backend/shared/Hms.SharedKernel/Hms.SharedKernel.csproj shared/Hms.SharedKernel/
+COPY backend/platform/Hms.Platform/Hms.Platform.csproj platform/Hms.Platform/
 COPY backend/modules/Identity/Hms.Modules.Identity/Hms.Modules.Identity.csproj modules/Identity/Hms.Modules.Identity/
 COPY backend/modules/Patients/Hms.Modules.Patients/Hms.Modules.Patients.csproj modules/Patients/Hms.Modules.Patients/
+# Sprint 2 fix: the Appointments module was missing here, so `dotnet restore` failed for the image.
+COPY backend/modules/Appointments/Hms.Modules.Appointments/Hms.Modules.Appointments.csproj modules/Appointments/Hms.Modules.Appointments/
 COPY backend/gateway/Hms.Gateway/Hms.Gateway.csproj gateway/Hms.Gateway/
 RUN dotnet restore gateway/Hms.Gateway/Hms.Gateway.csproj
 COPY backend/shared shared
+COPY backend/platform platform
 COPY backend/modules modules
 COPY backend/gateway gateway
 RUN dotnet publish gateway/Hms.Gateway/Hms.Gateway.csproj -c Release -o /app/publish --no-restore /p:UseAppHost=false

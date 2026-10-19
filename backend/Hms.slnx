@@ -1,4 +1,7 @@
 <Solution>
+  <Folder Name="/edge/">
+    <Project Path="edge/Hms.Edge/Hms.Edge.csproj" />
+  </Folder>
   <Folder Name="/gateway/">
     <Project Path="gateway/Hms.Gateway/Hms.Gateway.csproj" />
   </Folder>
@@ -11,6 +14,19 @@
   </Folder>
   <Folder Name="/modules/Patients/">
     <Project Path="modules/Patients/Hms.Modules.Patients/Hms.Modules.Patients.csproj" />
+  </Folder>
+  <Folder Name="/platform/">
+    <Project Path="platform/Hms.Platform/Hms.Platform.csproj" />
+  </Folder>
+  <Folder Name="/services/" />
+  <Folder Name="/services/identity/">
+    <Project Path="services/identity/Hms.Identity.Api/Hms.Identity.Api.csproj" />
+  </Folder>
+  <Folder Name="/services/patients/">
+    <Project Path="services/patients/Hms.Patients.Api/Hms.Patients.Api.csproj" />
+  </Folder>
+  <Folder Name="/services/scheduling/">
+    <Project Path="services/scheduling/Hms.Scheduling.Api/Hms.Scheduling.Api.csproj" />
   </Folder>
   <Folder Name="/shared/">
     <Project Path="shared/Hms.SharedKernel/Hms.SharedKernel.csproj" />

@@ -12,7 +12,7 @@ namespace Hms.SharedKernel.Persistence;
 /// </summary>
 public sealed class RlsTransactionInterceptor(DbSessionContext session) : DbTransactionInterceptor
 {
-    internal const string Sql =
+    public const string Sql =
         "SELECT set_config('role', @role, true), set_config('request.jwt.claims', @claims, true), set_config('request.jwt.claim.sub', @sub, true)";
 
     public override DbTransaction TransactionStarted(DbConnection connection, TransactionEndEventData eventData, DbTransaction result)

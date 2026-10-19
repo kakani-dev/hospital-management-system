@@ -1,3 +1,4 @@
+using Hms.Platform.Http;
 using Hms.Modules.Identity.Domain;
 using Hms.Modules.Identity.Persistence;
 using Hms.SharedKernel.Http;
