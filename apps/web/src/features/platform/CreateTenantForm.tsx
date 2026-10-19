@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useForm, useWatch } from 'react-hook-form'
+import { Controller, useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { FormField } from '../../components/ui/FormField'
 import { TimeZoneField } from '../../components/ui/TimeZoneField'
@@ -7,7 +7,7 @@ import { Button } from '../../components/ui/Button'
 import { Alert } from '../../components/ui/Alert'
 import { usePlatformCreateTenant } from '../../lib/api/hooks'
 import { fieldErrors, problemCode } from '../../lib/api/client'
-import { codeFromName } from '../../lib/timeZones'
+import { codeFromName, defaultZone } from '../../lib/timeZones'
 import type { HospitalApproved } from '../../lib/api/types'
 import { createTenantSchema, type CreateTenantValues } from '../onboarding/onboardingSchemas'
 
@@ -25,7 +25,7 @@ export function CreateTenantForm({ onCreated, onCancel }: { onCreated: (result: 
     setError: setFieldError,
     control,
     formState: { errors, isSubmitting },
-  } = useForm<CreateTenantValues>({ resolver: zodResolver(createTenantSchema), defaultValues: { name: '', code: '', timeZone: '', adminEmail: '' } })
+  } = useForm<CreateTenantValues>({ resolver: zodResolver(createTenantSchema), defaultValues: { name: '', code: '', timeZone: defaultZone(), adminEmail: '' } })
   const name = useWatch({ control, name: 'name' })
   useEffect(() => {
     if (!codeTouched && name) setValue('code', codeFromName(name))
@@ -60,7 +60,22 @@ export function CreateTenantForm({ onCreated, onCancel }: { onCreated: (result: 
         error={errors.code?.message}
         {...register('code', { onChange: () => setCodeTouched(true) })}
       />
-      <TimeZoneField label="Hospital time zone" hint="Required IANA zone, e.g. Asia/Kolkata." error={errors.timeZone?.message} {...register('timeZone')} />
+      <Controller
+        control={control}
+        name="timeZone"
+        render={({ field }) => (
+          <TimeZoneField
+            label="Hospital time zone"
+            hint="Pick from the list or search, e.g. Kolkata."
+            error={errors.timeZone?.message}
+            name={field.name}
+            value={field.value}
+            onChange={field.onChange}
+            onBlur={field.onBlur}
+            ref={field.ref}
+          />
+        )}
+      />
       <FormField
         label="First admin email"
         type="email"

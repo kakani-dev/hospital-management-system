@@ -1,10 +1,12 @@
 import { useState } from 'react'
-import { useForm, useWatch } from 'react-hook-form'
+import { Controller, useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Card } from '../../components/ui/Card'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
 import { FormField } from '../../components/ui/FormField'
+import { TimeZoneField } from '../../components/ui/TimeZoneField'
+import { defaultZone } from '../../lib/timeZones'
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 import { Badge, Checkbox } from '@tailux/components/ui'
 import { DataTable, type ColumnDef } from '../../components/table/DataTable'
@@ -14,7 +16,8 @@ import { ApiError, fieldErrors } from '../../lib/api/client'
 import { Drawer } from '@tailux/components/shared/Drawer'
 import { branchEditSchema, branchSchema, type BranchEditValues, type BranchFormValues } from './adminSchemas'
 
-const EMPTY: BranchFormValues = { code: '', name: '', useHospitalZone: true, timezone: '' }
+/** A new branch follows the hospital zone; the override starts at the workstation zone or Asia/Kolkata. */
+const empty = (): BranchFormValues => ({ code: '', name: '', useHospitalZone: true, timezone: defaultZone() })
 
 /** Branch zone as stored: `null` override = follows the hospital zone (audit/TZ API). */
 function zoneLabel(b: Branch) {
@@ -43,7 +46,7 @@ export function BranchesPage() {
     setError,
     control,
     formState: { errors, isSubmitting },
-  } = useForm<BranchFormValues>({ resolver: zodResolver(branchSchema), defaultValues: EMPTY })
+  } = useForm<BranchFormValues>({ resolver: zodResolver(branchSchema), defaultValues: empty() })
   const useHospitalZone = useWatch({ control, name: 'useHospitalZone' }) !== false
 
   const onSubmit = async (values: BranchFormValues) => {
@@ -54,7 +57,7 @@ export function BranchesPage() {
       : { code: values.code, name: values.name, timezone: values.timezone }
     try {
       const created = await createBranch.mutateAsync(body)
-      reset({ ...EMPTY, useHospitalZone: values.useHospitalZone, timezone: values.timezone })
+      reset({ ...empty(), useHospitalZone: values.useHospitalZone, timezone: values.timezone })
       setMessage({ tone: 'info', text: `Branch ${created.name} created.` })
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
@@ -215,7 +218,22 @@ export function BranchesPage() {
               {...register('useHospitalZone')}
             />
             {!useHospitalZone && (
-              <FormField label="Time zone" hint="IANA zone, e.g. Asia/Dubai" error={errors.timezone?.message} {...register('timezone')} />
+              <Controller
+                control={control}
+                name="timezone"
+                render={({ field }) => (
+                  <TimeZoneField
+                    label="Time zone"
+                    hint="Search, e.g. Dubai or +04:00"
+                    error={errors.timezone?.message}
+                    name={field.name}
+                    value={field.value}
+                    onChange={field.onChange}
+                    onBlur={field.onBlur}
+                    ref={field.ref}
+                  />
+                )}
+              />
             )}
           </div>
           <div className="sm:pt-7">
@@ -315,7 +333,7 @@ function EditBranchForm({
     formState: { errors, isSubmitting },
   } = useForm<BranchEditValues>({
     resolver: zodResolver(branchEditSchema),
-    defaultValues: { name: branch.name, useHospitalZone: !hasOverride, timezone: branch.timezoneOverride ?? branch.timezone ?? '' },
+    defaultValues: { name: branch.name, useHospitalZone: !hasOverride, timezone: branch.timezoneOverride ?? (branch.timezone || defaultZone()) },
   })
   const followHospital = useWatch({ control, name: 'useHospitalZone' })
 
@@ -339,7 +357,22 @@ function EditBranchForm({
         {...register('useHospitalZone')}
       />
       {!followHospital && (
-        <FormField label="Branch time zone" hint="IANA zone, e.g. Asia/Dubai" error={errors.timezone?.message} {...register('timezone')} />
+        <Controller
+          control={control}
+          name="timezone"
+          render={({ field }) => (
+            <TimeZoneField
+              label="Branch time zone"
+              hint="Search, e.g. Dubai or +04:00"
+              error={errors.timezone?.message}
+              name={field.name}
+              value={field.value}
+              onChange={field.onChange}
+              onBlur={field.onBlur}
+              ref={field.ref}
+            />
+          )}
+        />
       )}
       <p className="text-sm text-gray-600 dark:text-dark-200">
         Booked appointments keep their instant when the zone changes, so their local times move. You will be asked to confirm.

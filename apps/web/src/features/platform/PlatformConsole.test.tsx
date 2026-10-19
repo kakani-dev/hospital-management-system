@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { App } from '../../App'
+import { defaultZone } from '../../lib/timeZones'
 import { fakeAuthClient, fakeSession, json, meFor, renderWithProviders, stubFetch } from '../../test/fakes'
 
 afterEach(() => vi.unstubAllGlobals())
@@ -112,17 +113,24 @@ describe('Platform console', () => {
     expect(calls.find((c) => c.method === 'POST')!.body).toEqual({ name: 'Synthetic Lotus Clinic', code: 'synthetic-lotus-clinic', timeZone: 'Asia/Kolkata', adminEmail: 'asha@lotus.example' })
   })
 
-  it('requires a time zone to create a hospital', async () => {
+  it('starts the hospital zone at the workstation zone and only accepts listed zones', async () => {
     const calls = stubFetch({ 'GET /api/v1/me': () => json(OPERATOR), 'GET /api/v1/platform/tenants': () => json([]), 'GET /api/v1/platform/hospital-requests': () => json([]) })
     const user = userEvent.setup()
     renderWithProviders(<App />, { path: '/platform', auth: session() })
     await user.click(await screen.findByRole('button', { name: 'Create hospital' }))
     const form = within(await screen.findByRole('form', { name: 'Create hospital' }))
+    const zone = form.getByLabelText('Hospital time zone')
+    // jsdom runs in the CI zone (UTC unless TZ is set); both are listed zones, so the default is kept.
+    expect(zone).toHaveValue(defaultZone())
+    await user.click(zone)
+    expect(await screen.findAllByRole('option')).not.toHaveLength(0)
+    await user.keyboard('Mars/Olympus')
+    expect(screen.getByText('No time zone matches “Mars/Olympus”.')).toBeInTheDocument()
     await user.type(form.getByLabelText('Hospital name'), 'No Zone')
+    expect(zone).toHaveValue(defaultZone())
     await user.type(form.getByLabelText('First admin email'), 'a@nozone.example')
     await user.click(form.getByRole('button', { name: 'Create hospital' }))
-    expect(await form.findByText('Choose the hospital time zone')).toBeInTheDocument()
-    expect(calls.some((c) => c.method === 'POST')).toBe(false)
+    await waitFor(() => expect(calls.find((c) => c.method === 'POST')?.body).toMatchObject({ timeZone: defaultZone() }))
   })
 
   it('approves a request with a tenant code and shows the invite link; rejects with a reason', async () => {
