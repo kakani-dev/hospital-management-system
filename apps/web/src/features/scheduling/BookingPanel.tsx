@@ -7,10 +7,13 @@ import { Button } from '../../components/ui/Button'
 import { SelectField } from '../../components/ui/SelectField'
 import { FormField } from '../../components/ui/FormField'
 import { useCreateAppointment, useSlots } from '../../lib/api/hooks'
+import { apiClient } from '../../lib/api/client'
 import { ApiError, fieldErrors, problemCode } from '../../lib/api/client'
 import { formatDayLabel, formatTime } from '../../lib/dates'
 import type { Appointment, PatientSummary, Practitioner, Slot } from '../../lib/api/types'
 import { PatientPicker } from '../patients/PatientPicker'
+import { RegisterPatientPage } from '../patients/RegisterPatientPage'
+import { prefillFromTerm, type RegisterPatientState } from '../patients/registerReturn'
 import { SlotPicker } from './SlotPicker'
 import { joinMissing, type BookableStatus } from './useBookablePractitioners'
 
@@ -57,6 +60,12 @@ export function BookingPanel({
   const [error, setError] = useState<string | null>(null)
   const [retryable, setRetryable] = useState(false)
   const confirmRef = useRef<HTMLButtonElement>(null)
+  // Inline "+ New patient": the shared register form, embedded in this drawer (slot etc. are kept).
+  const [quick, setQuick] = useState<{ prefill: RegisterPatientState['prefill'] } | null>(null)
+  const [focusConfirm, setFocusConfirm] = useState(0)
+  useEffect(() => {
+    if (focusConfirm) confirmRef.current?.focus()
+  }, [focusConfirm])
   // Back from registration with everything filled in: Enter confirms.
   useEffect(() => {
     if (initial?.patient) confirmRef.current?.focus()
@@ -67,7 +76,8 @@ export function BookingPanel({
   const missingMessage = missing.length ? `Choose ${joinMissing(missing)}.` : null
   const noPractitioners = practitionersStatus === 'ready' && practitioners.length === 0
 
-  const submit = async () => {
+  const submit = async (picked: PatientSummary | null = patient) => {
+    const patient = picked
     setError(null)
     setRetryable(false)
     if (!practitionerId || !slot || !patient) {
@@ -195,11 +205,43 @@ export function BookingPanel({
         />
       </div>
       <div className="space-y-4">
-        <PatientPicker
-          value={patient}
-          onChange={setPatient}
-          registerReturn={{ to: `${location.pathname}${location.search}`, state: { booking: { practitionerId, date, slot } satisfies BookingDraft } }}
-        />
+        {quick ? (
+          <RegisterPatientPage
+            embedded={{
+              prefill: quick.prefill,
+              branchId,
+              canBook: !!practitionerId && !!slot,
+              onCancel: () => setQuick(null),
+              onCreated: (created, action) => {
+                setPatient(created)
+                setQuick(null)
+                if (action === 'book') void submit(created)
+                else setFocusConfirm((n) => n + 1)
+              },
+              onUseExisting: (match) => {
+                setQuick(null)
+                void apiClient.patients.get(match.id).then(
+                  (p) => {
+                    setPatient(p)
+                    setFocusConfirm((n) => n + 1)
+                  },
+                  () => setError('That patient record could not be opened. Search for it instead.'),
+                )
+              },
+            }}
+          />
+        ) : (
+          <PatientPicker
+            value={patient}
+            onChange={(p) => {
+              setPatient(p)
+              if (p) setFocusConfirm((n) => n + 1)
+            }}
+            showRecent
+            onCreateNew={(term) => setQuick({ prefill: prefillFromTerm(term) })}
+            registerReturn={{ to: `${location.pathname}${location.search}`, state: { booking: { practitionerId, date, slot } satisfies BookingDraft } }}
+          />
+        )}
         <FormField label="Reason (optional)" maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />
       </div>
       {error && (
@@ -216,7 +258,7 @@ export function BookingPanel({
         <Button
           ref={confirmRef}
           type="submit"
-          disabled={create.isPending || !!missingMessage}
+          disabled={create.isPending || !!missingMessage || !!quick}
           aria-describedby={missingMessage && !error ? 'booking-missing' : undefined}
         >
           {create.isPending ? 'Booking…' : 'Confirm booking'}
