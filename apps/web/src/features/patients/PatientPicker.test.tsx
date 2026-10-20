@@ -6,6 +6,7 @@ import { ALPHA_MAIN, fakeAuthClient, fakeSession, json, meWithRoles, renderWithP
 import { DR_RAO, appointment, at, branchesResponse, paged, patientDetail, practitionersApi, schedules, today } from '../../test/schedulingFixtures'
 import { prefillFromTerm } from './registerReturn'
 import { patientOptionLabel } from './patientLabel'
+import { PatientPicker } from './PatientPicker'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -116,38 +117,119 @@ describe('PatientPicker combobox', () => {
     await waitFor(() => expect(screen.getByLabelText('First name')).toHaveFocus())
   })
 
-  it('booking: register-new returns to the open panel with practitioner, slot and the new patient', async () => {
-    const d = today()
-    const slot = { practitionerId: DR_RAO, branchId: ALPHA_MAIN, startsAt: at(d, '23:00'), endsAt: at(d, '23:15') }
-    const created = { ...patientDetail, id: 'aa000000-0000-4000-8000-000000000098', mrn: 'NEW-0098', firstName: 'Lata', lastName: 'Synthetic-New' }
-    const calls = routes(['tenant_admin'], {
-      'GET /api/v1/slots': () => json([slot]),
-      'POST /api/v1/patients/search': () => page([]),
-      'POST /api/v1/patients/duplicates': () => json({ candidates: [] }),
-      'POST /api/v1/patients': () => json(created, 201),
-      'POST /api/v1/appointments': (_u, init) => json(appointment({ id: 'new', ...JSON.parse(String(init.body)) }), 201),
-    })
-    const user = userEvent.setup()
+  async function openBooking(user: ReturnType<typeof userEvent.setup>) {
     render('/appointments')
     await user.click(await screen.findByRole('button', { name: 'Book appointment' }))
-    let form = screen.getByRole('form', { name: 'Book appointment' })
-    await waitFor(() => expect(within(within(form).getByLabelText('Practitioner')).getAllByRole('option')).toHaveLength(2))
+    const form = screen.getByRole('form', { name: 'Book appointment' })
+    await waitFor(() => expect(within(form).getByLabelText('Practitioner').querySelectorAll('option')).toHaveLength(2))
     await user.selectOptions(within(form).getByLabelText('Practitioner'), DR_RAO)
     await user.click(await within(form).findByRole('radio', { name: '23:00' }))
+    return form
+  }
+  const bookingRoutes = (roles: string[], extra: Parameters<typeof stubFetch>[0] = {}) => {
+    const d = today()
+    const slot = { practitionerId: DR_RAO, branchId: ALPHA_MAIN, startsAt: at(d, '23:00'), endsAt: at(d, '23:15') }
+    const calls = routes(roles, {
+      'GET /api/v1/slots': () => json([slot]),
+      'GET /api/v1/patients': () => page([RAVI]),
+      'POST /api/v1/patients/search': () => page([]),
+      'POST /api/v1/patients/duplicates': () => json({ candidates: [] }),
+      'POST /api/v1/appointments': (_u, init) => json(appointment({ id: 'new', ...JSON.parse(String(init.body)) }), 201),
+      ...extra,
+    })
+    return { calls, slot }
+  }
+  const NEW = { ...patientDetail, id: 'aa000000-0000-4000-8000-000000000098', mrn: 'NEW-0098', firstName: 'Lata', lastName: 'Synthetic-New' }
+
+  it('booking: "+ New patient" registers inline in the drawer, keeps the slot, selects the patient, Enter books', async () => {
+    const { calls, slot } = bookingRoutes(['tenant_admin'], { 'POST /api/v1/patients': () => json(NEW, 201) })
+    const user = userEvent.setup()
+    const form = await openBooking(user)
     await user.type(within(form).getByLabelText('Find patient'), 'Lata Synthetic-New')
-    await user.click(await within(form).findByTestId('register-new-patient'))
+    const option = await within(form).findByTestId('register-new-patient')
+    expect(option).toHaveTextContent('+ New patient “Lata Synthetic-New”')
+    await user.click(option)
 
-    expect(await screen.findByLabelText('First name')).toHaveValue('Lata')
-    await user.click(screen.getByRole('button', { name: /register patient/i }))
+    const quick = within(form).getByTestId('quick-register')
+    expect(within(quick).getByLabelText('First name')).toHaveValue('Lata')
+    expect(within(quick).getByLabelText('Last name')).toHaveValue('Synthetic-New')
+    expect(within(quick).getByLabelText('Same as phone number')).toBeChecked()
+    expect(within(quick).queryByLabelText('Registered branch')).toBeNull()
+    expect(screen.getByRole('form', { name: 'Book appointment' })).toBe(form) // same drawer, no navigation
+    await user.click(within(quick).getByTestId('save-patient'))
 
-    form = await screen.findByRole('form', { name: 'Book appointment' })
-    expect(within(form).getByLabelText('Practitioner')).toHaveValue(DR_RAO)
-    await waitFor(() => expect(within(form).getByRole('radio', { name: '23:00' })).toBeChecked())
-    expect(within(form).getByTestId('picked-patient')).toHaveTextContent('Synthetic-New, Lata NEW-0098')
+    expect(await within(form).findByTestId('picked-patient')).toHaveTextContent('Synthetic-New, Lata NEW-0098')
+    expect(within(form).getByRole('radio', { name: '23:00' })).toBeChecked()
     await waitFor(() => expect(within(form).getByRole('button', { name: 'Confirm booking' })).toHaveFocus())
     await user.keyboard('{Enter}')
     expect(await screen.findByText(/Booked Lata Synthetic-New with Dr. Rao/)).toBeInTheDocument()
-    expect(calls.find((c) => c.method === 'POST' && c.path === '/api/v1/appointments')!.body).toMatchObject({ patientId: created.id, startsAt: slot.startsAt })
+    expect(calls.find((c) => c.method === 'POST' && c.path === '/api/v1/patients')!.body).toMatchObject({
+      firstName: 'Lata', lastName: 'Synthetic-New', registeredBranchId: ALPHA_MAIN, sex: 'unknown',
+    })
+    expect(calls.find((c) => c.method === 'POST' && c.path === '/api/v1/appointments')!.body).toMatchObject({ patientId: NEW.id, startsAt: slot.startsAt })
+  })
+
+  it('booking: a phone search pre-fills +91 phone, and "Save & book" registers and books in one action', async () => {
+    const { calls } = bookingRoutes(['receptionist'], { 'POST /api/v1/patients': () => json(NEW, 201) })
+    const user = userEvent.setup()
+    const form = await openBooking(user)
+    await user.type(within(form).getByLabelText('Find patient'), '98450 77777')
+    await user.click(await within(form).findByTestId('register-new-patient'))
+    const quick = within(form).getByTestId('quick-register')
+    expect(within(quick).getByLabelText(/Phone/)).toHaveValue('+91 98450 77777')
+    await waitFor(() => expect(within(quick).getByLabelText('First name')).toHaveFocus())
+    await user.keyboard('Lata{Tab}Synthetic-New')
+    await user.click(within(quick).getByTestId('save-and-book'))
+    expect(await screen.findByText(/Booked Lata Synthetic-New with Dr. Rao/)).toBeInTheDocument()
+    expect(calls.find((c) => c.method === 'POST' && c.path === '/api/v1/patients')!.body).toMatchObject({
+      phone: '+91 98450 77777', whatsapp: { sameAsPhone: true },
+    })
+    expect(calls.filter((c) => c.method === 'POST' && c.path === '/api/v1/appointments')).toHaveLength(1)
+  })
+
+  it('booking: possible duplicates offer "Use existing", which selects that patient without creating one', async () => {
+    const dup = { id: RAVI.id, mrn: RAVI.mrn, firstName: RAVI.firstName, lastName: RAVI.lastName, dateOfBirth: null, phone: RAVI.phone, registeredBranchId: ALPHA_MAIN, matchReasons: ['phone'] }
+    const { calls } = bookingRoutes(['receptionist'], {
+      'POST /api/v1/patients/duplicates': () => json({ candidates: [dup] }),
+      [`GET /api/v1/patients/${RAVI.id}`]: () => json(RAVI),
+      'POST /api/v1/patients': () => json(NEW, 201),
+    })
+    const user = userEvent.setup()
+    const form = await openBooking(user)
+    await user.type(within(form).getByLabelText('Find patient'), 'Ravi Synthetic-Alpha')
+    await user.click(await within(form).findByTestId('register-new-patient'))
+    const quick = within(form).getByTestId('quick-register')
+    await user.type(within(quick).getByLabelText(/Phone/), '+91 98450 00002')
+    await user.click(within(quick).getByTestId('save-and-book'))
+    await user.click(await within(form).findByTestId('use-existing'))
+    expect(await within(form).findByTestId('picked-patient')).toHaveTextContent('Synthetic-Alpha, Ravi ALP-0002')
+    expect(calls.filter((c) => c.method === 'POST' && c.path === '/api/v1/patients')).toHaveLength(0)
+    expect(calls.filter((c) => c.method === 'POST' && c.path === '/api/v1/appointments')).toHaveLength(0)
+  })
+
+  it('booking: focus shows recent patients at once; "+ New patient" stays the last option even with matches', async () => {
+    bookingRoutes(['receptionist'], { 'POST /api/v1/patients/search': () => page([RAVI]) })
+    const user = userEvent.setup()
+    const form = await openBooking(user)
+    await user.click(within(form).getByLabelText('Find patient'))
+    expect(await within(form).findByRole('listbox', { name: 'Recent patients' })).toBeInTheDocument()
+    expect(within(form).getAllByTestId('patient-option')[0]).toHaveTextContent('Ravi')
+    await user.type(within(form).getByLabelText('Find patient'), 'Ra')
+    await within(form).findByTestId('register-new-patient')
+    const options = within(within(form).getByRole('listbox', { name: 'Matching patients' })).getAllByRole('option')
+    expect(options.at(-1)).toHaveAttribute('data-testid', 'register-new-patient')
+  })
+
+  it('users without patients.create get no "+ New patient" option (picker in inline mode)', async () => {
+    routes(['nurse'], { 'POST /api/v1/patients/search': () => page([]) })
+    const user = userEvent.setup()
+    const onCreateNew = vi.fn()
+    renderWithProviders(<PatientPicker value={null} onChange={() => {}} onCreateNew={onCreateNew} />, { path: '/', auth: fakeAuthClient({ session: fakeSession() }) })
+    const box = await screen.findByRole('combobox', { name: 'Find patient' })
+    await waitFor(() => expect(screen.queryByText(/loading/i)).toBeNull())
+    await user.type(box, 'Nobody Here')
+    await screen.findByText('No matching patients.')
+    expect(screen.queryByTestId('register-new-patient')).toBeNull()
   })
 })
 
@@ -158,6 +240,8 @@ describe('picker helpers', () => {
     expect(prefillFromTerm('Asha Synthetic Alpha')).toEqual({ firstName: 'Asha', lastName: 'Synthetic Alpha' })
     expect(prefillFromTerm('Asha')).toEqual({ firstName: 'Asha', lastName: '' })
     expect(prefillFromTerm('  ')).toEqual({})
+    expect(prefillFromTerm('98450 77777')).toEqual({ phone: '+91 98450 77777' })
+    expect(prefillFromTerm('+971 50 123 4567')).toEqual({ phone: '+971 50 123 4567' })
   })
 
   it('patientOptionLabel shows DOB with age and only the last 4 phone digits', () => {

@@ -24,6 +24,7 @@ interface Patient {
   mrn: string
   firstName: string
   lastName: string
+  registeredBranchId?: string
 }
 interface QueueEntry {
   id: string
@@ -115,7 +116,7 @@ test.describe('Sprint 2: book -> check in -> OPD queue', () => {
     await form.getByLabel('Practitioner').selectOption(practitioner.id)
     await form.getByLabel('Appointment date').fill(today)
     await form.getByLabel('Find patient').fill(patient.lastName)
-    await form.getByRole('option', { name: new RegExp(patient.lastName) }).click()
+    await form.getByTestId('patient-option').filter({ hasText: patient.lastName }).click()
 
     const firstSlot = form.getByTestId('slot-list').locator('label').first()
     await expect(firstSlot).toBeVisible()
@@ -184,6 +185,36 @@ test.describe('Sprint 2: book -> check in -> OPD queue', () => {
     const fuResponse = await fuBooked
     expect(fuResponse.status()).toBe(201)
     expect(await fuResponse.json()).toMatchObject({ patientId: patient.id, practitionerId: practitioner.id, status: 'booked' })
+  })
+})
+
+test.describe('Booking drawer quick-register (full stack)', () => {
+  test('receptionist creates a Zz- patient inline from "+ New patient" and books it with Save & book', async ({ page, request }) => {
+    const { practitioner, today } = await setUp(request)
+    const lastName = `Zz-Quick-${unique('QR')}`
+    await signIn(page, users.alphaReception)
+    await nav(page, 'Appointments').click()
+    await page.getByRole('button', { name: 'Book appointment' }).click()
+    const form = page.getByRole('form', { name: 'Book appointment' })
+    await form.getByLabel('Practitioner').selectOption(practitioner.id)
+    await form.getByLabel('Appointment date').fill(today)
+    const firstSlot = form.getByTestId('slot-list').locator('label').first()
+    await firstSlot.click()
+    await form.getByLabel('Find patient').fill(`Quick ${lastName}`)
+    await form.getByTestId('register-new-patient').click()
+    const quick = form.getByTestId('quick-register')
+    // The term has digits (unique suffix), so it is treated as MRN-like and pre-fills nothing.
+    await quick.getByLabel('First name').fill('Quick')
+    await quick.getByLabel('Last name').fill(lastName)
+    const created = page.waitForResponse((r) => r.url().endsWith('/api/v1/patients') && r.request().method() === 'POST')
+    const booked = page.waitForResponse((r) => r.url().endsWith('/api/v1/appointments') && r.request().method() === 'POST')
+    await quick.getByTestId('save-and-book').click()
+    const patient = (await (await created).json()) as Patient
+    expect(patient.registeredBranchId).toBe(ids.alphaMain)
+    const bookedResponse = await booked
+    expect(bookedResponse.status()).toBe(201)
+    expect(((await bookedResponse.json()) as { patientId: string }).patientId).toBe(patient.id)
+    await expect(page.getByText(new RegExp(`Booked Quick ${lastName} with`))).toBeVisible()
   })
 })
 
