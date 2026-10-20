@@ -74,6 +74,6 @@ test.describe('tenant admin', () => {
   test('non-admin cannot open admin pages', async ({ page }) => {
     await signIn(page, users.betaDoctor)
     await page.goto('/admin/members')
-    await expect(page.getByText('Only tenant admins can open this page.')).toBeVisible()
+    await expect(page.getByTestId('forbidden')).toContainText('does not include access')
   })
 })

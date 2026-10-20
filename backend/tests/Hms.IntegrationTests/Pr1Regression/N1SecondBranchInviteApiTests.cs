@@ -72,14 +72,14 @@ public sealed class N1SecondBranchInviteApiTests(HmsApiFactory factory) : IClass
 
         // Invite to East: identical to the no-account answer.
         var uniform = await UniformAnswerAsync();
-        Assert.Equal(uniform, await InviteAsync(email, "nurse", AlphaEast));
+        Assert.Equal(uniform, await InviteAsync(email, "receptionist", AlphaEast)); // RBAC: a role that writes patients
 
         // A separate pending East membership; the Main membership is untouched.
         var rows = await Pr1Db.MembershipsAsync(Alpha, member);
         Assert.Equal(2, rows.Count);
         Assert.Equal(mainRow, Assert.Single(rows, r => r.BranchId == AlphaMain));
         var eastRow = Assert.Single(rows, r => r.BranchId == AlphaEast);
-        Assert.Equal(("nurse", "invited"), (eastRow.Role, eastRow.Status));
+        Assert.Equal(("receptionist", "invited"), (eastRow.Role, eastRow.Status));
 
         // Before accepting: no write access at East (unpinned, or pinned to East)...
         var eastMrn = Pr1Db.NewMrn("N1E");
@@ -106,7 +106,7 @@ public sealed class N1SecondBranchInviteApiTests(HmsApiFactory factory) : IClass
 
         // The invite is listed for the invitee and accepting it is a 204.
         var invite = Assert.Single((await asMember.GetFromJsonAsync<List<Pr1InvitationView>>(Pr1Contract.MyInvitations))!);
-        Assert.Equal((eastRow.Id, Alpha, (Guid?)AlphaEast, "nurse"), (invite.MembershipId, invite.TenantId, invite.BranchId, invite.Role));
+        Assert.Equal((eastRow.Id, Alpha, (Guid?)AlphaEast, "receptionist"), (invite.MembershipId, invite.TenantId, invite.BranchId, invite.Role));
         Assert.Equal(HttpStatusCode.NoContent, (await asMember.PostAsync(Pr1Contract.Accept(invite.MembershipId), content: null)).StatusCode);
         Assert.Empty((await asMember.GetFromJsonAsync<List<Pr1InvitationView>>(Pr1Contract.MyInvitations))!);
 

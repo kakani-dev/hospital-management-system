@@ -49,7 +49,7 @@ export function PatientDetailPage() {
   const branchName = branches.find((b) => b.id === p.registeredBranchId)?.name ?? '—'
   // Writes need the role at the patient's registered branch (tenant_admin is tenant-wide).
   const branchRoles = rolesAtBranch(me.data, p.registeredBranchId)
-  const canWrite = can(branchRoles, 'patients.write') && !deleted
+  const canWrite = can(branchRoles, 'patients.edit') && !deleted
   const canDelete = can(branchRoles, 'patients.delete') && !deleted
 
   return (

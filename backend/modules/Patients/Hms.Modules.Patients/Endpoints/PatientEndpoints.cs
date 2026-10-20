@@ -21,11 +21,8 @@ public static class PatientEndpoints
     // Mirrors RLS policies in supabase/migrations/*_rls_policies_and_grants.sql
     // READ is tenant-wide for these roles (product decision); WRITE needs the role AT the patient's
     // branch (identity.has_branch_role in the DB, ITenantContext.HasRoleAtBranch here).
-    internal static readonly string[] ReadRoles = [HmsRoles.TenantAdmin, HmsRoles.Doctor, HmsRoles.Nurse, HmsRoles.Receptionist, HmsRoles.Billing];
-    internal static readonly string[] WriteRoles = [HmsRoles.TenantAdmin, HmsRoles.Doctor, HmsRoles.Nurse, HmsRoles.Receptionist];
 
     /// <summary>Soft delete (D1): tenant_admin (tenant-wide) or receptionist AT the patient's branch.</summary>
-    internal static readonly string[] DeleteRoles = [HmsRoles.TenantAdmin, HmsRoles.Receptionist];
 
     internal const int SearchMaxLength = 100;
     internal const int DeletionReasonMaxLength = 500;
@@ -57,7 +54,7 @@ public static class PatientEndpoints
     private static async Task<Results<Ok<PagedResult<PatientSummaryDto>>, ValidationProblem, ProblemHttpResult>> ListAsync(
         HttpRequest http, PatientsDbContext db, ITenantContext tenant, int? page, int? pageSize, CancellationToken ct)
     {
-        if (!tenant.HasAnyRole(ReadRoles))
+        if (!tenant.Can(HmsPermissions.PatientsView))
         {
             return HmsProblems.Forbidden();
         }
@@ -78,13 +75,13 @@ public static class PatientEndpoints
     private static async Task<Results<Ok<PagedResult<PatientSummaryDto>>, ValidationProblem, ProblemHttpResult>> SearchAsync(
         PatientSearchRequest request, PatientsDbContext db, ITenantContext tenant, CancellationToken ct)
     {
-        if (!tenant.HasAnyRole(ReadRoles))
+        if (!tenant.Can(HmsPermissions.PatientsView))
         {
             return HmsProblems.Forbidden();
         }
 
         // Deleted rows are visible to tenant_admin only (D1; RLS enforces the same).
-        if (request.IncludeDeleted == true && !tenant.HasAnyRole(HmsRoles.TenantAdmin))
+        if (request.IncludeDeleted == true && !tenant.Can(HmsPermissions.PatientsRestore))
         {
             return HmsProblems.Forbidden("Only tenant admins can search deleted patients.");
         }
@@ -147,7 +144,7 @@ public static class PatientEndpoints
     private static async Task<Results<Ok<PatientStatsDto>, ProblemHttpResult>> StatsAsync(
         PatientsDbContext db, ITenantContext tenant, TimeProvider timeProvider, Guid? branchId, CancellationToken ct)
     {
-        if (!tenant.HasAnyRole(ReadRoles))
+        if (!tenant.Can(HmsPermissions.PatientsView))
         {
             return HmsProblems.Forbidden();
         }
@@ -204,7 +201,7 @@ public static class PatientEndpoints
     private static async Task<Results<Ok<DuplicateCheckResponse>, ValidationProblem, ProblemHttpResult>> DuplicatesAsync(
         DuplicateCheckRequest request, ITenantContext tenant, IPatientRegistryFunctions registry, CancellationToken ct)
     {
-        if (!CanWriteAtAnyBranch(tenant))
+        if (!tenant.CanAtAnyBranch(HmsPermissions.PatientsCreate))
         {
             return HmsProblems.Forbidden();
         }
@@ -246,7 +243,7 @@ public static class PatientEndpoints
     private static async Task<Results<Ok<PatientDetailDto>, ProblemHttpResult>> GetAsync(
         Guid id, PatientsDbContext db, ITenantContext tenant, CancellationToken ct)
     {
-        if (!tenant.HasAnyRole(ReadRoles))
+        if (!tenant.Can(HmsPermissions.PatientsView))
         {
             return HmsProblems.Forbidden();
         }
@@ -263,7 +260,7 @@ public static class PatientEndpoints
         IPatientRegistryFunctions registry, CancellationToken ct)
     {
         // Cheap early 403 for users who cannot write anywhere; the authoritative check is per branch below.
-        if (!CanWriteAtAnyBranch(tenant))
+        if (!tenant.CanAtAnyBranch(HmsPermissions.PatientsCreate))
         {
             return HmsProblems.Forbidden();
         }
@@ -282,7 +279,7 @@ public static class PatientEndpoints
 
         // M1: the writer role must be held AT the registering branch (not "some role somewhere" +
         // "some branch somewhere"). Branches of other tenants are never in the map.
-        if (!CanWritePatientAt(tenant, request.RegisteredBranchId))
+        if (!tenant.CanAtBranch(request.RegisteredBranchId, HmsPermissions.PatientsCreate))
         {
             // 404-not-403: another tenant's branch is 404; a same-tenant branch without the role stays 403.
             return await BranchScope.DenyAsync(db, tenant, request.RegisteredBranchId, "You cannot register patients at this branch.", ct);
@@ -336,7 +333,7 @@ public static class PatientEndpoints
         Guid id, JsonElement body, PatientsDbContext db, ITenantContext tenant, TimeProvider timeProvider,
         IPatientRegistryFunctions registry, CancellationToken ct)
     {
-        if (!CanWriteAtAnyBranch(tenant))
+        if (!tenant.CanAtAnyBranch(HmsPermissions.PatientsEdit))
         {
             return HmsProblems.Forbidden();
         }
@@ -355,13 +352,13 @@ public static class PatientEndpoints
         }
 
         // Authorize against the CURRENT branch, and the NEW branch when it moves (mirrors RLS USING / WITH CHECK).
-        if (!CanWritePatientAt(tenant, patient.RegisteredBranchId))
+        if (!tenant.CanAtBranch(patient.RegisteredBranchId, HmsPermissions.PatientsEdit))
         {
             return HmsProblems.Forbidden("You cannot edit patients registered at this branch.");
         }
 
         var targetBranch = patch.RegisteredBranchId.Or(patient.RegisteredBranchId) ?? patient.RegisteredBranchId;
-        if (targetBranch != patient.RegisteredBranchId && !CanWritePatientAt(tenant, targetBranch))
+        if (targetBranch != patient.RegisteredBranchId && !tenant.CanAtBranch(targetBranch, HmsPermissions.PatientsEdit))
         {
             return await BranchScope.DenyAsync(db, tenant, targetBranch, "You cannot move patients to that branch.", ct);
         }
@@ -463,7 +460,7 @@ public static class PatientEndpoints
     private static async Task<Results<NoContent, ValidationProblem, ProblemHttpResult>> DeleteAsync(
         Guid id, [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] DeletePatientRequest? request, PatientsDbContext db, ITenantContext tenant, IPatientRegistryFunctions registry, CancellationToken ct)
     {
-        if (!tenant.RolesByBranch.Keys.Any(b => tenant.HasRoleAtBranch(b, DeleteRoles)))
+        if (!tenant.CanAtAnyBranch(HmsPermissions.PatientsDelete))
         {
             return HmsProblems.Forbidden();
         }
@@ -482,7 +479,7 @@ public static class PatientEndpoints
             return HmsProblems.NotFound("Patient not found.");
         }
 
-        if (!tenant.HasRoleAtBranch(patient.RegisteredBranchId, DeleteRoles))
+        if (!tenant.CanAtBranch(patient.RegisteredBranchId, HmsPermissions.PatientsDelete))
         {
             return HmsProblems.Forbidden("You cannot delete patients registered at this branch.");
         }
@@ -502,7 +499,7 @@ public static class PatientEndpoints
     private static async Task<Results<NoContent, ProblemHttpResult>> RestoreAsync(
         Guid id, ITenantContext tenant, IPatientRegistryFunctions registry, CancellationToken ct)
     {
-        if (!tenant.HasAnyRole(HmsRoles.TenantAdmin))
+        if (!tenant.Can(HmsPermissions.PatientsRestore))
         {
             return HmsProblems.Forbidden("Only tenant admins can restore patients.");
         }
@@ -538,10 +535,6 @@ public static class PatientEndpoints
     /// Update endpoints call this with the patient's CURRENT branch and, when the branch changes,
     /// the NEW branch too (mirrors the RLS USING/WITH CHECK pair).
     /// </summary>
-    internal static bool CanWritePatientAt(ITenantContext tenant, Guid branchId) => tenant.HasRoleAtBranch(branchId, WriteRoles);
-
-    private static bool CanWriteAtAnyBranch(ITenantContext tenant) =>
-        tenant.IsResolved && tenant.RolesByBranch.Keys.Any(branch => tenant.HasRoleAtBranch(branch, WriteRoles));
 
     private const string DuplicateMrnDetail = "A patient with this MRN already exists in this hospital.";
 

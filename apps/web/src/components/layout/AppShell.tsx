@@ -23,7 +23,6 @@ import { HeaderContext, SidebarContextSwitcher } from '../../features/tenancy/Re
 import { useCurrentContext } from '../../features/tenancy/useCurrentContext'
 import { TenantChangedBanner } from '../../features/tenancy/TenantChangedBanner'
 import { ContextErrorBanner } from '../../features/tenancy/ContextErrorBanner'
-import { can } from '../../lib/permissions'
 import { Sideblock, type NavGroup } from '../../tailux/layouts/Sideblock'
 import { ThemeModeSwitch } from '../../tailux/components/shared/ThemeModeSwitch'
 import { Avatar, Button } from '@tailux/components/ui'
@@ -41,7 +40,7 @@ function initialsSource(email: string | null | undefined) {
  */
 export function AppShell() {
   const { email, signOut } = useAuth()
-  const { isAdmin, roles, me } = useCurrentContext()
+  const { roles, me, has } = useCurrentContext()
   const isPlatformAdmin = me.data?.isPlatformAdmin === true
   // An operator outside any hospital has no clinical screens (the APIs answer 403 anyway).
   const operatorOnly = isPlatformAdmin && !me.data?.activeTenantId
@@ -57,43 +56,45 @@ export function AppShell() {
       title: 'Clinical',
       childs: operatorOnly ? [] : [
         { id: 'dashboard', path: '/', title: 'Dashboard', end: true, Icon: HomeIcon },
-        { id: 'patients', path: '/patients', title: 'Patients', Icon: UsersIcon, keys: '/' },
-        ...(can(roles, 'appointments.view')
+        ...(has('patients.view') ? [{ id: 'patients', path: '/patients', title: 'Patients', Icon: UsersIcon, keys: '/' }] : []),
+        ...(has('appointments.view')
           ? [
               {
                 id: 'appointments',
                 path: '/appointments',
                 title: 'Appointments',
                 Icon: CalendarDaysIcon,
-                keys: can(roles, 'appointments.book') ? 'Alt+K' : undefined,
+                keys: has('appointments.book') ? 'Alt+K' : undefined,
               },
             ]
           : []),
-        ...(can(roles, 'schedules.view') ? [{ id: 'schedules', path: '/schedules', title: 'Schedules', Icon: ClockIcon }] : []),
+        ...(has('schedules.view') ? [{ id: 'schedules', path: '/schedules', title: 'Schedules', Icon: ClockIcon }] : []),
       ],
     }
     const reception: NavGroup = {
       id: 'reception',
       title: 'Reception',
       childs: [
-        ...(can(roles, 'queue.checkIn')
+        ...(has('queue.checkIn')
           ? [{ id: 'check-in', path: '/reception/check-in', title: 'Check-in', Icon: ClipboardDocumentCheckIcon, keys: 'Alt+C' }]
           : []),
-        ...(can(roles, 'queue.view') ? [{ id: 'queue', path: '/queue', title: 'OPD queue', Icon: QueueListIcon, keys: 'Alt+Q' }] : []),
+        ...(has('queue.view') ? [{ id: 'queue', path: '/queue', title: 'OPD queue', Icon: QueueListIcon, keys: 'Alt+Q' }] : []),
       ],
     }
     const admin: NavGroup = {
       id: 'admin',
       title: 'Administration',
-      childs: isAdmin
-        ? [
-            { id: 'branches', path: '/admin/branches', title: 'Branches', Icon: BuildingOffice2Icon },
-            { id: 'members', path: '/admin/members', title: 'Members', Icon: UserGroupIcon },
-            { id: 'practitioners', path: '/admin/practitioners', title: 'Practitioners', Icon: IdentificationIcon },
-            { id: 'working-hours', path: '/admin/working-hours', title: 'Working hours', Icon: CalendarIcon },
-            { id: 'hospital', path: '/admin/hospital', title: 'Hospital settings', Icon: Cog6ToothIcon },
-          ]
-        : [],
+      childs: operatorOnly ? [] : [
+        ...(has('admin.branches') ? [{ id: 'branches', path: '/admin/branches', title: 'Branches', Icon: BuildingOffice2Icon }] : []),
+        ...(has('admin.members') ? [{ id: 'members', path: '/admin/members', title: 'Members', Icon: UserGroupIcon }] : []),
+        ...(has('admin.practitioners')
+          ? [
+              { id: 'practitioners', path: '/admin/practitioners', title: 'Practitioners', Icon: IdentificationIcon },
+              { id: 'working-hours', path: '/admin/working-hours', title: 'Working hours', Icon: CalendarIcon },
+            ]
+          : []),
+        ...(has('admin.settings') ? [{ id: 'hospital', path: '/admin/hospital', title: 'Hospital settings', Icon: Cog6ToothIcon }] : []),
+      ],
     }
     // Server-checked flag (identity.is_platform_admin); every /platform endpoint re-checks it.
     const platform: NavGroup = {
@@ -107,7 +108,8 @@ export function AppShell() {
         : [],
     }
     return [clinical, reception, admin, platform].filter((g) => g.childs.length > 0)
-  }, [roles, isAdmin, isPlatformAdmin, operatorOnly])
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- `has` derives from me.data (roles/permissions)
+  }, [roles, me.data, isPlatformAdmin, operatorOnly])
 
   const avatarName = initialsSource(email)
 

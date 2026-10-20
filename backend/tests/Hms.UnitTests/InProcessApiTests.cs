@@ -45,6 +45,11 @@ public sealed class InProcessApiTests : IClassFixture<InProcessApiTests.ApiFacto
     /// <summary>doctor at Main + receptionist at East (Sprint 2 edit/delete matrix).</summary>
     internal static readonly Guid DoctorMainReceptionEast = Guid.Parse("0d000000-0000-4000-8000-000000000005");
 
+    /// <summary>RBAC matrix users: one tenant-wide user per role (Main + East), 0e000000-...-00000000000N.</summary>
+    internal static readonly IReadOnlyDictionary<string, Guid> RoleUsers = HmsRoles.All.Order(StringComparer.Ordinal)
+        .Select((role, i) => (role, id: Guid.Parse($"0e000000-0000-4000-8000-{i + 1:D12}")))
+        .ToDictionary(x => x.role, x => x.id, StringComparer.Ordinal);
+
     /// <summary>2026-10-06 20:00 UTC = 2026-10-07 01:30 in Asia/Kolkata.</summary>
     internal static readonly DateTimeOffset Now = new(2026, 10, 6, 20, 0, 0, TimeSpan.Zero);
 
@@ -60,12 +65,15 @@ public sealed class InProcessApiTests : IClassFixture<InProcessApiTests.ApiFacto
     [Fact]
     public async Task M1_role_at_another_branch_does_not_authorize_writes_here()
     {
-        using var client = _factory.ClientAs(MixedUser);
+        using var client = _factory.ClientAs(DoctorMainReceptionEast);
         var atMain = await client.PostAsJsonAsync("/api/v1/patients", NewPatient(Main));
-        Assert.Equal(HttpStatusCode.Forbidden, atMain.StatusCode); // billing at Main is read-only
+        Assert.Equal(HttpStatusCode.Forbidden, atMain.StatusCode); // RBAC: doctor at Main is view-only
 
         var atEast = await client.PostAsJsonAsync("/api/v1/patients", NewPatient(East));
-        Assert.Equal(HttpStatusCode.Created, atEast.StatusCode); // nurse at East
+        Assert.Equal(HttpStatusCode.Created, atEast.StatusCode); // receptionist at East
+
+        using var mixed = _factory.ClientAs(MixedUser); // billing @Main, nurse @East: RBAC makes both view-only
+        Assert.Equal(HttpStatusCode.Forbidden, (await mixed.PostAsJsonAsync("/api/v1/patients", NewPatient(East))).StatusCode);
 
         // Reads stay tenant-wide for clinical roles.
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/v1/patients")).StatusCode);
@@ -283,6 +291,7 @@ public sealed class InProcessApiTests : IClassFixture<InProcessApiTests.ApiFacto
                 : userId == Admin ? new() { [Main] = [HmsRoles.TenantAdmin], [East] = [HmsRoles.TenantAdmin] }
                 : userId == LabTech ? new() { [Main] = [HmsRoles.LabTechnician] }
                 : userId == DoctorMainReceptionEast ? new() { [Main] = [HmsRoles.Doctor], [East] = [HmsRoles.Receptionist] }
+                : RoleUsers.FirstOrDefault(kv => kv.Value == userId).Key is { } role ? new() { [Main] = [role], [East] = [role] }
                 : null;
             if (map is null)
             {

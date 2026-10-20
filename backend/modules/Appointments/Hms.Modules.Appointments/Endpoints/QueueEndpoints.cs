@@ -32,7 +32,7 @@ public static class QueueEndpoints
     private static async Task<Results<Ok<List<QueueEntryDto>>, ValidationProblem, ProblemHttpResult>> BoardAsync(
         Guid? branchId, DateOnly? date, string? status, AppointmentsDbContext db, ITenantContext tenant, TimeProvider clock, IPatientSummaries patients, CancellationToken ct)
     {
-        if (!tenant.HasAnyRole(AppointmentRoles.RegRead))
+        if (!tenant.Can(HmsPermissions.QueueView))
         {
             return HmsProblems.Forbidden();
         }
@@ -75,7 +75,7 @@ public static class QueueEndpoints
     private static async Task<Results<Created<CheckInResultDto>, ValidationProblem, ProblemHttpResult>> WalkInAsync(
         WalkInRequest request, AppointmentsDbContext db, ITenantContext tenant, IAppointmentFunctions functions, IPatientSummaries patients, CancellationToken ct)
     {
-        if (!AppointmentRoles.AnyBranch(tenant, AppointmentRoles.FrontDesk))
+        if (!tenant.CanAtAnyBranch(HmsPermissions.QueueManage))
         {
             return HmsProblems.Forbidden();
         }
@@ -96,7 +96,7 @@ public static class QueueEndpoints
             return TypedResults.ValidationProblem(errors);
         }
 
-        if (!tenant.HasRoleAtBranch(request.BranchId, AppointmentRoles.FrontDesk))
+        if (!tenant.CanAtBranch(request.BranchId, HmsPermissions.QueueManage))
         {
             return await BranchScope.DenyAsync(db, tenant, request.BranchId, "You cannot check patients in at this branch.", ct);
         }
@@ -127,7 +127,7 @@ public static class QueueEndpoints
             });
         }
 
-        if (!tenant.HasAnyRole(AppointmentRoles.RegRead))
+        if (!tenant.Can(HmsPermissions.QueueView))
         {
             return HmsProblems.Forbidden();
         }
@@ -149,9 +149,12 @@ public static class QueueEndpoints
             return HmsProblems.NotFound("Queue entry not found.");
         }
 
-        var allowed = tenant.HasRoleAtBranch(entry.BranchId, AppointmentRoles.FrontDesk)
+        // queue.consult_own: a doctor may start/finish entries that are unassigned, of a practitioner not linked to a login yet, or of their own practitioner
+        var allowed = tenant.CanAtBranch(entry.BranchId, HmsPermissions.QueueManage)
                       || (request.Status is QueueStatus.InConsultation or QueueStatus.Done
-                          && tenant.HasRoleAtBranch(entry.BranchId, AppointmentRoles.Doctor));
+                          && tenant.CanAtBranch(entry.BranchId, HmsPermissions.QueueConsultOwn)
+                          && (entry.PractitionerId is null
+                              || await db.Practitioners.AsNoTracking().AnyAsync(p => p.Id == entry.PractitionerId && (p.UserId == null || p.UserId == tenant.UserId), ct)));
         if (!allowed)
         {
             return HmsProblems.Forbidden("You cannot change this queue entry.");

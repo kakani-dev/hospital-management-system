@@ -8,7 +8,6 @@ import { DashboardPage } from "./features/dashboard/DashboardPage";
 import { PatientListPage } from "./features/patients/PatientListPage";
 import { RegisterPatientPage } from "./features/patients/RegisterPatientPage";
 import { PatientDetailPage } from "./features/patients/PatientDetailPage";
-import { RequireAdmin } from "./features/admin/RequireAdmin";
 import { BranchesPage } from "./features/admin/BranchesPage";
 import { MembersPage } from "./features/admin/MembersPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
@@ -88,9 +87,13 @@ export function App() {
       <Route element={<RequireAuth />}>
         <Route element={<AppShell />}>
           <Route index element={<DashboardPage />} />
-          <Route path="patients" element={<PatientListPage />} />
-          <Route path="patients/new" element={<RegisterPatientPage />} />
-          <Route path="patients/:patientId" element={<PatientDetailPage />} />
+          <Route element={<RequireCapability capability="patients.view" />}>
+            <Route path="patients" element={<PatientListPage />} />
+            <Route path="patients/:patientId" element={<PatientDetailPage />} />
+          </Route>
+          <Route element={<RequireCapability capability="patients.write" />}>
+            <Route path="patients/new" element={<RegisterPatientPage />} />
+          </Route>
           <Route element={<RequireCapability capability="appointments.view" />}>
             <Route
               path="appointments"
@@ -131,31 +134,37 @@ export function App() {
               }
             />
           </Route>
-          <Route path="admin" element={<RequireAdmin />}>
-            <Route path="branches" element={<BranchesPage />} />
-            <Route path="members" element={<MembersPage />} />
+          <Route path="admin">
+            <Route path="branches" element={<RequireCapability capability="admin.branches"><BranchesPage /></RequireCapability>} />
+            <Route path="members" element={<RequireCapability capability="admin.members"><MembersPage /></RequireCapability>} />
             <Route
               path="practitioners"
               element={
-                <Lazy>
-                  <PractitionersPage />
-                </Lazy>
+                <RequireCapability capability="admin.practitioners">
+                  <Lazy>
+                    <PractitionersPage />
+                  </Lazy>
+                </RequireCapability>
               }
             />
             <Route
               path="working-hours"
               element={
-                <Lazy>
-                  <WorkingHoursPage />
-                </Lazy>
+                <RequireCapability capability="admin.practitioners">
+                  <Lazy>
+                    <WorkingHoursPage />
+                  </Lazy>
+                </RequireCapability>
               }
             />
             <Route
               path="hospital"
               element={
-                <Lazy>
-                  <HospitalSettingsPage />
-                </Lazy>
+                <RequireCapability capability="admin.settings">
+                  <Lazy>
+                    <HospitalSettingsPage />
+                  </Lazy>
+                </RequireCapability>
               }
             />
           </Route>

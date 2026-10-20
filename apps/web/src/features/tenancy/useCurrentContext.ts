@@ -1,5 +1,6 @@
 import { useMe } from '../../lib/api/hooks'
 import type { CurrentUser } from '../../lib/api/types'
+import { allows, can, permissionsOf, type Capability } from '../../lib/permissions'
 
 export interface TenantOption {
   id: string
@@ -47,11 +48,17 @@ export function useCurrentContext() {
   const tenants = tenantsOf(me.data)
   const activeTenant = tenants.find((t) => t.id === me.data?.activeTenantId) ?? null
   const roles = me.data?.roles ?? []
+  // Server-computed permissions win (never more than the server granted); older APIs: derive from roles.
+  const permissions: string[] = me.data?.permissions ?? [...permissionsOf(roles)]
+  const has = (capability: Capability) => (me.data?.permissions ? allows(permissions, capability) : can(roles, capability))
   return {
     me,
     tenants,
     activeTenant,
     roles,
+    permissions,
+    /** Tenant-wide capability check for menus, routes and page-level actions. */
+    has,
     isAdmin: roles.includes('tenant_admin'),
     branches: me.data?.accessibleBranches ?? [],
     activeBranchId: me.data?.activeBranchId ?? null,

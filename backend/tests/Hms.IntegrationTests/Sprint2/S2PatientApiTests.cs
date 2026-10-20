@@ -23,7 +23,7 @@ public sealed class S2PatientApiTests(HmsApiFactory factory) : IClassFixture<Hms
     [Fact]
     public async Task Detail_and_patch_persist_with_db_attribution()
     {
-        var nurseEast = await CreateUserAsync("s2-nurse-east", (Alpha, AlphaEast, "nurse"));
+        var nurseEast = await CreateUserAsync("s2-nurse-east", (Alpha, AlphaEast, "receptionist") /* RBAC */);
         using var nurse = factory.ClientAs(nurseEast, Alpha);
         var patient = await S2.CreatePatientAsync(nurse, AlphaEast, dob: "1980-02-02", phone: "+91 98450 11111");
 
@@ -45,7 +45,7 @@ public sealed class S2PatientApiTests(HmsApiFactory factory) : IClassFixture<Hms
     [Fact]
     public async Task Patch_at_the_wrong_branch_is_403_and_does_not_change_the_row()
     {
-        var nurseEast = await CreateUserAsync("s2-nurse-east-only", (Alpha, AlphaEast, "nurse"));
+        var nurseEast = await CreateUserAsync("s2-nurse-east-only", (Alpha, AlphaEast, "receptionist") /* RBAC */);
         using var nurse = factory.ClientAs(nurseEast, Alpha);
         using var admin = factory.ClientAs(AlphaAdmin, Alpha);
         var atMain = await S2.CreatePatientAsync(admin, AlphaMain);

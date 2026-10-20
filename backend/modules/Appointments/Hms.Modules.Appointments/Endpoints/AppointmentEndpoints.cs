@@ -43,7 +43,7 @@ public static class AppointmentEndpoints
         AppointmentsDbContext db, ITenantContext tenant, Guid? branchId, Guid? practitionerId, Guid? patientId, DateOnly? date,
         DateTimeOffset? from, DateTimeOffset? to, string? status, int? page, int? pageSize, IPatientSummaries patients, CancellationToken ct)
     {
-        if (!tenant.HasAnyRole(AppointmentRoles.RegRead))
+        if (!tenant.Can(HmsPermissions.AppointmentsView))
         {
             return HmsProblems.Forbidden();
         }
@@ -122,7 +122,7 @@ public static class AppointmentEndpoints
     private static async Task<Results<Ok<AppointmentDto>, ProblemHttpResult>> GetAsync(
         Guid id, AppointmentsDbContext db, ITenantContext tenant, IPatientSummaries patients, CancellationToken ct)
     {
-        if (!tenant.HasAnyRole(AppointmentRoles.RegRead))
+        if (!tenant.Can(HmsPermissions.AppointmentsView))
         {
             return HmsProblems.Forbidden();
         }
@@ -139,7 +139,7 @@ public static class AppointmentEndpoints
     private static async Task<Results<Created<AppointmentDto>, ValidationProblem, ProblemHttpResult>> BookAsync(
         CreateAppointmentRequest request, AppointmentsDbContext db, ITenantContext tenant, IPatientSummaries patients, CancellationToken ct)
     {
-        if (!AppointmentRoles.AnyBranch(tenant, AppointmentRoles.RegWrite))
+        if (!tenant.CanAtAnyBranch(HmsPermissions.AppointmentsBook))
         {
             return HmsProblems.Forbidden();
         }
@@ -171,7 +171,7 @@ public static class AppointmentEndpoints
             return TypedResults.ValidationProblem(errors);
         }
 
-        if (!tenant.HasRoleAtBranch(request.BranchId, AppointmentRoles.RegWrite))
+        if (!tenant.CanAtBranch(request.BranchId, HmsPermissions.AppointmentsBook))
         {
             return await BranchScope.DenyAsync(db, tenant, request.BranchId, "You cannot book appointments at this branch.", ct);
         }
@@ -215,7 +215,7 @@ public static class AppointmentEndpoints
             return TypedResults.ValidationProblem(errors);
         }
 
-        var (appointment, denied) = await LoadForWriteAsync(db, tenant, id, ct);
+        var (appointment, denied) = await LoadForWriteAsync(db, tenant, id, HmsPermissions.AppointmentsReschedule, ct);
         if (denied is not null)
         {
             return denied;
@@ -248,7 +248,7 @@ public static class AppointmentEndpoints
             return TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["reason"] = [$"Reason must be at most {ReasonMaxLength} characters."] });
         }
 
-        var (appointment, denied) = await LoadForWriteAsync(db, tenant, id, ct);
+        var (appointment, denied) = await LoadForWriteAsync(db, tenant, id, HmsPermissions.AppointmentsCancel, ct);
         if (denied is not null)
         {
             return denied;
@@ -267,7 +267,7 @@ public static class AppointmentEndpoints
     private static async Task<Results<Ok<AppointmentDto>, ValidationProblem, ProblemHttpResult>> NoShowAsync(
         Guid id, AppointmentsDbContext db, ITenantContext tenant, TimeProvider clock, IPatientSummaries patients, CancellationToken ct)
     {
-        var (appointment, denied) = await LoadForWriteAsync(db, tenant, id, ct);
+        var (appointment, denied) = await LoadForWriteAsync(db, tenant, id, HmsPermissions.AppointmentsNoShow, ct, HmsPermissions.AppointmentsNoShowOwn);
         if (denied is not null)
         {
             return denied;
@@ -285,7 +285,7 @@ public static class AppointmentEndpoints
     private static async Task<Results<Created<CheckInResultDto>, ProblemHttpResult>> CheckInAsync(
         Guid id, AppointmentsDbContext db, ITenantContext tenant, IAppointmentFunctions functions, IPatientSummaries patients, CancellationToken ct)
     {
-        if (!AppointmentRoles.AnyBranch(tenant, AppointmentRoles.FrontDesk))
+        if (!tenant.CanAtAnyBranch(HmsPermissions.AppointmentsCheckIn))
         {
             return HmsProblems.Forbidden();
         }
@@ -296,7 +296,7 @@ public static class AppointmentEndpoints
             return HmsProblems.NotFound("Appointment not found.");
         }
 
-        if (!tenant.HasRoleAtBranch(appointment.BranchId, AppointmentRoles.FrontDesk))
+        if (!tenant.CanAtBranch(appointment.BranchId, HmsPermissions.AppointmentsCheckIn))
         {
             return HmsProblems.Forbidden("You cannot check patients in at this branch.");
         }
@@ -346,9 +346,10 @@ public static class AppointmentEndpoints
             ct);
 
     private static async Task<(Appointment? Appointment, ProblemHttpResult? Denied)> LoadForWriteAsync(
-        AppointmentsDbContext db, ITenantContext tenant, Guid id, CancellationToken ct)
+        AppointmentsDbContext db, ITenantContext tenant, Guid id, string permission, CancellationToken ct, string? ownPermission = null)
     {
-        if (!AppointmentRoles.AnyBranch(tenant, AppointmentRoles.RegWrite))
+        var mayOwn = ownPermission is not null && tenant.CanAtAnyBranch(ownPermission);
+        if (!tenant.CanAtAnyBranch(permission) && !mayOwn)
         {
             return (null, HmsProblems.Forbidden());
         }
@@ -359,9 +360,20 @@ public static class AppointmentEndpoints
             return (null, HmsProblems.NotFound("Appointment not found."));
         }
 
-        return tenant.HasRoleAtBranch(appointment.BranchId, AppointmentRoles.RegWrite)
-            ? (appointment, null)
-            : (null, HmsProblems.Forbidden("You cannot change appointments at this branch."));
+        if (tenant.CanAtBranch(appointment.BranchId, permission))
+        {
+            return (appointment, null);
+        }
+
+        // "own" permissions: appointments of the practitioner linked to the caller (server-side user id), or of a
+        // practitioner not linked to any login yet (Level 1 practitioners are usually unlinked; ADR 0001 D4)
+        if (ownPermission is not null && tenant.CanAtBranch(appointment.BranchId, ownPermission)
+            && await db.Practitioners.AsNoTracking().AnyAsync(p => p.Id == appointment.PractitionerId && (p.UserId == null || p.UserId == tenant.UserId), ct))
+        {
+            return (appointment, null);
+        }
+
+        return (null, HmsProblems.Forbidden("You cannot change this appointment."));
     }
 
     private static async Task<Results<Ok<AppointmentDto>, ValidationProblem, ProblemHttpResult>> SaveAsync(

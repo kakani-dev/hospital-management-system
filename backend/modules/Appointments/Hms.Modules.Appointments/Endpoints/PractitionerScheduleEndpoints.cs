@@ -48,7 +48,7 @@ public static class PractitionerScheduleEndpoints
         AppointmentsDbContext db, ITenantContext tenant, TimeProvider clock, bool? activeOnly, Guid? branchId, bool? includeDeleted, CancellationToken ct)
     {
         // includeDeleted (tenant_admin only, for restore): RLS already lets admins see deleted rows.
-        if (includeDeleted == true && !tenant.HasAnyRole(AppointmentRoles.Admin))
+        if (includeDeleted == true && !tenant.Can(HmsPermissions.PractitionersManage))
         {
             return HmsProblems.Forbidden("Only tenant admins can list deleted practitioners.");
         }
@@ -83,7 +83,7 @@ public static class PractitionerScheduleEndpoints
     private static async Task<Results<Created<PractitionerDto>, ValidationProblem, ProblemHttpResult>> CreatePractitionerAsync(
         CreatePractitionerRequest request, AppointmentsDbContext db, ITenantContext tenant, CancellationToken ct)
     {
-        if (!tenant.HasAnyRole(AppointmentRoles.Admin))
+        if (!tenant.Can(HmsPermissions.PractitionersManage))
         {
             return HmsProblems.Forbidden("Only tenant admins can manage practitioners.");
         }
@@ -116,7 +116,7 @@ public static class PractitionerScheduleEndpoints
     private static async Task<Results<Ok<PractitionerDto>, ValidationProblem, ProblemHttpResult>> UpdatePractitionerAsync(
         Guid id, UpdatePractitionerRequest request, AppointmentsDbContext db, ITenantContext tenant, CancellationToken ct)
     {
-        if (!tenant.HasAnyRole(AppointmentRoles.Admin))
+        if (!tenant.Can(HmsPermissions.PractitionersManage))
         {
             return HmsProblems.Forbidden("Only tenant admins can manage practitioners.");
         }
@@ -189,7 +189,7 @@ public static class PractitionerScheduleEndpoints
     private static async Task<Results<Ok<List<ScheduleDto>>, ProblemHttpResult>> ListSchedulesAsync(
         AppointmentsDbContext db, ITenantContext tenant, Guid? branchId, Guid? practitionerId, bool? includeDeleted, CancellationToken ct)
     {
-        if (includeDeleted == true && !tenant.HasAnyRole(AppointmentRoles.Admin))
+        if (includeDeleted == true && !tenant.Can(HmsPermissions.PractitionersManage))
         {
             return HmsProblems.Forbidden("Only tenant admins can list deleted schedules.");
         }
@@ -214,7 +214,7 @@ public static class PractitionerScheduleEndpoints
     private static async Task<Results<Created<ScheduleDto>, ValidationProblem, ProblemHttpResult>> CreateScheduleAsync(
         CreateScheduleRequest request, AppointmentsDbContext db, ITenantContext tenant, TimeProvider clock, CancellationToken ct)
     {
-        if (!tenant.HasAnyRole(AppointmentRoles.Admin))
+        if (!tenant.Can(HmsPermissions.PractitionersManage))
         {
             return HmsProblems.Forbidden("Only tenant admins can manage schedules.");
         }
@@ -247,7 +247,7 @@ public static class PractitionerScheduleEndpoints
             return TypedResults.ValidationProblem(errors);
         }
 
-        if (!tenant.HasRoleAtBranch(request.BranchId, AppointmentRoles.Admin))
+        if (!tenant.CanAtBranch(request.BranchId, HmsPermissions.PractitionersManage))
         {
             return await BranchScope.DenyAsync(db, tenant, request.BranchId, "You cannot manage schedules at this branch.", ct);
         }
@@ -268,7 +268,7 @@ public static class PractitionerScheduleEndpoints
     private static async Task<Results<Ok<ScheduleDto>, ValidationProblem, ProblemHttpResult>> UpdateScheduleAsync(
         Guid id, UpdateScheduleRequest request, AppointmentsDbContext db, ITenantContext tenant, CancellationToken ct)
     {
-        if (!tenant.HasAnyRole(AppointmentRoles.Admin))
+        if (!tenant.Can(HmsPermissions.PractitionersManage))
         {
             return HmsProblems.Forbidden("Only tenant admins can manage schedules.");
         }
@@ -279,7 +279,7 @@ public static class PractitionerScheduleEndpoints
             return HmsProblems.NotFound("Schedule not found.");
         }
 
-        if (!tenant.HasRoleAtBranch(schedule.BranchId, AppointmentRoles.Admin))
+        if (!tenant.CanAtBranch(schedule.BranchId, HmsPermissions.PractitionersManage))
         {
             return HmsProblems.Forbidden("You cannot manage schedules at this branch.");
         }
@@ -336,7 +336,7 @@ public static class PractitionerScheduleEndpoints
     private static async Task<Results<NoContent, ProblemHttpResult>> DeleteScheduleAsync(
         Guid id, AppointmentsDbContext db, ITenantContext tenant, CancellationToken ct)
     {
-        if (!tenant.HasAnyRole(AppointmentRoles.Admin))
+        if (!tenant.Can(HmsPermissions.PractitionersManage))
         {
             return HmsProblems.Forbidden("Only tenant admins can manage schedules.");
         }
@@ -347,7 +347,7 @@ public static class PractitionerScheduleEndpoints
     private static async Task<Results<NoContent, ProblemHttpResult>> RestoreScheduleAsync(
         Guid id, AppointmentsDbContext db, ITenantContext tenant, CancellationToken ct)
     {
-        if (!tenant.HasAnyRole(AppointmentRoles.Admin))
+        if (!tenant.Can(HmsPermissions.PractitionersManage))
         {
             return HmsProblems.Forbidden("Only tenant admins can manage schedules.");
         }
@@ -369,7 +369,7 @@ public static class PractitionerScheduleEndpoints
             return HmsProblems.NotFound("Schedule not found.");
         }
 
-        if (!tenant.HasRoleAtBranch(branchId.Value, AppointmentRoles.Admin))
+        if (!tenant.CanAtBranch(branchId.Value, HmsPermissions.PractitionersManage))
         {
             return HmsProblems.Forbidden("You cannot manage schedules at this branch.");
         }
@@ -379,13 +379,13 @@ public static class PractitionerScheduleEndpoints
 
     private static async Task<Results<NoContent, ProblemHttpResult>> DeletePractitionerAsync(
         Guid id, AppointmentsDbContext db, ITenantContext tenant, CancellationToken ct) =>
-        tenant.HasAnyRole(AppointmentRoles.Admin)
+        tenant.Can(HmsPermissions.PractitionersManage)
             ? await CallSoftDeleteAsync(db, "select appointment.soft_delete_practitioner(@id)", id, ct)
             : HmsProblems.Forbidden("Only tenant admins can manage practitioners.");
 
     private static async Task<Results<NoContent, ProblemHttpResult>> RestorePractitionerAsync(
         Guid id, AppointmentsDbContext db, ITenantContext tenant, CancellationToken ct) =>
-        tenant.HasAnyRole(AppointmentRoles.Admin)
+        tenant.Can(HmsPermissions.PractitionersManage)
             ? await CallSoftDeleteAsync(db, "select appointment.restore_practitioner(@id)", id, ct)
             : HmsProblems.Forbidden("Only tenant admins can manage practitioners.");
 
@@ -467,7 +467,7 @@ public static class PractitionerScheduleEndpoints
         Guid? branchId, DateOnly? from, DateOnly? to, Guid? practitionerId, AppointmentsDbContext db, ITenantContext tenant, TimeProvider clock,
         IAppointmentFunctions functions, CancellationToken ct)
     {
-        if (!tenant.HasAnyRole(AppointmentRoles.RegRead))
+        if (!tenant.Can(HmsPermissions.AppointmentsView))
         {
             return HmsProblems.Forbidden();
         }

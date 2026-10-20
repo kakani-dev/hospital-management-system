@@ -64,7 +64,7 @@ test.describe('app shell and authentication', () => {
     await signIn(page, users.outsider)
     await expect(page.getByTestId('tenant-name')).toHaveText('No hospital memberships')
     await page.goto('/patients')
-    await expect(page.getByText('does not include access to the patient registry')).toBeVisible()
+    await expect(page.getByTestId('forbidden')).toContainText('does not include access')
     await expect(page.getByTestId('patient-row')).toHaveCount(0)
   })
 

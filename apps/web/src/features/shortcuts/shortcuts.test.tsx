@@ -81,7 +81,7 @@ describe('reception keyboard shortcuts', () => {
     await user.keyboard('?')
     const dialog = await screen.findByRole('dialog', { name: 'Keyboard shortcuts' })
     expect(dialog).toHaveTextContent('Alt+Q')
-    expect(dialog).toHaveTextContent('Alt+K') // doctors may book
+    expect(dialog).not.toHaveTextContent('Alt+K') // RBAC: doctors do not book
     expect(dialog).not.toHaveTextContent('Alt+C') // but not check in
     await user.keyboard('{Escape}')
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()

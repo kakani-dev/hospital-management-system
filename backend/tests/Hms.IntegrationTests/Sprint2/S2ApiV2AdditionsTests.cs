@@ -48,7 +48,7 @@ public sealed class S2ApiV2AdditionsTests(HmsApiFactory factory) : IClassFixture
         Assert.Equal(HttpStatusCode.Created, checkIn.StatusCode);
         var result = (await checkIn.Content.ReadFromJsonAsync<S2CheckIn>())!;
         AssertPatient(patient, result.Entry.Patient);
-        var board = (await billing.GetFromJsonAsync<List<S2QueueEntry>>($"/api/v1/queue?branchId={AlphaEast}"))!;
+        var board = (await reception.GetFromJsonAsync<List<S2QueueEntry>>  /* RBAC: billing has no queue access */($"/api/v1/queue?branchId={AlphaEast}"))!;
         AssertPatient(patient, board.Single(q => q.Id == result.QueueEntryId).Patient);
         Assert.All(board, q => Assert.Equal(q.PatientId, q.Patient!.Id));
         var patched = await reception.PatchAsJsonAsync($"/api/v1/queue/{result.QueueEntryId}", new { status = "cancelled" });

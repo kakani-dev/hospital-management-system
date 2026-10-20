@@ -1,45 +1,99 @@
 /**
- * UX-only role gates for Sprint 2 screens, mirroring SPRINT2-CONTRACT.md (API v1 §A.2–A.6).
- * The API and RLS enforce the real rules; a hidden button is a convenience, never a control.
- * Writes need the role *at the row's branch* — pass the roles held at that branch
- * (rolesAtBranch) for write capabilities; tenant_admin is tenant-wide.
+ * RBAC (docs/adr/0001-role-based-access-control.md). UX-only gates: the API (permission checks on
+ * server-side membership) and RLS enforce the real rules; a hidden button is a convenience, never
+ * a control.
+ *
+ * ROLE_PERMISSIONS mirrors HmsPermissions.ByRole in the API and identity.role_permissions in the
+ * database (RbacMatrixInProcessTests in the .NET suite compares all three). Tenant-wide gates (menus, routes)
+ * prefer the server's own list, GET /me `permissions`; branch-bound writes pass the roles held AT
+ * the row's branch (rolesAtBranch) to `can`.
  */
-export type Capability =
+export type Permission =
+  | 'settings.view'
+  | 'settings.manage'
+  | 'branches.view'
+  | 'branches.manage'
+  | 'members.manage'
+  | 'practitioners.view'
+  | 'practitioners.manage'
   | 'patients.view'
-  | 'patients.write'
+  | 'patients.create'
+  | 'patients.edit'
   | 'patients.delete'
   | 'patients.restore'
-  | 'schedules.view'
   | 'appointments.view'
   | 'appointments.book'
-  | 'queue.checkIn'
+  | 'appointments.reschedule'
+  | 'appointments.cancel'
+  | 'appointments.check_in'
+  | 'appointments.no_show'
+  | 'appointments.no_show_own'
   | 'queue.view'
-  | 'queue.advance'
-  | 'queue.cancel'
+  | 'queue.manage'
+  | 'queue.consult_own'
 
-const REG_READ = ['tenant_admin', 'doctor', 'nurse', 'receptionist', 'billing'] as const
-const REG_WRITE = ['tenant_admin', 'doctor', 'nurse', 'receptionist'] as const
-const FRONT_DESK = ['tenant_admin', 'receptionist', 'nurse'] as const
-const ANY_MEMBER = ['tenant_admin', 'doctor', 'nurse', 'receptionist', 'billing', 'pharmacist', 'lab_technician', 'viewer'] as const
+/** UI capabilities (kept stable for the screens) -> the server permissions that grant them (any of). */
+const CAPABILITIES = {
+  'patients.view': ['patients.view'],
+  'patients.write': ['patients.create'],
+  'patients.edit': ['patients.edit'],
+  'patients.delete': ['patients.delete'],
+  'patients.restore': ['patients.restore'],
+  'schedules.view': ['practitioners.view'],
+  'appointments.view': ['appointments.view'],
+  'appointments.book': ['appointments.book'],
+  'appointments.reschedule': ['appointments.reschedule'],
+  'appointments.cancel': ['appointments.cancel'],
+  'appointments.noShow': ['appointments.no_show', 'appointments.no_show_own'],
+  'queue.checkIn': ['queue.manage'],
+  'queue.view': ['queue.view'],
+  'queue.advance': ['queue.manage', 'queue.consult_own'],
+  'queue.cancel': ['queue.manage'],
+  'admin.branches': ['branches.manage'],
+  'admin.members': ['members.manage'],
+  'admin.practitioners': ['practitioners.manage'],
+  'admin.settings': ['settings.manage'],
+} as const satisfies Record<string, readonly Permission[]>
 
-const CAPABILITIES: Record<Capability, readonly string[]> = {
-  'patients.view': REG_READ,
-  'patients.write': REG_WRITE,
-  'patients.delete': ['tenant_admin', 'receptionist'], // D1
-  'patients.restore': ['tenant_admin'],
-  'schedules.view': ANY_MEMBER,
-  'appointments.view': REG_READ,
-  'appointments.book': REG_WRITE,
-  'queue.checkIn': FRONT_DESK,
-  'queue.view': REG_READ,
-  'queue.advance': [...FRONT_DESK, 'doctor'], // in_consultation / done
-  'queue.cancel': FRONT_DESK,
+export type Capability = keyof typeof CAPABILITIES
+
+const READ_ONLY_OPS: Permission[] = ['settings.view', 'branches.view', 'practitioners.view']
+
+export const ROLE_PERMISSIONS: Record<string, readonly Permission[]> = {
+  tenant_admin: [
+    ...READ_ONLY_OPS, 'settings.manage', 'branches.manage', 'members.manage', 'practitioners.manage',
+    'patients.view', 'patients.create', 'patients.edit', 'patients.delete', 'patients.restore',
+    'appointments.view', 'appointments.book', 'appointments.reschedule', 'appointments.cancel', 'appointments.check_in', 'appointments.no_show',
+    'queue.view', 'queue.manage',
+  ],
+  receptionist: [
+    ...READ_ONLY_OPS, 'patients.view', 'patients.create', 'patients.edit', 'patients.delete',
+    'appointments.view', 'appointments.book', 'appointments.reschedule', 'appointments.cancel', 'appointments.check_in', 'appointments.no_show',
+    'queue.view', 'queue.manage',
+  ],
+  nurse: [...READ_ONLY_OPS, 'patients.view', 'appointments.view', 'appointments.check_in', 'appointments.no_show', 'queue.view', 'queue.manage'],
+  doctor: [...READ_ONLY_OPS, 'patients.view', 'appointments.view', 'appointments.no_show_own', 'queue.view', 'queue.consult_own'],
+  billing: [...READ_ONLY_OPS, 'patients.view', 'appointments.view'],
+  pharmacist: READ_ONLY_OPS,
+  lab_technician: READ_ONLY_OPS,
+  viewer: READ_ONLY_OPS,
 }
 
+export function permissionsOf(roles: readonly string[]): Set<Permission> {
+  return new Set(roles.flatMap((r) => ROLE_PERMISSIONS[r] ?? []))
+}
+
+/** Capability from roles (use rolesAtBranch(...) for branch-bound writes). */
 export function can(roles: readonly string[], capability: Capability): boolean {
-  return roles.some((r) => CAPABILITIES[capability].includes(r))
+  const granted = permissionsOf(roles)
+  return CAPABILITIES[capability].some((p) => granted.has(p))
+}
+
+/** Capability from the server's effective permission list (GET /me `permissions`). */
+export function allows(permissions: readonly string[], capability: Capability): boolean {
+  return CAPABILITIES[capability].some((p) => permissions.includes(p))
 }
 
 export function rolesFor(capability: Capability): readonly string[] {
-  return CAPABILITIES[capability]
+  return Object.keys(ROLE_PERMISSIONS).filter((r) => can([r], capability))
 }

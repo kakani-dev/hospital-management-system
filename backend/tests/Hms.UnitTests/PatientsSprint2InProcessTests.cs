@@ -108,12 +108,15 @@ public sealed class PatientsSprint2InProcessTests(ApiFactory factory) : IClassFi
     {
         var atMain = await CreateAsync(Main);
         var atEast = await CreateAsync(East);
-        using var mixed = factory.ClientAs(MixedUser); // billing @Main, nurse @East
+        using var mixed = factory.ClientAs(DoctorMainReceptionEast); // RBAC: doctor @Main is view-only, receptionist @East edits
 
         Assert.Equal(HttpStatusCode.Forbidden, (await PatchAsync(mixed, atMain.Id, new { lastName = "Nope" })).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await PatchAsync(mixed, atEast.Id, new { lastName = "Yes" })).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await PatchAsync(mixed, atEast.Id, new { registeredBranchId = Main })).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await PatchAsync(mixed, atEast.Id, new { registeredBranchId = BetaMain })).StatusCode); // foreign branch (v4)
+
+        using var nurse = factory.ClientAs(MixedUser); // nurse @East is view-only under RBAC
+        Assert.Equal(HttpStatusCode.Forbidden, (await PatchAsync(nurse, atEast.Id, new { lastName = "Nope" })).StatusCode);
 
         using var billing = factory.ClientAs(BillingOnly);
         Assert.Equal(HttpStatusCode.Forbidden, (await PatchAsync(billing, atEast.Id, new { lastName = "Nope" })).StatusCode);
@@ -167,8 +170,8 @@ public sealed class PatientsSprint2InProcessTests(ApiFactory factory) : IClassFi
         var atMain = await CreateAsync(Main);
         var atEast = await CreateAsync(East);
 
-        using var doctorMain = factory.ClientAs(DoctorMainReceptionEast); // doctor can edit at Main but not delete
-        Assert.Equal(HttpStatusCode.OK, (await PatchAsync(doctorMain, atMain.Id, new { lastName = "Edited" })).StatusCode);
+        using var doctorMain = factory.ClientAs(DoctorMainReceptionEast); // RBAC: doctor can neither edit nor delete
+        Assert.Equal(HttpStatusCode.Forbidden, (await PatchAsync(doctorMain, atMain.Id, new { lastName = "Edited" })).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await doctorMain.DeleteAsync($"/api/v1/patients/{atMain.Id}")).StatusCode);
 
         using var nurse = factory.ClientAs(MixedUser);
