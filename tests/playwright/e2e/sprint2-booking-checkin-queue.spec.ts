@@ -203,7 +203,9 @@ test.describe('Booking drawer quick-register (full stack)', () => {
     await form.getByLabel('Find patient').fill(`Quick ${lastName}`)
     await form.getByTestId('register-new-patient').click()
     const quick = form.getByTestId('quick-register')
-    await expect(quick.getByLabel('Last name')).toHaveValue(lastName)
+    // The term has digits (unique suffix), so it is treated as MRN-like and pre-fills nothing.
+    await quick.getByLabel('First name').fill('Quick')
+    await quick.getByLabel('Last name').fill(lastName)
     const created = page.waitForResponse((r) => r.url().endsWith('/api/v1/patients') && r.request().method() === 'POST')
     const booked = page.waitForResponse((r) => r.url().endsWith('/api/v1/appointments') && r.request().method() === 'POST')
     await quick.getByTestId('save-and-book').click()

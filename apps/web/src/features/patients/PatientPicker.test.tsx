@@ -215,7 +215,7 @@ describe('PatientPicker combobox', () => {
     expect(await within(form).findByRole('listbox', { name: 'Recent patients' })).toBeInTheDocument()
     expect(within(form).getAllByTestId('patient-option')[0]).toHaveTextContent('Ravi')
     await user.type(within(form).getByLabelText('Find patient'), 'Ra')
-    await waitFor(() => expect(within(form).getByRole('listbox', { name: 'Matching patients' })).toBeInTheDocument())
+    await within(form).findByTestId('register-new-patient')
     const options = within(within(form).getByRole('listbox', { name: 'Matching patients' })).getAllByRole('option')
     expect(options.at(-1)).toHaveAttribute('data-testid', 'register-new-patient')
   })

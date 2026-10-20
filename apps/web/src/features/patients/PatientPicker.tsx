@@ -67,7 +67,8 @@ export function PatientPicker({
   const canRegister = (!!registerReturn || !!onCreateNew) && has('patients.write')
   const typed = term.trim().length >= PATIENT_PICKER_MIN_CHARS
   // Inline mode: always offered as the last option once a term is typed; page mode: only on no match.
-  const offerRegister = canRegister && typed && (onCreateNew ? true : fresh && items.length === 0)
+  // Only once results for this exact term are in, so a quick tap can't hit it instead of a match still loading.
+  const offerRegister = canRegister && typed && fresh && (onCreateNew ? true : items.length === 0)
   const optionCount = items.length + (offerRegister ? 1 : 0)
   const expanded = open && (typed || (recentMode && recentItems.length > 0))
   const optionId = (i: number) => `${listId}-opt-${i}`
@@ -144,7 +145,7 @@ export function PatientPicker({
           } else if (e.key === 'Enter' && expanded) {
             // While the list is open Enter belongs to the list, never to the form.
             e.preventDefault()
-            if (!fresh && !recentMode && !(onCreateNew && active === items.length)) return // results still belong to an older term
+            if (!fresh && !recentMode) return // results still belong to an older term
             if (active >= 0) choose(active)
             else if (optionCount === 1 || exact) choose(0)
           } else if (e.key === 'Escape') {
