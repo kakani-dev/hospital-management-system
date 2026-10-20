@@ -14,11 +14,16 @@ export function DuplicateWarning({
   busy,
   onProceed,
   onDismiss,
+  onUseExisting,
+  proceedLabel = 'Register anyway',
 }: {
   matches: DuplicateCandidate[]
   busy: boolean
   onProceed: () => void
   onDismiss: () => void
+  /** Embedded (booking drawer): pick the existing record in place instead of opening it. */
+  onUseExisting?: (match: DuplicateCandidate) => void
+  proceedLabel?: string
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null)
   useEffect(() => headingRef.current?.focus(), [])
@@ -45,6 +50,11 @@ export function DuplicateWarning({
                 Matched on {(m.matchReasons ?? []).map((r) => REASON_LABEL[r] ?? r).join(' and ')}
               </span>
             </span>
+            {onUseExisting ? (
+              <Button variant="secondary" onClick={() => onUseExisting(m)} aria-label={`Use existing record ${m.mrn}`} data-testid="use-existing">
+                Use existing
+              </Button>
+            ) : (
             <Link
               to={`/patients/${m.id}`}
               className="font-medium text-primary-600 hover:underline dark:text-primary-400"
@@ -52,12 +62,13 @@ export function DuplicateWarning({
             >
               Open existing record
             </Link>
+            )}
           </li>
         ))}
       </ul>
       <div className="flex flex-wrap gap-2">
         <Button onClick={onProceed} disabled={busy}>
-          {busy ? 'Registering…' : 'Register anyway'}
+          {busy ? 'Registering…' : proceedLabel}
         </Button>
         <Button variant="secondary" onClick={onDismiss} disabled={busy}>
           Review details

@@ -7,7 +7,6 @@ import { useDebouncedValue } from '../../lib/useDebouncedValue'
 import { latestToday, localToday } from '../../lib/dates'
 import { useBranchTimeZones } from '../../lib/useBranchTimeZone'
 import { exactMrnFirst, PATIENT_PICKER_MIN_CHARS, patientOptionLabel } from './patientLabel'
-import { can } from '../../lib/permissions'
 import type { PatientSummary } from '../../lib/api/types'
 import { useCurrentContext } from '../tenancy/useCurrentContext'
 import { prefillFromTerm, type RegisterPatientState, type RegisterReturn } from './registerReturn'
@@ -25,6 +24,8 @@ export function PatientPicker({
   registerReturn,
   inputRef,
   shortcut = 'patient-search',
+  onCreateNew,
+  showRecent = false,
 }: {
   value: PatientSummary | null
   onChange: (patient: PatientSummary | null) => void
@@ -34,9 +35,16 @@ export function PatientPicker({
   inputRef?: Ref<HTMLInputElement>
   /** data-shortcut target name for the global keyboard shortcuts. */
   shortcut?: string
+  /**
+   * Inline quick-register (booking drawer): "+ New patient “<term>”" is always the last option (for
+   * users with patients.create) and calls this instead of navigating to the register page.
+   */
+  onCreateNew?: (term: string) => void
+  /** Show recent patients when the empty field gets focus (no extra tap needed). */
+  showRecent?: boolean
 }) {
   const navigate = useNavigate()
-  const { roles } = useCurrentContext()
+  const { has } = useCurrentContext()
   const [term, setTerm] = useState('')
   const [open, setOpen] = useState(false)
   const [active, setActive] = useState(-1)
@@ -46,14 +54,22 @@ export function PatientPicker({
   const hintId = useId()
   const searching = debounced.trim().length >= PATIENT_PICKER_MIN_CHARS
   const results = usePatients(debounced, { enabled: searching })
+  // Empty field + focus: the most recent patients (GET /patients, page 1), so the list shows on the first tap.
+  const recentMode = showRecent && term.trim() === ''
+  const recent = usePatients('', { enabled: recentMode && open })
+  const recentItems = recentMode ? (recent.data?.items ?? []).slice(0, 5) : []
   // Results for the text actually in the box (not a previous term, not mid-debounce).
   const fresh = searching && debounced === term && !results.isPending && !results.isPlaceholderData && !results.isError
   // Exact-MRN match first: typing a full MRN puts that patient at the top, and Enter picks it.
-  const { items, exact } = exactMrnFirst(searching ? (results.data?.items ?? []) : [], debounced)
-  const canRegister = !!registerReturn && can(roles, 'patients.write')
-  const offerRegister = canRegister && fresh && items.length === 0
+  const searched = exactMrnFirst(searching ? (results.data?.items ?? []) : [], debounced)
+  const items = recentMode ? recentItems : searched.items
+  const exact = recentMode ? undefined : searched.exact
+  const canRegister = (!!registerReturn || !!onCreateNew) && has('patients.write')
+  const typed = term.trim().length >= PATIENT_PICKER_MIN_CHARS
+  // Inline mode: always offered as the last option once a term is typed; page mode: only on no match.
+  const offerRegister = canRegister && typed && (onCreateNew ? true : fresh && items.length === 0)
   const optionCount = items.length + (offerRegister ? 1 : 0)
-  const expanded = open && term.trim().length >= PATIENT_PICKER_MIN_CHARS
+  const expanded = open && (typed || (recentMode && recentItems.length > 0))
   const optionId = (i: number) => `${listId}-opt-${i}`
   // Ages are counted in the user's branch/hospital zone (never the workstation's).
   const { defaultZone } = useBranchTimeZones()
@@ -66,6 +82,12 @@ export function PatientPicker({
     setActive(-1)
   }
   const registerNew = () => {
+    if (onCreateNew) {
+      setOpen(false)
+      setActive(-1)
+      onCreateNew(term.trim())
+      return
+    }
     const state: RegisterPatientState = { returnTo: registerReturn!.to, returnState: registerReturn!.state, prefill: prefillFromTerm(term) }
     navigate('/patients/new', { state })
   }
@@ -122,7 +144,7 @@ export function PatientPicker({
           } else if (e.key === 'Enter' && expanded) {
             // While the list is open Enter belongs to the list, never to the form.
             e.preventDefault()
-            if (!fresh) return // results still belong to an older term
+            if (!fresh && !recentMode && !(onCreateNew && active === items.length)) return // results still belong to an older term
             if (active >= 0) choose(active)
             else if (optionCount === 1 || exact) choose(0)
           } else if (e.key === 'Escape') {
@@ -171,11 +193,12 @@ export function PatientPicker({
           {expanded && searching && results.isPending && <p className="py-2">Searching…</p>}
           {expanded && results.isError && <p className="py-2 text-error-darker dark:text-error-lighter">Patient search is unavailable.</p>}
           {expanded && fresh && items.length === 0 && <p className="py-2">No matching patients.</p>}
+          {expanded && recentMode && <p className="pt-1 text-xs font-medium uppercase text-gray-500 dark:text-dark-300">Recent patients</p>}
         </div>
         <ul
           id={listId}
           role="listbox"
-          aria-label="Matching patients"
+          aria-label={recentMode ? 'Recent patients' : 'Matching patients'}
           className={clsx('max-h-60 overflow-y-auto overflow-x-hidden', results.isPlaceholderData && 'opacity-60')}
         >
           {expanded &&
@@ -221,7 +244,7 @@ export function PatientPicker({
               onMouseDown={(e) => e.preventDefault()}
               onClick={registerNew}
             >
-              No match: register new patient “{term.trim()}” (Alt+N)
+              {onCreateNew ? <>+ New patient “{term.trim()}”</> : <>No match: register new patient “{term.trim()}” (Alt+N)</>}
             </li>
           )}
         </ul>
