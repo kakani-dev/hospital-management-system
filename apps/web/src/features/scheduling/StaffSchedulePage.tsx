@@ -41,7 +41,7 @@ export function StaffSchedulePage() {
       <BranchNotice branchId={branchId} timeZoneMissing={timeZoneMissing} />
       {(schedules.isError || practitioners.isError) && <Alert tone="warning">Schedules are unavailable right now.</Alert>}
       <Card>
-        <div className="table-wrapper min-w-full overflow-x-auto">
+        <div className="table-wrapper relative min-w-full overflow-x-auto">
           <Table hoverable className="w-full text-left text-sm rtl:text-right" data-testid="schedule-table">
             <caption className="sr-only">Working hours per practitioner for the selected week</caption>
             <THead>

@@ -70,7 +70,7 @@ export function DataTable<T>({
   const cellBg = clsx('relative bg-white', cardSkin === 'shadow' ? 'dark:bg-dark-700' : 'dark:bg-dark-900')
 
   return (
-    <div className="table-wrapper min-w-full overflow-x-auto">
+    <div className="table-wrapper relative min-w-full overflow-x-auto">
       <Table hoverable dense={dense} className="w-full text-left rtl:text-right">
         <caption className="sr-only">{caption}</caption>
         <THead>
