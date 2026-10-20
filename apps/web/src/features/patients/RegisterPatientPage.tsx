@@ -1,5 +1,6 @@
 import { useEffect, useState, type KeyboardEvent } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
+import { ageOn } from './patientLabel'
 import { Link, useLocation, useNavigate } from 'react-router'
 import { toast } from 'sonner'
 import { RetryAlert } from '../../components/ui/RetryAlert'
@@ -71,6 +72,7 @@ export function RegisterPatientPage({ embedded }: { embedded?: EmbeddedRegisterO
       email: '',
       whatsappSameAsPhone: true,
       whatsappNumber: '',
+      abhaNumber: '',
     },
   })
 
@@ -82,6 +84,7 @@ export function RegisterPatientPage({ embedded }: { embedded?: EmbeddedRegisterO
 
   // DOB "today" is the selected branch's date — the API validates in the branch's zone.
   const branchToday = useBranchToday(useWatch({ control, name: 'registeredBranchId' }))
+  const age = ageOn(useWatch({ control, name: 'dateOfBirth' }) || null, branchToday)
 
   // Pre-select a branch once /me has loaded, also with "All my branches" (defaultBranchId: active →
   // primary → first/only). Re-applied whenever the options change, so the native <select> never shows
@@ -300,6 +303,7 @@ export function RegisterPatientPage({ embedded }: { embedded?: EmbeddedRegisterO
             min="1900-01-01"
             max={branchToday}
             error={errors.dateOfBirth?.message}
+            hint={age ? `Age: ${age}` : undefined}
             {...register('dateOfBirth')}
           />
           <SelectField label="Sex" error={errors.sex?.message} {...register('sex')}>
@@ -311,6 +315,14 @@ export function RegisterPatientPage({ embedded }: { embedded?: EmbeddedRegisterO
           </SelectField>
           <FormField label="Phone (optional)" type="tel" autoComplete="off" error={errors.phone?.message} {...register('phone')} />
           <FormField label="Email (optional)" type="email" autoComplete="off" error={errors.email?.message} {...register('email')} />
+          <FormField
+            label="ABHA number (optional)"
+            inputMode="numeric"
+            autoComplete="off"
+            placeholder="XX-XXXX-XXXX-XXXX"
+            error={errors.abhaNumber?.message}
+            {...register('abhaNumber')}
+          />
           <WhatsappFields control={control} register={register} errors={errors} />
           <div className="sm:col-span-2">
             <Button type="submit" disabled={isSubmitting || creatingAnyway}>

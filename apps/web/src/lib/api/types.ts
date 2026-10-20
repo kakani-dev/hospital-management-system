@@ -69,6 +69,8 @@ export interface CreatePatientRequest {
   phone?: string | null
   email?: string | null
   whatsapp?: WhatsappInput | null
+  /** Optional ABHA number (14 digits); the server stores it as XX-XXXX-XXXX-XXXX. */
+  abhaNumber?: string | null
 }
 
 export const ROLES = [
@@ -356,6 +358,8 @@ export interface PatientDetail extends PatientSummary {
   phones?: PatientPhone[]
   /** Level 1: the phone number is also the WhatsApp number. */
   whatsappSameAsPhone?: boolean
+  /** ABHA number, XX-XXXX-XXXX-XXXX (null when not recorded). */
+  abhaNumber?: string | null
 }
 
 /**
@@ -521,6 +525,10 @@ export interface Appointment {
   startedAt?: string | null
   completedAt?: string | null
   cancelledAt?: string | null
+  /** Follow-up of this earlier visit (same patient). */
+  parentAppointmentId?: Guid | null
+  /** Booked outside the doctor's working hours by an admin override (audited). */
+  hoursOverride?: boolean
 }
 
 /** GET /api/v1/appointments query (subset the UI uses). `from`/`to` are instants. */
@@ -542,13 +550,18 @@ export interface CreateAppointmentRequest {
   startsAt: string
   endsAt: string
   reason?: string
+  /** Follow-up: the earlier visit it continues (same patient; doctors may only book these, for their own patients). */
+  parentAppointmentId?: Guid
+  /** Admins only: book outside the doctor's working hours (checked and audited on the server). */
+  overrideWorkingHours?: boolean
 }
 
 export interface CancelAppointmentRequest {
   reason?: string
 }
 
-export const QUEUE_STATUSES = ['waiting', 'in_consultation', 'done', 'cancelled'] as const
+/** no_show: set only by the end-of-day close (entries still waiting after the branch-local day ended). */
+export const QUEUE_STATUSES = ['waiting', 'in_consultation', 'done', 'cancelled', 'no_show'] as const
 export type QueueStatus = (typeof QUEUE_STATUSES)[number]
 
 /** Allowed OPD queue transitions (DB §3.1); anything else is a 409 invalid_transition. */
@@ -557,6 +570,7 @@ export const QUEUE_TRANSITIONS: Record<QueueStatus, QueueStatus[]> = {
   in_consultation: ['done', 'cancelled'],
   done: [],
   cancelled: [],
+  no_show: [],
 }
 
 /** QueueEntryDto: one OPD token for a branch and branch-local day. */

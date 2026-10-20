@@ -33,6 +33,8 @@ export function createPatientSchema(getTimeZone: TimeZoneGetter = () => undefine
   /** "Same as phone number" (checked by default). */
   whatsappSameAsPhone: z.boolean(),
   whatsappNumber: optionalText(32).refine((v) => v === '' || PHONE_SHAPE.test(v), { error: WHATSAPP_ERROR }),
+  /** Optional ABHA number: 14 digits, spaces / dashes allowed while typing. */
+  abhaNumber: z.string().trim().optional().refine((v) => !v || toAbha(v) !== null, { error: ABHA_ERROR }),
 })
 }
 
@@ -43,6 +45,15 @@ export function createPatientSchema(getTimeZone: TimeZoneGetter = () => undefine
 const PHONE_SHAPE = /^\+?[0-9()\s.-]*$/
 export const PHONE_ERROR = 'Enter a valid phone number, e.g. 98765 43210 or +971 50 123 4567'
 export const WHATSAPP_ERROR = 'Enter a valid WhatsApp number, e.g. 98765 43210 or +971 50 123 4567'
+
+export const ABHA_ERROR = 'ABHA number must be 14 digits (XX-XXXX-XXXX-XXXX)'
+
+/** ABHA number in its canonical XX-XXXX-XXXX-XXXX form, or null when it is not 14 digits (spaces / dashes ignored). */
+export function toAbha(value: string): string | null {
+  const digits = value.replace(/[\s-]/g, '')
+  if (!/^\d{14}$/.test(digits)) return null
+  return `${digits.slice(0, 2)}-${digits.slice(2, 6)}-${digits.slice(6, 10)}-${digits.slice(10)}`
+}
 
 /** The WhatsApp part of a create / update body from the form values. */
 export function toWhatsappInput(v: Pick<PatientFormValues, 'phone' | 'whatsappSameAsPhone' | 'whatsappNumber'>): WhatsappInput | null {
@@ -66,6 +77,7 @@ export function toCreatePatientRequest(v: PatientFormValues) {
     phone: v.phone.trim() || null,
     email: v.email || null,
     whatsapp: toWhatsappInput(v),
+    abhaNumber: toAbha(v.abhaNumber ?? ''),
   }
 }
 
@@ -85,5 +97,6 @@ export function toUpdatePatientRequest(v: PatientEditValues) {
     phone: v.phone.trim() || null,
     email: v.email || null,
     whatsapp: toWhatsappInput(v),
+    abhaNumber: toAbha(v.abhaNumber ?? ''),
   }
 }

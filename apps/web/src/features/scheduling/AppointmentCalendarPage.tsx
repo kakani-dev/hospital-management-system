@@ -77,7 +77,11 @@ export function AppointmentCalendarPage() {
     { refetchInterval: CALENDAR_REFRESH_MS },
   )
   const patient = usePatientRefs(appointments.data ?? [])
-  const canBook = can(rolesAtBranch(me.data, branchId), 'appointments.book')
+  const branchRoles = rolesAtBranch(me.data, branchId)
+  const canBook = can(branchRoles, 'appointments.book')
+  // Doctors book follow-ups only for their own patients (practitioner linked to their login); the server re-checks.
+  const canFollowUp = (a: Appointment) =>
+    canBook || (can(branchRoles, 'appointments.bookFollowUp') && bookable.some((p) => p.id === a.practitionerId && !!p.userId && p.userId === me.data?.userId))
 
   // Patient search narrows the loaded range (name, MRN or visit reason); the server filters status.
   const needle = search.trim().toLowerCase()
@@ -161,7 +165,8 @@ export function AppointmentCalendarPage() {
             minDate={cal.today}
             practitioners={bookable}
             practitionersStatus={bookableState.status}
-            canManageSetup={rolesAtBranch(me.data, branchId).includes('tenant_admin')}
+            canManageSetup={branchRoles.includes('tenant_admin')}
+            canOverrideHours={can(branchRoles, 'appointments.overrideHours')}
             key={followUp ? `fu-${followUp.patient.id}` : 'new'}
             initial={followUp ?? restored ?? undefined}
             onCancel={() => setBooking(false)}
@@ -318,12 +323,14 @@ export function AppointmentCalendarPage() {
                       {a.status === 'cancelled' && a.cancelReason && (
                         <div className="text-xs text-gray-600 dark:text-dark-200">Cancelled: {a.cancelReason}</div>
                       )}
-                      {canBook && p && FOLLOW_UP_STATUSES.includes(a.status) && (
+                      {a.parentAppointmentId && <div className="text-xs text-gray-600 dark:text-dark-200">Follow-up visit</div>}
+                      {a.hoursOverride && <div className="text-xs text-warning-darker dark:text-warning-lighter">Outside working hours (admin override)</div>}
+                      {canFollowUp(a) && p && FOLLOW_UP_STATUSES.includes(a.status) && (
                         <div className="mt-1">
                           <LinkButton
                             onClick={() => {
                               setNotice(null)
-                              setFollowUp(followUpInitial(p, a.practitionerId))
+                              setFollowUp(followUpInitial(p, a.practitionerId, a.id))
                               setBooking(true)
                             }}
                           >

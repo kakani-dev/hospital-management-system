@@ -18,6 +18,8 @@ public sealed class Patient : AuditableEntity, ITenantOwned
     public string Sex { get; set; } = PatientSex.Unknown;
     public string? Phone { get; set; }
     public string? Email { get; set; }
+    /// <summary>Optional ABHA number (Ayushman Bharat Health Account), stored as XX-XXXX-XXXX-XXXX.</summary>
+    public string? AbhaNumber { get; set; }
     public DateTimeOffset? DeletedAt { get; set; }
 }
 

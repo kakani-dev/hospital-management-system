@@ -28,6 +28,10 @@ public static class HmsPermissions
     public const string AppointmentsNoShow = "appointments.no_show";
     /// <summary>No-show only on appointments of the practitioner linked to the caller (doctor).</summary>
     public const string AppointmentsNoShowOwn = "appointments.no_show_own";
+    /// <summary>Book a follow-up of an earlier appointment of the practitioner linked to the caller (doctor).</summary>
+    public const string AppointmentsBookFollowUpOwn = "appointments.book_followup_own";
+    /// <summary>Book outside the practitioner's working hours (explicit override, audited).</summary>
+    public const string AppointmentsOverrideHours = "appointments.override_hours";
     public const string QueueView = "queue.view";
     public const string QueueManage = "queue.manage";
     /// <summary>Move the caller's own queue entries to in_consultation / done (doctor).</summary>
@@ -41,13 +45,13 @@ public static class HmsPermissions
             SettingsView, SettingsManage, BranchesView, BranchesManage, MembersManage, PractitionersView, PractitionersManage,
             PatientsView, PatientsCreate, PatientsEdit, PatientsDelete, PatientsRestore,
             AppointmentsView, AppointmentsBook, AppointmentsReschedule, AppointmentsCancel, AppointmentsCheckIn, AppointmentsNoShow,
-            QueueView, QueueManage),
+            AppointmentsOverrideHours, QueueView, QueueManage),
         [HmsRoles.Receptionist] = Set([.. ReadOnlyOps,
             PatientsView, PatientsCreate, PatientsEdit, PatientsDelete,
             AppointmentsView, AppointmentsBook, AppointmentsReschedule, AppointmentsCancel, AppointmentsCheckIn, AppointmentsNoShow,
             QueueView, QueueManage]),
-        [HmsRoles.Nurse] = Set([.. ReadOnlyOps, PatientsView, AppointmentsView, AppointmentsCheckIn, AppointmentsNoShow, QueueView, QueueManage]),
-        [HmsRoles.Doctor] = Set([.. ReadOnlyOps, PatientsView, AppointmentsView, AppointmentsNoShowOwn, QueueView, QueueConsultOwn]),
+        [HmsRoles.Nurse] = Set([.. ReadOnlyOps, PatientsView, AppointmentsView, AppointmentsBook, AppointmentsCheckIn, AppointmentsNoShow, QueueView, QueueManage]),
+        [HmsRoles.Doctor] = Set([.. ReadOnlyOps, PatientsView, AppointmentsView, AppointmentsBookFollowUpOwn, AppointmentsNoShowOwn, QueueView, QueueConsultOwn]),
         [HmsRoles.Billing] = Set([.. ReadOnlyOps, PatientsView, AppointmentsView]),
         [HmsRoles.Pharmacist] = Set(ReadOnlyOps),
         [HmsRoles.LabTechnician] = Set(ReadOnlyOps),

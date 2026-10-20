@@ -52,6 +52,7 @@ public sealed class AppointmentsDbContext(DbContextOptions<AppointmentsDbContext
             // never updatable (no update grant): the trigger rejects identity changes once not booked anyway
             ReadOnlyAfterInsert(e.Property(x => x.PatientId));
             ReadOnlyAfterInsert(e.Property(x => x.BranchId));
+            ReadOnlyAfterInsert(e.Property(x => x.ParentAppointmentId));
             // lifecycle timestamps: owned by appointment.enforce_appointment_transition()
             DbOwned(e.Property(x => x.CheckedInAt));
             DbOwned(e.Property(x => x.StartedAt));

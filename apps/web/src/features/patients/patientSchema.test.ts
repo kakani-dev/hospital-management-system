@@ -42,3 +42,20 @@ describe('patientSchema', () => {
     expect(patientSchema.safeParse({ ...valid, [field]: value }).success).toBe(false)
   })
 })
+
+describe('ABHA number', () => {
+  it('formats 14 digits as XX-XXXX-XXXX-XXXX and rejects anything else', async () => {
+    const { toAbha, patientSchema } = await import('./patientSchema')
+    expect(toAbha('12345678901234')).toBe('12-3456-7890-1234')
+    expect(toAbha('12 3456 7890 1234')).toBe('12-3456-7890-1234')
+    expect(toAbha('12-3456-7890-123')).toBeNull()
+    expect(toAbha('12-3456-7890-12a4')).toBeNull()
+    const base = {
+      firstName: 'A', lastName: 'B', dateOfBirth: '', sex: 'unknown', registeredBranchId: '11111111-1111-4111-8111-111111111111',
+      phone: '', email: '', whatsappSameAsPhone: true, whatsappNumber: '',
+    }
+    expect(patientSchema.safeParse({ ...base, abhaNumber: '' }).success).toBe(true)
+    expect(patientSchema.safeParse({ ...base, abhaNumber: '1234' }).success).toBe(false)
+    expect(patientSchema.safeParse({ ...base, abhaNumber: '12-3456-7890-1234' }).success).toBe(true)
+  })
+})

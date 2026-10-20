@@ -17,7 +17,7 @@ internal sealed class UnavailableAppointmentFunctions : IAppointmentFunctions
     public Task<IssuedToken> CheckInWalkInAsync(Guid branchId, Guid patientId, Guid? practitionerId, CancellationToken ct) =>
         throw new FakeDbException("P0002", "patient not found");
 
-    public Task AssertBookableWindowAsync(Guid tenantId, Guid branchId, Guid practitionerId, DateTimeOffset startsAt, DateTimeOffset endsAt, CancellationToken ct) =>
+    public Task AssertBookableWindowAsync(Guid tenantId, Guid branchId, Guid practitionerId, DateTimeOffset startsAt, DateTimeOffset endsAt, bool overrideHours, CancellationToken ct) =>
         Task.CompletedTask;
 
     public Task SetQueueStatusAsync(Guid queueEntryId, string status, CancellationToken ct) =>

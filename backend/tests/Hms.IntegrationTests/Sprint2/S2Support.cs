@@ -63,11 +63,14 @@ internal static class S2
         return (await response.Content.ReadFromJsonAsync<S2Practitioner>())!;
     }
 
-    public static Task<HttpResponseMessage> BookAsync(HttpClient client, Guid branch, Guid practitioner, Guid patient, DateTimeOffset start, int minutes = 15) =>
-        client.PostAsJsonAsync("/api/v1/appointments", new
+    public static async Task<HttpResponseMessage> BookAsync(HttpClient client, Guid branch, Guid practitioner, Guid patient, DateTimeOffset start, int minutes = 15)
+    {
+        await TestSchedules.OpenDayAsync(branch, practitioner, start);
+        return await client.PostAsJsonAsync("/api/v1/appointments", new
         {
             branchId = branch, practitionerId = practitioner, patientId = patient, startsAt = start, endsAt = start.AddMinutes(minutes), reason = "Synthetic visit",
         });
+    }
 
     /// <summary>A far-future instant unique enough per test (practitioners are per test anyway).</summary>
     public static DateTimeOffset FutureSlot(int dayOffset = 0, int hour = 10, int minute = 0) =>

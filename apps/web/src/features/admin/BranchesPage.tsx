@@ -60,6 +60,10 @@ export function BranchesPage() {
       reset({ ...empty(), useHospitalZone: values.useHospitalZone, timezone: values.timezone })
       setMessage({ tone: 'info', text: `Branch ${created.name} created.` })
     } catch (error) {
+      if (error instanceof ApiError && error.status === 409 && error.problem?.code === 'duplicate_branch_name') {
+        setError('name', { message: 'A branch with this name already exists in this hospital' })
+        return
+      }
       if (error instanceof ApiError && error.status === 409) {
         setError('code', { message: 'A branch with this code already exists' })
         return
@@ -96,7 +100,9 @@ export function BranchesPage() {
       setMessage({
         tone: 'error',
         text:
-          error instanceof ApiError && error.status === 409 && problem?.code === 'time_zone_locked'
+          error instanceof ApiError && error.status === 409 && problem?.code === 'duplicate_branch_name'
+            ? `Another branch is already called "${body.name ?? b.name}". Choose a different name.`
+            : error instanceof ApiError && error.status === 409 && problem?.code === 'time_zone_locked'
             ? `Can't change the time zone of ${b.name} while today's queue has entries.`
             : body.timezone !== undefined || body.inheritTimezone
               ? `Could not change the time zone of ${b.name}.`

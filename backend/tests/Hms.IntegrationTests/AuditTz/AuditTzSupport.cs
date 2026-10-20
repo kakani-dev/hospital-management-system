@@ -110,7 +110,7 @@ internal static class ATz
     public static async Task<ATzBranch> CreateBranchAsync(HttpClient admin, string? timezone)
     {
         return await ReadAsync<ATzBranch>(
-            await admin.PostAsJsonAsync("/api/v1/branches", new { code = Code("b"), name = "Synthetic branch", timezone }),
+            await admin.PostAsJsonAsync("/api/v1/branches", new { code = Code("b"), name = $"Synthetic branch {Code("n")}", timezone }),
             HttpStatusCode.Created);
     }
 

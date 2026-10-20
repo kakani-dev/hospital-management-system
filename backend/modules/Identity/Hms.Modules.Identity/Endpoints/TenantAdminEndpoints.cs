@@ -119,8 +119,17 @@ public static class TenantAdminEndpoints
     private static async Task<Results<NoContent, ProblemHttpResult>> RestoreBranchAsync(Guid id, IdentityDbContext db, ITenantContext tenant, CancellationToken ct) =>
         await SoftDeleteAsync(db, tenant, "select identity.restore_branch(@id)", id, HmsPermissions.BranchesManage, "Only tenant admins can manage branches and members.", ct);
 
-    private static async Task<Results<NoContent, ProblemHttpResult>> DeleteMemberAsync(Guid id, IdentityDbContext db, ITenantContext tenant, CancellationToken ct) =>
-        await SoftDeleteAsync(db, tenant, "select identity.soft_delete_membership(@id)", id, HmsPermissions.MembersManage, "Only tenant admins can manage branches and members.", ct);
+    private static async Task<Results<NoContent, ProblemHttpResult>> DeleteMemberAsync(Guid id, IdentityDbContext db, ITenantContext tenant, CancellationToken ct)
+    {
+        if (tenant.Can(HmsPermissions.MembersManage)
+            && await db.Memberships.AnyAsync(m => m.Id == id && m.TenantId == tenant.TenantId && m.Role == HmsRoles.TenantAdmin && m.Status == MembershipStatus.Active, ct)
+            && !await db.Memberships.AnyAsync(m => m.Id != id && m.TenantId == tenant.TenantId && m.Role == HmsRoles.TenantAdmin && m.Status == MembershipStatus.Active, ct))
+        {
+            return LastAdmin();
+        }
+
+        return await SoftDeleteAsync(db, tenant, "select identity.soft_delete_membership(@id)", id, HmsPermissions.MembersManage, "Only tenant admins can manage branches and members.", ct);
+    }
 
     private static async Task<Results<NoContent, ProblemHttpResult>> RestoreMemberAsync(Guid id, IdentityDbContext db, ITenantContext tenant, CancellationToken ct) =>
         await SoftDeleteAsync(db, tenant, "select identity.restore_membership(@id)", id, HmsPermissions.MembersManage, "Only tenant admins can manage branches and members.", ct);
@@ -167,6 +176,11 @@ public static class TenantAdminEndpoints
             return TypedResults.Problem(title: "Conflict", detail: "A branch with this code already exists in this hospital.", statusCode: StatusCodes.Status409Conflict);
         }
 
+        if (await BranchNameTakenAsync(db, tenant.TenantId, request.Name!, null, ct))
+        {
+            return DuplicateBranchName();
+        }
+
         // TenantId is set by TenantSaveChangesInterceptor; RLS (branches_insert_admin) re-checks it.
         // Timezone null = inherit the tenant zone (no override).
         var branch = new Branch { Code = request.Code!, Name = request.Name!.Trim(), Timezone = TenantTimeZones.Canonicalize(request.Timezone) };
@@ -174,6 +188,10 @@ public static class TenantAdminEndpoints
         try
         {
             await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (IsBranchNameConflict(ex))
+        {
+            return DuplicateBranchName();
         }
         catch (DbUpdateException ex) when (PostgresErrors.ToProblem(ex, "A branch with this code already exists in this hospital.") is { } problem)
         {
@@ -202,6 +220,11 @@ public static class TenantAdminEndpoints
         if (branch is null)
         {
             return TypedResults.NotFound();
+        }
+
+        if (request.Name is not null && await BranchNameTakenAsync(db, tenant.TenantId, request.Name, branch.Id, ct))
+        {
+            return DuplicateBranchName();
         }
 
         try
@@ -236,6 +259,10 @@ public static class TenantAdminEndpoints
 
             await db.SaveChangesAsync(ct);
         }
+        catch (DbUpdateException ex) when (IsBranchNameConflict(ex))
+        {
+            return DuplicateBranchName();
+        }
         catch (Exception ex) when (TimeZoneChange.FromDatabase(ex) is { } problem)
         {
             return problem;
@@ -243,6 +270,32 @@ public static class TenantAdminEndpoints
 
         return TypedResults.Ok(ToDto(branch, await TenantZoneAsync(db, tenant, ct)));
     }
+
+    internal const string DuplicateBranchNameCode = "duplicate_branch_name";
+
+    // Branch names are unique per hospital: case-insensitive, trimmed, soft-deleted branches ignored
+    // (DB: branches_tenant_name_key). The pre-check gives the friendly answer; the index is the guarantee.
+    private static Task<bool> BranchNameTakenAsync(IdentityDbContext db, Guid tenantId, string name, Guid? exceptId, CancellationToken ct)
+    {
+        var key = name.Trim().ToLowerInvariant();
+#pragma warning disable CA1862 // translated to SQL lower(btrim(name)), matching the unique index
+        return db.Branches.AsNoTracking().AnyAsync(b => b.TenantId == tenantId && b.Id != exceptId && b.Name.Trim().ToLower() == key, ct);
+#pragma warning restore CA1862
+    }
+
+    private static bool IsBranchNameConflict(Exception ex) =>
+        PostgresErrors.Find(ex) is { SqlState: PostgresErrorCodes.UniqueViolation, ConstraintName: "branches_tenant_name_key" };
+
+    private static ProblemHttpResult DuplicateBranchName() =>
+        HmsProblems.Conflict(DuplicateBranchNameCode, "A branch with this name already exists in this hospital. Choose a different name.");
+
+    internal const string LastAdminCode = "last_admin";
+
+    private static ProblemHttpResult LastAdmin() =>
+        HmsProblems.Conflict(LastAdminCode, "This is the hospital's last active admin. Make someone else an admin first.");
+
+    private static bool IsLastAdminError(Exception ex) =>
+        HmsProblems.FindDbError(ex) is { SqlState: "55000" } e && e.Message.Contains("last_admin", StringComparison.Ordinal);
 
     private static async Task<Results<Ok<List<MemberDto>>, ProblemHttpResult>> ListMembersAsync(
         IdentityDbContext db, ITenantContext tenant, CancellationToken ct)
@@ -372,12 +425,24 @@ public static class TenantAdminEndpoints
             return TypedResults.Problem(title: "Not allowed", detail: "You cannot change your own membership (prevents admin lock-out).", statusCode: StatusCodes.Status409Conflict);
         }
 
+        var losesAdmin = membership.Role == HmsRoles.TenantAdmin && membership.Status == MembershipStatus.Active
+            && ((request.Role ?? membership.Role) != HmsRoles.TenantAdmin || (request.Status ?? membership.Status) != MembershipStatus.Active);
+        if (losesAdmin && !await db.Memberships.AnyAsync(m => m.TenantId == tenant.TenantId && m.Id != membership.Id
+                && m.Role == HmsRoles.TenantAdmin && m.Status == MembershipStatus.Active, ct))
+        {
+            return LastAdmin();
+        }
+
         membership.Role = request.Role ?? membership.Role;
         membership.Status = request.Status ?? membership.Status;
         membership.BranchId = branchId;
         try
         {
             await db.SaveChangesAsync(ct);
+        }
+        catch (Exception ex) when (IsLastAdminError(ex))
+        {
+            return LastAdmin();
         }
         catch (DbUpdateException ex) when (PostgresErrors.ToProblem(ex, "That person already has a membership for this branch scope.") is { } problem)
         {

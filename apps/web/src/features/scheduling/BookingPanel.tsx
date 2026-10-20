@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Checkbox } from '@tailux/components/ui'
 import { Link, useLocation } from 'react-router'
 import { RetryAlert } from '../../components/ui/RetryAlert'
 import { transientWriteMessage } from '../../lib/api/errors'
@@ -9,7 +10,7 @@ import { FormField } from '../../components/ui/FormField'
 import { useCreateAppointment, useSlots, useTenantCountryCode } from '../../lib/api/hooks'
 import { apiClient } from '../../lib/api/client'
 import { ApiError, fieldErrors, problemCode } from '../../lib/api/client'
-import { formatDayLabel, formatTime } from '../../lib/dates'
+import { formatDayLabel, formatTime, zonedTimeToInstant } from '../../lib/dates'
 import type { Appointment, PatientSummary, Practitioner, Slot } from '../../lib/api/types'
 import { PatientPicker } from '../patients/PatientPicker'
 import { RegisterPatientPage } from '../patients/RegisterPatientPage'
@@ -22,7 +23,12 @@ export interface BookingDraft {
   practitionerId?: string
   date?: string
   slot?: Slot | null
+  /** Follow-up: the earlier visit this booking continues (same patient). */
+  parentAppointmentId?: string
 }
+
+/** Length of an admin "outside working hours" booking (there is no slot grid outside the schedule). */
+const OVERRIDE_MINUTES = 15
 
 /** Book: pick practitioner → date → free slot → patient. Conflicts (409) refresh the slots. */
 export function BookingPanel({
@@ -33,6 +39,7 @@ export function BookingPanel({
   practitioners,
   practitionersStatus = 'ready',
   canManageSetup = false,
+  canOverrideHours = false,
   onCancel,
   onBooked,
   initial,
@@ -46,6 +53,8 @@ export function BookingPanel({
   practitionersStatus?: BookableStatus
   /** Tenant admin at this branch: the empty states link to practitioner and working-hours setup. */
   canManageSetup?: boolean
+  /** Tenant admin: may book outside the doctor's working hours (explicit, audited override). */
+  canOverrideHours?: boolean
   onCancel: () => void
   onBooked: (appointment: Appointment, message: string) => void
   /** Restored panel state, e.g. after "Register new patient" came back with the new patient. */
@@ -57,6 +66,9 @@ export function BookingPanel({
   const [slot, setSlot] = useState<Slot | null>(initial?.slot ?? null)
   const [patient, setPatient] = useState<PatientSummary | null>(initial?.patient ?? null)
   const [reason, setReason] = useState('')
+  const [parentAppointmentId, setParentAppointmentId] = useState(initial?.parentAppointmentId)
+  const [overrideHours, setOverrideHours] = useState(false)
+  const [overrideTime, setOverrideTime] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [retryable, setRetryable] = useState(false)
   const confirmRef = useRef<HTMLButtonElement>(null)
@@ -73,7 +85,16 @@ export function BookingPanel({
   }, [initial?.patient])
   const slots = useSlots(branchId, practitionerId, date)
   const create = useCreateAppointment()
-  const missing = [!practitionerId && 'a practitioner', !slot && 'a free slot', !patient && 'a patient'].filter((m): m is string => !!m)
+  // Admin override: a free time instead of a slot from the working hours.
+  const overrideSlot: Slot | null =
+    overrideHours && overrideTime && practitionerId
+      ? (() => {
+          const startsAt = zonedTimeToInstant(date, overrideTime, timeZone)
+          return { practitionerId, branchId, startsAt, endsAt: new Date(Date.parse(startsAt) + OVERRIDE_MINUTES * 60_000).toISOString() }
+        })()
+      : null
+  const chosen = overrideHours ? overrideSlot : slot
+  const missing = [!practitionerId && 'a practitioner', !chosen && (overrideHours ? 'a time' : 'a free slot'), !patient && 'a patient'].filter((m): m is string => !!m)
   const missingMessage = missing.length ? `Choose ${joinMissing(missing)}.` : null
   const noPractitioners = practitionersStatus === 'ready' && practitioners.length === 0
 
@@ -81,6 +102,7 @@ export function BookingPanel({
     const patient = picked
     setError(null)
     setRetryable(false)
+    const slot = chosen
     if (!practitionerId || !slot || !patient) {
       setError(missingMessage)
       return
@@ -93,6 +115,8 @@ export function BookingPanel({
         startsAt: slot.startsAt,
         endsAt: slot.endsAt,
         ...(reason.trim() ? { reason: reason.trim() } : {}),
+        ...(parentAppointmentId ? { parentAppointmentId } : {}),
+        ...(overrideHours ? { overrideWorkingHours: true } : {}),
       })
       const doctor = practitioners.find((p) => p.id === practitionerId)?.displayName ?? 'the practitioner'
       onBooked(
@@ -110,13 +134,22 @@ export function BookingPanel({
       setSlot(null)
       const code = problemCode(e)
       const status = e instanceof ApiError ? e.status : 0
+      const detail = e instanceof ApiError ? (e.problem?.detail ?? '') : ''
       setError(
-        status === 409 || code === 'appointment_overlap'
+        detail.includes('outside_working_hours')
+          ? canOverrideHours
+            ? 'The doctor is not working at that time. Tick "Book outside working hours" to override.'
+            : 'The doctor is not working at that time. Pick a free slot.'
+          : detail.includes('follow_up_patient_mismatch')
+            ? 'A follow-up must be for the same patient as the earlier visit.'
+            : status === 409 || code === 'appointment_overlap'
           ? 'That slot was just booked for this practitioner. Pick another slot.'
           : code === 'invalid_reference' || status === 404
             ? 'The patient or practitioner can no longer be booked (deleted or inactive).'
             : status === 403
-              ? 'You are not allowed to book appointments at this branch.'
+              ? parentAppointmentId
+                ? 'You can only book follow-ups for your own patients.'
+                : 'You are not allowed to book appointments at this branch.'
               : (Object.values(fieldErrors(e))[0] ?? 'Could not book the appointment. Try again.'),
       )
     }
@@ -184,6 +217,26 @@ export function BookingPanel({
             setSlot(null)
           }}
         />
+        {canOverrideHours && (
+          <Checkbox
+            label="Book outside working hours (admin override, logged)"
+            classNames={{ labelText: 'text-sm' }}
+            checked={overrideHours}
+            onChange={(e) => {
+              setOverrideHours(e.target.checked)
+              setSlot(null)
+            }}
+          />
+        )}
+        {overrideHours ? (
+          <FormField
+            label="Start time"
+            type="time"
+            value={overrideTime}
+            hint={`${OVERRIDE_MINUTES} minutes, times in ${timeZone}.`}
+            onChange={(e) => setOverrideTime(e.target.value)}
+          />
+        ) : (
         <SlotPicker
           timeZone={timeZone}
           practitionerId={practitionerId}
@@ -204,8 +257,14 @@ export function BookingPanel({
             )
           }
         />
+        )}
       </div>
       <div className="space-y-4">
+        {parentAppointmentId && (
+          <Alert tone="info">
+            <span data-testid="follow-up-link">Follow-up: linked to the earlier visit.</span>
+          </Alert>
+        )}
         {quick ? (
           <RegisterPatientPage
             embedded={{
@@ -236,6 +295,8 @@ export function BookingPanel({
             value={patient}
             onChange={(p) => {
               setPatient(p)
+              // the link only holds for the same patient
+              if (parentAppointmentId && p?.id !== initial?.patient?.id) setParentAppointmentId(undefined)
               if (p) setFocusConfirm((n) => n + 1)
             }}
             showRecent

@@ -172,12 +172,15 @@ internal static class Qa
         return await ReadAsync<QaBranch>(response, HttpStatusCode.Created);
     }
 
-    public static Task<HttpResponseMessage> BookAsync(
-        HttpClient client, Guid branch, Guid practitioner, Guid patient, DateTimeOffset start, int minutes = 15, string? reason = "Synthetic visit") =>
-        client.PostAsJsonAsync(QaRoutes.Appointments, new
+    public static async Task<HttpResponseMessage> BookAsync(
+        HttpClient client, Guid branch, Guid practitioner, Guid patient, DateTimeOffset start, int minutes = 15, string? reason = "Synthetic visit")
+    {
+        await TestSchedules.OpenDayAsync(branch, practitioner, start);
+        return await client.PostAsJsonAsync(QaRoutes.Appointments, new
         {
             branchId = branch, practitionerId = practitioner, patientId = patient, startsAt = start, endsAt = start.AddMinutes(minutes), reason,
         });
+    }
 
     public static async Task<QaAppointment> BookOkAsync(HttpClient client, Guid branch, Guid practitioner, Guid patient, DateTimeOffset start, int minutes = 15) =>
         await ReadAsync<QaAppointment>(await BookAsync(client, branch, practitioner, patient, start, minutes), HttpStatusCode.Created);

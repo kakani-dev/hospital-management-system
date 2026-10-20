@@ -39,6 +39,8 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
   const canAdvance = can(branchRoles, 'queue.advance')
   const canCancel = can(branchRoles, 'queue.cancel')
   const canBook = can(branchRoles, 'appointments.book')
+  // doctors: follow-ups of their own appointment visits only (the server checks ownership)
+  const canFollowUpOwn = can(branchRoles, 'appointments.bookFollowUp')
 
   const entries = [...(queue.data ?? [])].sort((a, b) => a.tokenNo - b.tokenNo)
   const cancelledCount = entries.filter((e) => e.status === 'cancelled').length
@@ -123,10 +125,10 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
                             </span>
                           </span>
                         </div>
-                        {canBook && p && (e.status === 'done' || e.status === 'in_consultation') && (
+                        {(canBook || (canFollowUpOwn && !!e.appointmentId)) && p && (e.status === 'done' || e.status === 'in_consultation') && (
                           <Link
                             to="/appointments"
-                            state={followUpRouteState(p, e.practitionerId)}
+                            state={followUpRouteState(p, e.practitionerId, e.appointmentId)}
                             className="mt-2 inline-block text-xs font-medium text-primary-600 underline dark:text-primary-400"
                           >
                             Book follow-up

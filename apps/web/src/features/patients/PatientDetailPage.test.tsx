@@ -60,6 +60,7 @@ describe('PatientDetailPage', () => {
       phone: null,
       email: null,
       whatsapp: null,
+      abhaNumber: null,
     })
     expect(patch.body).not.toHaveProperty('mrn')
     expect(within(screen.getByTestId('patient-details')).getByText('Alpha East')).toBeInTheDocument()

@@ -34,9 +34,9 @@ public sealed class PostgresAppointmentFunctions(AppointmentsDbContext db) : IAp
     public Task SetQueueStatusAsync(Guid queueEntryId, string status, CancellationToken ct) =>
         RawSql.ScalarAsync(db, "select appointment.set_queue_status(@q::uuid, @s::text)", ct, ("q", queueEntryId), ("s", status));
 
-    public Task AssertBookableWindowAsync(Guid tenantId, Guid branchId, Guid practitionerId, DateTimeOffset startsAt, DateTimeOffset endsAt, CancellationToken ct) =>
-        RawSql.ScalarAsync(db, "select appointment.assert_bookable_window(@t::uuid, @b::uuid, @p::uuid, @s::timestamptz, @e::timestamptz)", ct,
-            ("t", tenantId), ("b", branchId), ("p", practitionerId), ("s", startsAt), ("e", endsAt));
+    public Task AssertBookableWindowAsync(Guid tenantId, Guid branchId, Guid practitionerId, DateTimeOffset startsAt, DateTimeOffset endsAt, bool overrideHours, CancellationToken ct) =>
+        RawSql.ScalarAsync(db, "select appointment.assert_bookable_window_v2(@t::uuid, @b::uuid, @p::uuid, @s::timestamptz, @e::timestamptz, @o::boolean)", ct,
+            ("t", tenantId), ("b", branchId), ("p", practitionerId), ("s", startsAt), ("e", endsAt), ("o", overrideHours));
 
     private static IssuedToken Token(DbDataReader r) => new(r.GetGuid(0), r.GetInt32(1), r.GetFieldValue<DateOnly>(2));
 }
