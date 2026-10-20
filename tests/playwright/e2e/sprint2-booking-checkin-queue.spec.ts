@@ -116,7 +116,7 @@ test.describe('Sprint 2: book -> check in -> OPD queue', () => {
     await form.getByLabel('Practitioner').selectOption(practitioner.id)
     await form.getByLabel('Appointment date').fill(today)
     await form.getByLabel('Find patient').fill(patient.lastName)
-    await form.getByRole('option', { name: new RegExp(patient.lastName) }).click()
+    await form.getByTestId('patient-option').filter({ hasText: patient.lastName }).click()
 
     const firstSlot = form.getByTestId('slot-list').locator('label').first()
     await expect(firstSlot).toBeVisible()
@@ -190,7 +190,7 @@ test.describe('Sprint 2: book -> check in -> OPD queue', () => {
 
 test.describe('Booking drawer quick-register (full stack)', () => {
   test('receptionist creates a Zz- patient inline from "+ New patient" and books it with Save & book', async ({ page, request }) => {
-    const { reception, practitioner, today } = await setUp(request)
+    const { practitioner, today } = await setUp(request)
     const lastName = `Zz-Quick-${unique('QR')}`
     await signIn(page, users.alphaReception)
     await nav(page, 'Appointments').click()
@@ -211,10 +211,10 @@ test.describe('Booking drawer quick-register (full stack)', () => {
     await quick.getByTestId('save-and-book').click()
     const patient = (await (await created).json()) as Patient
     expect(patient.registeredBranchId).toBe(ids.alphaMain)
-    expect((await booked).status()).toBe(201)
+    const bookedResponse = await booked
+    expect(bookedResponse.status()).toBe(201)
+    expect(((await bookedResponse.json()) as { patientId: string }).patientId).toBe(patient.id)
     await expect(page.getByText(new RegExp(`Booked Quick ${lastName} with`))).toBeVisible()
-    const appts = await request.get(`/api/v1/appointments?branchId=${ids.alphaMain}&from=${today}&to=${today}`, { headers: reception })
-    expect(JSON.stringify(await appts.json())).toContain(patient.id)
   })
 })
 
