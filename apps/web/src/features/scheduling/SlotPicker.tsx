@@ -1,4 +1,4 @@
-import { useId } from 'react'
+import { useId, type ReactNode } from 'react'
 import { formatTime } from '../../lib/dates'
 import type { Slot } from '../../lib/api/types'
 
@@ -12,12 +12,15 @@ export function SlotPicker({
   slots,
   value,
   onChange,
+  emptyHint,
 }: {
   timeZone: string
   practitionerId: string
   slots: { data?: Slot[]; isPending: boolean; isError: boolean; isPlaceholderData: boolean; isFetching: boolean }
   value: Slot | null
   onChange: (slot: Slot) => void
+  /** Shown after "No free slots on this day." (e.g. a link to working hours for admins). */
+  emptyHint?: ReactNode
 }) {
   const group = useId()
   return (
@@ -29,7 +32,11 @@ export function SlotPicker({
       {!practitionerId && <p className="text-sm text-gray-600 dark:text-dark-200">Choose a practitioner first.</p>}
       {practitionerId && slots.isPending && <p className="text-sm text-gray-600 dark:text-dark-200">Loading slots…</p>}
       {slots.isError && <p className="text-sm text-error-darker dark:text-error-lighter">Slots are unavailable right now.</p>}
-      {slots.data?.length === 0 && !slots.isPlaceholderData && <p className="text-sm text-gray-600 dark:text-dark-200">No free slots on this day.</p>}
+      {slots.data?.length === 0 && !slots.isPlaceholderData && (
+        <p className="text-sm text-gray-600 dark:text-dark-200" data-testid="no-free-slots">
+          No free slots on this day.{emptyHint ? <> {emptyHint}</> : null}
+        </p>
+      )}
       <div className={`mt-2 flex flex-wrap gap-2 ${slots.isPlaceholderData ? 'opacity-50' : ''}`} aria-busy={slots.isFetching}>
         {slots.data?.map((s) => {
           const checked = value?.startsAt === s.startsAt

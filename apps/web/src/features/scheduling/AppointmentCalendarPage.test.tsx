@@ -202,14 +202,70 @@ describe('AppointmentCalendarPage', () => {
     expect(await within(form).findByRole('alert')).toHaveTextContent('can no longer be booked')
   })
 
-  it('requires practitioner, slot and patient before posting', async () => {
-    const calls = routes(['receptionist'], {}, ALPHA_MAIN)
+  it('keeps Confirm disabled and names only the missing items', async () => {
+    const calls = routes(
+      ['receptionist'],
+      {
+        'GET /api/v1/slots': () => json([{ practitionerId: DR_RAO, branchId: ALPHA_MAIN, startsAt: at(today(), '23:00'), endsAt: at(today(), '23:15') }]),
+        'POST /api/v1/patients/search': () => json({ items: [patientDetail], page: 1, pageSize: 25, totalCount: 1 }),
+      },
+      ALPHA_MAIN,
+    )
     const user = userEvent.setup()
     renderWithProviders(<App />, { path: '/appointments', auth: fakeAuthClient({ session: fakeSession() }) })
     await user.click(await screen.findByRole('button', { name: 'Book appointment' }))
-    await user.click(screen.getByRole('button', { name: 'Confirm booking' }))
-    expect(await screen.findByText('Choose a practitioner, a free slot and a patient.')).toBeInTheDocument()
+    const form = screen.getByRole('form', { name: 'Book appointment' })
+    const confirm = within(form).getByRole('button', { name: 'Confirm booking' })
+    expect(confirm).toBeDisabled()
+    expect(within(form).getByTestId('booking-missing')).toHaveTextContent('Choose a practitioner, a free slot and a patient.')
+    // Patient first (as in the bug report): the message names only what is still missing.
+    await user.type(within(form).getByLabelText('Find patient'), 'Asha')
+    await user.click(await within(form).findByRole('option', { name: /Synthetic-Alpha/ }))
+    expect(within(form).getByTestId('booking-missing')).toHaveTextContent(/^Choose a practitioner and a free slot\.$/)
+    expect(confirm).toBeDisabled()
+    await waitFor(() => expect(within(form).getAllByRole('option').length).toBeGreaterThan(1))
+    await user.selectOptions(within(form).getByLabelText('Practitioner'), DR_RAO)
+    expect(within(form).getByTestId('booking-missing')).toHaveTextContent(/^Choose a free slot\.$/)
+    await user.click(await within(form).findByRole('radio', { name: '23:00' }))
+    expect(within(form).queryByTestId('booking-missing')).not.toBeInTheDocument()
+    expect(confirm).toBeEnabled()
     expect(calls.some((c) => c.method === 'POST' && c.path === '/api/v1/appointments')).toBe(false)
+  })
+
+  it('no bookable practitioners at the branch: admins get setup links', async () => {
+    routes(['tenant_admin'], { 'GET /api/v1/practitioners': () => json([]) }, ALPHA_MAIN)
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: '/appointments', auth: fakeAuthClient({ session: fakeSession() }) })
+    await user.click(await screen.findByRole('button', { name: 'Book appointment' }))
+    const empty = await screen.findByTestId('no-practitioners')
+    expect(empty).toHaveTextContent('No practitioner can be booked at this branch')
+    expect(within(empty).getByRole('link', { name: 'Set up practitioners' })).toHaveAttribute('href', '/admin/practitioners')
+    expect(within(empty).getByRole('link', { name: 'add working hours' })).toHaveAttribute('href', '/admin/working-hours')
+    expect(within(screen.getByRole('form', { name: 'Book appointment' })).getByLabelText('Practitioner')).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Confirm booking' })).toBeDisabled()
+  })
+
+  it('no bookable practitioners: other staff are told to ask an admin (no links)', async () => {
+    routes(['receptionist'], { 'GET /api/v1/practitioners': () => json([]) }, ALPHA_MAIN)
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: '/appointments', auth: fakeAuthClient({ session: fakeSession() }) })
+    await user.click(await screen.findByRole('button', { name: 'Book appointment' }))
+    const empty = await screen.findByTestId('no-practitioners')
+    expect(empty).toHaveTextContent('Ask a hospital admin')
+    expect(within(empty).queryByRole('link')).not.toBeInTheDocument()
+  })
+
+  it('no free slots on the date: says so and links admins to working hours', async () => {
+    routes(['tenant_admin'], { 'GET /api/v1/slots': () => json([]) }, ALPHA_MAIN)
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: '/appointments', auth: fakeAuthClient({ session: fakeSession() }) })
+    await user.click(await screen.findByRole('button', { name: 'Book appointment' }))
+    const form = screen.getByRole('form', { name: 'Book appointment' })
+    await waitFor(() => expect(within(form).getAllByRole('option').length).toBeGreaterThan(1))
+    await user.selectOptions(within(form).getByLabelText('Practitioner'), DR_RAO)
+    const none = await within(form).findByTestId('no-free-slots')
+    expect(none).toHaveTextContent('No free slots on this day. Try another date')
+    expect(within(none).getByRole('link', { name: 'check working hours' })).toHaveAttribute('href', '/admin/working-hours')
   })
 
   it('cancels a booked appointment', async () => {
