@@ -19,7 +19,7 @@ import { rolesAtBranch, useCurrentContext } from '../tenancy/useCurrentContext'
 import { useBranchSelection } from '../tenancy/useBranchSelection'
 import { BranchNotice } from '../tenancy/BranchNotice'
 import { useCalendarParams } from './useCalendarParams'
-import { useBookablePractitioners } from './useBookablePractitioners'
+import { useBookablePractitionersState } from './useBookablePractitioners'
 import { BookingPanel, type BookingDraft } from './BookingPanel'
 import { ReschedulePanel } from './ReschedulePanel'
 import { Drawer } from '@tailux/components/shared/Drawer'
@@ -58,7 +58,8 @@ export function AppointmentCalendarPage() {
 
   // Tenant-wide list for names; the branch list for the filter and the booking picker.
   const practitioners = usePractitioners()
-  const bookable = useBookablePractitioners(branchId)
+  const bookableState = useBookablePractitionersState(branchId)
+  const bookable = bookableState.practitioners
   const practitionerName = (id: string) => practitioners.data?.find((p) => p.id === id)?.displayName ?? 'Unknown practitioner'
 
   const appointments = useAppointments(
@@ -156,6 +157,8 @@ export function AppointmentCalendarPage() {
             initialDate={cal.date < cal.today ? cal.today : cal.date}
             minDate={cal.today}
             practitioners={bookable}
+            practitionersStatus={bookableState.status}
+            canManageSetup={rolesAtBranch(me.data, branchId).includes('tenant_admin')}
             initial={restored ?? undefined}
             onCancel={() => setBooking(false)}
             onBooked={(appointment, label) => {
