@@ -20,5 +20,8 @@ public interface IAppointmentFunctions
     Task<IssuedToken> CheckInWalkInAsync(Guid branchId, Guid patientId, Guid? practitionerId, CancellationToken ct);
 
     /// <summary><c>appointment.set_queue_status</c>; the linked appointment follows.</summary>
+    /// <summary><c>appointment.assert_bookable_window</c>: future and inside an active schedule (branch-local).</summary>
+    Task AssertBookableWindowAsync(Guid tenantId, Guid branchId, Guid practitionerId, DateTimeOffset startsAt, DateTimeOffset endsAt, CancellationToken ct);
+
     Task SetQueueStatusAsync(Guid queueEntryId, string status, CancellationToken ct);
 }
