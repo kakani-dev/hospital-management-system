@@ -122,6 +122,8 @@ export interface CurrentTenant {
   activeBranchId: Guid | null
   roles: string[]
   timeZone?: string | null
+  /** E.164 calling code applied to phones typed without one (e.g. "+91"). */
+  defaultCountryCode?: string | null
 }
 
 /** PATCH /api/v1/tenants/current (tenant_admin). 409 time_zone_has_future_bookings / time_zone_locked. */

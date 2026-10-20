@@ -243,8 +243,8 @@ select tests.ok(
   not exists (select 1 from pg_index i where i.indrelid = 'patient.patients'::regclass
               and pg_get_indexdef(i.indexrelid) ilike '%deleted_at%')
   and (select count(*) from pg_index i where i.indrelid = 'patient.patients'::regclass
-       and pg_get_indexdef(i.indexrelid) ilike '%WHERE (NOT is_deleted)%') = 4,
-  'the 4 partial patient indexes use NOT is_deleted (no deleted_at predicate left)');
+       and pg_get_indexdef(i.indexrelid) ilike '%WHERE (NOT is_deleted)%') = 5,
+  'the 5 partial patient indexes (incl. patients_tenant_created_idx, 20261020120000) use NOT is_deleted (no deleted_at predicate left)');
 select tests.ok(
   not exists (select 1 from pg_policy where polrelid = 'patient.patients'::regclass
               and (coalesce(pg_get_expr(polqual, polrelid), '') || coalesce(pg_get_expr(polwithcheck, polrelid), '')) ilike '%deleted_at%'),

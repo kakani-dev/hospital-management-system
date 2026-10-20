@@ -10,6 +10,9 @@ public sealed class Tenant : AuditableEntity
 
     /// <summary>REQUIRED IANA zone (identity.tenants.time_zone); branches inherit it unless they override it.</summary>
     public required string TimeZone { get; set; }
+
+    /// <summary>E.164 calling code for phones typed without one (identity.tenants.default_country_code, NOT NULL; set by a DB trigger on insert).</summary>
+    public string? DefaultCountryCode { get; set; }
 }
 
 public static class TenantStatus

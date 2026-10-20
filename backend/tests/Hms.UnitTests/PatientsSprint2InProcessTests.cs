@@ -35,6 +35,34 @@ public sealed class PatientsSprint2InProcessTests(ApiFactory factory) : IClassFi
     }
 
     [Fact]
+    public async Task List_sort_recent_orders_by_the_later_of_registration_and_latest_booking()
+    {
+        var older = await CreateAsync(Main);
+        var newer = await CreateAsync(Main);
+        // Bookings far in the future dominate every registration time in the shared fixture.
+        InMemoryPatientRegistryFunctions.Bookings.Add((Alpha, older.Id, new DateTimeOffset(2099, 1, 2, 0, 0, 0, TimeSpan.Zero)));
+        InMemoryPatientRegistryFunctions.Bookings.Add((Alpha, newer.Id, new DateTimeOffset(2099, 1, 1, 0, 0, 0, TimeSpan.Zero)));
+        InMemoryPatientRegistryFunctions.Bookings.Add((Alpha, older.Id, new DateTimeOffset(2098, 1, 1, 0, 0, 0, TimeSpan.Zero)));
+
+        using var client = factory.ClientAs(Admin);
+        var page = await client.GetFromJsonAsync<JsonElement>("/api/v1/patients?sort=recent&pageSize=2");
+        var ids = page.GetProperty("items").EnumerateArray().Select(x => x.GetProperty("id").GetGuid()).ToList();
+        Assert.Equal([older.Id, newer.Id], ids);
+        Assert.True(page.GetProperty("totalCount").GetInt64() >= 2);
+
+        var second = await client.GetFromJsonAsync<JsonElement>("/api/v1/patients?sort=recent&pageSize=1&page=2");
+        Assert.Equal(newer.Id, second.GetProperty("items")[0].GetProperty("id").GetGuid());
+
+        // default stays by name; unknown sort is a 400; RBAC unchanged (lab technician has no patients.view)
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/v1/patients?sort=name")).StatusCode);
+        var bad = await client.GetAsync("/api/v1/patients?sort=createdOn");
+        Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
+        Assert.Contains("sort", await bad.Content.ReadAsStringAsync());
+        using var lab = factory.ClientAs(LabTech);
+        Assert.Equal(HttpStatusCode.Forbidden, (await lab.GetAsync("/api/v1/patients?sort=recent")).StatusCode);
+    }
+
+    [Fact]
     public async Task Get_returns_the_detail_and_404_for_unknown_ids()
     {
         var created = await CreateAsync(Main, phone: "+91 98450 12345");

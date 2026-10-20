@@ -23,6 +23,9 @@ public interface IPatientRegistryFunctions
     /// <summary><c>identity.tenant_default_country_code_v1</c>: the caller's own tenant calling code (e.g. +91); null if not a member.</summary>
     Task<string?> DefaultCountryCodeAsync(Guid tenantId, CancellationToken ct);
 
+    /// <summary><c>appointment.patient_last_booked_v1</c>: latest booking time per patient (patients.view), newest first, ≤ 500.</summary>
+    Task<IReadOnlyList<(Guid PatientId, DateTimeOffset LastBookedAt)>> LastBookedAsync(Guid tenantId, int limit, CancellationToken ct);
+
     /// <summary>
     /// <c>patient.set_patient_phones</c>: sets the DESIRED numbers (E.164 or null). whatsappSameAsPhone
     /// flags the phone row; otherwise whatsapp is a separate number (equal to phone = same row).

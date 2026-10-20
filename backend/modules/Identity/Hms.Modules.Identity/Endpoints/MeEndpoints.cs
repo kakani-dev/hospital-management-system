@@ -158,7 +158,7 @@ public static class MeEndpoints
         var row = await db.Tenants.AsNoTracking().SingleOrDefaultAsync(t => t.Id == tenant.TenantId, ct);
         return row is null
             ? TypedResults.NotFound()
-            : TypedResults.Ok(new CurrentTenantDto(row.Id, row.Code, row.Name, tenant.BranchId, [.. tenant.Roles.Order(StringComparer.Ordinal)], row.TimeZone));
+            : TypedResults.Ok(new CurrentTenantDto(row.Id, row.Code, row.Name, tenant.BranchId, [.. tenant.Roles.Order(StringComparer.Ordinal)], row.TimeZone, row.DefaultCountryCode));
     }
 
     private static async Task<Results<Ok<CurrentTenantDto>, NotFound, ValidationProblem, ProblemHttpResult>> UpdateCurrentTenantAsync(
@@ -208,6 +208,6 @@ public static class MeEndpoints
             return problem;
         }
 
-        return TypedResults.Ok(new CurrentTenantDto(row.Id, row.Code, row.Name, tenant.BranchId, [.. tenant.Roles.Order(StringComparer.Ordinal)], zone));
+        return TypedResults.Ok(new CurrentTenantDto(row.Id, row.Code, row.Name, tenant.BranchId, [.. tenant.Roles.Order(StringComparer.Ordinal)], zone, row.DefaultCountryCode));
     }
 }

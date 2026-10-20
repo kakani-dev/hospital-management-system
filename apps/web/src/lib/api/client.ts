@@ -418,8 +418,9 @@ export class ApiClient {
 
   patients = {
     /** Paging only. Search terms are PHI and must never be put in a URL: use `search`. */
-    list: (params: { page?: number; pageSize?: number } = {}) => {
+    list: (params: { page?: number; pageSize?: number; sort?: 'name' | 'recent' } = {}) => {
       const query = new URLSearchParams()
+      if (params.sort && params.sort !== 'name') query.set('sort', params.sort)
       if (params.page) query.set('page', String(params.page))
       if (params.pageSize) query.set('pageSize', String(params.pageSize))
       const qs = query.toString()

@@ -55,13 +55,15 @@ insert into t_v1 values
   ('appointment.patient_has_open_visits_v1(uuid,uuid)', false),
   -- Level 1 (20261019100000 / 20261019103000): MRN prefix (owner-only, used by the MRN trigger) and
   -- the caller's own tenant default calling code (client-facing, membership-checked)
-  ('identity.tenant_mrn_prefix_v1(uuid)', false), ('identity.tenant_default_country_code_v1(uuid)', true);
+  ('identity.tenant_mrn_prefix_v1(uuid)', false), ('identity.tenant_default_country_code_v1(uuid)', true),
+  -- recent patients (20261020120000): latest booking per patient (client-facing, patients.view-checked)
+  ('appointment.patient_last_booked_v1(uuid,integer)', true);
 grant select on t_v1 to public;
 select tests.ok(
-  (select count(*) = 14 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+  (select count(*) = 15 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
    where p.proname like '%\_v1' and n.nspname in ('identity', 'patient', 'appointment')
      and p.proname not in ('change_time_zone_v1', 'assert_zone_change_allowed_v1')),
-  'N5: exactly the 14 published v1 read functions exist (plus the change_time_zone_v1 / assert_zone_change_allowed_v1 commands)');
+  'N5: exactly the 15 published v1 read functions exist (plus the change_time_zone_v1 / assert_zone_change_allowed_v1 commands)');
 select tests.ok(
   (select prosecdef and proconfig @> array['search_path=""'] and has_function_privilege('authenticated', oid, 'execute')
           and not has_function_privilege('anon', oid, 'execute')

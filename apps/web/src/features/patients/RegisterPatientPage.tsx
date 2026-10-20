@@ -10,7 +10,7 @@ import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
 import { FormField } from '../../components/ui/FormField'
 import { SelectField } from '../../components/ui/SelectField'
-import { useCreatePatient } from '../../lib/api/hooks'
+import { useCreatePatient, useTenantCountryCode } from '../../lib/api/hooks'
 import { ApiError, apiClient, fieldErrors } from '../../lib/api/client'
 import { SEXES, type DuplicateCandidate, type PatientSummary } from '../../lib/api/types'
 import { DuplicateWarning } from './DuplicateWarning'
@@ -42,6 +42,7 @@ export function RegisterPatientPage({ embedded }: { embedded?: EmbeddedRegisterO
   const [origin] = useState<RegisterPatientState>(() => (embedded ? { prefill: embedded.prefill } : ((location.state as RegisterPatientState | null) ?? {})))
   const [action, setAction] = useState<'select' | 'book'>('select')
   const isEmbedded = !!embedded
+  const countryCode = useTenantCountryCode()
   const { branches, activeTenant, me } = useCurrentContext()
   const createPatient = useCreatePatient()
   const resolver = useBranchZonedResolver<PatientFormValues>(createPatientSchema)
@@ -216,7 +217,7 @@ export function RegisterPatientPage({ embedded }: { embedded?: EmbeddedRegisterO
             label="Phone (optional)"
             type="tel"
             autoComplete="off"
-            hint="+91 is assumed when no country code is typed."
+            hint={`${countryCode ?? "The hospital's calling code"} is assumed when no country code is typed.`}
             error={errors.phone?.message}
             {...register('phone')}
           />
