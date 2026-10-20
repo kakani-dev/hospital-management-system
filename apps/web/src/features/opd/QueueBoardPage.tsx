@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { Link } from 'react-router'
+import { followUpRouteState } from '../scheduling/followUp'
 import { Card } from '../../components/ui/Card'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
@@ -36,6 +38,7 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
   const branchRoles = rolesAtBranch(me.data, branchId)
   const canAdvance = can(branchRoles, 'queue.advance')
   const canCancel = can(branchRoles, 'queue.cancel')
+  const canBook = can(branchRoles, 'appointments.book')
 
   const entries = [...(queue.data ?? [])].sort((a, b) => a.tokenNo - b.tokenNo)
   const cancelledCount = entries.filter((e) => e.status === 'cancelled').length
@@ -120,6 +123,15 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
                             </span>
                           </span>
                         </div>
+                        {canBook && p && (e.status === 'done' || e.status === 'in_consultation') && (
+                          <Link
+                            to="/appointments"
+                            state={followUpRouteState(p, e.practitionerId)}
+                            className="mt-2 inline-block text-xs font-medium text-primary-600 underline dark:text-primary-400"
+                          >
+                            Book follow-up
+                          </Link>
+                        )}
                         {allowed(e.status).length > 0 && (
                           <div className="mt-2 flex gap-2">
                             {allowed(e.status).map((to) => (

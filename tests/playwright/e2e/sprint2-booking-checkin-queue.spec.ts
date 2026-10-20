@@ -165,5 +165,36 @@ test.describe('Sprint 2: book -> check in -> OPD queue', () => {
     expect(tokens).toEqual([...tokens].sort((a, b) => a - b))
     const after = (await (await request.get(`/api/v1/appointments/${appointment.id}`, { headers: reception })).json()) as { status: string }
     expect(after.status).toBe('checked_in')
+
+    // 4. Follow-up: call in, mark done, then "Book follow-up" pre-fills the patient and practitioner.
+    await entry.getByRole('button', { name: `Call in token ${result.tokenNo}` }).click()
+    const inRoom = page.getByTestId('queue-in_consultation').locator(`[data-testid="queue-entry"][data-token="${result.tokenNo}"]`)
+    await inRoom.getByRole('button', { name: `Mark done token ${result.tokenNo}` }).click()
+    const done = page.getByTestId('queue-done').locator(`[data-testid="queue-entry"][data-token="${result.tokenNo}"]`)
+    await done.getByRole('link', { name: 'Book follow-up' }).click()
+    await expect(page).toHaveURL(/\/appointments/)
+    const fu = page.getByRole('form', { name: 'Book appointment' })
+    await expect(fu.getByLabel('Practitioner')).toHaveValue(practitioner.id)
+    await expect(fu).toContainText(`${patient.lastName}, ${patient.firstName}`)
+    const fuSlot = fu.getByTestId('slot-list').locator('label').first()
+    await expect(fuSlot).toBeVisible()
+    await fuSlot.click()
+    const fuBooked = page.waitForResponse((r) => r.url().endsWith('/api/v1/appointments') && r.request().method() === 'POST')
+    await fu.getByRole('button', { name: 'Confirm booking' }).click()
+    const fuResponse = await fuBooked
+    expect(fuResponse.status()).toBe(201)
+    expect(await fuResponse.json()).toMatchObject({ patientId: patient.id, practitionerId: practitioner.id, status: 'booked' })
+  })
+})
+
+test.describe('@responsive mobile layout', () => {
+  test('@responsive admin tables scroll inside their card; the page itself never scrolls sideways', async ({ page }) => {
+    await signIn(page, users.alphaAdmin)
+    for (const path of ['/admin/branches', '/admin/members', '/admin/practitioners', '/admin/working-hours', '/schedules']) {
+      await page.goto(path)
+      await expect(page.locator('table').first()).toBeVisible()
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
+      expect(overflow, path).toBeLessThanOrEqual(0)
+    }
   })
 })

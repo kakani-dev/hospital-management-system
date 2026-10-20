@@ -24,6 +24,7 @@ import { BookingPanel, type BookingDraft } from './BookingPanel'
 import { ReschedulePanel } from './ReschedulePanel'
 import { Drawer } from '@tailux/components/shared/Drawer'
 import type { ReturnedPatientState } from '../patients/registerReturn'
+import { FOLLOW_UP_STATUSES, followUpInitial } from './followUp'
 
 /** Calendar refresh while open (other desks book too). */
 export const CALENDAR_REFRESH_MS = 30_000
@@ -43,6 +44,7 @@ export function AppointmentCalendarPage() {
     return st && (st.openBooking || st.booking) ? { ...st.booking, patient: st.pickedPatient ?? null } : null
   })
   const [booking, setBooking] = useState(restored !== null)
+  const [followUp, setFollowUp] = useState<ReturnType<typeof followUpInitial> | null>(null)
   useEffect(() => {
     if (location.state) navigate(`${location.pathname}${location.search}`, { replace: true, state: null })
   }, [location, navigate])
@@ -105,6 +107,7 @@ export function AppointmentCalendarPage() {
             aria-keyshortcuts="Alt+K"
             onClick={() => {
               setNotice(null)
+              setFollowUp(null)
               setBooking(true)
             }}
           >
@@ -150,7 +153,7 @@ export function AppointmentCalendarPage() {
       {notice && <Alert tone="info">{notice}</Alert>}
       {booking && branchId && (
         // Mounted only while open (so closing removes it at once); the Tailux right drawer slides it in.
-        <Drawer open onClose={() => setBooking(false)} title="Book appointment" closeLabel="Close booking" testId="booking-drawer" className="max-w-2xl!">
+        <Drawer open onClose={() => setBooking(false)} title={followUp ? 'Book follow-up' : 'Book appointment'} closeLabel="Close booking" testId="booking-drawer" className="max-w-2xl!">
           <BookingPanel
             branchId={branchId}
             timeZone={timeZone}
@@ -159,7 +162,8 @@ export function AppointmentCalendarPage() {
             practitioners={bookable}
             practitionersStatus={bookableState.status}
             canManageSetup={rolesAtBranch(me.data, branchId).includes('tenant_admin')}
-            initial={restored ?? undefined}
+            key={followUp ? `fu-${followUp.patient.id}` : 'new'}
+            initial={followUp ?? restored ?? undefined}
             onCancel={() => setBooking(false)}
             onBooked={(appointment, label) => {
               setBooking(false)
@@ -313,6 +317,19 @@ export function AppointmentCalendarPage() {
                       {a.reason && <div className="text-xs text-gray-700 dark:text-dark-100">Reason: {a.reason}</div>}
                       {a.status === 'cancelled' && a.cancelReason && (
                         <div className="text-xs text-gray-600 dark:text-dark-200">Cancelled: {a.cancelReason}</div>
+                      )}
+                      {canBook && p && FOLLOW_UP_STATUSES.includes(a.status) && (
+                        <div className="mt-1">
+                          <LinkButton
+                            onClick={() => {
+                              setNotice(null)
+                              setFollowUp(followUpInitial(p, a.practitionerId))
+                              setBooking(true)
+                            }}
+                          >
+                            Book follow-up
+                          </LinkButton>
+                        </div>
                       )}
                       {canBook && a.status === 'booked' && (
                         <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">

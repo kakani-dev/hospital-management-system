@@ -5,6 +5,7 @@
 #
 # Env (all optional):
 #   API_PORT            edge port (default 8080)
+#   HMS_MS_PORT_BASE    internal ports are base+1..3 (default 8100)
 #   HMS_MS_DB           base connection string WITHOUT credentials
 #                       (default Host=localhost;Port=5432;Database=hms)
 #   HMS_MS_EDGE_KEY     shared edge->service key (default: random per run)
@@ -18,6 +19,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BACKEND="$ROOT/backend"
 API_PORT="${API_PORT:-8080}"
+# Internal service ports (identity, patients, scheduling) = base+1..3; override to run two stacks side by side.
+PORT_BASE="${HMS_MS_PORT_BASE:-8100}"
+ID_PORT=$((PORT_BASE + 1)) PAT_PORT=$((PORT_BASE + 2)) SCH_PORT=$((PORT_BASE + 3))
 DB="${HMS_MS_DB:-Host=localhost;Port=5432;Database=hms}"
 CONFIG="${HMS_MS_CONFIGURATION:-Debug}"
 EDGE_KEY="${HMS_MS_EDGE_KEY:-$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')}"
@@ -46,14 +50,14 @@ start() { # name project-dir port [extra env...]
 
 login() { echo "$DB;Username=hms_$1_login;Password=hms_$1_local_only"; }
 
-start identity   services/identity/Hms.Identity.Api     8101 ConnectionStrings__HmsDatabase="$(login identity)"
-start patients   services/patients/Hms.Patients.Api     8102 ConnectionStrings__HmsDatabase="$(login patients)"
-start scheduling services/scheduling/Hms.Scheduling.Api 8103 ConnectionStrings__HmsDatabase="$(login scheduling)" \
+start identity   services/identity/Hms.Identity.Api     "$ID_PORT" ConnectionStrings__HmsDatabase="$(login identity)"
+start patients   services/patients/Hms.Patients.Api     "$PAT_PORT" ConnectionStrings__HmsDatabase="$(login patients)"
+start scheduling services/scheduling/Hms.Scheduling.Api "$SCH_PORT" ConnectionStrings__HmsDatabase="$(login scheduling)" \
   Outbox__Dispatcher__Enabled="${HMS_MS_DISPATCHER:-false}"
 start edge       edge/Hms.Edge                          "$API_PORT" \
-  ReverseProxy__Clusters__identity__Destinations__primary__Address=http://localhost:8101/ \
-  ReverseProxy__Clusters__patients__Destinations__primary__Address=http://localhost:8102/ \
-  ReverseProxy__Clusters__scheduling__Destinations__primary__Address=http://localhost:8103/
+  ReverseProxy__Clusters__identity__Destinations__primary__Address=http://localhost:$ID_PORT/ \
+  ReverseProxy__Clusters__patients__Destinations__primary__Address=http://localhost:$PAT_PORT/ \
+  ReverseProxy__Clusters__scheduling__Destinations__primary__Address=http://localhost:$SCH_PORT/
 
 echo "edge: http://localhost:$API_PORT (ready: /health/ready)"
 # Exit (and tear everything down) as soon as any process dies.
