@@ -56,7 +56,7 @@ insert into t_v1 values
   -- Level 1 (20261019100000 / 20261019103000): MRN prefix (owner-only, used by the MRN trigger) and
   -- the caller's own tenant default calling code (client-facing, membership-checked)
   ('identity.tenant_mrn_prefix_v1(uuid)', false), ('identity.tenant_default_country_code_v1(uuid)', true),
-  -- recent patients (20261020120000): latest booking per patient (client-facing, patients.view-checked)
+  -- recent patients (20261020130000): latest booking per patient (client-facing, patients.view-checked)
   ('appointment.patient_last_booked_v1(uuid,integer)', true);
 grant select on t_v1 to public;
 select tests.ok(

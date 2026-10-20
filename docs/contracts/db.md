@@ -29,7 +29,7 @@ Callers without a user (`service_role` jobs, triggers) skip the membership check
 | `patient.patient_exists_v1(tenant, patient) → bool` | patients | scheduling | 20261012090000 |
 | `identity.tenant_mrn_prefix_v1(tenant) → text` | identity | patients (MRN trigger) | 20261019100000 |
 | `identity.tenant_default_country_code_v1(tenant) → text` | identity | patients (phone normalisation) | 20261019103000 |
-| `appointment.patient_last_booked_v1(tenant, limit) → table(patient_id, last_booked_at)` | scheduling | patients (`?sort=recent`) | 20261020120000 |
+| `appointment.patient_last_booked_v1(tenant, limit) → table(patient_id, last_booked_at)` | scheduling | patients (`?sort=recent`) | 20261020130000 |
 | `appointment.patient_has_open_visits_v1(tenant, patient) → bool` | scheduling | patients (soft delete) | 20261013090000 |
 | `appointment.branch_has_open_activity_v1(tenant, branch) → bool` | scheduling | identity (branch soft delete) | 20261012090000 |
 | `appointment.queue_has_entries_v1(tenant, branches[], days[]) → bool` | scheduling | identity (zone change lock) | 20261012090000 |
