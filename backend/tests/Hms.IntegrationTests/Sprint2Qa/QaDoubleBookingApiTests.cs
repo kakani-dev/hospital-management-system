@@ -70,8 +70,9 @@ public sealed class QaDoubleBookingApiTests(HmsApiFactory factory) : IClassFixtu
         Assert.Equal(HttpStatusCode.OK, (await admin.PostAsJsonAsync(QaRoutes.Cancel(cancelled.Id), new { reason = "Synthetic" })).StatusCode);
         await Qa.BookOkAsync(admin, AlphaMain, practitioner.Id, patient.Id, future, 20);
 
-        // No-show (only once the start has passed) frees it too: a past slot today/earlier.
-        var past = (await Qa.BranchTodayAtAsync(AlphaMain, 0)).AddDays(-1).AddHours(9);
+        // No-show (only once the start has passed) frees it too: a past slot earlier today
+        // (earlier days cannot be booked, audit 2026-10-20).
+        var past = await Qa.BranchTodayAtAsync(AlphaMain, 0);
         var noShow = await Qa.BookOkAsync(admin, AlphaMain, practitioner.Id, patient.Id, past, 20);
         var early = await Qa.BookOkAsync(admin, AlphaMain, practitioner.Id, patient.Id, Qa.Future(dayOffset: 3, hour: 9), 20);
         var tooEarly = await admin.PostAsync(QaRoutes.NoShow(early.Id), content: null);
@@ -82,7 +83,7 @@ public sealed class QaDoubleBookingApiTests(HmsApiFactory factory) : IClassFixtu
 
         // Completed (walked through check-in -> in_consultation -> done today) keeps blocking.
         var other = await Qa.CreatePatientAsync(admin, AlphaMain, "Done", Qa.NewSurname("Visit"));
-        var todayStart = await Qa.BranchTodayAtAsync(AlphaMain, 5);
+        var todayStart = await Qa.BranchTodayAtAsync(AlphaMain, 40);
         var visit = await Qa.BookOkAsync(admin, AlphaMain, practitioner.Id, other.Id, todayStart, 20);
         var entry = await Qa.CheckInOkAsync(admin, visit.Id);
         Assert.Equal(HttpStatusCode.OK, (await admin.PatchAsJsonAsync(QaRoutes.QueueEntry(entry.QueueEntryId), new { status = "in_consultation" })).StatusCode);

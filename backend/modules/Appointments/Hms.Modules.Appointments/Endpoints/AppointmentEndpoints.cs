@@ -137,7 +137,7 @@ public static class AppointmentEndpoints
     }
 
     private static async Task<Results<Created<AppointmentDto>, ValidationProblem, ProblemHttpResult>> BookAsync(
-        CreateAppointmentRequest request, AppointmentsDbContext db, ITenantContext tenant, IPatientSummaries patients, CancellationToken ct)
+        CreateAppointmentRequest request, AppointmentsDbContext db, ITenantContext tenant, IAppointmentFunctions functions, IPatientSummaries patients, CancellationToken ct)
     {
         if (!tenant.CanAtAnyBranch(HmsPermissions.AppointmentsBook))
         {
@@ -178,6 +178,11 @@ public static class AppointmentEndpoints
 
         var startsAt = request.StartsAt!.Value.ToUniversalTime();
         var endsAt = request.EndsAt!.Value.ToUniversalTime();
+        if (await BookableWindowProblemAsync(functions, tenant, request.BranchId, request.PractitionerId, startsAt, endsAt, ct) is { } windowProblem)
+        {
+            return windowProblem;
+        }
+
         if (await OverlapsAsync(db, request.PractitionerId, startsAt, endsAt, null, ct))
         {
             return Overlap();
@@ -206,7 +211,7 @@ public static class AppointmentEndpoints
     }
 
     private static async Task<Results<Ok<AppointmentDto>, ValidationProblem, ProblemHttpResult>> RescheduleAsync(
-        Guid id, RescheduleAppointmentRequest request, AppointmentsDbContext db, ITenantContext tenant, IPatientSummaries patients, CancellationToken ct)
+        Guid id, RescheduleAppointmentRequest request, AppointmentsDbContext db, ITenantContext tenant, IAppointmentFunctions functions, IPatientSummaries patients, CancellationToken ct)
     {
         var errors = new Dictionary<string, string[]>();
         ValidateTimes(request.StartsAt, request.EndsAt, errors);
@@ -229,6 +234,11 @@ public static class AppointmentEndpoints
         var startsAt = request.StartsAt!.Value.ToUniversalTime();
         var endsAt = request.EndsAt!.Value.ToUniversalTime();
         var practitioner = request.PractitionerId is { } p && p != Guid.Empty ? p : appointment.PractitionerId;
+        if (await BookableWindowProblemAsync(functions, tenant, appointment.BranchId, practitioner, startsAt, endsAt, ct) is { } windowProblem)
+        {
+            return windowProblem;
+        }
+
         if (await OverlapsAsync(db, practitioner, startsAt, endsAt, appointment.Id, ct))
         {
             return Overlap();
@@ -332,6 +342,22 @@ public static class AppointmentEndpoints
         if (startsAt is { } s && endsAt is { } e && (e <= s || e - s > MaxDuration))
         {
             errors["endsAt"] = ["End must be after start and at most 8 hours later."];
+        }
+    }
+
+    // Business rule (audit 2026-10-20): book / reschedule only into the future and inside an active
+    // schedule of the practitioner at that branch, on the branch-local clock (DB-owned check, 22023 -> 400).
+    private static async Task<ProblemHttpResult?> BookableWindowProblemAsync(
+        IAppointmentFunctions functions, ITenantContext tenant, Guid branchId, Guid practitionerId, DateTimeOffset startsAt, DateTimeOffset endsAt, CancellationToken ct)
+    {
+        try
+        {
+            await functions.AssertBookableWindowAsync(tenant.TenantId, branchId, practitionerId, startsAt, endsAt, ct);
+            return null;
+        }
+        catch (Exception ex) when (HmsProblems.FromDatabase(ex) is { } problem)
+        {
+            return problem;
         }
     }
 
