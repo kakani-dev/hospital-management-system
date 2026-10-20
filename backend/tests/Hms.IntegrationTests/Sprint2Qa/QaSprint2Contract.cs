@@ -161,9 +161,7 @@ internal static class Qa
     public static async Task<QaPractitioner> CreatePractitionerAsync(HttpClient admin, string? displayName = null)
     {
         var response = await admin.PostAsJsonAsync(QaRoutes.Practitioners, new { displayName = displayName ?? $"Dr {NewSurname("Qa")} (synthetic)", specialty = "General Medicine" });
-        var practitioner = await ReadAsync<QaPractitioner>(response, HttpStatusCode.Created);
-        await TestSchedules.OpenAllHoursAsync(practitioner.Id);
-        return practitioner;
+        return await ReadAsync<QaPractitioner>(response, HttpStatusCode.Created);
     }
 
     /// <summary>A new branch in the admin's tenant: its OPD token counter starts empty (deterministic token order).</summary>
@@ -171,17 +169,18 @@ internal static class Qa
     {
         var code = $"qa-{Guid.NewGuid():N}"[..20];
         var response = await admin.PostAsJsonAsync(QaRoutes.Branches, new { code, name = $"QA branch {code} (synthetic)", timezone });
-        var branch = await ReadAsync<QaBranch>(response, HttpStatusCode.Created);
-        await TestSchedules.OpenBranchAllHoursAsync(branch.Id);
-        return branch;
+        return await ReadAsync<QaBranch>(response, HttpStatusCode.Created);
     }
 
-    public static Task<HttpResponseMessage> BookAsync(
-        HttpClient client, Guid branch, Guid practitioner, Guid patient, DateTimeOffset start, int minutes = 15, string? reason = "Synthetic visit") =>
-        client.PostAsJsonAsync(QaRoutes.Appointments, new
+    public static async Task<HttpResponseMessage> BookAsync(
+        HttpClient client, Guid branch, Guid practitioner, Guid patient, DateTimeOffset start, int minutes = 15, string? reason = "Synthetic visit")
+    {
+        await TestSchedules.OpenDayAsync(branch, practitioner, start);
+        return await client.PostAsJsonAsync(QaRoutes.Appointments, new
         {
             branchId = branch, practitionerId = practitioner, patientId = patient, startsAt = start, endsAt = start.AddMinutes(minutes), reason,
         });
+    }
 
     public static async Task<QaAppointment> BookOkAsync(HttpClient client, Guid branch, Guid practitioner, Guid patient, DateTimeOffset start, int minutes = 15) =>
         await ReadAsync<QaAppointment>(await BookAsync(client, branch, practitioner, patient, start, minutes), HttpStatusCode.Created);

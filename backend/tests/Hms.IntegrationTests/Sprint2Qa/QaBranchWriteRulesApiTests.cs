@@ -65,7 +65,8 @@ public sealed class QaBranchWriteRulesApiTests(HmsApiFactory factory) : IClassFi
         Assert.Equal(HttpStatusCode.Forbidden, atMain.StatusCode);
         Assert.Equal(QaCodes.Forbidden, await Qa.CodeAsync(atMain));
         Assert.Equal(0, await Qa.AppointmentCountAsync(practitioner.Id));
-        var east = await Qa.BookOkAsync(user, AlphaEast, practitioner.Id, patient.Id, Qa.Future(hour: 10));
+        // another day: a practitioner works at one branch per day (working-hours rule, 2026-10-20)
+        var east = await Qa.BookOkAsync(user, AlphaEast, practitioner.Id, patient.Id, Qa.Future(dayOffset: 1, hour: 10));
         Assert.Equal(("booked", AlphaEast), (east.Status, east.BranchId));
 
         // Admin books one at Main; the split user can read it (tenant-wide) but not touch it.
@@ -79,7 +80,7 @@ public sealed class QaBranchWriteRulesApiTests(HmsApiFactory factory) : IClassFi
 
         // ...but can reschedule and cancel the East one.
         Assert.Equal(HttpStatusCode.OK,
-            (await user.PostAsJsonAsync(QaRoutes.Reschedule(east.Id), new { startsAt = Qa.Future(hour: 15), endsAt = Qa.Future(hour: 15, minute: 15) })).StatusCode);
+            (await user.PostAsJsonAsync(QaRoutes.Reschedule(east.Id), new { startsAt = Qa.Future(dayOffset: 1, hour: 15), endsAt = Qa.Future(dayOffset: 1, hour: 15, minute: 15) })).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await user.PostAsJsonAsync(QaRoutes.Cancel(east.Id), new { reason = "Synthetic" })).StatusCode);
         Assert.Equal("cancelled", await Qa.AppointmentStatusAsync(east.Id));
 

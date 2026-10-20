@@ -126,6 +126,11 @@ declare
   v_le timestamp;
 begin
   perform appointment.assert_bookable_window(p_tenant_id, p_branch_id, p_practitioner_id, p_starts, p_ends);
+  -- another tenant's (or a deleted) practitioner looks unknown: 404, not "outside working hours"
+  if not exists (select 1 from appointment.practitioners p
+                  where p.tenant_id = p_tenant_id and p.id = p_practitioner_id and not p.is_deleted) then
+    raise exception 'practitioner not found' using errcode = 'P0002';
+  end if;
   if coalesce(p_override, false) then
     if not identity.has_tenant_permission(p_tenant_id, 'appointments.override_hours') then
       raise exception 'only admins can book outside working hours' using errcode = '42501';

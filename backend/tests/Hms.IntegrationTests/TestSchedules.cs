@@ -4,36 +4,44 @@ using static Hms.IntegrationTests.HmsApiFactory;
 namespace Hms.IntegrationTests;
 
 /// <summary>
-/// Business rule (2026-10-20): bookings must fall inside the practitioner's working hours. Tests that
-/// are about something else (overlap, queue, tenancy...) create practitioners without schedules and
-/// book at arbitrary times, so the test helpers give every new practitioner round-the-clock synthetic
-/// hours (00:00-23:59, every weekday, every live branch of the tenant). The rule itself is covered by
+/// Business rule (2026-10-20): bookings must fall inside the practitioner's working hours. Tests about
+/// other things (overlap, queue, tenancy...) book practitioners without schedules at arbitrary times,
+/// so the booking helpers first open a synthetic one-day schedule (00:00-23:59 on that branch-local
+/// date only) unless the practitioner already has hours that day. The rule itself is covered by
 /// BusinessRulesApiTests and supabase/tests/30_business_rules_test.sql.
 /// </summary>
 public static class TestSchedules
 {
     private const string Sql = """
-        insert into appointment.schedules (tenant_id, practitioner_id, branch_id, weekday, start_time, end_time, slot_minutes, valid_from, created_by, updated_by)
-        select p.tenant_id, p.id, b.id, d, '00:00', '23:59', 15, date '2020-01-01', '0a000000-0000-4000-8000-000000000001', '0a000000-0000-4000-8000-000000000001'
-          from appointment.practitioners p
-          join identity.branches b on b.tenant_id = p.tenant_id and not b.is_deleted
-          cross join generate_series(1, 7) d
-         where (@p::uuid is null or p.id = @p) and (@b::uuid is null or b.id = @b) and not p.is_deleted
-           and not exists (select 1 from appointment.schedules s where s.practitioner_id = p.id and s.branch_id = b.id and s.weekday = d and not s.is_deleted)
+        with d as (
+          select (@s::timestamptz at time zone identity.branch_time_zone_v1(@b))::date as day)
+        insert into appointment.schedules (tenant_id, practitioner_id, branch_id, weekday, start_time, end_time, slot_minutes, valid_from, valid_to, created_by, updated_by)
+        select p.tenant_id, p.id, @b, extract(isodow from d.day)::smallint, '00:00', '23:59', 15, d.day, d.day,
+               '0a000000-0000-4000-8000-000000000001', '0a000000-0000-4000-8000-000000000001'
+          from appointment.practitioners p cross join d
+         where p.id = @p
+           and exists (select 1 from identity.branches b where b.id = @b and b.tenant_id = p.tenant_id)
+           and not exists (select 1 from appointment.schedules s
+                            where s.practitioner_id = p.id and s.is_active and not s.is_deleted
+                              and s.weekday = extract(isodow from d.day)
+                              and s.valid_from <= d.day and (s.valid_to is null or s.valid_to >= d.day))
         """;
 
-    public static Task OpenAllHoursAsync(Guid practitionerId) => RunAsync(practitionerId, null);
-
-    /// <summary>A branch created by a test: every practitioner of its tenant works there round the clock.</summary>
-    public static Task OpenBranchAllHoursAsync(Guid branchId) => RunAsync(null, branchId);
-
-    private static async Task RunAsync(Guid? practitionerId, Guid? branchId)
+    public static async Task OpenDayAsync(Guid branchId, Guid practitionerId, DateTimeOffset start)
     {
         await using var conn = new NpgsqlConnection(AdminConnection);
         await conn.OpenAsync();
         await using var cmd = new NpgsqlCommand(Sql, conn);
-        cmd.Parameters.AddWithValue("p", (object?)practitionerId ?? DBNull.Value).NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Uuid;
-        cmd.Parameters.AddWithValue("b", (object?)branchId ?? DBNull.Value).NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Uuid;
-        await cmd.ExecuteNonQueryAsync();
+        cmd.Parameters.AddWithValue("b", branchId);
+        cmd.Parameters.AddWithValue("p", practitionerId);
+        cmd.Parameters.AddWithValue("s", start.ToUniversalTime());
+        try
+        {
+            await cmd.ExecuteNonQueryAsync();
+        }
+        catch (PostgresException ex) when (ex.SqlState is "23P01" or "23505")
+        {
+            // a concurrent helper call opened the same day first
+        }
     }
 }

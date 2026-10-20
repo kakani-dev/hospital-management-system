@@ -215,14 +215,15 @@ public static class AppointmentEndpoints
 
         var startsAt = request.StartsAt!.Value.ToUniversalTime();
         var endsAt = request.EndsAt!.Value.ToUniversalTime();
-        if (await BookableWindowProblemAsync(functions, tenant, request.BranchId, request.PractitionerId, startsAt, endsAt, overrideHours, ct) is { } windowProblem)
-        {
-            return windowProblem;
-        }
-
+        // overlap first: a double booking is the more fundamental answer than "outside working hours"
         if (await OverlapsAsync(db, request.PractitionerId, startsAt, endsAt, null, ct))
         {
             return Overlap();
+        }
+
+        if (await BookableWindowProblemAsync(functions, tenant, request.BranchId, request.PractitionerId, startsAt, endsAt, overrideHours, ct) is { } windowProblem)
+        {
+            return windowProblem;
         }
 
         var appointment = new Appointment
@@ -279,14 +280,14 @@ public static class AppointmentEndpoints
             return HmsProblems.Forbidden("Only admins can book outside a doctor's working hours.");
         }
 
-        if (await BookableWindowProblemAsync(functions, tenant, appointment.BranchId, practitioner, startsAt, endsAt, overrideHours, ct) is { } windowProblem)
-        {
-            return windowProblem;
-        }
-
         if (await OverlapsAsync(db, practitioner, startsAt, endsAt, appointment.Id, ct))
         {
             return Overlap();
+        }
+
+        if (await BookableWindowProblemAsync(functions, tenant, appointment.BranchId, practitioner, startsAt, endsAt, overrideHours, ct) is { } windowProblem)
+        {
+            return windowProblem;
         }
 
         appointment.StartsAt = startsAt;

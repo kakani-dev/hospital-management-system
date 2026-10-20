@@ -114,12 +114,8 @@ internal static class ATz
             HttpStatusCode.Created);
     }
 
-    public static async Task<ATzPractitioner> CreatePractitionerAsync(HttpClient admin)
-    {
-        var practitioner = await ReadAsync<ATzPractitioner>(
+    public static async Task<ATzPractitioner> CreatePractitionerAsync(HttpClient admin) =>
+        await ReadAsync<ATzPractitioner>(
             await admin.PostAsJsonAsync("/api/v1/practitioners", new { displayName = $"Dr {Code("p")} (synthetic)", specialty = "General" }),
             HttpStatusCode.Created);
-        await TestSchedules.OpenAllHoursAsync(practitioner.Id);
-        return practitioner;
-    }
 }
