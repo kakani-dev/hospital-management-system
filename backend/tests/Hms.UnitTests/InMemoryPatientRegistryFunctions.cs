@@ -71,6 +71,14 @@ internal sealed class InMemoryPatientRegistryFunctions(PatientsDbContext db, ITe
     public Task<string?> DefaultCountryCodeAsync(Guid tenantId, CancellationToken ct) =>
         Task.FromResult<string?>(tenantId == tenant.TenantId ? "+91" : null);
 
+    /// <summary>Bookings the in-process tests register (patient id → booking time); tenant-checked like the SQL.</summary>
+    public static System.Collections.Concurrent.ConcurrentBag<(Guid TenantId, Guid PatientId, DateTimeOffset At)> Bookings { get; } = [];
+
+    public Task<IReadOnlyList<(Guid PatientId, DateTimeOffset LastBookedAt)>> LastBookedAsync(Guid tenantId, int limit, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<(Guid, DateTimeOffset)>>(tenantId != tenant.TenantId ? [] :
+            [.. Bookings.Where(b => b.TenantId == tenantId).GroupBy(b => b.PatientId)
+                .Select(g => (g.Key, g.Max(b => b.At))).OrderByDescending(x => x.Item2).ThenBy(x => x.Key).Take(Math.Clamp(limit, 1, 500))]);
+
     /// <summary>Mirrors patient.set_patient_phones: desired state, changed rows replaced (soft delete), mirror kept.</summary>
     public async Task SetPhonesAsync(Guid patientId, string? phone, bool whatsappSameAsPhone, string? whatsapp, CancellationToken ct)
     {

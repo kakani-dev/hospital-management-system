@@ -17,7 +17,8 @@ public sealed record CurrentUserDto(
     bool IsPlatformAdmin = false,
     IReadOnlyList<string>? Permissions = null);
 
-public sealed record CurrentTenantDto(Guid Id, string Code, string Name, Guid? ActiveBranchId, IReadOnlyList<string> Roles, string TimeZone);
+/// <summary>DefaultCountryCode: E.164 calling code applied to phones typed without one (e.g. "+91").</summary>
+public sealed record CurrentTenantDto(Guid Id, string Code, string Name, Guid? ActiveBranchId, IReadOnlyList<string> Roles, string TimeZone, string? DefaultCountryCode = null);
 
 /// <summary>
 /// PATCH /api/v1/tenants/current (tenant_admin). A zone change is refused with 409 time_zone_locked

@@ -31,6 +31,9 @@ public sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> option
             // Zone changes go through identity.change_time_zone_v1 (future-bookings confirmation,
             // DB re-review R5); clients have no UPDATE grant on the column, so EF never sends it.
             e.Property(x => x.TimeZone).Metadata.SetAfterSaveBehavior(Microsoft.EntityFrameworkCore.Metadata.PropertySaveBehavior.Ignore);
+            // Read-only here: filled by the a_tenants_default_country_code trigger on insert, never sent by EF.
+            e.Property(x => x.DefaultCountryCode).HasColumnName("default_country_code").ValueGeneratedOnAdd();
+            e.Property(x => x.DefaultCountryCode).Metadata.SetAfterSaveBehavior(Microsoft.EntityFrameworkCore.Metadata.PropertySaveBehavior.Ignore);
         });
 
         modelBuilder.Entity<Branch>(e =>

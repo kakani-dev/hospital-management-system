@@ -169,20 +169,24 @@ describe('PatientPicker combobox', () => {
     expect(calls.find((c) => c.method === 'POST' && c.path === '/api/v1/appointments')!.body).toMatchObject({ patientId: NEW.id, startsAt: slot.startsAt })
   })
 
-  it('booking: a phone search pre-fills +91 phone, and "Save & book" registers and books in one action', async () => {
-    const { calls } = bookingRoutes(['receptionist'], { 'POST /api/v1/patients': () => json(NEW, 201) })
+  it('booking: a phone search pre-fills the hospital calling code (not a hardcoded +91), and "Save & book" registers and books in one action', async () => {
+    const { calls } = bookingRoutes(['receptionist'], {
+      'POST /api/v1/patients': () => json(NEW, 201),
+      'GET /api/v1/tenants/current': () => json({ id: 't', code: 'alpha', name: 'Alpha', activeBranchId: ALPHA_MAIN, roles: ['receptionist'], defaultCountryCode: '+971' }),
+    })
     const user = userEvent.setup()
     const form = await openBooking(user)
     await user.type(within(form).getByLabelText('Find patient'), '98450 77777')
     await user.click(await within(form).findByTestId('register-new-patient'))
     const quick = within(form).getByTestId('quick-register')
-    expect(within(quick).getByLabelText(/Phone/)).toHaveValue('+91 98450 77777')
+    expect(within(quick).getByLabelText(/Phone/)).toHaveValue('+971 98450 77777')
+    expect(within(quick).getByText('+971 is assumed when no country code is typed.')).toBeInTheDocument()
     await waitFor(() => expect(within(quick).getByLabelText('First name')).toHaveFocus())
     await user.keyboard('Lata{Tab}Synthetic-New')
     await user.click(within(quick).getByTestId('save-and-book'))
     expect(await screen.findByText(/Booked Lata Synthetic-New with Dr. Rao/)).toBeInTheDocument()
     expect(calls.find((c) => c.method === 'POST' && c.path === '/api/v1/patients')!.body).toMatchObject({
-      phone: '+91 98450 77777', whatsapp: { sameAsPhone: true },
+      phone: '+971 98450 77777', whatsapp: { sameAsPhone: true },
     })
     expect(calls.filter((c) => c.method === 'POST' && c.path === '/api/v1/appointments')).toHaveLength(1)
   })
@@ -208,12 +212,13 @@ describe('PatientPicker combobox', () => {
   })
 
   it('booking: focus shows recent patients at once; "+ New patient" stays the last option even with matches', async () => {
-    bookingRoutes(['receptionist'], { 'POST /api/v1/patients/search': () => page([RAVI]) })
+    const { calls } = bookingRoutes(['receptionist'], { 'POST /api/v1/patients/search': () => page([RAVI]) })
     const user = userEvent.setup()
     const form = await openBooking(user)
     await user.click(within(form).getByLabelText('Find patient'))
     expect(await within(form).findByRole('listbox', { name: 'Recent patients' })).toBeInTheDocument()
     expect(within(form).getAllByTestId('patient-option')[0]).toHaveTextContent('Ravi')
+    expect(calls.some((c) => c.path === '/api/v1/patients' && new URL(c.url, 'http://x').searchParams.get('sort') === 'recent')).toBe(true)
     await user.type(within(form).getByLabelText('Find patient'), 'Ra')
     await within(form).findByTestId('register-new-patient')
     const options = within(within(form).getByRole('listbox', { name: 'Matching patients' })).getAllByRole('option')
@@ -240,7 +245,9 @@ describe('picker helpers', () => {
     expect(prefillFromTerm('Asha Synthetic Alpha')).toEqual({ firstName: 'Asha', lastName: 'Synthetic Alpha' })
     expect(prefillFromTerm('Asha')).toEqual({ firstName: 'Asha', lastName: '' })
     expect(prefillFromTerm('  ')).toEqual({})
-    expect(prefillFromTerm('98450 77777')).toEqual({ phone: '+91 98450 77777' })
+    expect(prefillFromTerm('98450 77777', '+91')).toEqual({ phone: '+91 98450 77777' })
+    expect(prefillFromTerm('98450 77777', '+971')).toEqual({ phone: '+971 98450 77777' })
+    expect(prefillFromTerm('98450 77777')).toEqual({ phone: '98450 77777' }) // code unknown: as typed, the server applies it
     expect(prefillFromTerm('+971 50 123 4567')).toEqual({ phone: '+971 50 123 4567' })
   })
 

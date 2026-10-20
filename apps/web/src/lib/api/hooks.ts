@@ -137,6 +137,24 @@ export function usePatients(
   })
 }
 
+/**
+ * Recent patients (GET /patients?sort=recent): newest first by registration or latest booking.
+ * Under ['patients'], so registering a patient refreshes it.
+ */
+export function useRecentPatients(enabled = true, pageSize = 5) {
+  return useQuery({
+    queryKey: ['patients', 'recent', { pageSize }] as const,
+    queryFn: () => apiClient.patients.list({ sort: 'recent', pageSize }),
+    retry: false,
+    enabled,
+  })
+}
+
+/** The hospital's calling code for phones typed without one (null until loaded / unknown). */
+export function useTenantCountryCode(): string | null {
+  return useCurrentTenant().data?.defaultCountryCode ?? null
+}
+
 export function usePatient(id: string) {
   return useQuery({ queryKey: queryKeys.patient(id), queryFn: () => apiClient.patients.get(id), retry: false })
 }

@@ -2,7 +2,7 @@ import { useId, useState, type Ref } from 'react'
 import { useNavigate } from 'react-router'
 import clsx from 'clsx'
 import { Badge, Input } from '@tailux/components/ui'
-import { PATIENT_SEARCH_DEBOUNCE_MS, PATIENT_SEARCH_MAX_LENGTH, usePatients } from '../../lib/api/hooks'
+import { PATIENT_SEARCH_DEBOUNCE_MS, PATIENT_SEARCH_MAX_LENGTH, usePatients, useRecentPatients } from '../../lib/api/hooks'
 import { useDebouncedValue } from '../../lib/useDebouncedValue'
 import { latestToday, localToday } from '../../lib/dates'
 import { useBranchTimeZones } from '../../lib/useBranchTimeZone'
@@ -54,9 +54,9 @@ export function PatientPicker({
   const hintId = useId()
   const searching = debounced.trim().length >= PATIENT_PICKER_MIN_CHARS
   const results = usePatients(debounced, { enabled: searching })
-  // Empty field + focus: the most recent patients (GET /patients, page 1), so the list shows on the first tap.
+  // Empty field + focus: the most recent patients (GET /patients?sort=recent), so the list shows on the first tap.
   const recentMode = showRecent && term.trim() === ''
-  const recent = usePatients('', { enabled: recentMode && open })
+  const recent = useRecentPatients(recentMode && open)
   const recentItems = recentMode ? (recent.data?.items ?? []).slice(0, 5) : []
   // Results for the text actually in the box (not a previous term, not mid-debounce).
   const fresh = searching && debounced === term && !results.isPending && !results.isPlaceholderData && !results.isError

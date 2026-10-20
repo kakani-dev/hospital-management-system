@@ -41,6 +41,15 @@ public sealed class PostgresPatientRegistryFunctions(PatientsDbContext db) : IPa
     public async Task<string?> DefaultCountryCodeAsync(Guid tenantId, CancellationToken ct) =>
         await RawSql.ScalarAsync(db, "select identity.tenant_default_country_code_v1(@tenant::uuid)", ct, ("tenant", tenantId)) as string;
 
+    public async Task<IReadOnlyList<(Guid PatientId, DateTimeOffset LastBookedAt)>> LastBookedAsync(Guid tenantId, int limit, CancellationToken ct) =>
+        await RawSql.QueryAsync(
+            db,
+            "select patient_id, last_booked_at from appointment.patient_last_booked_v1(@tenant::uuid, @limit::integer)",
+            r => (r.GetGuid(0), r.GetFieldValue<DateTimeOffset>(1)),
+            ct,
+            ("tenant", tenantId),
+            ("limit", limit));
+
     public Task SetPhonesAsync(Guid patientId, string? phone, bool whatsappSameAsPhone, string? whatsapp, CancellationToken ct) =>
         RawSql.ScalarAsync(
             db,
