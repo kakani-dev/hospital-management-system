@@ -55,7 +55,32 @@ public static partial class CreatePatientValidator
             errors["email"] = [$"Email is not valid (max {EmailMaxLength} characters)."];
         }
 
+        if (!string.IsNullOrWhiteSpace(request.AbhaNumber) && NormalizeAbha(request.AbhaNumber) is null)
+        {
+            errors["abhaNumber"] = ["ABHA number must be 14 digits (XX-XXXX-XXXX-XXXX)."];
+        }
+
         return errors;
+    }
+
+    /// <summary>
+    /// ABHA number (14 digits) to its canonical XX-XXXX-XXXX-XXXX form; spaces / dashes in the input are
+    /// ignored. Null for blank input or anything that is not exactly 14 digits.
+    /// </summary>
+    public static string? NormalizeAbha(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var digits = new string([.. value.Where(c => c is not (' ' or '-'))]);
+        if (digits.Length != 14 || !digits.All(char.IsAsciiDigit))
+        {
+            return null;
+        }
+
+        return $"{digits[..2]}-{digits[2..6]}-{digits[6..10]}-{digits[10..]}";
     }
 
     /// <summary>MRNs are stored upper-case so uniqueness is case-insensitive (DB: unique (tenant_id, upper(mrn))).</summary>

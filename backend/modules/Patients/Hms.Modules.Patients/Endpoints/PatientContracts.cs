@@ -31,11 +31,11 @@ public sealed record WhatsappInput(bool? SameAsPhone, string? Number);
 public sealed record PatientDetailDto(
     Guid Id, string Mrn, string FirstName, string LastName, DateOnly? DateOfBirth, string Sex, Guid RegisteredBranchId,
     string? Phone, DateTimeOffset? DeletedAt, string? Email, DateTimeOffset CreatedOn, DateTimeOffset UpdatedOn,
-    IReadOnlyList<PatientPhoneDto> Phones, bool WhatsappSameAsPhone)
+    IReadOnlyList<PatientPhoneDto> Phones, bool WhatsappSameAsPhone, string? AbhaNumber = null)
 {
     public static PatientDetailDto From(Patient p, IReadOnlyList<PatientPhoneDto> phones) =>
         new(p.Id, p.Mrn, p.FirstName, p.LastName, p.DateOfBirth, p.Sex, p.RegisteredBranchId, PrimaryOr(p, phones), p.DeletedAt, p.Email,
-            p.CreatedOn, p.UpdatedOn, phones, PatientPhoneDto.SameAsPhone(phones));
+            p.CreatedOn, p.UpdatedOn, phones, PatientPhoneDto.SameAsPhone(phones), p.AbhaNumber);
 
     internal static string? PrimaryOr(Patient p, IReadOnlyList<PatientPhoneDto> phones) =>
         phones.FirstOrDefault(x => x.IsPrimary)?.Number ?? p.Phone;
@@ -45,11 +45,11 @@ public sealed record PatientDetailDto(
 public sealed record PatientCreatedDto(
     Guid Id, string Mrn, string FirstName, string LastName, DateOnly? DateOfBirth, string Sex, Guid RegisteredBranchId,
     string? Phone, DateTimeOffset? DeletedAt, string? Email, DateTimeOffset CreatedOn, DateTimeOffset UpdatedOn,
-    IReadOnlyList<DuplicateCandidateDto> DuplicateWarnings, IReadOnlyList<PatientPhoneDto> Phones, bool WhatsappSameAsPhone)
+    IReadOnlyList<DuplicateCandidateDto> DuplicateWarnings, IReadOnlyList<PatientPhoneDto> Phones, bool WhatsappSameAsPhone, string? AbhaNumber = null)
 {
     public static PatientCreatedDto From(Patient p, IReadOnlyList<DuplicateCandidateDto> warnings, IReadOnlyList<PatientPhoneDto> phones) =>
         new(p.Id, p.Mrn, p.FirstName, p.LastName, p.DateOfBirth, p.Sex, p.RegisteredBranchId, PatientDetailDto.PrimaryOr(p, phones), p.DeletedAt,
-            p.Email, p.CreatedOn, p.UpdatedOn, warnings, phones, PatientPhoneDto.SameAsPhone(phones));
+            p.Email, p.CreatedOn, p.UpdatedOn, warnings, phones, PatientPhoneDto.SameAsPhone(phones), p.AbhaNumber);
 }
 
 public sealed record DuplicateCandidateDto(
@@ -71,7 +71,8 @@ public sealed record CreatePatientRequest(
     Guid RegisteredBranchId,
     string? Phone,
     string? Email,
-    WhatsappInput? Whatsapp = null);
+    WhatsappInput? Whatsapp = null,
+    string? AbhaNumber = null);
 
 /// <summary>
 /// Body of POST /api/v1/patients/search. The terms travel in the body (not the URL) so names, MRNs,

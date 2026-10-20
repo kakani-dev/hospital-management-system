@@ -2,13 +2,15 @@
 begin;
 select tests.as_superuser();
 
-select tests.ok((select count(*) from identity.role_permissions where role = 'tenant_admin') = 20, 'tenant_admin holds all 20 tenant permissions');
+select tests.ok((select count(*) from identity.role_permissions where role = 'tenant_admin') = 21, 'tenant_admin holds all 21 tenant permissions (20261020140000 adds appointments.override_hours)');
 select tests.ok(not exists (select 1 from identity.role_permissions where role in ('viewer', 'pharmacist', 'lab_technician')
                             and permission not in ('settings.view', 'branches.view', 'practitioners.view')),
   'viewer / pharmacist / lab_technician are read-only and see no patient data');
 select tests.ok(not exists (select 1 from identity.role_permissions where role in ('doctor', 'nurse', 'billing')
-                            and permission in ('patients.create', 'patients.edit', 'patients.delete', 'appointments.book')),
-  'doctor / nurse / billing cannot create or edit patients or book');
+                            and permission in ('patients.create', 'patients.edit', 'patients.delete')),
+  'doctor / nurse / billing cannot create or edit patients');
+select tests.ok(not exists (select 1 from identity.role_permissions where role in ('doctor', 'billing') and permission = 'appointments.book'),
+  'doctor / billing cannot book freely (nurses can since 20261020140000; doctors only own follow-ups)');
 select tests.ok(not exists (select 1 from identity.role_permissions where permission like 'platform.%'), 'no tenant role grants platform permissions');
 
 -- receptionist (Alpha Main)

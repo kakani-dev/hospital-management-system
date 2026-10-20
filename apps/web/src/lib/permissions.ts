@@ -28,6 +28,8 @@ export type Permission =
   | 'appointments.check_in'
   | 'appointments.no_show'
   | 'appointments.no_show_own'
+  | 'appointments.book_followup_own'
+  | 'appointments.override_hours'
   | 'queue.view'
   | 'queue.manage'
   | 'queue.consult_own'
@@ -42,6 +44,10 @@ const CAPABILITIES = {
   'schedules.view': ['practitioners.view'],
   'appointments.view': ['appointments.view'],
   'appointments.book': ['appointments.book'],
+  /** Follow-up of an earlier visit: any booker, or a doctor for their own patients (server checks ownership). */
+  'appointments.bookFollowUp': ['appointments.book', 'appointments.book_followup_own'],
+  /** Book outside the doctor's working hours (admins; audited). */
+  'appointments.overrideHours': ['appointments.override_hours'],
   'appointments.reschedule': ['appointments.reschedule'],
   'appointments.cancel': ['appointments.cancel'],
   'appointments.noShow': ['appointments.no_show', 'appointments.no_show_own'],
@@ -64,15 +70,15 @@ export const ROLE_PERMISSIONS: Record<string, readonly Permission[]> = {
     ...READ_ONLY_OPS, 'settings.manage', 'branches.manage', 'members.manage', 'practitioners.manage',
     'patients.view', 'patients.create', 'patients.edit', 'patients.delete', 'patients.restore',
     'appointments.view', 'appointments.book', 'appointments.reschedule', 'appointments.cancel', 'appointments.check_in', 'appointments.no_show',
-    'queue.view', 'queue.manage',
+    'appointments.override_hours', 'queue.view', 'queue.manage',
   ],
   receptionist: [
     ...READ_ONLY_OPS, 'patients.view', 'patients.create', 'patients.edit', 'patients.delete',
     'appointments.view', 'appointments.book', 'appointments.reschedule', 'appointments.cancel', 'appointments.check_in', 'appointments.no_show',
     'queue.view', 'queue.manage',
   ],
-  nurse: [...READ_ONLY_OPS, 'patients.view', 'appointments.view', 'appointments.check_in', 'appointments.no_show', 'queue.view', 'queue.manage'],
-  doctor: [...READ_ONLY_OPS, 'patients.view', 'appointments.view', 'appointments.no_show_own', 'queue.view', 'queue.consult_own'],
+  nurse: [...READ_ONLY_OPS, 'patients.view', 'appointments.view', 'appointments.book', 'appointments.check_in', 'appointments.no_show', 'queue.view', 'queue.manage'],
+  doctor: [...READ_ONLY_OPS, 'patients.view', 'appointments.view', 'appointments.book_followup_own', 'appointments.no_show_own', 'queue.view', 'queue.consult_own'],
   billing: [...READ_ONLY_OPS, 'patients.view', 'appointments.view'],
   pharmacist: READ_ONLY_OPS,
   lab_technician: READ_ONLY_OPS,

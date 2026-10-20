@@ -161,7 +161,9 @@ internal static class Qa
     public static async Task<QaPractitioner> CreatePractitionerAsync(HttpClient admin, string? displayName = null)
     {
         var response = await admin.PostAsJsonAsync(QaRoutes.Practitioners, new { displayName = displayName ?? $"Dr {NewSurname("Qa")} (synthetic)", specialty = "General Medicine" });
-        return await ReadAsync<QaPractitioner>(response, HttpStatusCode.Created);
+        var practitioner = await ReadAsync<QaPractitioner>(response, HttpStatusCode.Created);
+        await TestSchedules.OpenAllHoursAsync(practitioner.Id);
+        return practitioner;
     }
 
     /// <summary>A new branch in the admin's tenant: its OPD token counter starts empty (deterministic token order).</summary>
@@ -169,7 +171,9 @@ internal static class Qa
     {
         var code = $"qa-{Guid.NewGuid():N}"[..20];
         var response = await admin.PostAsJsonAsync(QaRoutes.Branches, new { code, name = $"QA branch {code} (synthetic)", timezone });
-        return await ReadAsync<QaBranch>(response, HttpStatusCode.Created);
+        var branch = await ReadAsync<QaBranch>(response, HttpStatusCode.Created);
+        await TestSchedules.OpenBranchAllHoursAsync(branch.Id);
+        return branch;
     }
 
     public static Task<HttpResponseMessage> BookAsync(

@@ -38,11 +38,13 @@ public sealed record SlotDto(Guid PractitionerId, Guid BranchId, DateTimeOffset 
 public sealed record AppointmentDto(
     Guid Id, Guid BranchId, Guid PractitionerId, Guid PatientId, DateTimeOffset StartsAt, DateTimeOffset EndsAt, string Status,
     string? Reason, string? CancelReason, DateTimeOffset? CheckedInAt, DateTimeOffset? StartedAt, DateTimeOffset? CompletedAt,
-    DateTimeOffset? CancelledAt, DateTimeOffset CreatedOn, DateTimeOffset UpdatedOn, PatientRefDto? Patient)
+    DateTimeOffset? CancelledAt, DateTimeOffset CreatedOn, DateTimeOffset UpdatedOn, PatientRefDto? Patient,
+    Guid? ParentAppointmentId = null, bool HoursOverride = false)
 {
     public static AppointmentDto From(Appointment a, PatientRef? patient) => new(
         a.Id, a.BranchId, a.PractitionerId, a.PatientId, a.StartsAt.ToUniversalTime(), a.EndsAt.ToUniversalTime(), a.Status, a.Reason, a.CancelReason,
-        a.CheckedInAt, a.StartedAt, a.CompletedAt, a.CancelledAt, a.CreatedOn, a.UpdatedOn, PatientRefDto.From(patient));
+        a.CheckedInAt, a.StartedAt, a.CompletedAt, a.CancelledAt, a.CreatedOn, a.UpdatedOn, PatientRefDto.From(patient),
+        a.ParentAppointmentId, a.HoursOverride);
 }
 
 /// <summary>Embedded patient; null when the caller cannot read the patient (RLS) or it is soft-deleted.</summary>
@@ -51,10 +53,13 @@ public sealed record PatientRefDto(Guid Id, string Mrn, string FirstName, string
     public static PatientRefDto? From(PatientRef? p) => p is null ? null : new(p.Id, p.Mrn, p.FirstName, p.LastName);
 }
 
+/// <param name="ParentAppointmentId">Follow-up of this earlier visit (same patient). Required for doctors (own follow-ups only).</param>
+/// <param name="OverrideWorkingHours">Admins only: book outside the practitioner's working hours (audited).</param>
 public sealed record CreateAppointmentRequest(
-    Guid BranchId, Guid PractitionerId, Guid PatientId, DateTimeOffset? StartsAt, DateTimeOffset? EndsAt, string? Reason);
+    Guid BranchId, Guid PractitionerId, Guid PatientId, DateTimeOffset? StartsAt, DateTimeOffset? EndsAt, string? Reason,
+    Guid? ParentAppointmentId = null, bool? OverrideWorkingHours = null);
 
-public sealed record RescheduleAppointmentRequest(DateTimeOffset? StartsAt, DateTimeOffset? EndsAt, Guid? PractitionerId);
+public sealed record RescheduleAppointmentRequest(DateTimeOffset? StartsAt, DateTimeOffset? EndsAt, Guid? PractitionerId, bool? OverrideWorkingHours = null);
 
 public sealed record CancelAppointmentRequest(string? Reason);
 

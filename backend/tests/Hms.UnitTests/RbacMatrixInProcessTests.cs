@@ -63,7 +63,9 @@ public sealed class RbacMatrixInProcessTests(ApiFactory factory) : IClassFixture
         }
 
         var response = await client.SendAsync(request);
-        var allowed = HmsPermissions.ByRole[role].Contains(a.Permission);
+        // doctors reach the booking endpoint for their own follow-ups (the body then decides)
+        var allowed = HmsPermissions.ByRole[role].Contains(a.Permission)
+            || (a.Permission == HmsPermissions.AppointmentsBook && HmsPermissions.ByRole[role].Contains(HmsPermissions.AppointmentsBookFollowUpOwn));
         if (allowed)
         {
             Assert.NotEqual(HttpStatusCode.Forbidden, response.StatusCode);
@@ -87,7 +89,11 @@ public sealed class RbacMatrixInProcessTests(ApiFactory factory) : IClassFixture
         Assert.DoesNotContain(HmsPermissions.PatientsCreate, p[HmsRoles.Doctor]);
         Assert.Contains(HmsPermissions.PatientsView, p[HmsRoles.Doctor]);
         Assert.Contains(HmsPermissions.AppointmentsCheckIn, p[HmsRoles.Nurse]);
-        Assert.DoesNotContain(HmsPermissions.AppointmentsBook, p[HmsRoles.Nurse]);
+        Assert.Contains(HmsPermissions.AppointmentsBook, p[HmsRoles.Nurse]); // 2026-10-20 business rules
+        Assert.DoesNotContain(HmsPermissions.AppointmentsBook, p[HmsRoles.Doctor]);
+        Assert.Contains(HmsPermissions.AppointmentsBookFollowUpOwn, p[HmsRoles.Doctor]);
+        Assert.Contains(HmsPermissions.AppointmentsOverrideHours, p[HmsRoles.TenantAdmin]);
+        Assert.DoesNotContain(HmsPermissions.AppointmentsOverrideHours, p[HmsRoles.Receptionist]);
         foreach (var r in new[] { HmsRoles.Pharmacist, HmsRoles.LabTechnician, HmsRoles.Viewer })
         {
             Assert.DoesNotContain(p[r], x => x.StartsWith("patients.", StringComparison.Ordinal) || x.StartsWith("appointments.", StringComparison.Ordinal) || x.EndsWith(".manage", StringComparison.Ordinal));
@@ -105,7 +111,9 @@ public sealed class RbacMatrixInProcessTests(ApiFactory factory) : IClassFixture
             dir = Path.GetDirectoryName(dir) ?? throw new DirectoryNotFoundException("supabase/migrations");
         }
 
-        var sql = File.ReadAllText(Path.Combine(dir, "supabase", "migrations", "20261020090000_rbac_permission_matrix.sql"));
+        // the matrix migration plus later grants (20261020140000 business rules)
+        var sql = File.ReadAllText(Path.Combine(dir, "supabase", "migrations", "20261020090000_rbac_permission_matrix.sql"))
+            + File.ReadAllText(Path.Combine(dir, "supabase", "migrations", "20261020140000_business_rules.sql"));
         var db = Regex.Matches(sql, @"\('([a-z_]+)', '([a-z_]+\.[a-z_]+)'\)")
             .Select(m => $"{m.Groups[1].Value}:{m.Groups[2].Value}").Order(StringComparer.Ordinal).ToList();
         var api = HmsPermissions.ByRole.SelectMany(kv => kv.Value.Select(v => $"{kv.Key}:{v}")).Order(StringComparer.Ordinal).ToList();

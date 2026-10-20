@@ -139,12 +139,17 @@ public static class AppointmentEndpoints
     private static async Task<Results<Created<AppointmentDto>, ValidationProblem, ProblemHttpResult>> BookAsync(
         CreateAppointmentRequest request, AppointmentsDbContext db, ITenantContext tenant, IAppointmentFunctions functions, IPatientSummaries patients, CancellationToken ct)
     {
-        if (!tenant.CanAtAnyBranch(HmsPermissions.AppointmentsBook))
+        if (!tenant.CanAtAnyBranch(HmsPermissions.AppointmentsBook) && !tenant.CanAtAnyBranch(HmsPermissions.AppointmentsBookFollowUpOwn))
         {
             return HmsProblems.Forbidden();
         }
 
         var errors = new Dictionary<string, string[]>();
+        if (request.ParentAppointmentId == Guid.Empty)
+        {
+            errors["parentAppointmentId"] = ["Earlier visit id is invalid."];
+        }
+
         if (request.BranchId == Guid.Empty)
         {
             errors["branchId"] = ["Branch is required."];
@@ -171,14 +176,46 @@ public static class AppointmentEndpoints
             return TypedResults.ValidationProblem(errors);
         }
 
+        var overrideHours = request.OverrideWorkingHours == true;
         if (!tenant.CanAtBranch(request.BranchId, HmsPermissions.AppointmentsBook))
         {
-            return await BranchScope.DenyAsync(db, tenant, request.BranchId, "You cannot book appointments at this branch.", ct);
+            if (!tenant.CanAtBranch(request.BranchId, HmsPermissions.AppointmentsBookFollowUpOwn))
+            {
+                return await BranchScope.DenyAsync(db, tenant, request.BranchId, "You cannot book appointments at this branch.", ct);
+            }
+
+            // doctors: follow-ups only, of an earlier visit with their own (linked) practitioner, for themselves
+            if (request.ParentAppointmentId is not { } ownParent
+                || !await db.Appointments.AsNoTracking().AnyAsync(a => a.Id == ownParent
+                       && db.Practitioners.Any(p => p.Id == a.PractitionerId && p.UserId == tenant.UserId), ct)
+                || !await db.Practitioners.AsNoTracking().AnyAsync(p => p.Id == request.PractitionerId && p.UserId == tenant.UserId, ct))
+            {
+                return HmsProblems.Forbidden("Doctors can only book follow-ups of their own patients, with themselves.");
+            }
+        }
+
+        if (overrideHours && !tenant.CanAtBranch(request.BranchId, HmsPermissions.AppointmentsOverrideHours))
+        {
+            return HmsProblems.Forbidden("Only admins can book outside a doctor's working hours.");
+        }
+
+        if (request.ParentAppointmentId is { } parentId)
+        {
+            var parentPatient = await db.Appointments.AsNoTracking().Where(a => a.Id == parentId).Select(a => (Guid?)a.PatientId).SingleOrDefaultAsync(ct);
+            if (parentPatient is null)
+            {
+                return TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["parentAppointmentId"] = ["The earlier visit was not found."] });
+            }
+
+            if (parentPatient != request.PatientId)
+            {
+                return HmsProblems.BadRequest(HmsProblems.Codes.InvalidParameter, "follow_up_patient_mismatch: a follow-up must be for the same patient as the earlier visit.");
+            }
         }
 
         var startsAt = request.StartsAt!.Value.ToUniversalTime();
         var endsAt = request.EndsAt!.Value.ToUniversalTime();
-        if (await BookableWindowProblemAsync(functions, tenant, request.BranchId, request.PractitionerId, startsAt, endsAt, ct) is { } windowProblem)
+        if (await BookableWindowProblemAsync(functions, tenant, request.BranchId, request.PractitionerId, startsAt, endsAt, overrideHours, ct) is { } windowProblem)
         {
             return windowProblem;
         }
@@ -196,6 +233,8 @@ public static class AppointmentEndpoints
             StartsAt = startsAt,
             EndsAt = endsAt,
             Reason = string.IsNullOrWhiteSpace(request.Reason) ? null : request.Reason.Trim(),
+            ParentAppointmentId = request.ParentAppointmentId,
+            HoursOverride = overrideHours,
         };
         db.Appointments.Add(appointment);
         try
@@ -234,7 +273,13 @@ public static class AppointmentEndpoints
         var startsAt = request.StartsAt!.Value.ToUniversalTime();
         var endsAt = request.EndsAt!.Value.ToUniversalTime();
         var practitioner = request.PractitionerId is { } p && p != Guid.Empty ? p : appointment.PractitionerId;
-        if (await BookableWindowProblemAsync(functions, tenant, appointment.BranchId, practitioner, startsAt, endsAt, ct) is { } windowProblem)
+        var overrideHours = request.OverrideWorkingHours == true;
+        if (overrideHours && !tenant.CanAtBranch(appointment.BranchId, HmsPermissions.AppointmentsOverrideHours))
+        {
+            return HmsProblems.Forbidden("Only admins can book outside a doctor's working hours.");
+        }
+
+        if (await BookableWindowProblemAsync(functions, tenant, appointment.BranchId, practitioner, startsAt, endsAt, overrideHours, ct) is { } windowProblem)
         {
             return windowProblem;
         }
@@ -247,6 +292,7 @@ public static class AppointmentEndpoints
         appointment.StartsAt = startsAt;
         appointment.EndsAt = endsAt;
         appointment.PractitionerId = practitioner;
+        appointment.HoursOverride |= overrideHours;
         return await SaveAsync(db, appointment, patients, ct);
     }
 
@@ -348,11 +394,11 @@ public static class AppointmentEndpoints
     // Business rule (audit 2026-10-20): book / reschedule only into the future and inside an active
     // schedule of the practitioner at that branch, on the branch-local clock (DB-owned check, 22023 -> 400).
     private static async Task<ProblemHttpResult?> BookableWindowProblemAsync(
-        IAppointmentFunctions functions, ITenantContext tenant, Guid branchId, Guid practitionerId, DateTimeOffset startsAt, DateTimeOffset endsAt, CancellationToken ct)
+        IAppointmentFunctions functions, ITenantContext tenant, Guid branchId, Guid practitionerId, DateTimeOffset startsAt, DateTimeOffset endsAt, bool overrideHours, CancellationToken ct)
     {
         try
         {
-            await functions.AssertBookableWindowAsync(tenant.TenantId, branchId, practitionerId, startsAt, endsAt, ct);
+            await functions.AssertBookableWindowAsync(tenant.TenantId, branchId, practitionerId, startsAt, endsAt, overrideHours, ct);
             return null;
         }
         catch (Exception ex) when (HmsProblems.FromDatabase(ex) is { } problem)

@@ -60,7 +60,9 @@ internal static class S2
     {
         var response = await admin.PostAsJsonAsync("/api/v1/practitioners", new { displayName = $"Dr {Unique("P")} (synthetic)", specialty = "General" });
         response.EnsureSuccessStatusCode();
-        return (await response.Content.ReadFromJsonAsync<S2Practitioner>())!;
+        var practitioner = (await response.Content.ReadFromJsonAsync<S2Practitioner>())!;
+        await TestSchedules.OpenAllHoursAsync(practitioner.Id);
+        return practitioner;
     }
 
     public static Task<HttpResponseMessage> BookAsync(HttpClient client, Guid branch, Guid practitioner, Guid patient, DateTimeOffset start, int minutes = 15) =>

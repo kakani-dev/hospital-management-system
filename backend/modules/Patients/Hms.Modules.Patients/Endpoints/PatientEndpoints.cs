@@ -299,6 +299,7 @@ public static class PatientEndpoints
             Sex = request.Sex ?? PatientSex.Unknown,
             RegisteredBranchId = request.RegisteredBranchId,
             Email = request.Email,
+            AbhaNumber = CreatePatientValidator.NormalizeAbha(request.AbhaNumber),
             // TenantId is assigned by TenantSaveChangesInterceptor from the resolved context.
             // Audit columns are DB-managed and never sent (see AuditColumnConventions).
         };
@@ -306,6 +307,10 @@ public static class PatientEndpoints
         try
         {
             await db.SaveChangesAsync(ct);
+        }
+        catch (Exception ex) when (IsDuplicateAbha(ex))
+        {
+            return DuplicateAbha();
         }
         catch (Exception ex) when (HmsProblems.FromDatabase(ex, HmsProblems.Codes.DuplicateMrn, uniqueDetail: DuplicateMrnDetail) is { } problem)
         {
@@ -378,7 +383,8 @@ public static class PatientEndpoints
             patch.Sex.IsSet && patch.Sex.Value is null ? "\0" : patch.Sex.Or(patient.Sex), // explicit null sex is invalid
             targetBranch,
             patch.Phone.Or(patient.Phone),
-            patch.Email.Or(patient.Email));
+            patch.Email.Or(patient.Email),
+            AbhaNumber: patch.AbhaNumber.Or(patient.AbhaNumber));
 
         var branchTimeZone = tenant.TimeZoneFor(targetBranch);
         errors = CreatePatientValidator.Validate(merged, BranchClock.Today(timeProvider, branchTimeZone));
@@ -426,6 +432,7 @@ public static class PatientEndpoints
         patient.Sex = merged.Sex!;
         patient.RegisteredBranchId = targetBranch;
         patient.Email = merged.Email;
+        patient.AbhaNumber = CreatePatientValidator.NormalizeAbha(merged.AbhaNumber);
 
         try
         {
@@ -435,6 +442,10 @@ public static class PatientEndpoints
         {
             // 0 rows: deleted concurrently, or RLS USING hid it (deleted_at is not null).
             return HmsProblems.NotFound("Patient not found.");
+        }
+        catch (Exception ex) when (IsDuplicateAbha(ex))
+        {
+            return DuplicateAbha();
         }
         catch (Exception ex) when (HmsProblems.FromDatabase(ex) is { } problem)
         {
@@ -538,4 +549,10 @@ public static class PatientEndpoints
 
     private const string DuplicateMrnDetail = "A patient with this MRN already exists in this hospital.";
 
+
+    private static bool IsDuplicateAbha(Exception ex) =>
+        HmsProblems.FindDbError(ex) is Npgsql.PostgresException { SqlState: "23505", ConstraintName: "patients_tenant_abha_key" };
+
+    private static ProblemHttpResult DuplicateAbha() =>
+        HmsProblems.Conflict("duplicate_abha", "Another patient in this hospital already has this ABHA number.");
 }

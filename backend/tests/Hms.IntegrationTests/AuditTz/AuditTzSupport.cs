@@ -110,12 +110,16 @@ internal static class ATz
     public static async Task<ATzBranch> CreateBranchAsync(HttpClient admin, string? timezone)
     {
         return await ReadAsync<ATzBranch>(
-            await admin.PostAsJsonAsync("/api/v1/branches", new { code = Code("b"), name = "Synthetic branch", timezone }),
+            await admin.PostAsJsonAsync("/api/v1/branches", new { code = Code("b"), name = $"Synthetic branch {Code("n")}", timezone }),
             HttpStatusCode.Created);
     }
 
-    public static async Task<ATzPractitioner> CreatePractitionerAsync(HttpClient admin) =>
-        await ReadAsync<ATzPractitioner>(
+    public static async Task<ATzPractitioner> CreatePractitionerAsync(HttpClient admin)
+    {
+        var practitioner = await ReadAsync<ATzPractitioner>(
             await admin.PostAsJsonAsync("/api/v1/practitioners", new { displayName = $"Dr {Code("p")} (synthetic)", specialty = "General" }),
             HttpStatusCode.Created);
+        await TestSchedules.OpenAllHoursAsync(practitioner.Id);
+        return practitioner;
+    }
 }

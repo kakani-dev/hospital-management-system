@@ -47,6 +47,10 @@ public sealed class Appointment : AuditableEntity, ITenantOwned
     public DateTimeOffset? StartedAt { get; set; }
     public DateTimeOffset? CompletedAt { get; set; }
     public DateTimeOffset? CancelledAt { get; set; }
+    /// <summary>Follow-up: the earlier visit (same tenant + patient, DB-checked). Set on insert only.</summary>
+    public Guid? ParentAppointmentId { get; set; }
+    /// <summary>Booked outside the practitioner's working hours by an admin override (audited).</summary>
+    public bool HoursOverride { get; set; }
 }
 
 /// <summary>appointment.queue_entries: READ-ONLY for the API; written only by the check-in / queue RPCs.</summary>
