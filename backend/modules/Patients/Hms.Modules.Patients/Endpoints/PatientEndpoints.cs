@@ -52,7 +52,7 @@ public static class PatientEndpoints
     }
 
     private static async Task<Results<Ok<PagedResult<PatientSummaryDto>>, ValidationProblem, ProblemHttpResult>> ListAsync(
-        HttpRequest http, PatientsDbContext db, ITenantContext tenant, int? page, int? pageSize, CancellationToken ct)
+        HttpRequest http, PatientsDbContext db, ITenantContext tenant, IPatientRegistryFunctions registry, int? page, int? pageSize, string? sort, CancellationToken ct)
     {
         if (!tenant.Can(HmsPermissions.PatientsView))
         {
@@ -69,7 +69,42 @@ public static class PatientEndpoints
             });
         }
 
-        return TypedResults.Ok(await PageAsync(db.Patients.AsNoTracking(), page, pageSize, ct));
+        return sort switch
+        {
+            null or "" or "name" => TypedResults.Ok(await PageAsync(db.Patients.AsNoTracking(), page, pageSize, ct)),
+            "recent" => TypedResults.Ok(await RecentPageAsync(db, tenant, registry, page, pageSize, ct)),
+            _ => TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["sort"] = ["sort must be 'name' (default) or 'recent'."] }),
+        };
+    }
+
+    /// <summary>
+    /// ?sort=recent: newest first by the later of registration (created_on) and the latest booking
+    /// (appointment.patient_last_booked_v1). The page is the top of the union of the newest
+    /// registrations and the latest bookings, each fetched page×size deep, so it is exact. Patient rows
+    /// come from this service's own RLS-scoped query (soft-deleted and other tenants never appear).
+    /// </summary>
+    private static async Task<PagedResult<PatientSummaryDto>> RecentPageAsync(
+        PatientsDbContext db, ITenantContext tenant, IPatientRegistryFunctions registry, int? page, int? pageSize, CancellationToken ct)
+    {
+        var p = Math.Max(page ?? 1, 1);
+        var size = Math.Clamp(pageSize ?? 25, 1, 100);
+        var depth = Math.Min(p * size, 500);
+        var booked = await registry.LastBookedAsync(tenant.TenantId, depth, ct);
+        var lastBooked = booked.ToDictionary(b => b.PatientId, b => b.LastBookedAt);
+        var bookedIds = lastBooked.Keys.ToList();
+
+        var live = db.Patients.AsNoTracking();
+        var newest = await live.OrderByDescending(x => x.CreatedOn).ThenBy(x => x.Id).Take(depth).ToListAsync(ct);
+        var withBookings = bookedIds.Count == 0 ? [] : await live.Where(x => bookedIds.Contains(x.Id)).ToListAsync(ct);
+        var items = newest.Concat(withBookings)
+            .DistinctBy(x => x.Id)
+            .Select(x => (Patient: x, At: lastBooked.TryGetValue(x.Id, out var at) && at > x.CreatedOn ? at : x.CreatedOn))
+            .OrderByDescending(x => x.At).ThenBy(x => x.Patient.Id)
+            .Skip((p - 1) * size).Take(size)
+            .Select(x => PatientSummaryDto.From(x.Patient))
+            .ToList();
+
+        return new PagedResult<PatientSummaryDto>(items, p, size, await live.CountAsync(ct));
     }
 
     private static async Task<Results<Ok<PagedResult<PatientSummaryDto>>, ValidationProblem, ProblemHttpResult>> SearchAsync(

@@ -351,6 +351,8 @@ export class MockBackend {
   readonly mrnCounters = new Map<string, number>()
   readonly branchNames = new Map<string, string>()
   readonly appointments: MockAppointment[] = []
+  /** Latest booking time per patient (ms), for GET /patients?sort=recent. */
+  readonly lastBooked = new Map<string, number>()
   readonly queue: MockQueueEntry[] = []
   /** Level 1 state (per instance). */
   readonly signups: MockSignup[] = []
@@ -665,6 +667,13 @@ export class MockBackend {
       if (url.searchParams.has('search')) {
         return reply(400, { title: 'Validation', status: 400, errors: { search: ['The search query parameter is no longer supported. Use POST /api/v1/patients/search with a JSON body.'] } }, tenant)
       }
+      const sort = url.searchParams.get('sort')
+      if (sort && sort !== 'name' && sort !== 'recent') return validationError({ sort: ["sort must be 'name' (default) or 'recent'."] })
+      if (sort === 'recent') {
+        // Like the API: the later of registration and latest booking, newest first (seed rows count as old).
+        const at = (p: MockPatient) => Math.max(p.createdOn ? Date.parse(p.createdOn) : 0, this.lastBooked.get(p.id) ?? 0)
+        return reply(200, page([...livePatients].sort((a, b) => at(b) - at(a)).map(dto)), tenant)
+      }
       return reply(200, page(livePatients.map(dto)), tenant)
     }
     if (method === 'POST' && path === '/api/v1/patients/search') {
@@ -900,6 +909,7 @@ export class MockBackend {
       }
       const created: MockAppointment = { id: uuid('a2000000'), tenantId: tenant, branchId, practitionerId: String(body.practitionerId), patientId: String(body.patientId), startsAt, endsAt, status: 'booked', reason: (body.reason as string) ?? null, cancelReason: null }
       this.appointments.push(created)
+      this.lastBooked.set(created.patientId, Date.now())
       return reply(201, withPatient(created), tenant)
     }
     if (method === 'POST' && apptAction) {
@@ -1014,7 +1024,7 @@ export class MockBackend {
       if (typeof body.isActive === 'boolean') this.branchState.set(b.id, { isActive: body.isActive, isDeleted: false })
       return reply(200, branchDto(b), tenant)
     }
-    const tenantDto = () => ({ id: tenant, code: tenant === ids.alpha ? 'alpha' : 'beta', name: this.tenantNames.get(tenant) ?? tenants[tenant]!.name, activeBranchId: null, roles, timeZone: this.tenantZone(tenant) })
+    const tenantDto = () => ({ id: tenant, code: tenant === ids.alpha ? 'alpha' : 'beta', name: this.tenantNames.get(tenant) ?? tenants[tenant]!.name, activeBranchId: null, roles, timeZone: this.tenantZone(tenant), defaultCountryCode: tenant === ids.alpha ? '+91' : '+971' })
     if (method === 'GET' && path === '/api/v1/tenants/current') return reply(200, tenantDto(), tenant)
     if (method === 'PATCH' && path === '/api/v1/tenants/current') {
       if (!isAdmin) return forbidden()

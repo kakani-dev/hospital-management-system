@@ -65,6 +65,12 @@ test('mobile: recent patients on focus, then "+ New patient" → Save & book in 
   expect(created.registeredBranchId).toBe(ids.alphaMain)
   expect(created.whatsapp).toBe('same')
   expect(page.url()).toContain('/appointments')
+
+  // Recent = latest registration/booking first (GET /patients?sort=recent): the new patient tops the list.
+  await page.getByRole('button', { name: 'Book appointment' }).click()
+  const again = page.getByRole('form', { name: 'Book appointment' })
+  await again.getByLabel('Find patient').click()
+  await expect(again.getByRole('listbox', { name: 'Recent patients' }).getByTestId('patient-option').first()).toContainText('Synthetic, Zz-Mobile')
 })
 
 test('mobile: phone search pre-fills +91; a duplicate phone offers "Use existing"', async ({ page }, info) => {

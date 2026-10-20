@@ -6,7 +6,7 @@ import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
 import { SelectField } from '../../components/ui/SelectField'
 import { FormField } from '../../components/ui/FormField'
-import { useCreateAppointment, useSlots } from '../../lib/api/hooks'
+import { useCreateAppointment, useSlots, useTenantCountryCode } from '../../lib/api/hooks'
 import { apiClient } from '../../lib/api/client'
 import { ApiError, fieldErrors, problemCode } from '../../lib/api/client'
 import { formatDayLabel, formatTime } from '../../lib/dates'
@@ -63,6 +63,7 @@ export function BookingPanel({
   // Inline "+ New patient": the shared register form, embedded in this drawer (slot etc. are kept).
   const [quick, setQuick] = useState<{ prefill: RegisterPatientState['prefill'] } | null>(null)
   const [focusConfirm, setFocusConfirm] = useState(0)
+  const countryCode = useTenantCountryCode()
   useEffect(() => {
     if (focusConfirm) confirmRef.current?.focus()
   }, [focusConfirm])
@@ -238,7 +239,7 @@ export function BookingPanel({
               if (p) setFocusConfirm((n) => n + 1)
             }}
             showRecent
-            onCreateNew={(term) => setQuick({ prefill: prefillFromTerm(term) })}
+            onCreateNew={(term) => setQuick({ prefill: prefillFromTerm(term, countryCode) })}
             registerReturn={{ to: `${location.pathname}${location.search}`, state: { booking: { practitionerId, date, slot } satisfies BookingDraft } }}
           />
         )}
