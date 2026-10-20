@@ -14,7 +14,8 @@ public sealed record CurrentUserDto(
     IReadOnlyList<BranchOptionDto> AccessibleBranches,
     IReadOnlyList<MembershipDto> Memberships,
     string? TimeZone = null,
-    bool IsPlatformAdmin = false);
+    bool IsPlatformAdmin = false,
+    IReadOnlyList<string>? Permissions = null);
 
 public sealed record CurrentTenantDto(Guid Id, string Code, string Name, Guid? ActiveBranchId, IReadOnlyList<string> Roles, string TimeZone);
 

@@ -99,7 +99,9 @@ public static class MeEndpoints
             // effective zone of the active branch (else the tenant zone): what "today" means for this user
             tenant.IsResolved ? tenant.TimeZoneFor(tenant.BranchId) : null,
             // drives the /platform console entry; grants NO tenant access (identity.is_platform_admin)
-            await RawSql.ScalarAsync(db, "select identity.is_platform_admin()", ct) is true));
+            await RawSql.ScalarAsync(db, "select identity.is_platform_admin()", ct) is true,
+            // effective permissions from server-side membership (HmsPermissions matrix); the UI only hides, the API enforces
+            tenant.EffectivePermissions()));
     }
 
     private static async Task<Results<NoContent, ProblemHttpResult>> SwitchContextAsync(
@@ -161,7 +163,7 @@ public static class MeEndpoints
     private static async Task<Results<Ok<CurrentTenantDto>, NotFound, ValidationProblem, ProblemHttpResult>> UpdateCurrentTenantAsync(
         UpdateTenantRequest request, IdentityDbContext db, ITenantContext tenant, CancellationToken ct)
     {
-        if (!tenant.HasAnyRole(HmsRoles.TenantAdmin))
+        if (!tenant.Can(HmsPermissions.SettingsManage))
         {
             return HmsProblems.Forbidden("Only tenant admins can change hospital settings.");
         }

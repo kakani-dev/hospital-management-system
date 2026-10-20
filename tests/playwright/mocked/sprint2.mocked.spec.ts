@@ -244,10 +244,10 @@ test.describe('2.3 check-in and OPD queue', () => {
     expect(perPatientFetches()).toEqual([])
   })
 
-  test('role-aware navigation: billing reads calendar and queue but cannot check in', async ({ page }) => {
+  test('role-aware navigation: billing reads the calendar, not the queue, and cannot check in', async ({ page }) => {
     await signIn(page, 'billing@alpha.example')
     await expect(nav(page, 'Appointments')).toBeVisible()
-    await expect(nav(page, 'OPD queue')).toBeVisible()
+    await expect(nav(page, 'OPD queue')).toHaveCount(0)
     await expect(nav(page, 'Schedules')).toBeVisible()
     await expect(nav(page, 'Check-in')).toHaveCount(0)
     await page.goto('/reception/check-in')

@@ -38,7 +38,7 @@ function routes(roles: string[], queue: () => unknown[], extra: Parameters<typeo
 
 describe('QueueBoardPage', () => {
   it('groups tokens by status for the branch-local day and requests ?branchId&date', async () => {
-    const calls = routes(['billing'], () => [entry('q3', 3, 'done'), entry('q1', 1, 'waiting'), entry('q2', 2, 'in_consultation'), entry('q4', 4, 'cancelled')])
+    const calls = routes(['receptionist'], () => [entry('q3', 3, 'done'), entry('q1', 1, 'waiting'), entry('q2', 2, 'in_consultation'), entry('q4', 4, 'cancelled')])
     renderWithProviders(<App />, { path: '/queue', auth: fakeAuthClient({ session: fakeSession() }) })
 
     const waiting = await screen.findByTestId('queue-waiting')
@@ -48,8 +48,8 @@ describe('QueueBoardPage', () => {
     expect(screen.getByTestId('queue-cancelled-count')).toHaveTextContent('1 token removed')
     await waitFor(() => expect(within(waiting).getByTestId('queue-entry')).toHaveTextContent('Synthetic-Alpha, Asha'))
     expect(within(waiting).getByTestId('queue-entry')).toHaveTextContent('Dr. Rao (synthetic) · walk-in')
-    // billing can read (REG_READ) but not move tokens
-    expect(screen.queryByRole('button', { name: /token 1/ })).not.toBeInTheDocument()
+    // RBAC: front desk (queue.manage) may move tokens; billing no longer sees the queue at all
+    expect(screen.getAllByRole('button', { name: /token 1/ }).length).toBeGreaterThan(0)
     const url = new URL(calls.find((c) => c.path === '/api/v1/queue')!.url, 'http://x')
     expect(Object.fromEntries(url.searchParams)).toEqual({ branchId: ALPHA_MAIN, date: today() })
     // API v2 patient summary: no per-patient fetches
@@ -57,14 +57,14 @@ describe('QueueBoardPage', () => {
   })
 
   it('patient: null (soft-deleted / not readable) shows "Patient unavailable" without fetching', async () => {
-    const calls = routes(['billing'], () => [entry('q1', 1, 'waiting', { patient: null })])
+    const calls = routes(['nurse'], () => [entry('q1', 1, 'waiting', { patient: null })])
     renderWithProviders(<App />, { path: '/queue', auth: fakeAuthClient({ session: fakeSession() }) })
     await waitFor(() => expect(screen.getByTestId('queue-entry')).toHaveTextContent('Patient unavailable'))
     expect(calls.filter((c) => c.path.startsWith('/api/v1/patients/'))).toEqual([])
   })
 
   it('looks a patient up only when the entry lacks the summary (older API)', async () => {
-    const calls = routes(['billing'], () => [entry('q1', 1, 'waiting', { patient: undefined })], {
+    const calls = routes(['nurse'], () => [entry('q1', 1, 'waiting', { patient: undefined })], {
       [`GET /api/v1/patients/${PATIENT_ID}`]: () => json(patientDetail),
     })
     renderWithProviders(<App />, { path: '/queue', auth: fakeAuthClient({ session: fakeSession() }) })

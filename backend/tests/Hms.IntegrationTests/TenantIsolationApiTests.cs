@@ -156,7 +156,7 @@ public sealed class TenantIsolationApiTests(HmsApiFactory factory) : IClassFixtu
     public async Task Writer_role_at_one_branch_does_not_allow_writes_at_another()
     {
         // Review M1 / PoC P2: billing (read-only) at Main + nurse at East.
-        var user = await CreateUserAsync("mixed", (Alpha, AlphaMain, "billing"), (Alpha, AlphaEast, "nurse"));
+        var user = await CreateUserAsync("mixed", (Alpha, AlphaMain, "billing"), (Alpha, AlphaEast, "receptionist") /* RBAC: nurses no longer write patients */);
         using var client = factory.ClientAs(user, Alpha);
         var atMain = await client.PostAsJsonAsync("/api/v1/patients", new { mrn = $"M-{Guid.NewGuid():N}"[..20], firstName = "Main", lastName = "Branch", registeredBranchId = AlphaMain });
         Assert.Equal(HttpStatusCode.Forbidden, atMain.StatusCode);

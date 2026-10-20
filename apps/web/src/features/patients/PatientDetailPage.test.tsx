@@ -27,9 +27,9 @@ const detail = {
 const emptyPage = { items: [], page: 1, pageSize: 25, totalCount: 0 }
 
 describe('PatientDetailPage', () => {
-  it('shows demographics; a nurse can edit but not delete', async () => {
+  it('shows demographics; a receptionist can edit (and delete)', async () => {
     const calls = stubFetch({
-      'GET /api/v1/me': () => json(meWithRoles(['nurse'])),
+      'GET /api/v1/me': () => json(meWithRoles(['receptionist'])),
       [`GET /api/v1/patients/${PID}`]: () => json(detail),
       [`PATCH /api/v1/patients/${PID}`]: (_u, init) => json({ ...detail, ...JSON.parse(String(init.body)) }),
     })
@@ -39,7 +39,7 @@ describe('PatientDetailPage', () => {
     const details = await screen.findByTestId('patient-details')
     expect(within(details).getByText('+91 98450 00001')).toBeInTheDocument()
     expect(within(details).getByText('Alpha Main')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Delete patient' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Delete patient' })).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Edit patient' }))
     const form = screen.getByRole('form', { name: 'Edit patient' })
@@ -68,7 +68,7 @@ describe('PatientDetailPage', () => {
   it('shows a WhatsApp badge when the phone is the WhatsApp number, else a WhatsApp line', async () => {
     const same = { ...detail, phone: '+919845000001', whatsappSameAsPhone: true, phones: [{ number: '+919845000001', isPrimary: true, isWhatsapp: true }] }
     stubFetch({
-      'GET /api/v1/me': () => json(meWithRoles(['nurse'])),
+      'GET /api/v1/me': () => json(meWithRoles(['receptionist'])),
       [`GET /api/v1/patients/${PID}`]: () => json(same),
     })
     const { unmount } = renderWithProviders(<App />, { path: `/patients/${PID}`, auth: fakeAuthClient({ session: fakeSession() }) })
@@ -87,7 +87,7 @@ describe('PatientDetailPage', () => {
       ],
     }
     const calls = stubFetch({
-      'GET /api/v1/me': () => json(meWithRoles(['nurse'])),
+      'GET /api/v1/me': () => json(meWithRoles(['receptionist'])),
       [`GET /api/v1/patients/${PID}`]: () => json(other),
       [`PATCH /api/v1/patients/${PID}`]: (_u, init) => json({ ...other, ...JSON.parse(String(init.body)) }),
     })
@@ -197,7 +197,7 @@ describe('PatientDetailPage', () => {
   it('edit form checks DOB against the patient\'s branch zone, not the workstation zone', async () => {
     workstationAt('America/New_York') // 2026-10-06 here, already 2026-10-07 at Alpha Main (IST)
     const calls = stubFetch({
-      'GET /api/v1/me': () => json(meWithRoles(['nurse'])),
+      'GET /api/v1/me': () => json(meWithRoles(['receptionist'])),
       'GET /api/v1/branches': () =>
         json([
           { id: ALPHA_MAIN, code: 'main', name: 'Alpha Main', timezone: 'Asia/Kolkata', isActive: true },

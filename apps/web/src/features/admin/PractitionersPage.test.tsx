@@ -93,6 +93,6 @@ describe('Practitioners admin', () => {
   it('is admin-only', async () => {
     stubFetch({ 'GET /api/v1/me': () => json(meWithRoles(['receptionist'])) })
     open()
-    expect(await screen.findByText('Only tenant admins can open this page.')).toBeInTheDocument()
+    expect(await screen.findByTestId('forbidden')).toHaveTextContent(/does not include access/i)
   })
 })

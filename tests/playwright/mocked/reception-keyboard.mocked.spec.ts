@@ -56,9 +56,12 @@ test('a doctor gets only the shortcuts of their role', async ({ page }) => {
   await signIn(page, 'doctor@alpha.example')
   await page.keyboard.press('Alt+KeyC')
   await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible()
+  // RBAC: doctors do not book, so Alt+K does nothing either
   await page.keyboard.press('Alt+KeyK')
-  await expect(page.getByRole('form', { name: 'Book appointment' })).toBeVisible()
-  await expect(page.getByRole('form', { name: 'Book appointment' }).getByLabel('Practitioner')).toBeFocused()
+  await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible()
+  await expect(page.getByRole('form', { name: 'Book appointment' })).toHaveCount(0)
+  await page.keyboard.press('Alt+KeyQ')
+  await expect(page).toHaveURL(/\/queue/)
 })
 
 test('combobox: no match → register new (pre-filled, nothing in the URL) → back with the patient selected', async ({ page }) => {

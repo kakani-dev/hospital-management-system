@@ -116,6 +116,6 @@ describe('Navigation by role', () => {
   it('blocks the members page for non-admins (UX guard)', async () => {
     stubFetch({ 'GET /api/v1/me': () => json(meFor({ roles: ['doctor'] })) })
     renderWithProviders(<App />, { path: '/admin/members', auth: fakeAuthClient({ session: fakeSession() }) })
-    expect(await screen.findByText(/only tenant admins/i)).toBeInTheDocument()
+    expect(await screen.findByTestId('forbidden')).toHaveTextContent(/does not include access/i)
   })
 })

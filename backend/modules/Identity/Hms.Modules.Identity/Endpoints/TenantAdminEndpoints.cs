@@ -52,7 +52,7 @@ public static class TenantAdminEndpoints
     // and deleted ones with ?includeDeleted=true (to restore them).
     private static async Task<Ok<List<BranchDto>>> ListBranchesAsync(IdentityDbContext db, ITenantContext tenant, bool? includeDeleted, CancellationToken ct)
     {
-        var isAdmin = tenant.HasAnyRole(HmsRoles.TenantAdmin);
+        var isAdmin = tenant.Can(HmsPermissions.BranchesManage);
         var query = db.Branches.AsNoTracking();
         if (isAdmin && includeDeleted == true)
         {
@@ -72,25 +72,25 @@ public static class TenantAdminEndpoints
         ?? tenant.TenantTimeZone;
 
     private static async Task<Results<NoContent, ProblemHttpResult>> DeleteBranchAsync(Guid id, IdentityDbContext db, ITenantContext tenant, CancellationToken ct) =>
-        await SoftDeleteAsync(db, tenant, "select identity.soft_delete_branch(@id)", id, "Only tenant admins can manage branches and members.", ct);
+        await SoftDeleteAsync(db, tenant, "select identity.soft_delete_branch(@id)", id, HmsPermissions.BranchesManage, "Only tenant admins can manage branches and members.", ct);
 
     private static async Task<Results<NoContent, ProblemHttpResult>> RestoreBranchAsync(Guid id, IdentityDbContext db, ITenantContext tenant, CancellationToken ct) =>
-        await SoftDeleteAsync(db, tenant, "select identity.restore_branch(@id)", id, "Only tenant admins can manage branches and members.", ct);
+        await SoftDeleteAsync(db, tenant, "select identity.restore_branch(@id)", id, HmsPermissions.BranchesManage, "Only tenant admins can manage branches and members.", ct);
 
     private static async Task<Results<NoContent, ProblemHttpResult>> DeleteMemberAsync(Guid id, IdentityDbContext db, ITenantContext tenant, CancellationToken ct) =>
-        await SoftDeleteAsync(db, tenant, "select identity.soft_delete_membership(@id)", id, "Only tenant admins can manage branches and members.", ct);
+        await SoftDeleteAsync(db, tenant, "select identity.soft_delete_membership(@id)", id, HmsPermissions.MembersManage, "Only tenant admins can manage branches and members.", ct);
 
     private static async Task<Results<NoContent, ProblemHttpResult>> RestoreMemberAsync(Guid id, IdentityDbContext db, ITenantContext tenant, CancellationToken ct) =>
-        await SoftDeleteAsync(db, tenant, "select identity.restore_membership(@id)", id, "Only tenant admins can manage branches and members.", ct);
+        await SoftDeleteAsync(db, tenant, "select identity.restore_membership(@id)", id, HmsPermissions.MembersManage, "Only tenant admins can manage branches and members.", ct);
 
     /// <summary>
     /// Soft delete / restore through the SQL functions (they own is_deleted). The DB decides
     /// 404 (unknown / other tenant / wrong state), 403 (not admin) and 409 (business conflict).
     /// </summary>
     internal static async Task<Results<NoContent, ProblemHttpResult>> SoftDeleteAsync(
-        DbContext db, ITenantContext tenant, string sql, Guid id, string forbiddenDetail, CancellationToken ct)
+        DbContext db, ITenantContext tenant, string sql, Guid id, string permission, string forbiddenDetail, CancellationToken ct)
     {
-        if (!tenant.HasAnyRole(HmsRoles.TenantAdmin))
+        if (!tenant.Can(permission))
         {
             return HmsProblems.Forbidden(forbiddenDetail);
         }
@@ -109,7 +109,7 @@ public static class TenantAdminEndpoints
     private static async Task<Results<Created<BranchDto>, ValidationProblem, ProblemHttpResult>> CreateBranchAsync(
         CreateBranchRequest request, IdentityDbContext db, ITenantContext tenant, CancellationToken ct)
     {
-        if (!tenant.HasAnyRole(HmsRoles.TenantAdmin))
+        if (!tenant.Can(HmsPermissions.BranchesManage))
         {
             return AdminOnly();
         }
@@ -144,7 +144,7 @@ public static class TenantAdminEndpoints
     private static async Task<Results<Ok<BranchDto>, NotFound, ValidationProblem, ProblemHttpResult>> UpdateBranchAsync(
         Guid id, UpdateBranchRequest request, IdentityDbContext db, ITenantContext tenant, CancellationToken ct)
     {
-        if (!tenant.HasAnyRole(HmsRoles.TenantAdmin))
+        if (!tenant.Can(HmsPermissions.BranchesManage))
         {
             return AdminOnly();
         }
@@ -205,7 +205,7 @@ public static class TenantAdminEndpoints
     private static async Task<Results<Ok<List<MemberDto>>, ProblemHttpResult>> ListMembersAsync(
         IdentityDbContext db, ITenantContext tenant, CancellationToken ct)
     {
-        if (!tenant.HasAnyRole(HmsRoles.TenantAdmin))
+        if (!tenant.Can(HmsPermissions.MembersManage))
         {
             return AdminOnly();
         }
@@ -234,7 +234,7 @@ public static class TenantAdminEndpoints
     private static async Task<Results<Accepted<AddMemberAcceptedDto>, ValidationProblem, ProblemHttpResult>> AddMemberAsync(
         AddMemberRequest request, IdentityDbContext db, ITenantContext tenant, CancellationToken ct)
     {
-        if (!tenant.HasAnyRole(HmsRoles.TenantAdmin))
+        if (!tenant.Can(HmsPermissions.MembersManage))
         {
             return AdminOnly();
         }
@@ -294,7 +294,7 @@ public static class TenantAdminEndpoints
     private static async Task<Results<Ok<MemberDto>, NotFound, ValidationProblem, ProblemHttpResult>> UpdateMemberAsync(
         Guid id, UpdateMemberRequest request, IdentityDbContext db, ITenantContext tenant, CancellationToken ct)
     {
-        if (!tenant.HasAnyRole(HmsRoles.TenantAdmin))
+        if (!tenant.Can(HmsPermissions.MembersManage))
         {
             return AdminOnly();
         }

@@ -48,8 +48,9 @@ select tests.ok((select count(*) from identity.memberships) = 4, 'tenant admin s
 
 -- Consultant: doctor in Alpha (East branch only)
 select tests.authenticate_as('consultant@shared.example', '{"app_metadata": {"tenant_id": "11111111-1111-4111-8111-111111111111"}}');
-select tests.throws_ok(
-  $$update patient.patients set registered_branch_id = 'a1111111-0000-4000-8000-000000000001' where id = 'aa000000-0000-4000-8000-000000000003'$$,
-  '42501', 'doctor cannot move a patient into a branch outside their branch scope');
+-- RBAC (20261020090000): doctors are view-only on patients, so the row is not even updatable
+select tests.ok(
+  tests.affected_rows($$update patient.patients set registered_branch_id = 'a1111111-0000-4000-8000-000000000001' where id = 'aa000000-0000-4000-8000-000000000003'$$) = 0,
+  'doctor cannot move (or edit) a patient');
 
 rollback;

@@ -25,7 +25,7 @@ public sealed class M1BranchScopedWriteApiTests(HmsApiFactory factory) : IClassF
 
     /// <summary>The reproduced P2 shape: billing (read-only) at Alpha Main, nurse (writer) at Alpha East.</summary>
     private static Task<Guid> BillingAtMainNurseAtEastAsync() =>
-        CreateUserAsync("m1-split", (Alpha, AlphaMain, "billing"), (Alpha, AlphaEast, "nurse"));
+        CreateUserAsync("m1-split", (Alpha, AlphaMain, "billing"), (Alpha, AlphaEast, "receptionist") /* RBAC: nurses no longer write patients */);
 
     // MRNs are server-generated (Level 1): the unique marker travels in the last name instead.
     private static object NewPatient(string marker, Guid branch) =>

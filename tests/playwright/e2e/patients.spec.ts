@@ -108,7 +108,7 @@ test.describe('patient registration', () => {
   test('lab technician cannot read the patient registry', async ({ page }) => {
     await signIn(page, users.alphaLab)
     await page.goto('/patients')
-    await expect(page.getByText('does not include access to the patient registry')).toBeVisible()
+    await expect(page.getByTestId('forbidden')).toContainText('does not include access')
     await expect(page.getByRole('link', { name: 'Register patient' })).toHaveCount(0)
   })
 })

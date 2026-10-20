@@ -35,7 +35,7 @@ public static class InviteLinkEndpoints
 
     private static async Task<Results<Ok<List<InviteLinkDto>>, ProblemHttpResult>> ListAsync(IdentityDbContext db, ITenantContext tenant, CancellationToken ct)
     {
-        if (!tenant.HasAnyRole(HmsRoles.TenantAdmin))
+        if (!tenant.Can(HmsPermissions.MembersManage))
         {
             return HmsProblems.Forbidden("Only tenant admins can manage invites.");
         }
@@ -53,7 +53,7 @@ public static class InviteLinkEndpoints
     private static async Task<Results<Created<InviteLinkIssuedDto>, ValidationProblem, ProblemHttpResult>> CreateAsync(
         CreateInviteLinkRequest request, IdentityDbContext db, ITenantContext tenant, CancellationToken ct)
     {
-        if (!tenant.HasAnyRole(HmsRoles.TenantAdmin))
+        if (!tenant.Can(HmsPermissions.MembersManage))
         {
             return HmsProblems.Forbidden("Only tenant admins can manage invites.");
         }
@@ -90,7 +90,7 @@ public static class InviteLinkEndpoints
 
     private static async Task<Results<NoContent, ProblemHttpResult>> RevokeAsync(Guid id, IdentityDbContext db, ITenantContext tenant, CancellationToken ct)
     {
-        if (!tenant.HasAnyRole(HmsRoles.TenantAdmin))
+        if (!tenant.Can(HmsPermissions.MembersManage))
         {
             return HmsProblems.Forbidden("Only tenant admins can manage invites.");
         }

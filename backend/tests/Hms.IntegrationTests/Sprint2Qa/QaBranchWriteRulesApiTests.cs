@@ -14,7 +14,7 @@ namespace Hms.IntegrationTests.Sprint2Qa;
 public sealed class QaBranchWriteRulesApiTests(HmsApiFactory factory) : IClassFixture<HmsApiFactory>
 {
     private static Task<Guid> BillingAtMainNurseAtEastAsync() =>
-        CreateUserAsync("s2qa-split", (Alpha, AlphaMain, "billing"), (Alpha, AlphaEast, "nurse"));
+        CreateUserAsync("s2qa-split", (Alpha, AlphaMain, "billing"), (Alpha, AlphaEast, "receptionist") /* RBAC: nurses no longer write patients */);
 
     [Fact]
     public async Task Patient_patch_needs_a_writer_role_at_the_current_branch_and_at_the_new_one()

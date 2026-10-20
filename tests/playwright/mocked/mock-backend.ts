@@ -619,7 +619,10 @@ export class MockBackend {
 
     if (!tenant) return reply(403, { title: 'No active hospital', status: 403 })
     const REG_READ = ['tenant_admin', 'doctor', 'nurse', 'receptionist', 'billing']
-    const REG_WRITE = ['tenant_admin', 'doctor', 'nurse', 'receptionist']
+    // RBAC (ADR 0001): patient create/edit and booking/reschedule/cancel = front office only
+    const REG_WRITE = ['tenant_admin', 'receptionist']
+    const NO_SHOW = ['tenant_admin', 'receptionist', 'nurse', 'doctor']
+    const QUEUE_READ = ['tenant_admin', 'doctor', 'nurse', 'receptionist']
     const FRONT_DESK = ['tenant_admin', 'receptionist', 'nurse']
     const has = (allowed: string[], held: string[] = roles) => held.some((r) => allowed.includes(r))
     const problem = (status: number, code?: string, extra: Record<string, unknown> = {}) => reply(status, { title: code ?? 'Error', status, ...(code ? { code } : {}), ...extra }, tenant)
@@ -913,7 +916,7 @@ export class MockBackend {
         return reply(200, withPatient(appt), tenant)
       }
       if (apptAction[2] === 'no-show') {
-        if (!has(REG_WRITE, rolesAt(appt.branchId))) return forbidden()
+        if (!has(NO_SHOW, rolesAt(appt.branchId))) return forbidden()
         if (appt.status !== 'booked' || appt.startsAt > new Date().toISOString()) return problem(409, 'invalid_transition')
         appt.status = 'no_show'
         return reply(200, withPatient(appt), tenant)
@@ -937,7 +940,7 @@ export class MockBackend {
     }
     if (method === 'GET' && path === '/api/v1/queue') {
       const branchId = url.searchParams.get('branchId')!
-      if (!has(REG_READ) || !canAccessBranch(branchId)) return forbidden()
+      if (!has(QUEUE_READ) || !canAccessBranch(branchId)) return forbidden()
       const date = url.searchParams.get('date') ?? branchToday()
       return reply(200, this.queue.filter((q) => q.tenantId === tenant && q.branchId === branchId && q.queueDate === date).sort((a, b) => a.tokenNo - b.tokenNo).map(withPatient), tenant)
     }

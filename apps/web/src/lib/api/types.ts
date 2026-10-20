@@ -110,6 +110,8 @@ export interface CurrentUser {
   timeZone?: string | null
   /** Platform operator (identity.platform_admins): opens /platform. Grants NO tenant access. */
   isPlatformAdmin?: boolean
+  /** Effective permissions in the active tenant, computed by the server from membership (RBAC). Newer API only. */
+  permissions?: string[] | null
 }
 
 /** GET /api/v1/tenants/current. `timeZone` (the hospital's required zone) comes with the audit/TZ API. */
