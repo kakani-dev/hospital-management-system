@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useLocation } from 'react-router'
+import { Link, useLocation } from 'react-router'
 import { RetryAlert } from '../../components/ui/RetryAlert'
 import { transientWriteMessage } from '../../lib/api/errors'
 import { Alert } from '../../components/ui/Alert'
@@ -12,6 +12,7 @@ import { formatDayLabel, formatTime } from '../../lib/dates'
 import type { Appointment, PatientSummary, Practitioner, Slot } from '../../lib/api/types'
 import { PatientPicker } from '../patients/PatientPicker'
 import { SlotPicker } from './SlotPicker'
+import { joinMissing, type BookableStatus } from './useBookablePractitioners'
 
 /** Booking panel fields that survive a round trip through "Register new patient" (router state). */
 export interface BookingDraft {
@@ -27,6 +28,8 @@ export function BookingPanel({
   initialDate,
   minDate,
   practitioners,
+  practitionersStatus = 'ready',
+  canManageSetup = false,
   onCancel,
   onBooked,
   initial,
@@ -36,6 +39,10 @@ export function BookingPanel({
   initialDate: string
   minDate: string
   practitioners: Practitioner[]
+  /** Load state of `practitioners`, so an empty list while loading isn't shown as "none". */
+  practitionersStatus?: BookableStatus
+  /** Tenant admin at this branch: the empty states link to practitioner and working-hours setup. */
+  canManageSetup?: boolean
   onCancel: () => void
   onBooked: (appointment: Appointment, message: string) => void
   /** Restored panel state, e.g. after "Register new patient" came back with the new patient. */
@@ -56,12 +63,15 @@ export function BookingPanel({
   }, [initial?.patient])
   const slots = useSlots(branchId, practitionerId, date)
   const create = useCreateAppointment()
+  const missing = [!practitionerId && 'a practitioner', !slot && 'a free slot', !patient && 'a patient'].filter((m): m is string => !!m)
+  const missingMessage = missing.length ? `Choose ${joinMissing(missing)}.` : null
+  const noPractitioners = practitionersStatus === 'ready' && practitioners.length === 0
 
   const submit = async () => {
     setError(null)
     setRetryable(false)
     if (!practitionerId || !slot || !patient) {
-      setError('Choose a practitioner, a free slot and a patient.')
+      setError(missingMessage)
       return
     }
     try {
@@ -115,12 +125,15 @@ export function BookingPanel({
         <SelectField
           label="Practitioner"
           value={practitionerId}
+          disabled={noPractitioners || practitionersStatus !== 'ready'}
           onChange={(e) => {
             setPractitionerId(e.target.value)
             setSlot(null)
           }}
         >
-          <option value="">Select a practitioner…</option>
+          <option value="">
+            {practitionersStatus === 'loading' ? 'Loading practitioners…' : noPractitioners ? 'No practitioners available' : 'Select a practitioner…'}
+          </option>
           {practitioners.map((p) => (
             <option key={p.id} value={p.id}>
               {p.displayName}
@@ -128,6 +141,28 @@ export function BookingPanel({
             </option>
           ))}
         </SelectField>
+        {practitionersStatus === 'error' && <Alert tone="error">Practitioners could not be loaded. Close and try again.</Alert>}
+        {noPractitioners && (
+          <div data-testid="no-practitioners">
+            <Alert tone="warning">
+              <p>No practitioner can be booked at this branch: none has current working hours here.</p>
+              {canManageSetup ? (
+                <p className="mt-1">
+                  <Link className="font-medium underline" to="/admin/practitioners">
+                    Set up practitioners
+                  </Link>{' '}
+                  and{' '}
+                  <Link className="font-medium underline" to="/admin/working-hours">
+                    add working hours
+                  </Link>{' '}
+                  for this branch.
+                </p>
+              ) : (
+                <p className="mt-1">Ask a hospital admin to add practitioners and working hours for this branch.</p>
+              )}
+            </Alert>
+          </div>
+        )}
         <FormField
           label="Appointment date"
           type="date"
@@ -138,7 +173,26 @@ export function BookingPanel({
             setSlot(null)
           }}
         />
-        <SlotPicker timeZone={timeZone} practitionerId={practitionerId} slots={slots} value={slot} onChange={setSlot} />
+        <SlotPicker
+          timeZone={timeZone}
+          practitionerId={practitionerId}
+          slots={slots}
+          value={slot}
+          onChange={setSlot}
+          emptyHint={
+            canManageSetup ? (
+              <>
+                Try another date, or{' '}
+                <Link className="font-medium underline" to="/admin/working-hours">
+                  check working hours
+                </Link>
+                .
+              </>
+            ) : (
+              'Try another date or practitioner.'
+            )
+          }
+        />
       </div>
       <div className="space-y-4">
         <PatientPicker
@@ -153,8 +207,18 @@ export function BookingPanel({
           {retryable ? <RetryAlert message={error} onRetry={() => void submit()} busy={create.isPending} /> : <Alert tone="error">{error}</Alert>}
         </div>
       )}
+      {missingMessage && !error && (
+        <p id="booking-missing" className="text-sm text-gray-600 dark:text-dark-200 md:col-span-2" data-testid="booking-missing">
+          {missingMessage}
+        </p>
+      )}
       <div className="flex gap-2 md:col-span-2">
-        <Button ref={confirmRef} type="submit" disabled={create.isPending}>
+        <Button
+          ref={confirmRef}
+          type="submit"
+          disabled={create.isPending || !!missingMessage}
+          aria-describedby={missingMessage && !error ? 'booking-missing' : undefined}
+        >
           {create.isPending ? 'Booking…' : 'Confirm booking'}
         </Button>
         <Button variant="secondary" onClick={onCancel}>

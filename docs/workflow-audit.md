@@ -9,7 +9,7 @@ shots/before/audit.json); full-stack local Playwright (55 specs) on a throwaway 
 |---|-----|-------|----------|--------|
 | B1 | Pages scroll sideways on phones (Branches +216px, Members +218, Practitioners +316, Working hours +470, Staff schedule +714, Platform requests +492; Staff schedule also +198px on desktop). Edit-branch drawer partly off screen. | Pixel 7 → /admin/branches, swipe left | High (mobile unusable) | Fixed in PR (root cause: `sr-only` header text inside the table scroller had no positioned ancestor, so it escaped `overflow-x-auto` and widened the page) |
 | B2 | No follow-up booking: after a visit there is no way to book the next one without re-picking patient and doctor | Queue → Mark done → nothing | High (missing workflow) | Fixed: "Book follow-up" on calendar (checked-in / in consultation / completed) and queue (in room / done) |
-| B3 | Branch with no practitioners: booking form shows an empty doctor list with no explanation | Book at a branch with no doctors | Medium | Fixed: empty state + "Add a practitioner" link for admins |
+| B3 | Branch with no practitioners: booking form shows an empty doctor list with no explanation | Book at a branch with no doctors | Medium | Fixed by PR #12 (booking-form): in-panel empty state with setup links |
 | B4 | Booking error "Choose a practitioner, a free slot and a patient" even when patient chosen; practitioner list | — | Medium | Owned by fix/booking-form (not touched here) |
 | B5 | Nav shows links a role can't open (e.g. Patients) | Sign in as lab tech | Medium | Owned by feat/rbac (not touched here) |
 | B6 | /api/v1/warmup returns 429 on repeated full page loads (console error, harmless) | Reload pages quickly | Low | Open — the warm-up should be once per session |
@@ -21,7 +21,7 @@ shots/before/audit.json); full-stack local Playwright (55 specs) on a throwaway 
 | Task | Before | After |
 |------|--------|-------|
 | Book a follow-up after a visit (queue → booking ready to confirm) | 7–8 (Appointments, Book, pick doctor, type name, pick patient, slot, confirm) | 3 (Book follow-up, slot, confirm) |
-| Find out why nothing can be booked at a branch | dead end | 1 (link to Practitioners) |
+| Find out why nothing can be booked at a branch | dead end | 1 (link in booking panel, PR #12) |
 | Edit a branch on a phone | panel cut off, needs sideways panning | page fits; table scrolls inside its card |
 | Register patient from booking search | already inline (no change) | — |
 

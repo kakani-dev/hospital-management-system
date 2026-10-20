@@ -39,9 +39,4 @@ describe('Book follow-up', () => {
     expect(within(item).queryByRole('button', { name: 'Book follow-up' })).not.toBeInTheDocument()
   })
 
-  it('a branch without practitioners shows an empty state with the next step', async () => {
-    routes({ 'GET /api/v1/practitioners': () => json([]), 'GET /api/v1/appointments': () => json(paged([])) })
-    renderWithProviders(<App />, { path: `/appointments?branch=${ALPHA_MAIN}`, auth: fakeAuthClient({ session: fakeSession() }) })
-    expect(await screen.findByTestId('no-practitioners')).toHaveTextContent('No practitioners work at this branch yet')
-  })
 })

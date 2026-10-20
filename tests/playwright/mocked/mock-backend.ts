@@ -863,7 +863,7 @@ export class MockBackend {
       const to = url.searchParams.get('to')!
       const slots: unknown[] = []
       for (let d = from; d <= to; d = addDays(d, 1)) {
-        for (const s of schedules.filter((x) => x.tenantId === tenant && x.branchId === branchId && x.weekday === isoWeekday(d) && (!practitionerId || x.practitionerId === practitionerId))) {
+        for (const s of schedules.filter((x) => x.tenantId === tenant && x.branchId === branchId && x.isActive && x.validFrom <= d && (!x.validTo || x.validTo >= d) && x.weekday === isoWeekday(d) && (!practitionerId || x.practitionerId === practitionerId))) {
           for (let start = branchInstant(d, s.startTime); start < branchInstant(d, s.endTime); ) {
             const end = new Date(Date.parse(start) + s.slotMinutes * 60_000).toISOString()
             const taken = this.appointments.some((a) => a.practitionerId === s.practitionerId && BLOCKING.includes(a.status) && a.startsAt < end && a.endsAt > start)

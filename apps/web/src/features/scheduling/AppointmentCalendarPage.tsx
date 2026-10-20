@@ -19,7 +19,7 @@ import { rolesAtBranch, useCurrentContext } from '../tenancy/useCurrentContext'
 import { useBranchSelection } from '../tenancy/useBranchSelection'
 import { BranchNotice } from '../tenancy/BranchNotice'
 import { useCalendarParams } from './useCalendarParams'
-import { useBookablePractitioners } from './useBookablePractitioners'
+import { useBookablePractitionersState } from './useBookablePractitioners'
 import { BookingPanel, type BookingDraft } from './BookingPanel'
 import { ReschedulePanel } from './ReschedulePanel'
 import { Drawer } from '@tailux/components/shared/Drawer'
@@ -30,7 +30,7 @@ import { FOLLOW_UP_STATUSES, followUpInitial } from './followUp'
 export const CALENDAR_REFRESH_MS = 30_000
 
 export function AppointmentCalendarPage() {
-  const { me, isAdmin } = useCurrentContext()
+  const { me } = useCurrentContext()
   const { branches, branchId, timeZone, timeZoneReady, timeZoneMissing, setBranchId } = useBranchSelection()
   const cal = useCalendarParams(timeZone, 'day')
   const [practitionerFilter, setPractitionerFilter] = useState('')
@@ -60,7 +60,8 @@ export function AppointmentCalendarPage() {
 
   // Tenant-wide list for names; the branch list for the filter and the booking picker.
   const practitioners = usePractitioners()
-  const bookable = useBookablePractitioners(branchId)
+  const bookableState = useBookablePractitionersState(branchId)
+  const bookable = bookableState.practitioners
   const practitionerName = (id: string) => practitioners.data?.find((p) => p.id === id)?.displayName ?? 'Unknown practitioner'
 
   const appointments = useAppointments(
@@ -159,6 +160,8 @@ export function AppointmentCalendarPage() {
             initialDate={cal.date < cal.today ? cal.today : cal.date}
             minDate={cal.today}
             practitioners={bookable}
+            practitionersStatus={bookableState.status}
+            canManageSetup={rolesAtBranch(me.data, branchId).includes('tenant_admin')}
             key={followUp ? `fu-${followUp.patient.id}` : 'new'}
             initial={followUp ?? restored ?? undefined}
             onCancel={() => setBooking(false)}
@@ -268,20 +271,6 @@ export function AppointmentCalendarPage() {
         )}
       </ConfirmDialog>
       <BranchNotice branchId={branchId} timeZoneMissing={timeZoneMissing} />
-      {!!branchId && practitioners.isSuccess && bookable.length === 0 && (
-        <Alert tone="info">
-          <span data-testid="no-practitioners">
-            No practitioners work at this branch yet, so nothing can be booked.{' '}
-            {isAdmin ? (
-              <Link to="/admin/practitioners" className="font-medium underline">
-                Add a practitioner
-              </Link>
-            ) : (
-              'Ask a hospital admin to add one.'
-            )}
-          </span>
-        </Alert>
-      )}
       {appointments.isError && <Alert tone="warning">Appointments are unavailable right now.</Alert>}
       <div
         className={`${cal.view === 'week' ? 'grid gap-3 md:grid-cols-7' : ''} transition-opacity ${appointments.isPlaceholderData ? 'opacity-60' : ''}`}
