@@ -7,7 +7,12 @@ describe('can (RBAC matrix, ADR 0001)', () => {
   it('gates capabilities by role', () => {
     expect(can(['receptionist'], 'appointments.book')).toBe(true)
     expect(can(['doctor'], 'appointments.book')).toBe(false)
-    expect(can(['nurse'], 'appointments.book')).toBe(false)
+    expect(can(['nurse'], 'appointments.book')).toBe(true) // business rules 2026-10-20
+    // doctors: no free booking (hidden "Book appointment"), only follow-ups of their own patients
+    expect(can(['doctor'], 'appointments.bookFollowUp')).toBe(true)
+    expect(can(['billing'], 'appointments.bookFollowUp')).toBe(false)
+    expect(can(['tenant_admin'], 'appointments.overrideHours')).toBe(true)
+    expect(can(['receptionist'], 'appointments.overrideHours')).toBe(false)
     expect(can(['billing'], 'appointments.book')).toBe(false)
     expect(can(['billing'], 'appointments.view')).toBe(true)
     expect(can(['receptionist'], 'queue.checkIn')).toBe(true)

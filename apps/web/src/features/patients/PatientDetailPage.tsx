@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
+import { ageOn } from './patientLabel'
+import { localToday } from '../../lib/dates'
 import { Link, useNavigate, useParams } from 'react-router'
 import { Badge } from '@tailux/components/ui'
 import { Card } from '../../components/ui/Card'
@@ -82,10 +84,12 @@ export function PatientDetailPage() {
           <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2" data-testid="patient-details">
             <Field label="MRN" value={p.mrn} />
             <Field label="Date of birth" value={p.dateOfBirth ?? '—'} />
+            <Field label="Age" value={ageOn(p.dateOfBirth, localToday()) ?? '—'} />
             <Field label="Sex" value={p.sex} />
             <Field label="Registered branch" value={branchName} />
             <PhoneFields patient={p} />
             <Field label="Email" value={p.email ?? '—'} />
+            <Field label="ABHA number" value={p.abhaNumber ?? '—'} />
           </dl>
           {(canWrite || canDelete) && (
             <div className="mt-4 flex flex-wrap gap-2">
@@ -181,6 +185,7 @@ function EditPatientForm({
       // Reflects the stored state; with no number stored yet, "same" is the default (as on register).
       whatsappSameAsPhone: patient.phones?.length ? !!patient.whatsappSameAsPhone : true,
       whatsappNumber: patient.phones?.find((x) => x.isWhatsapp && !x.isPrimary)?.number ?? '',
+      abhaNumber: patient.abhaNumber ?? '',
     },
   })
 
@@ -244,6 +249,14 @@ function EditPatientForm({
         </SelectField>
         <FormField label="Phone (optional)" type="tel" autoComplete="off" error={errors.phone?.message} {...register('phone')} />
         <FormField label="Email (optional)" type="email" autoComplete="off" error={errors.email?.message} {...register('email')} />
+        <FormField
+          label="ABHA number (optional)"
+          inputMode="numeric"
+          autoComplete="off"
+          placeholder="XX-XXXX-XXXX-XXXX"
+          error={errors.abhaNumber?.message}
+          {...register('abhaNumber')}
+        />
         <WhatsappFields control={control} register={register} errors={errors} />
         <div className="flex gap-2 sm:col-span-2">
           <Button type="submit" disabled={isSubmitting}>

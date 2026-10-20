@@ -29,6 +29,17 @@ describe('Book follow-up', () => {
     await waitFor(() => expect(within(form).getByLabelText('Practitioner')).toHaveValue(DR_RAO))
     expect(form).toHaveTextContent('Synthetic-Alpha, Asha')
     expect(screen.getByRole('heading', { name: 'Book follow-up' })).toBeInTheDocument()
+    // linked to the earlier visit (parentAppointmentId is sent with the booking)
+    expect(within(form).getByTestId('follow-up-link')).toBeInTheDocument()
+  })
+
+  it('a doctor sees neither "Book appointment" nor a follow-up of another practitioner\'s patient', async () => {
+    routes({ 'GET /api/v1/me': () => json(meWithRoles(['doctor'], ALPHA_MAIN)) })
+    renderWithProviders(<App />, { path: `/appointments?branch=${ALPHA_MAIN}`, auth: fakeAuthClient({ session: fakeSession() }) })
+    const item = await screen.findByTestId('appointment')
+    await waitFor(() => expect(item).toHaveTextContent('Synthetic-Alpha, Asha'))
+    expect(within(item).queryByRole('button', { name: 'Book follow-up' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Book appointment' })).not.toBeInTheDocument()
   })
 
   it('a booked appointment does not offer a follow-up', async () => {

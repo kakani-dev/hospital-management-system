@@ -14,7 +14,7 @@ import { can } from '../../lib/permissions'
 import { latestToday, localToday } from '../../lib/dates'
 import { useBranchTimeZones } from '../../lib/useBranchTimeZone'
 import { Button } from '../../components/ui/Button'
-import { exactMrnFirst } from './patientLabel'
+import { ageOn, exactMrnFirst } from './patientLabel'
 import type { PatientSummary } from '../../lib/api/types'
 
 export function PatientListPage() {
@@ -90,7 +90,7 @@ export function PatientListPage() {
           </Link>
         ),
     },
-    { id: 'dob', accessorFn: (p) => p.dateOfBirth ?? '', header: 'Date of birth', cell: ({ row }) => row.original.dateOfBirth ?? '—' },
+    { id: 'dob', accessorFn: (p) => p.dateOfBirth ?? '', header: 'Date of birth', cell: ({ row }) => (row.original.dateOfBirth ? `${row.original.dateOfBirth} (${ageOn(row.original.dateOfBirth, localToday()) ?? '—'})` : '—') },
     { id: 'sex', accessorKey: 'sex', header: 'Sex', cell: ({ row }) => <span className="capitalize">{row.original.sex}</span> },
     { id: 'branch', accessorFn: (p) => branchName(p.registeredBranchId), header: 'Branch' },
   ]
