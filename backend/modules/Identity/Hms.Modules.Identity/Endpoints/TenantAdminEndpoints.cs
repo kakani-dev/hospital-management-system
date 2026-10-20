@@ -1,3 +1,5 @@
+using Microsoft.Extensions.DependencyInjection;
+using Hms.Modules.Identity.Caching;
 using Hms.Platform.Http;
 using Hms.Modules.Identity.Domain;
 using Hms.Modules.Identity.Persistence;
@@ -22,7 +24,8 @@ public static class TenantAdminEndpoints
 {
     public static RouteGroupBuilder MapTenantAdminEndpoints(this RouteGroupBuilder api)
     {
-        var branches = api.MapGroup("/branches").WithTags("Tenant admin").RequireTenant().WithDbTransaction<IdentityDbContext>();
+        var branches = api.MapGroup("/branches").WithTags("Tenant admin").RequireTenant().WithDbTransaction<IdentityDbContext>()
+            .AddEndpointFilter(InvalidateReferenceCacheOnWrite);
         branches.MapGet("/", ListBranchesAsync).WithName("ListBranches");
         branches.MapPost("/", CreateBranchAsync).WithName("CreateBranch");
         branches.MapPatch("/{id:guid}", UpdateBranchAsync).WithName("UpdateBranch");
@@ -50,9 +53,48 @@ public static class TenantAdminEndpoints
 
     // Any member may list branches of their tenant (needed for forms); admins see inactive ones too,
     // and deleted ones with ?includeDeleted=true (to restore them).
-    private static async Task<Ok<List<BranchDto>>> ListBranchesAsync(IdentityDbContext db, ITenantContext tenant, bool? includeDeleted, CancellationToken ct)
+    private static async Task<Ok<List<BranchDto>>> ListBranchesAsync(
+        IdentityDbContext db, ITenantContext tenant, TenantReferenceCache cache, bool? includeDeleted, CancellationToken ct)
     {
         var isAdmin = tenant.Can(HmsPermissions.BranchesManage);
+        var deleted = isAdmin && includeDeleted == true;
+        // Keyed by the server-derived tenant + the only inputs that change the rows (admin view, deleted).
+        var list = await cache.GetOrCreateAsync(tenant.TenantId, "branches", $"admin={isAdmin};deleted={deleted}",
+            () => LoadBranchesAsync(db, tenant, isAdmin, includeDeleted, ct)).ConfigureAwait(false);
+        return TypedResults.Ok(list.ToList());
+    }
+
+    /// <summary>
+    /// Any write under /branches (or to the tenant settings) evicts the tenant's cached reference
+    /// reads: once before the handler and once after the response, i.e. after the transaction commits.
+    /// </summary>
+    internal static async ValueTask<object?> InvalidateReferenceCacheOnWrite(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
+    {
+        var http = context.HttpContext;
+        if (HttpMethods.IsGet(http.Request.Method) || HttpMethods.IsHead(http.Request.Method))
+        {
+            return await next(context).ConfigureAwait(false);
+        }
+
+        var tenant = http.RequestServices.GetRequiredService<ITenantContext>();
+        var cache = http.RequestServices.GetRequiredService<TenantReferenceCache>();
+        if (tenant.IsResolved)
+        {
+            var tenantId = tenant.TenantId;
+            cache.Invalidate(tenantId);
+            http.Response.OnCompleted(() =>
+            {
+                cache.Invalidate(tenantId);
+                return Task.CompletedTask;
+            });
+        }
+
+        return await next(context).ConfigureAwait(false);
+    }
+
+    private static async Task<IReadOnlyList<BranchDto>> LoadBranchesAsync(
+        IdentityDbContext db, ITenantContext tenant, bool isAdmin, bool? includeDeleted, CancellationToken ct)
+    {
         var query = db.Branches.AsNoTracking();
         if (isAdmin && includeDeleted == true)
         {
@@ -62,9 +104,9 @@ public static class TenantAdminEndpoints
         var rows = await query
             .Where(b => b.TenantId == tenant.TenantId && (isAdmin || b.IsActive))
             .OrderBy(b => b.Name)
-            .ToListAsync(ct);
-        var zone = await TenantZoneAsync(db, tenant, ct);
-        return TypedResults.Ok(rows.Select(b => ToDto(b, zone)).ToList());
+            .ToListAsync(ct).ConfigureAwait(false);
+        var zone = await TenantZoneAsync(db, tenant, ct).ConfigureAwait(false);
+        return rows.Select(b => ToDto(b, zone)).ToList().AsReadOnly();
     }
 
     private static async Task<string> TenantZoneAsync(IdentityDbContext db, ITenantContext tenant, CancellationToken ct) =>

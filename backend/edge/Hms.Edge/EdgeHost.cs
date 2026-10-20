@@ -139,6 +139,7 @@ public static partial class EdgeHost
         app.UseAuthentication();
         app.UseRateLimiter();
         app.UseAuthorization();
+        app.Use(ReferenceETag.InvokeAsync);
 
         app.MapGet("/health/live", () => Results.Json(new { status = "Healthy" })).AllowAnonymous();
         app.MapGet("/health/ready", async (UpstreamProbe probe, HttpContext ctx) =>
@@ -187,7 +188,8 @@ public static partial class EdgeHost
             headers["X-Frame-Options"] = "DENY";
             headers["Referrer-Policy"] = "no-referrer";
             headers.Remove("Server");
-            if (context.Request.Path.StartsWithSegments("/api"))
+            // Revalidatable reference reads (ReferenceETag) keep "private, no-cache"; all else is no-store.
+            if (context.Request.Path.StartsWithSegments("/api") && !(headers.ContainsKey("ETag") && headers.CacheControl == ReferenceETag.CacheControlValue))
             {
                 headers.CacheControl = "no-store";
             }

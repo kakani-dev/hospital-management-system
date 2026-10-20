@@ -71,12 +71,12 @@ export function useApiHealth() {
 }
 
 export function useMe(enabled = true) {
-  return useQuery({ queryKey: queryKeys.me, queryFn: () => apiClient.me(), retry: false, enabled, staleTime: 60_000 })
+  return useQuery({ queryKey: queryKeys.me, queryFn: () => apiClient.me(), retry: false, enabled })
 }
 
 /** The active hospital; only fetched when a zone is missing from /me and /branches. */
 export function useCurrentTenant(enabled = true) {
-  return useQuery({ queryKey: queryKeys.currentTenant, queryFn: () => apiClient.currentTenant(), retry: false, enabled, staleTime: 5 * 60_000 })
+  return useQuery({ queryKey: queryKeys.currentTenant, queryFn: () => apiClient.currentTenant(), retry: false, enabled })
 }
 
 /** Debounced patient search term (ms). */
@@ -183,7 +183,6 @@ export function usePatientLookup(ids: readonly string[]): (id: string) => Patien
       queryKey: queryKeys.patient(id),
       queryFn: () => apiClient.patients.get(id),
       retry: false,
-      staleTime: 5 * 60_000,
     })),
   })
   const byId = new Map<string, PatientDetail | null | undefined>()
@@ -310,7 +309,7 @@ export function useUpdateMember() {
 // ----------------------------------------------------------------- Sprint 2: scheduling + OPD
 
 export function usePractitioners() {
-  return useQuery({ queryKey: queryKeys.practitioners, queryFn: () => apiClient.practitioners.list(), retry: false, staleTime: 60_000 })
+  return useQuery({ queryKey: queryKeys.practitioners, queryFn: () => apiClient.practitioners.list(), retry: false })
 }
 
 export interface BranchPractitioners {
@@ -336,7 +335,6 @@ export function useBranchPractitioners(branchId: string | null) {
     },
     enabled: !!branchId,
     retry: false,
-    staleTime: 60_000,
   })
 }
 
@@ -346,7 +344,6 @@ export function useSchedules(branchId: string | null) {
     queryFn: () => apiClient.schedules.list({ branchId: branchId! }),
     enabled: !!branchId,
     retry: false,
-    staleTime: 60_000,
   })
 }
 
@@ -391,7 +388,7 @@ export function useCreateAppointment() {
   return useMutation({
     mutationFn: (body: CreateAppointmentRequest) => apiClient.appointments.create(body),
     // Refetch on conflicts too: the calendar and the slot list are stale either way.
-    onSettled: () => qc.invalidateQueries({ queryKey: ['appointments'] }),
+    onSettled: () => Promise.all([qc.invalidateQueries({ queryKey: ['appointments'] }), qc.invalidateQueries({ queryKey: ['queue'] })]),
   })
 }
 
@@ -501,7 +498,6 @@ export function usePatientStats(branchId: string | null, enabled = true) {
     queryFn: () => apiClient.patients.stats(branchId ? { branchId } : {}),
     enabled,
     retry: false,
-    staleTime: 30_000,
   })
 }
 
@@ -512,7 +508,6 @@ export function useAppointmentCount(query: AppointmentQuery | null) {
     queryFn: async () => (await apiClient.appointments.list({ ...query!, page: 1, pageSize: 1 })).totalCount,
     enabled: !!query?.branchId,
     retry: false,
-    staleTime: 30_000,
   })
 }
 

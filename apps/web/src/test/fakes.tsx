@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { render } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { configureCachePolicy } from '../lib/api/cachePolicy'
 import { vi } from 'vitest'
 import type { Session } from '@supabase/supabase-js'
 import { AuthProvider, type AuthClient } from '../features/auth/AuthProvider'
@@ -134,7 +135,7 @@ export function renderWithProviders(
   ui: ReactNode,
   { path = '/', auth, idleTimeoutMs, queryClient }: { path?: string; auth: AuthClient | null; idleTimeoutMs?: number; queryClient?: QueryClient },
 ) {
-  const client = queryClient ?? new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const client = queryClient ?? configureCachePolicy(new QueryClient({ defaultOptions: { queries: { retry: false } } }))
   const result = render(
     <QueryClientProvider client={client}>
       <AuthProvider client={auth} idleTimeoutMs={idleTimeoutMs}>
