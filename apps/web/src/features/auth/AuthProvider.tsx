@@ -3,6 +3,7 @@ import type { Session, SupabaseClient } from '@supabase/supabase-js'
 import { useQueryClient } from '@tanstack/react-query'
 import { apiClient, configureApiAuth, configureResolvedTenantListener, configureUnauthorizedHandler } from '../../lib/api/client'
 import { queryKeys } from '../../lib/api/hooks'
+import { clearPersistedCache, restoreCache, startPersisting } from '../../lib/api/cachePersist'
 import type { CurrentUser } from '../../lib/api/types'
 import { openAuthChannel, type AuthChannel } from '../../lib/auth/authChannel'
 import { tenantFromAccessToken } from '../../lib/auth/jwt'
@@ -80,6 +81,7 @@ export function AuthProvider({
   const channelRef = useRef<AuthChannel | null>(null)
 
   const resetCache = useCallback(() => {
+    clearPersistedCache()
     queryClient.clear()
     lastResetAtRef.current = now()
     setCacheEpoch((e) => e + 1)
@@ -122,6 +124,20 @@ export function AuthProvider({
     [resetCache],
   )
 
+  // Persist reference queries for the signed-in user + token tenant (sessionStorage, never PHI).
+  const sessionRef = useRef<Session | null>(null)
+  useEffect(() => {
+    sessionRef.current = session
+  }, [session])
+  useEffect(
+    () =>
+      startPersisting(queryClient, () => {
+        const current = sessionRef.current
+        return current && userIdRef.current === current.user.id ? { userId: current.user.id, tenantId: tenantFromAccessToken(current.access_token) } : null
+      }),
+    [queryClient],
+  )
+
   /**
    * Drops this tab's own stored session (sessionStorage) after a sign-out that happened elsewhere
    * (another tab's sign-out/idle logoff, broadcast by supabase-js or our channel). Otherwise a
@@ -148,6 +164,8 @@ export function AuthProvider({
     void client.getSession().then(({ data }) => {
       if (!active) return
       userIdRef.current = data.session?.user.id ?? null
+      // Cache-first reload: serve the user's reference data (same tenant only) before any route mounts.
+      if (data.session) restoreCache(queryClient, { userId: data.session.user.id, tenantId: tenantFromAccessToken(data.session.access_token) })
       setSession(data.session)
       setLoading(false)
     })
@@ -172,7 +190,7 @@ export function AuthProvider({
       active = false
       data.subscription.unsubscribe()
     }
-  }, [client, checkResolvedTenant, handleSignedOut, resetCache, purgeLocalSession])
+  }, [client, queryClient, checkResolvedTenant, handleSignedOut, resetCache, purgeLocalSession])
 
   // Explicit sign-out in another HMS tab: drop this tab's own (sessionStorage) copy of the session too.
   useEffect(() => {
@@ -234,6 +252,7 @@ export function AuthProvider({
       if (!client) return { error: 'Authentication is not configured.' }
       const { data, error } = await client.signInWithPassword({ email, password })
       if (error) return { error: error.message || 'Sign-in failed.' }
+      clearPersistedCache()
       queryClient.clear()
       userIdRef.current = data.session?.user.id ?? null
       setSignedOutReason(null)

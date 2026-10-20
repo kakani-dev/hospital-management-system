@@ -57,6 +57,7 @@ public static class MeEndpoints
             .WithDbTransaction<IdentityDbContext>()
             .WithTags("Identity")
             .WithName("UpdateCurrentTenant")
+            .AddEndpointFilter(TenantAdminEndpoints.InvalidateReferenceCacheOnWrite)
             .WithSummary("Tenant settings (tenant_admin): name and the REQUIRED IANA time zone. 409 time_zone_locked while today's queue has entries; 409 time_zone_has_future_bookings (futureBookings = N) until confirmFutureBookings = true.");
 
         return api;

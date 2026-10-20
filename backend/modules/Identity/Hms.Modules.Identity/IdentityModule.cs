@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Hms.Modules.Identity.Endpoints;
 using Hms.Modules.Identity.Persistence;
 using Hms.Platform.Persistence;
@@ -18,6 +19,9 @@ public static class IdentityModule
     public static IServiceCollection AddIdentityModule(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddHmsDbSession();
+        services.AddMemoryCache();
+        services.TryAddSingleton(TimeProvider.System);
+        services.AddSingleton<Caching.TenantReferenceCache>();
         services.AddDbContext<IdentityDbContext>((sp, options) => options
             .UseHmsNpgsql(configuration)
             .AddInterceptors(
