@@ -21,8 +21,14 @@ public interface IPatientRegistryFunctions
     /// <summary><c>patient.soft_delete_patient</c>: P0002 not found/deleted, 42501, 55000 open appointments/queue, 22023 reason too long.</summary>
     Task SoftDeleteAsync(Guid patientId, string? reason, CancellationToken ct);
 
-    /// <summary><c>patient.restore_patient</c>: tenant_admin only; P0002 when not found / not deleted.</summary>
+    /// <summary><c>patient.restore_patient</c>: tenant_admin only; P0002 when not found / not deleted; 55000 when the chart was merged.</summary>
     Task RestoreAsync(Guid patientId, CancellationToken ct);
+
+    /// <summary>
+    /// <c>patient.merge_patients</c>: tenant_admin only. P0002 unknown or another hospital, 42501, 22023 bad reason
+    /// or a chart that cannot be merged. A second call for the same pair succeeds and changes nothing.
+    /// </summary>
+    Task MergeAsync(Guid survivorId, Guid duplicateId, string reason, CancellationToken ct);
 
     /// <summary><c>identity.tenant_default_country_code_v1</c>: the caller's own tenant calling code (e.g. +91); null if not a member.</summary>
     Task<string?> DefaultCountryCodeAsync(Guid tenantId, CancellationToken ct);

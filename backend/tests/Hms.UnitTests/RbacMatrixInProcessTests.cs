@@ -23,6 +23,7 @@ public sealed class RbacMatrixInProcessTests(ApiFactory factory) : IClassFixture
         ("patients.edit", HttpMethod.Patch, $"/api/v1/patients/{Missing}", HmsPermissions.PatientsEdit),
         ("patients.delete", HttpMethod.Delete, $"/api/v1/patients/{Missing}", HmsPermissions.PatientsDelete),
         ("patients.restore", HttpMethod.Post, $"/api/v1/patients/{Missing}/restore", HmsPermissions.PatientsRestore),
+        ("patients.merge", HttpMethod.Post, $"/api/v1/patients/{Missing}/merge", HmsPermissions.PatientsRestore),
         ("appointments.list", HttpMethod.Get, "/api/v1/appointments", HmsPermissions.AppointmentsView),
         ("appointments.book", HttpMethod.Post, "/api/v1/appointments", HmsPermissions.AppointmentsBook),
         ("appointments.reschedule", HttpMethod.Post, $"/api/v1/appointments/{Missing}/reschedule", HmsPermissions.AppointmentsReschedule),

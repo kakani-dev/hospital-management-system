@@ -357,6 +357,50 @@ public sealed class PatientsSprint2InProcessTests(ApiFactory factory) : IClassFi
         Assert.False(Assert.Single(none.Phones!).IsWhatsapp);
     }
 
+    [Fact]
+    public async Task Admin_can_merge_a_duplicate_and_a_receptionist_cannot()
+    {
+        var survivorLast = Unique("Keep");
+        var duplicateLast = Unique("Copy");
+        using var admin = factory.ClientAs(Admin);
+        var survivor = await (await admin.PostAsJsonAsync("/api/v1/patients", new
+        {
+            firstName = "Keep", lastName = survivorLast, registeredBranchId = Main, sex = "unknown",
+        })).Content.ReadFromJsonAsync<Detail>();
+        var duplicate = await (await admin.PostAsJsonAsync("/api/v1/patients", new
+        {
+            firstName = "Copy", lastName = duplicateLast, registeredBranchId = East, sex = "female",
+            dateOfBirth = "1991-04-05", email = $"copy-{Guid.NewGuid():N}@synthetic.example", phone = "9845099001",
+        })).Content.ReadFromJsonAsync<Detail>();
+
+        using var reception = factory.ClientAs(DoctorMainReceptionEast);
+        Assert.Equal(HttpStatusCode.Forbidden, (await reception.PostAsJsonAsync($"/api/v1/patients/{survivor!.Id}/merge", new
+        {
+            duplicatePatientId = duplicate!.Id, reason = "Same person",
+        })).StatusCode);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await admin.PostAsJsonAsync($"/api/v1/patients/{survivor.Id}/merge", new
+        {
+            duplicatePatientId = duplicate.Id, reason = "Same person, second chart",
+        })).StatusCode);
+
+        var kept = await (await admin.GetAsync($"/api/v1/patients/{survivor.Id}")).Content.ReadFromJsonAsync<Detail>();
+        Assert.Equal(duplicate.Email, kept!.Email);
+        Assert.Equal("female", kept.Sex);
+        Assert.Equal(duplicate.Phone, kept.Phone);
+        Assert.Equal(HttpStatusCode.NotFound, (await admin.GetAsync($"/api/v1/patients/{duplicate.Id}")).StatusCode);
+        var hidden = await (await admin.PostAsJsonAsync("/api/v1/patients/search", new { search = duplicateLast, includeDeleted = true })).Content.ReadFromJsonAsync<Page>();
+        Assert.DoesNotContain(hidden!.Items, p => p.Id == duplicate.Id);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await admin.PostAsJsonAsync($"/api/v1/patients/{survivor.Id}/merge", new
+        {
+            duplicatePatientId = duplicate.Id, reason = "Same person, second chart",
+        })).StatusCode);
+        var restore = await admin.PostAsync($"/api/v1/patients/{duplicate.Id}/restore", null);
+        Assert.Equal(HttpStatusCode.Conflict, restore.StatusCode);
+        Assert.Equal("invalid_state", await CodeOf(restore));
+    }
+
     [Theory]
     [InlineData("{\"firstName\":\"A\",\"lastName\":\"B\",\"phone\":\"12345\"}", "phone")]
     [InlineData("{\"firstName\":\"A\",\"lastName\":\"B\",\"whatsapp\":{\"sameAsPhone\":true}}", "whatsapp")]

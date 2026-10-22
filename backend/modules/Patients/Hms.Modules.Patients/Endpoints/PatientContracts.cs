@@ -91,3 +91,6 @@ public sealed record DuplicateCheckRequest(
     string? Email = null, string? AbhaNumber = null);
 
 public sealed record DeletePatientRequest(string? Reason);
+
+/// <summary>Body of POST /patients/{survivorId}/merge. Tenant admin only. The duplicate chart is soft-deleted.</summary>
+public sealed record MergePatientRequest(Guid? DuplicatePatientId, string? Reason);

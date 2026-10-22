@@ -25,15 +25,8 @@ grant insert (duplicate_override_reason), update (duplicate_override_reason) on 
 comment on column patient.patients.duplicate_override_reason is
   'Why a same-name chart was registered anyway. Required by the API when the name matches a live patient (date of birth may be blank). Email, phone and ABHA are never overridable.';
 
--- One live email per hospital (blank emails are not values).
-create unique index patients_tenant_email_key
-  on patient.patients (tenant_id, lower(btrim(email)))
-  where email is not null and btrim(email) <> '' and not is_deleted;
-
--- One live E.164 per hospital. Last-10 matches that are not byte-identical are rejected by the trigger below.
-create unique index patient_phones_tenant_number_key
-  on patient.patient_phones (tenant_id, phone_e164)
-  where not is_deleted;
+-- Live email / phone / ABHA unique indexes are created in 20261022130300, after
+-- 20261022130200 merges existing duplicate charts. Creating them in this file would fail on those rows.
 
 create or replace function patient.reject_shared_phone()
 returns trigger

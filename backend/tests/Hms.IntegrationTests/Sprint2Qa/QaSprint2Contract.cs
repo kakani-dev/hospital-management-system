@@ -27,6 +27,7 @@ internal static class QaRoutes
 
     public static string Patient(Guid id) => $"{Patients}/{id}";
     public static string Restore(Guid id) => $"{Patients}/{id}/restore";
+    public static string Merge(Guid id) => $"{Patients}/{id}/merge";
     public static string Practitioner(Guid id) => $"{Practitioners}/{id}";
     public static string Schedule(Guid id) => $"{Schedules}/{id}";
     public static string Appointment(Guid id) => $"{Appointments}/{id}";

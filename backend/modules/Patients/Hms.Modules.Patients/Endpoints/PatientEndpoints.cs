@@ -47,6 +47,8 @@ public static class PatientEndpoints
             .WithSummary("Soft delete (patient.soft_delete_patient). Needs patients.delete in the hospital.");
         group.MapPost("/{id:guid}/restore", RestoreAsync).WithName("RestorePatient")
             .WithSummary("Restore a soft-deleted patient (tenant_admin only).");
+        group.MapPost("/{id:guid}/merge", MergeAsync).WithName("MergePatient")
+            .WithSummary("Merge a duplicate chart into this one (tenant_admin only). The duplicate is soft-deleted.");
 
         return api;
     }
@@ -143,7 +145,8 @@ public static class PatientEndpoints
         }
 
         IQueryable<Patient> query = request.IncludeDeleted == true
-            ? db.Patients.IgnoreQueryFilters().AsNoTracking().Where(x => x.TenantId == tenant.TenantId)
+            ? db.Patients.IgnoreQueryFilters().AsNoTracking()
+                .Where(x => x.TenantId == tenant.TenantId && x.MergedIntoPatientId == null)
             : db.Patients.AsNoTracking();
 
         if (!string.IsNullOrWhiteSpace(request.Search))
@@ -579,6 +582,51 @@ public static class PatientEndpoints
         try
         {
             await registry.SoftDeleteAsync(id, string.IsNullOrWhiteSpace(request?.Reason) ? null : request.Reason.Trim(), ct);
+        }
+        catch (Exception ex) when (HmsProblems.FromDatabase(ex) is { } problem)
+        {
+            return problem;
+        }
+
+        return TypedResults.NoContent();
+    }
+
+    private static async Task<Results<NoContent, ValidationProblem, ProblemHttpResult>> MergeAsync(
+        Guid id, MergePatientRequest? request, ITenantContext tenant, IPatientRegistryFunctions registry, CancellationToken ct)
+    {
+        if (!tenant.Can(HmsPermissions.PatientsRestore))
+        {
+            return HmsProblems.Forbidden("Only tenant admins can merge patients.");
+        }
+
+        var errors = new Dictionary<string, string[]>();
+        if (request?.DuplicatePatientId is null || request.DuplicatePatientId == Guid.Empty)
+        {
+            errors["duplicatePatientId"] = ["Duplicate patient is required."];
+        }
+
+        if (string.IsNullOrWhiteSpace(request?.Reason))
+        {
+            errors["reason"] = ["Reason is required."];
+        }
+        else if (request.Reason.Trim().Length > DeletionReasonMaxLength)
+        {
+            errors["reason"] = [$"Reason must be at most {DeletionReasonMaxLength} characters."];
+        }
+
+        if (errors.Count > 0)
+        {
+            return TypedResults.ValidationProblem(errors);
+        }
+
+        if (request!.DuplicatePatientId == id)
+        {
+            return HmsProblems.BadRequest(HmsProblems.Codes.InvalidParameter, "A chart cannot be merged into itself.");
+        }
+
+        try
+        {
+            await registry.MergeAsync(id, request.DuplicatePatientId!.Value, request.Reason!.Trim(), ct);
         }
         catch (Exception ex) when (HmsProblems.FromDatabase(ex) is { } problem)
         {
