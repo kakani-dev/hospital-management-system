@@ -42,6 +42,9 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./src/test/setup.ts'],
     include: ['src/**/*.test.{ts,tsx}'],
+    // userEvent.type through the zone combobox takes ~5s on a loaded CI runner; the 5s default
+    // timed out there and the still-running test then broke the next one in the file.
+    testTimeout: 20000,
     // Component tests use the real retry policy with tiny waits (Retry-After is capped by the max);
     // the policy itself is unit-tested with fake timers and explicit values (client.resilience.test.ts).
     env: {
