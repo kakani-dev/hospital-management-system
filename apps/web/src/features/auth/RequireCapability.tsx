@@ -1,6 +1,7 @@
 import { Link, Outlet } from 'react-router'
 import { Alert } from '../../components/ui/Alert'
 import { Card } from '../../components/ui/Card'
+import { Illustration } from '../../components/ui/Illustration'
 import type { Capability } from '../../lib/permissions'
 import { useCurrentContext } from '../tenancy/useCurrentContext'
 
@@ -9,6 +10,7 @@ export function NoAccess({ roles }: { roles: readonly string[] }) {
   return (
     <div data-testid="forbidden" className="mx-auto max-w-xl">
       <Card title="You don't have access to this page">
+        <Illustration name="shield" size={80} className="mb-3" />
         <Alert tone="error">Your role in this hospital does not include access to this page.</Alert>
         <p className="mt-3 text-sm text-gray-600 dark:text-dark-200">
           Your role: <strong>{roles.length ? roles.map((r) => r.replace('_', ' ')).join(', ') : 'none'}</strong>. If you need it,

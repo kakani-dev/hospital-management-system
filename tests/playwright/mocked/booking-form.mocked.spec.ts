@@ -59,8 +59,8 @@ test('patient first: the hint names only the missing items; Confirm enables when
   await shot(page, info, 'booking-missing-practitioner-slot')
   await form.getByLabel('Practitioner').selectOption(practitionerIds.rao)
   await form.getByLabel('Appointment date').fill(addDays(branchToday(), 1))
-  await expect(form.getByTestId('booking-missing')).toHaveText('Choose a free slot.')
-  await form.getByText('09:00', { exact: true }).click()
+  // Next free slot on that day is already selected.
+  await expect(form.getByRole('radio', { name: '09:00' })).toBeChecked()
   await expect(form.getByTestId('booking-missing')).toHaveCount(0)
   await expect(confirm).toBeEnabled()
   await shot(page, info, 'booking-ready')

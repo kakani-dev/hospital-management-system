@@ -7,7 +7,7 @@ import { useSidebarContext } from '../../contexts/sidebar/context'
 import type { NavItem } from './types'
 
 export function MenuItem({ data }: { data: NavItem }) {
-  const { Icon, path, title, end, keys } = data
+  const { Icon, path, title, end, keys, onPrefetch } = data
   const { lgAndDown } = useBreakpointsContext()
   const { close } = useSidebarContext()
 
@@ -22,6 +22,8 @@ export function MenuItem({ data }: { data: NavItem }) {
         end={end}
         aria-keyshortcuts={keys}
         onClick={handleMenuItemClick}
+        onMouseEnter={onPrefetch}
+        onFocus={onPrefetch}
         className={({ isActive }) =>
           clsx(
             'group min-w-0 flex-1 rounded-md px-3 py-2 font-medium outline-hidden transition-colors ease-in-out',

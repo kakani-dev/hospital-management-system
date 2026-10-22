@@ -1,13 +1,28 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 import { Card } from '@tailux/components/ui'
+import { Illustration, type IllustrationName } from '../../components/ui/Illustration'
 
 /** Centered public page (same frame as the sign-in page) for flows that need no hospital context. */
-export function PublicLayout({ title, subtitle, children, wide = false }: { title: string; subtitle?: string; children: ReactNode; wide?: boolean }) {
+export function PublicLayout({
+  title,
+  subtitle,
+  children,
+  wide = false,
+  illustration,
+}: {
+  title: string
+  subtitle?: string
+  children: ReactNode
+  wide?: boolean
+  /** Decorative moment for onboarding and invite screens. */
+  illustration?: IllustrationName
+}) {
   return (
     <main id="main-content" className="min-h-100vh grid w-full grow grid-cols-1 place-items-center">
       <div className={`w-full ${wide ? 'max-w-2xl' : 'max-w-[26rem]'} p-4 sm:px-5`}>
         <div className="text-center">
+          {illustration && <Illustration name={illustration} size={96} className="mx-auto mb-4" />}
           <Link to="/login" aria-label="HMS sign-in page" className="mx-auto flex size-16 items-center justify-center rounded-2xl bg-primary-600 text-4xl font-bold text-white dark:bg-primary-500">
             <span aria-hidden="true">+</span>
           </Link>

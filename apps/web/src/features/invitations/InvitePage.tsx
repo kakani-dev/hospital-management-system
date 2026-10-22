@@ -55,7 +55,7 @@ export function InvitePage() {
 
   if (preview.isError || !preview.data) {
     return (
-      <PublicLayout title="Invitation">
+      <PublicLayout title="Invitation" illustration="file">
         <Alert tone="warning">
           {preview.error instanceof ApiError && preview.error.status === 404
             ? 'This invite link is not valid any more (already used, revoked or expired). Ask the person who invited you for a new one.'
@@ -71,7 +71,7 @@ export function InvitePage() {
   const p = preview.data
   const busy = claim.isPending || switchContext.isPending
   return (
-    <PublicLayout title="You are invited" subtitle={p.tenantName}>
+    <PublicLayout title="You are invited" subtitle={p.tenantName} illustration="chat">
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm" data-testid="invite-preview">
         <dt className="text-gray-600 dark:text-dark-200">Hospital</dt>
         <dd className="font-medium text-gray-800 dark:text-dark-50">{p.tenantName}</dd>

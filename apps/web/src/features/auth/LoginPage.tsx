@@ -7,6 +7,7 @@ import { useAuth } from './AuthProvider'
 import { EnvelopeIcon, LockClosedIcon } from '@heroicons/react/24/outline'
 import { Card } from '@tailux/components/ui'
 import { FormField } from '../../components/ui/FormField'
+import { Illustration } from '../../components/ui/Illustration'
 import { Button } from '../../components/ui/Button'
 import { Alert } from '../../components/ui/Alert'
 
@@ -38,9 +39,10 @@ export function LoginPage() {
     <main id="main-content" className="min-h-100vh grid w-full grow grid-cols-1 place-items-center">
       <div className="w-full max-w-[26rem] p-4 sm:px-5">
         <div className="text-center">
+          <Illustration name="lock" size={88} className="mx-auto" />
           <span
             aria-hidden="true"
-            className="mx-auto flex size-16 items-center justify-center rounded-2xl bg-primary-600 text-4xl font-bold text-white dark:bg-primary-500"
+            className="mx-auto mt-3 flex size-16 items-center justify-center rounded-2xl bg-primary-600 text-4xl font-bold text-white dark:bg-primary-500"
           >
             +
           </span>
