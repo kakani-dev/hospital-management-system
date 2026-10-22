@@ -3,6 +3,8 @@ using Npgsql;
 
 namespace Hms.Platform.Messaging;
 
+// cross-schema: approved — messaging.claim_outbox / complete_outbox / fail_outbox as hms_dispatcher.
+
 /// <summary>
 /// messaging.claim_outbox / complete_outbox / fail_outbox (SPRINT2-CONTRACT §4.3). Every call is its
 /// own short transaction that starts with <c>SET LOCAL ROLE hms_dispatcher</c>: the API login role

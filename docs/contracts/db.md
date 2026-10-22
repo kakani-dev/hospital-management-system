@@ -21,7 +21,7 @@ Callers without a user (`service_role` jobs, triggers) skip the membership check
 | Function | Owner | Used by | Added in |
 |---|---|---|---|
 | `identity.my_tenant_grant_v1(tenant) → jsonb` | identity | every service (tenant resolution) | 20261013090000 |
-| `identity.branch_exists_v1(tenant, branch) → bool` | identity | scheduling | 20261012090000 |
+| `identity.branch_exists_v1(tenant, branch) → bool` | identity | patients, scheduling, legacy host | 20261012090000 |
 | `identity.branch_tenant_id_v1(branch) → uuid` | identity | scheduling | 20261012090000 |
 | `identity.branch_time_zone_v1(branch) → text` | identity | any | 20261012090100 |
 | `identity.branch_local_date_v1(branch, at) → date` | identity | scheduling | 20261012090100 |
@@ -61,9 +61,15 @@ adds a cross-schema reference must carry the header line `-- cross-schema: appro
 
 ## Roles
 
-- `hms_svc_identity`, `hms_svc_patients`, `hms_svc_scheduling` (migration 20261013090100): `NOLOGIN
-  NOINHERIT`, no table privileges, members of `authenticated` and `anon`. Services keep the existing
-  pattern: per transaction `SET LOCAL ROLE authenticated` + `request.jwt.claims`, so RLS applies.
+- `hms_svc_identity`, `hms_svc_patients`, `hms_svc_scheduling` (migrations 20261013090100 and
+  20261022140000): `NOLOGIN NOINHERIT`. Each is a member of `anon` (public routes) and **not** of
+  `authenticated`. Migration 20261022140000 copies `authenticated`'s table, column, sequence and
+  function privileges onto the owning role for that schema only, adds the role to that schema's RLS
+  policies, grants `USAGE` on `auth` and on the schemas of the functions it may call, and grants `EXECUTE` on the approved cross-schema functions (RLS helpers,
+  `my_tenant_grant_v1`, `my_active_context`, `auth.uid()`, and the `_v1` contracts the service calls).
+  The service sets `Database:SessionRole` to `hms_svc_<service>` and `SET LOCAL ROLE`s that role per
+  transaction, with `request.jwt.claims` unchanged (`role` claim stays `authenticated`). A service
+  cannot `SET ROLE authenticated` and cannot `SELECT` another schema's tables. ADR 0002.
 - **Login roles and passwords are never in migrations.** Locally:
   `supabase/scripts/local-api-login-role.sql` (`hms_<svc>_login` / `hms_<svc>_local_only`, throwaway).
   Hosted: created out of band with a secret, then `grant hms_svc_<svc> to hms_<svc>_login`.

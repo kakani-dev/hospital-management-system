@@ -17,6 +17,8 @@ public static class TenancySetup
     /// </summary>
     public static IServiceCollection AddHmsTenancy(this IServiceCollection services, IConfiguration configuration)
     {
+        // Register before AddHmsDbSession so a configured service role wins over the default.
+        services.TryAddSingleton(new DatabaseSessionOptions(configuration[DatabaseSessionOptions.ConfigKey]));
         services.AddHmsDbSession();
         services.AddHmsDatabase(configuration);
         services.TryAddScoped<TenantContext>();
@@ -28,6 +30,7 @@ public static class TenancySetup
     /// <summary>Shared per-request DB session services (idempotent).</summary>
     public static IServiceCollection AddHmsDbSession(this IServiceCollection services)
     {
+        services.TryAddSingleton(new DatabaseSessionOptions());
         services.TryAddScoped<DbSessionContext>();
         services.TryAddScoped<RlsTransactionInterceptor>();
         services.TryAddScoped<TenantSaveChangesInterceptor>();

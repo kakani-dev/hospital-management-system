@@ -3,6 +3,8 @@ using Npgsql;
 
 namespace Hms.Modules.Identity.Email;
 
+// cross-schema: approved — messaging.claim_email_outbox / complete_outbox / fail_outbox as hms_mailer.
+
 /// <summary>
 /// Claims <c>email_message</c> rows as <c>hms_mailer</c>. The identity login can assume that role;
 /// the legacy <c>hms_api</c> login cannot (B1). Scheduling keeps <c>hms_dispatcher</c> and does not

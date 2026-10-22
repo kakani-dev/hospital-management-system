@@ -29,9 +29,11 @@ select tests.ok(
   and not has_function_privilege('anon', 'identity.add_member(uuid, text, text, uuid)', 'execute'),
   'N6: authenticated (the role the API switches to) can execute the invite functions; anon cannot');
 select tests.ok(
-  (select acl.grantee::regrole::text from pg_proc p, aclexplode(p.proacl) acl
-   where p.oid = 'identity.accept_membership(uuid)'::regprocedure and acl.grantee <> p.proowner) = 'authenticated',
-  'N6: accept_membership() EXECUTE is granted to authenticated only');
+  (select array_agg(acl.grantee::regrole::text order by acl.grantee::regrole::text)
+   from pg_proc p, aclexplode(p.proacl) acl
+   where p.oid = 'identity.accept_membership(uuid)'::regprocedure and acl.grantee <> p.proowner)
+    = array['authenticated', 'hms_svc_identity'],
+  'N6: accept_membership() EXECUTE is granted to authenticated and the identity service role');
 
 -- N4: an insert that omits status (trusted path) creates a consent-pending row
 select tests.as_superuser();

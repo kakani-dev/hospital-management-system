@@ -63,9 +63,10 @@ to the owning service.
   `X-Hms-Edge-Key` gets a bare 404. In Azure the services also get internal-only ingress.
 - **Tenant resolution** happens per request in each service via `identity.my_tenant_grant_v1`, not
   at the edge.
-- **Data access** keeps the existing pattern: `SET LOCAL ROLE authenticated` plus
-  `request.jwt.claims` per transaction, so every RLS policy applies. Each service logs in as
-  `hms_<svc>_login` (a member of `hms_svc_<svc>`) with about 5 pooled connections.
+- **Data access:** each service logs in as `hms_<svc>_login` (a member of `hms_svc_<svc>`, about 5
+  pooled connections) and, per transaction, `SET LOCAL ROLE hms_svc_<svc>` plus `request.jwt.claims`.
+  That role's grants cover its own schema and approved `_v1` functions only. RLS policies include the
+  service role. It is not a member of `authenticated`. See ADR 0002.
 - **Cross-service reads** go only through published `*_v1` SECURITY DEFINER functions. Scheduling
   embeds `patient {id, mrn, firstName, lastName}` from `patient.patient_summary_v1`, with one call
   per page of at most 500 ids and no cross-schema join. Soft-deleted patients still embed as

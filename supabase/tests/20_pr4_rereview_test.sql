@@ -46,7 +46,8 @@ select tests.as_superuser();
 create temporary table t_v1 (fn regprocedure, client_ok boolean) on commit drop;
 insert into t_v1 values
   ('identity.branch_time_zone_v1(uuid)', true), ('identity.branch_local_date_v1(uuid,timestamptz)', true),
-  ('identity.branch_exists_v1(uuid,uuid)', false), ('identity.branch_tenant_id_v1(uuid)', false),
+  -- branch_exists_v1 is client-callable so the legacy host can use it until cutover.
+  ('identity.branch_exists_v1(uuid,uuid)', true), ('identity.branch_tenant_id_v1(uuid)', false),
   ('appointment.branch_has_open_activity_v1(uuid,uuid)', false), ('appointment.queue_has_entries_v1(uuid,uuid[],date[])', false),
   ('appointment.patient_has_active_visits_v1(uuid,uuid)', false), ('patient.patient_exists_v1(uuid,uuid)', false),
   ('appointment.future_bookings_count_v1(uuid,uuid[])', false),
@@ -87,7 +88,7 @@ select tests.ok(
   'N5: service_role may execute every v1 function');
 select tests.ok(
   (select bool_and(has_function_privilege('authenticated', p.oid, 'execute') = t_v1.client_ok) from t_v1 join pg_proc p on p.oid = t_v1.fn),
-  'R6: authenticated may execute ONLY the zone reads, my_tenant_grant_v1, patient_summary_v1 and tenant_default_country_code_v1');
+  'R6: authenticated may execute the zone reads, branch_exists_v1, my_tenant_grant_v1, patient_summary_v1 and tenant_default_country_code_v1');
 select tests.ok(
   (select pg_get_function_result(oid) = 'TABLE(changed boolean, future_bookings integer, time_zone text)'
           and prosecdef and has_function_privilege('authenticated', oid, 'execute')

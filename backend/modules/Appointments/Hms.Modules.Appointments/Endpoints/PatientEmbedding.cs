@@ -24,7 +24,7 @@ internal sealed class QueueRow
 /// <summary>
 /// Embeds the patient summary in appointment / queue responses. Microservices rule (DB review B4): the
 /// scheduling query never joins <c>patient.*</c>; rows are read first, then the summaries for the whole
-/// page come from <c>patient.patient_summary_v1</c> in ONE call (<see cref="IPatientSummaries"/>).
+/// page come from the published patient summary in ONE call (<see cref="IPatientSummaries"/>).
 /// Soft-deleted patients are included with <c>isDeleted: true</c> (history keeps a name); a patient
 /// the caller may not read yields <c>patient: null</c>.
 /// </summary>

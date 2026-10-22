@@ -220,11 +220,13 @@ select tests.ok(
   (select bool_and(p.prosecdef and p.proconfig @> array['search_path=""']
                    and has_function_privilege('service_role', p.oid, 'execute')
                    and not has_function_privilege('anon', p.oid, 'execute')
-                   -- re-review R6: only the two zone resolvers are granted to authenticated
+                   -- re-review R6: the two zone resolvers are granted to authenticated.
+                   -- branch_exists_v1 is too, so the legacy host can call it until that host is stopped
+                   -- (docs/runbooks/monolith-cutover.md). The service roles are granted it as well.
                    and has_function_privilege('authenticated', p.oid, 'execute')
-                       = (p.proname in ('branch_time_zone_v1', 'branch_local_date_v1')))
+                       = (p.proname in ('branch_time_zone_v1', 'branch_local_date_v1', 'branch_exists_v1')))
    from t_v1 join pg_proc p on p.oid = t_v1.fn),
-  'SIGNATURES: the 8 published v1 functions exist, SECURITY DEFINER, search_path pinned, service_role; authenticated only for the 2 zone resolvers');
+  'SIGNATURES: the 8 published v1 functions exist, SECURITY DEFINER, search_path pinned, service_role; authenticated for the 2 zone resolvers and branch_exists_v1');
 select tests.ok(
   not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
               where n.nspname = 'identity' and p.prosrc ~ 'appointment\.(appointments|queue_entries|queue_counters|schedules|practitioners)\M'),
