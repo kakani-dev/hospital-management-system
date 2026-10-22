@@ -29,8 +29,8 @@ The legacy API keeps `Outbox:Dispatcher:Enabled=false` and does not run the mail
 
 ## Go-live configuration
 
-Nothing here is applied by this change. Deploy stays behind `ACA_DEPLOY_ENABLED` and a reviewer on the
-`aca-dev` environment.
+A merge to `main` deploys after CI. There is no repository-variable gate and no environment reviewer.
+See [deploy.md](../deploy.md). Identity still receives the two secrets below only from that deploy.
 
 ### GitHub Actions (repository secret)
 

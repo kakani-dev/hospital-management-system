@@ -1,0 +1,6 @@
+# Installed by `npm install` at the repo root (the prepare script runs lefthook install).
+# The hook calls the same script agents run before a commit.
+pre-push:
+  commands:
+    verify:
+      run: bash scripts/verify.sh

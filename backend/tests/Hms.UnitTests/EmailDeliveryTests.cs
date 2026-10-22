@@ -285,7 +285,10 @@ public sealed class SmtpConfigurationTests
             }
         }
 
-        var workflow = File.ReadAllText(Path.Combine(root, ".github", "workflows", "deploy-aca.yml"));
+        // The workflow passes the secrets through. The rollout script is what sets the secretrefs.
+        var workflow = File.ReadAllText(Path.Combine(root, ".github", "workflows", "deploy-aca.yml"))
+            + "\n"
+            + File.ReadAllText(Path.Combine(root, ".github", "scripts", "aca-rollout.sh"));
         Assert.Contains("secrets.SMTP_PASSWORD", workflow, StringComparison.Ordinal);
         Assert.Contains("secrets.SUPABASE_SERVICE_ROLE_KEY", workflow, StringComparison.Ordinal);
         Assert.Contains("Smtp__Password=secretref:smtp-password", workflow, StringComparison.Ordinal);
