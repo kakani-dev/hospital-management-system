@@ -153,8 +153,16 @@ assert_hms_db() {
 rollout_one() {
   local service="$1" app="ca-hms-$1" prev="" new="" suffix image rev_name
   image="${ACR_LOGIN_SERVER}/hms-${service}:${IMAGE_TAG}"
+  # Image tag stays sha-<hex>. The revision suffix is short: s-<up to 12 hex>.
+  # Azure rejects "{app}--{suffix}" when that whole name is longer than 54 characters.
   suffix="$(python3 "$ROOT/.github/scripts/service_changes.py" suffix --app "$app" --tag "$IMAGE_TAG")"
   rev_name="${app}--${suffix}"
+  if ((${#rev_name} > 54)); then
+    die "revision name ${rev_name} is ${#rev_name} characters; Azure allows at most 54"
+  fi
+  if [[ ! "$suffix" =~ ^[a-z][a-z0-9-]*[a-z0-9]$ || "$suffix" == *"--"* ]]; then
+    die "revision suffix ${suffix} must be lowercase letters, digits, and single hyphens"
+  fi
 
   az containerapp revision set-mode -g "$RG" -n "$app" --mode multiple -o none
   prev="$(az containerapp ingress traffic show -g "$RG" -n "$app" -o json | python3 -c '
@@ -208,7 +216,10 @@ print(rows[0].get("revisionName", "") if rows else "")
     new="$(az containerapp show -g "$RG" -n "$app" --query properties.latestRevisionName -o tsv)"
   fi
   [[ -n "$new" ]] || die "$app did not produce a revision"
+  # Rollback deactivates this recorded name. It must be the short suffix name,
+  # not a name built from the full image tag.
   record "$service" "$app" "$prev" "$new"
+  [[ "$new" == "$rev_name" ]] || die "$app latest revision is '${new}', expected ${rev_name}"
 
   if [[ "$new" != "$prev" ]]; then
     echo "shifting $app traffic to $new (previous $prev)"
