@@ -43,6 +43,7 @@ done
 
 grep -q 'name: ci-ok$' "$ci"
 grep -q 'dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d' "$ci"
+grep -q 'pull-requests: read' "$ci"
 grep -q 'cron: "17 4 \* \* \*"' "$ci"
 grep -q 'ci-require-result.sh' "$ci"
 grep -q 'ci-ok.sh' "$ci"

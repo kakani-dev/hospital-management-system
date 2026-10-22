@@ -22,6 +22,9 @@ on:
 
 permissions:
   contents: read
+  # paths-filter lists pull-request files with the GitHub API. An explicit
+  # permissions block drops every scope that is not named here.
+  pull-requests: read
   actions: write
 
 concurrency:
