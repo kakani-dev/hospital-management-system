@@ -210,7 +210,7 @@ export function HospitalRequestsPage() {
         {approving && (
           <div className="space-y-3">
             <p>
-              Creates the hospital in <strong>{approving.timeZone}</strong> with one branch, and a one-time tenant-admin invite link for{' '}
+              Creates the hospital in <strong>{approving.timeZone}</strong> with one branch, and emails a one-time tenant-admin invite link to{' '}
               {approving.contactEmail}.
             </p>
             <FormField

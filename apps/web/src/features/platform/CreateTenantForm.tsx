@@ -79,7 +79,7 @@ export function CreateTenantForm({ onCreated, onCancel }: { onCreated: (result: 
       <FormField
         label="First admin email"
         type="email"
-        hint="Gets a one-time invite link to become the hospital’s tenant admin."
+        hint="We email them a one-time invite link to become the hospital’s tenant admin."
         error={errors.adminEmail?.message}
         {...register('adminEmail')}
       />

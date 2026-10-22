@@ -1,26 +1,67 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { Button } from '../../components/ui/Button'
 import { Alert } from '../../components/ui/Alert'
+import { FormField } from '../../components/ui/FormField'
 import { useAuth } from '../auth/AuthProvider'
 import { useClaimInvite, useInvitePreview, useSwitchContext } from '../../lib/api/hooks'
-import { ApiError, problemCode } from '../../lib/api/client'
+import { apiClient, ApiError, problemCode } from '../../lib/api/client'
 import { PublicLayout } from '../onboarding/PublicLayout'
 
 const roleLabel = (r: string) => r.replace(/_/g, ' ')
 
 /**
- * /invite/:token. Shows which hospital invited whom (masked email). The invitee signs in with THAT
- * email (or creates the account first) and accepts; the server checks the email and the link.
+ * /invite/:token. Shows which hospital invited whom (masked email). A person with no account asks
+ * for a one-time code (emailed by the identity outbox), then chooses their own password. Someone
+ * who already has a password can sign in instead. The server checks the email when the link is claimed.
  */
 export function InvitePage() {
   const { token = '' } = useParams()
-  const { session, email, signOut, refresh, resetCache, expectTenant } = useAuth()
+  const { session, email, signOut, signInWithTokenHash, setPassword, refresh, resetCache, expectTenant } = useAuth()
   const navigate = useNavigate()
   const preview = useInvitePreview(token)
   const claim = useClaimInvite()
   const switchContext = useSwitchContext({ refresh, resetCache, expectTenant })
   const [error, setError] = useState<string | null>(null)
+  const [codeSent, setCodeSent] = useState(() => readCodeFromHash().length === 6)
+  const [code, setCode] = useState(() => readCodeFromHash())
+  const [password, setPasswordValue] = useState('')
+  const [sending, setSending] = useState(false)
+  const [signingIn, setSigningIn] = useState(false)
+
+  const submitCode = useCallback(
+    async (value: string) => {
+      setError(null)
+      setSigningIn(true)
+      try {
+        const proof = await apiClient.publicApi.exchangeInviteSignInCode(token, value)
+        const result = await signInWithTokenHash(proof.tokenHash)
+        if (result.error) setError(result.error)
+        if (window.location.hash) window.history.replaceState(null, '', window.location.pathname + window.location.search)
+      } catch (e) {
+        setError(
+          e instanceof ApiError && (e.status === 401 || e.status === 404)
+            ? 'That code is not valid. Request a new one.'
+            : 'Could not sign in with that code. Try again.',
+        )
+      } finally {
+        setSigningIn(false)
+      }
+    },
+    [signInWithTokenHash, token],
+  )
+
+  useEffect(() => {
+    const fromHash = readCodeFromHash()
+    if (!fromHash || session || !preview.data) return
+    // Defer past this effect so sign-in state updates are not synchronous setState,
+    // and so Strict Mode's setup/cleanup/setup cycle still submits once.
+    const handle = window.setTimeout(() => {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search)
+      void submitCode(fromHash)
+    }, 0)
+    return () => window.clearTimeout(handle)
+  }, [session, preview.data, submitCode])
 
   const accept = () => {
     setError(null)
@@ -68,8 +109,44 @@ export function InvitePage() {
     )
   }
 
+  const requestCode = async () => {
+    setError(null)
+    setSending(true)
+    try {
+      await apiClient.publicApi.requestInviteSignInCode(token)
+      setCodeSent(true)
+    } catch (e) {
+      setError(
+        e instanceof ApiError && e.status === 429
+          ? 'Too many sign-in codes were sent. Try again later.'
+          : e instanceof ApiError && e.status === 404
+            ? 'This invite link was already used, revoked or has expired. Ask for a new one.'
+            : 'Could not send a sign-in code. Try again.',
+      )
+    } finally {
+      setSending(false)
+    }
+  }
+
+  const savePassword = async () => {
+    setError(null)
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters.')
+      return
+    }
+    setSigningIn(true)
+    try {
+      const result = await setPassword(password)
+      if (result.error) setError(result.error)
+      setPasswordValue('')
+    } finally {
+      setSigningIn(false)
+    }
+  }
+
   const p = preview.data
-  const busy = claim.isPending || switchContext.isPending
+  const busy = claim.isPending || switchContext.isPending || sending || signingIn
+  const needsPassword = session?.user.user_metadata?.needs_password === true
   return (
     <PublicLayout title="You are invited" subtitle={p.tenantName}>
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm" data-testid="invite-preview">
@@ -83,7 +160,30 @@ export function InvitePage() {
         <dd className="font-mono text-gray-800 dark:text-dark-50">{p.emailHint}</dd>
       </dl>
       {error && <Alert tone="error">{error}</Alert>}
-      {session ? (
+      {session && needsPassword ? (
+        <form
+          className="space-y-3"
+          aria-label="Choose a password"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void savePassword()
+          }}
+        >
+          <p className="text-sm text-gray-600 dark:text-dark-200">
+            Signed in as <span className="font-medium">{email}</span>. Choose a password for next time. It is not emailed, and nobody else sets it.
+          </p>
+          <FormField
+            label="Password"
+            type="password"
+            autoComplete="new-password"
+            value={password}
+            onChange={(event) => setPasswordValue(event.target.value)}
+          />
+          <Button type="submit" className="w-full" disabled={busy}>
+            {signingIn ? 'Saving…' : 'Save password'}
+          </Button>
+        </form>
+      ) : session ? (
         <div className="space-y-3">
           <p className="text-sm text-gray-600 dark:text-dark-200">
             Signed in as <span className="font-medium">{email}</span>.
@@ -105,12 +205,43 @@ export function InvitePage() {
         </div>
       ) : (
         <div className="space-y-3">
-          <p className="text-sm text-gray-600 dark:text-dark-200">Sign in with the invited email address to accept. Your account must use that email.</p>
-          <Button className="w-full" onClick={() => navigate('/login', { state: { from: `/invite/${token}` } })}>
-            Sign in to accept
+          <p className="text-sm text-gray-600 dark:text-dark-200">
+            No account is required yet. We email a one-time code to the invited address. You choose your own password after that.
+          </p>
+          <Button className="w-full" onClick={() => void requestCode()} disabled={busy}>
+            {sending ? 'Sending…' : codeSent ? 'Email another code' : 'Email me a sign-in code'}
+          </Button>
+          {codeSent && (
+            <form
+              className="space-y-3"
+              aria-label="Sign-in code"
+              onSubmit={(event) => {
+                event.preventDefault()
+                void submitCode(code.trim())
+              }}
+            >
+              <FormField
+                label="Sign-in code"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                value={code}
+                onChange={(event) => setCode(event.target.value)}
+              />
+              <Button type="submit" className="w-full" disabled={busy || code.trim().length !== 6}>
+                {signingIn ? 'Signing in…' : 'Sign in with code'}
+              </Button>
+            </form>
+          )}
+          <Button variant="secondary" className="w-full" onClick={() => navigate('/login', { state: { from: `/invite/${token}` } })}>
+            I already have a password
           </Button>
         </div>
       )}
     </PublicLayout>
   )
+}
+
+function readCodeFromHash() {
+  const match = /^#code=([0-9]{6})$/.exec(window.location.hash)
+  return match?.[1] ?? ''
 }

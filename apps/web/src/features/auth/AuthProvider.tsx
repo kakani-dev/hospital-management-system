@@ -13,7 +13,7 @@ import { useIdleTimeout } from './useIdleTimeout'
 /** The subset of supabase.auth the app uses (lets tests inject a fake). */
 export type AuthClient = Pick<
   SupabaseClient['auth'],
-  'getSession' | 'onAuthStateChange' | 'signInWithPassword' | 'signOut' | 'refreshSession'
+  'getSession' | 'onAuthStateChange' | 'signInWithPassword' | 'signOut' | 'refreshSession' | 'verifyOtp' | 'updateUser'
 >
 
 /**
@@ -36,6 +36,10 @@ interface AuthContextValue {
   session: Session | null
   email: string | null
   signIn: (email: string, password: string) => Promise<{ error: string | null }>
+  /** Exchanges a GoTrue magic-link token hash from the invite sign-in code. */
+  signInWithTokenHash: (tokenHash: string) => Promise<{ error: string | null }>
+  /** The invitee chooses this. It is not emailed and not chosen by an admin. */
+  setPassword: (password: string) => Promise<{ error: string | null }>
   signOut: (reason?: SignOutReason) => Promise<void>
   /** Re-issues the access token so the custom access token hook stamps the new active tenant. */
   refresh: () => Promise<void>
@@ -264,6 +268,38 @@ export function AuthProvider({
     [client, queryClient, warmup],
   )
 
+  const signInWithTokenHash = useCallback(
+    async (tokenHash: string) => {
+      if (!client) return { error: 'Authentication is not configured.' }
+      const { data, error } = await client.verifyOtp({ token_hash: tokenHash, type: 'magiclink' })
+      if (error || !data.session) return { error: error?.message || 'Sign-in failed.' }
+      clearPersistedCache()
+      queryClient.clear()
+      userIdRef.current = data.session.user.id
+      setSignedOutReason(null)
+      setTenantNotice(null)
+      setSession(data.session)
+      void warmup()
+      return { error: null }
+    },
+    [client, queryClient, warmup],
+  )
+
+  const setPassword = useCallback(
+    async (password: string) => {
+      if (!client) return { error: 'Authentication is not configured.' }
+      const { data, error } = await client.updateUser({ password, data: { needs_password: false } })
+      if (error || !data.user) return { error: error?.message || 'Could not save the password.' }
+      setSession((current) =>
+        current
+          ? { ...current, user: { ...current.user, user_metadata: { ...current.user.user_metadata, needs_password: false } } }
+          : current,
+      )
+      return { error: null }
+    },
+    [client],
+  )
+
   const signOut = useCallback(
     async (reason: SignOutReason = 'user') => {
       pendingSignOutReasonRef.current = reason
@@ -300,6 +336,8 @@ export function AuthProvider({
       session,
       email: session?.user.email ?? null,
       signIn,
+      signInWithTokenHash,
+      setPassword,
       signOut,
       refresh,
       resetCache,
@@ -309,7 +347,7 @@ export function AuthProvider({
       dismissTenantNotice,
       signedOutReason,
     }),
-    [client, loading, session, signIn, signOut, refresh, resetCache, cacheEpoch, expectTenant, tenantNotice, dismissTenantNotice, signedOutReason],
+    [client, loading, session, signIn, signInWithTokenHash, setPassword, signOut, refresh, resetCache, cacheEpoch, expectTenant, tenantNotice, dismissTenantNotice, signedOutReason],
   )
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

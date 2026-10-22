@@ -76,7 +76,7 @@ test.describe('Level 1: onboarding and the platform console', () => {
     const tab = await ctx.newPage()
     await tab.goto(link)
     await expect(tab.getByTestId('invite-preview')).toContainText(name)
-    await tab.getByRole('button', { name: 'Sign in to accept' }).click()
+    await tab.getByRole('button', { name: 'I already have a password' }).click()
     await tab.getByLabel('Email').fill(contact)
     await tab.getByLabel('Password').fill(PASSWORD)
     await tab.getByRole('button', { name: 'Sign in' }).click()

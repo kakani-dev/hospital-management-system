@@ -4,6 +4,7 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+    <PackageReference Include="MailKit" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../../shared/Hms.SharedKernel/Hms.SharedKernel.csproj" />

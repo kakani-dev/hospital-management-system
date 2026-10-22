@@ -12,8 +12,11 @@
 # Images: ghcr.io/kakani-dev/hms-<svc>:sha-<40hex> built with GITHUB_TOKEN (packages: write).
 # Azure auth: OIDC via azure/login (secrets AZURE_CLIENT_ID / AZURE_TENANT_ID / AZURE_SUBSCRIPTION_ID;
 # IDs only, no client secret). The container apps must already exist (infra/aca/deploy-aca.sh): this
-# workflow only rolls the image (`az containerapp update --image`).
-# No hosted database migration ever runs from here.
+# workflow rolls the image (`az containerapp update --image`).
+# On a deploy job from main (not a pull request or a fork), the identity app also receives the
+# repository secrets SMTP_PASSWORD (Container Apps secret smtp-password, env Smtp__Password=secretref:smtp-password)
+# and SUPABASE_SERVICE_ROLE_KEY (secret supabase-service-role, env Auth__Supabase__ServiceRoleKey=secretref:supabase-service-role).
+# Neither value is echoed. No hosted database migration ever runs from here.
 # =====================================================================================================
 name: Deploy to Azure Container Apps (DRAFT)
 
@@ -144,12 +147,57 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       - name: Roll image (no secrets, no scale or ingress changes)
+        if: matrix.service != 'identity' || github.event.repository.fork == true || github.event_name == 'pull_request' || (github.ref != 'refs/heads/main' && github.event.workflow_run.head_branch != 'main')
         env:
           APP: ca-hms-${{ matrix.service }}
           IMAGE: ${{ env.REGISTRY }}/hms-${{ matrix.service }}:sha-${{ needs.plan.outputs.sha }}
         run: |
           az containerapp show -g "$RESOURCE_GROUP" -n "$APP" -o none   # must already exist (deploy-aca.sh)
           az containerapp update -g "$RESOURCE_GROUP" -n "$APP" --image "$IMAGE" -o none
+          az containerapp show -g "$RESOURCE_GROUP" -n "$APP" \
+            --query "{image:properties.template.containers[0].image,min:properties.template.scale.minReplicas,max:properties.template.scale.maxReplicas,revision:properties.latestRevisionName}" -o table
+      - name: Roll identity image and bind mail secrets (main only)
+        if: matrix.service == 'identity' && github.event.repository.fork == false && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.event.workflow_run.head_branch == 'main')
+        env:
+          APP: ca-hms-identity
+          IMAGE: ${{ env.REGISTRY }}/hms-identity:sha-${{ needs.plan.outputs.sha }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          case $- in *x*) echo "::error::refusing to run with xtrace"; exit 1 ;; esac
+          if [ -z "${SMTP_PASSWORD:-}" ] || [ -z "${SUPABASE_SERVICE_ROLE_KEY:-}" ]; then
+            echo "::error::Repository secret SMTP_PASSWORD or SUPABASE_SERVICE_ROLE_KEY is empty. Refusing to deploy identity without them."
+            exit 1
+          fi
+          az containerapp show -g "$RESOURCE_GROUP" -n "$APP" -o none
+          # Both values are GitHub secrets, so the runner masks them. Do not echo them.
+          python3 - <<'PY'
+          import os, subprocess, sys
+          smtp = os.environ.get("SMTP_PASSWORD") or ""
+          role = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or ""
+          if not smtp or not role:
+              sys.exit("SMTP_PASSWORD or SUPABASE_SERVICE_ROLE_KEY is missing")
+          app = os.environ["APP"]
+          rg = os.environ["RESOURCE_GROUP"]
+          image = os.environ["IMAGE"]
+
+          def redact(text):
+              return text.replace(smtp, "***").replace(role, "***")
+
+          def run(args):
+              result = subprocess.run(args, capture_output=True, text=True)
+              if result.returncode != 0:
+                  sys.stderr.write(redact(result.stderr))
+                  sys.exit(f"{args[1]} {args[2]} failed")
+
+          run(["az", "containerapp", "secret", "set", "-g", rg, "-n", app, "--secrets",
+               f"smtp-password={smtp}", f"supabase-service-role={role}", "-o", "none"])
+          run(["az", "containerapp", "update", "-g", rg, "-n", app, "--image", image, "-o", "none",
+               "--set-env-vars", "Smtp__Password=secretref:smtp-password",
+               "Auth__Supabase__ServiceRoleKey=secretref:supabase-service-role",
+               "Email__Dispatcher__Enabled=true"])
+          PY
           az containerapp show -g "$RESOURCE_GROUP" -n "$APP" \
             --query "{image:properties.template.containers[0].image,min:properties.template.scale.minReplicas,max:properties.template.scale.maxReplicas,revision:properties.latestRevisionName}" -o table
 

@@ -16,9 +16,28 @@ describe('Invite link page', () => {
     renderWithProviders(<App />, { path: `/invite/${TOKEN}`, auth: fakeAuthClient() })
     expect(await screen.findByTestId('invite-preview')).toHaveTextContent('a***@lotus.example')
     expect(screen.getByTestId('invite-preview')).toHaveTextContent('All branches')
-    await user.click(screen.getByRole('button', { name: 'Sign in to accept' }))
+    await user.click(screen.getByRole('button', { name: 'I already have a password' }))
     expect(await screen.findByRole('button', { name: 'Sign in' })).toBeInTheDocument()
     expect(calls.some((c) => c.method === 'POST')).toBe(false)
+  })
+
+  it('emails a sign-in code, accepts it, then asks the invitee to choose a password', async () => {
+    const calls = stubFetch({
+      [`GET /api/v1/public/invites/${TOKEN}`]: () => json(preview),
+      [`POST /api/v1/public/invites/${TOKEN}/sign-in-code`]: () => json({ expiresOn: '2026-11-01T00:10:00Z' }, 202),
+      [`POST /api/v1/public/invites/${TOKEN}/sign-in`]: () => json({ tokenHash: 'hash-1', verificationType: 'magiclink' }),
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: `/invite/${TOKEN}`, auth: fakeAuthClient() })
+    await user.click(await screen.findByRole('button', { name: 'Email me a sign-in code' }))
+    expect(await screen.findByRole('form', { name: 'Sign-in code' })).toBeInTheDocument()
+    await user.type(screen.getByRole('textbox', { name: 'Sign-in code' }), '123456')
+    await user.click(screen.getByRole('button', { name: 'Sign in with code' }))
+    expect(await screen.findByRole('form', { name: 'Choose a password' })).toBeInTheDocument()
+    expect(calls.find((c) => c.path.endsWith('/sign-in'))?.body).toEqual({ code: '123456' })
+    await user.type(screen.getByLabelText('Password'), 'chosen-by-invitee')
+    await user.click(screen.getByRole('button', { name: 'Save password' }))
+    expect(await screen.findByRole('button', { name: 'Join Synthetic Lotus Clinic' })).toBeInTheDocument()
   })
 
   it('claims as the signed-in user and switches into the new hospital', async () => {

@@ -53,6 +53,10 @@ public static partial class PlatformEndpoints
             .WithSummary("Register your hospital: stores a PENDING request only (no tenant, no access). Always 202.");
         pub.MapGet("/invites/{token}", PreviewInviteAsync).WithName("PreviewInvite").RequireRateLimiting(PublicPolicy)
             .WithSummary("Hospital, role and masked email of a pending invite link; 404 if unknown, used or expired.");
+        pub.MapPost("/invites/{token}/sign-in-code", RequestInviteSignInCodeAsync).WithName("RequestInviteSignInCode").RequireRateLimiting(PublicPolicy)
+            .WithSummary("Email a one-time sign-in code for this invite. 202 with an expiry; 404 unknown; 429 too many codes.");
+        pub.MapPost("/invites/{token}/sign-in", ExchangeInviteSignInCodeAsync).WithName("ExchangeInviteSignInCode").RequireRateLimiting(PublicPolicy)
+            .WithSummary("Check the emailed code and return a GoTrue magic-link token hash. The invitee then chooses their own password.");
 
         var platform = api.MapGroup("/platform").WithTags("Platform").RequireAuthorization().WithDbTransaction<IdentityDbContext>();
         platform.AddEndpointFilter(async (context, next) =>

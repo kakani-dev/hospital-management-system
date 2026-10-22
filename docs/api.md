@@ -31,6 +31,16 @@ Creating a tenant is **not** a monolith endpoint: it lives in the identity servi
 | GET | `/api/v1/me/invitations` | JWT | The caller's pending invitations `[{membershipId, tenantId, tenantName, branchId, role, invitedAt}]` |
 | POST | `/api/v1/me/invitations/{membershipId}/accept` | JWT (the invitee) | 204; 404 if it isn't the caller's pending invitation |
 
+### Public invite sign-in (anonymous, identity service)
+
+A new invitee has no account. These routes do not create a password and do not log the token or the code.
+
+| Method | Path | Who | Notes |
+|---|---|---|---|
+| GET | `/api/v1/public/invites/{token}` | anonymous | Hospital, role and masked email. 404 if unknown, used or expired. |
+| POST | `/api/v1/public/invites/{token}/sign-in-code` | anonymous | Queues template `sign_in_code` through the identity outbox. **202** `{expiresOn}`. 404 unknown. 429 `rate_limited` (5 codes per invite per hour, and the public form limiter). 503 when email sign-in is not configured (checked before a code is issued). |
+| POST | `/api/v1/public/invites/{token}/sign-in` | anonymous | Body `{code}` (6 digits). **200** `{tokenHash, verificationType: "magiclink"}`. The SPA passes `tokenHash` to `supabase.auth.verifyOtp`. 401 bad code (five mismatches burn it). 404 unknown invite. 503 if the code was accepted but GoTrue could not mint a session (request a new code). |
+
 ## Sprint 2: patients, scheduling, appointments, OPD queue
 
 Contract: `SPRINT2-CONTRACT.md` (DB v4 + API v2, 16:50 IST). JSON is camelCase; `date` = `YYYY-MM-DD`, `time` = `HH:mm` (branch-local wall clock), instants are ISO-8601 (responses in UTC). `Paged<T>` = `{items, page, pageSize, totalCount}` (`pageSize` 1..100, default 25).
@@ -90,6 +100,8 @@ Tokens are numbered from 1 per branch per **branch-local** day, shared by appoin
 ### Outbox (2.4, no HTTP routes)
 
 Appointment and queue changes write events (`appointment.*`, `queue.token_issued`, `queue.status_changed`) to `messaging.outbox` from DB triggers in the same transaction; the payload carries ids, status and times only (no PHI). The gateway's `OutboxDispatcher` (off by default: `Outbox:Dispatcher:Enabled`) claims batches as `hms_dispatcher` with SKIP LOCKED leases and publishes at least once; consumers dedupe on `eventId`.
+
+Invite links, hospital sign-up decisions and invite sign-in codes write `email.*` events in the same transaction. The payload is `pending_email_id` and `template_key` only. The identity service sends them (`Email:Dispatcher:Enabled`, off by default) and dedupes on `event_id`. Invite sign-in codes are one of those templates. Confirmation, recovery and email-change messages that GoTrue itself sends stay with Supabase Auth. See `docs/runbooks/email-delivery.md`.
 
 ## Errors
 

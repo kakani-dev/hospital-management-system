@@ -12,8 +12,9 @@ namespace Hms.Modules.Identity.Endpoints;
 
 /// <summary>
 /// Invite links: a tenant admin issues a single-use, expiring link for an email (works whether or not
-/// the person has an account yet, and reveals nothing about accounts). The invitee opens it, signs in
-/// with THAT email and claims it. No email provider is configured, so the admin copies the link.
+/// the person has an account yet, and reveals nothing about accounts). The same transaction queues
+/// an email with the link. The invitee opens it, signs in with THAT email and claims it. The plain
+/// token is also returned once so the admin can copy it if the message is delayed.
 /// </summary>
 public static class InviteLinkEndpoints
 {
