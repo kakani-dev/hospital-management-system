@@ -33,6 +33,7 @@ done
 
 for script in \
   .github/scripts/aca-rollout.sh \
+  .github/scripts/aca-live-tags.sh \
   .github/scripts/aca-cleanup-azure.sh \
   .github/scripts/cleanup-github.sh \
   scripts/azure-oidc-setup.sh \
@@ -41,6 +42,104 @@ for script in \
 do
   bash -n "$script"
 done
+
+# Rollout/plan scripts, the deploy workflow, and shared backend files select every app.
+# A running image that is not this commit is included too. Image tags stay the full sha.
+plan_sha="0123456789abcdef0123456789abcdef01234567"
+[[ "${#plan_sha}" -eq 40 ]] || fail "plan sha fixture is ${#plan_sha} characters"
+old_tag="sha-ca54690f712413349eebc2f105812223d16702d0"
+plan_of() {
+  local files live_file out
+  files="$(mktemp)"
+  printf '%s\n' "$@" >"$files"
+  if [[ -n "${PLAN_LIVE:-}" ]]; then
+    live_file="$PLAN_LIVE"
+    out="$(python3 .github/scripts/service_changes.py plan \
+      --sha "$plan_sha" --service "" --tag "" --files "$files" --live "$live_file")"
+  else
+    out="$(python3 .github/scripts/service_changes.py plan \
+      --sha "$plan_sha" --service "" --tag "" --files "$files")"
+  fi
+  printf '%s\n' "$out"
+}
+expect_all() {
+  local out="$1" why="$2"
+  grep -q 'deploy=true' <<<"$out" || fail "$why did not deploy"
+  grep -q 'build=true' <<<"$out" || fail "$why did not build"
+  grep -q 'services=identity,patients,scheduling,edge' <<<"$out" || fail "$why services were not all four: $out"
+  grep -q "tag=sha-${plan_sha}" <<<"$out" || fail "$why shortened the image tag: $out"
+}
+for path in \
+  .github/scripts/aca-rollout.sh \
+  .github/scripts/service_changes.py \
+  .github/scripts/aca-live-tags.sh \
+  .github/workflows/deploy-aca.yml \
+  backend/Directory.Build.props \
+  backend/global.json \
+  backend/shared/Hms.SharedKernel/Hms.SharedKernel.csproj \
+  backend/services/identity/packages.lock.json
+do
+  expect_all "$(plan_of "$path")" "$path"
+done
+only_patients="$(plan_of backend/services/patients/Dockerfile)"
+grep -q 'services=patients' <<<"$only_patients" || fail "patients path selected '$only_patients'"
+grep -q 'services=identity,patients,scheduling,edge' <<<"$only_patients" && fail "patients path selected every service" || true
+web_only="$(plan_of apps/web/src/App.tsx)"
+grep -q 'deploy=false' <<<"$web_only" || fail "web-only change deployed: $web_only"
+grep -q 'aca-live-tags.sh' .github/workflows/deploy-aca.yml || fail "plan job does not read running image tags"
+grep -q -- '--live' .github/workflows/deploy-aca.yml || fail "plan job does not pass live tags"
+
+stale_live="$(mktemp)"
+for service in identity patients scheduling edge; do
+  printf '%s\t%s\n' "$service" "$old_tag" >>"$stale_live"
+done
+PLAN_LIVE="$stale_live"
+expect_all "$(plan_of docs/deploy.md)" "stale running images"
+unset PLAN_LIVE
+
+current_live="$(mktemp)"
+for service in identity patients scheduling edge; do
+  printf '%s\tsha-%s\n' "$service" "$plan_sha" >>"$current_live"
+done
+PLAN_LIVE="$current_live"
+current_out="$(plan_of docs/deploy.md)"
+grep -q 'deploy=false' <<<"$current_out" || fail "matching running images still deployed: $current_out"
+unset PLAN_LIVE
+
+bin="$(mktemp -d)"
+cat >"$bin/az" <<'EOS'
+#!/usr/bin/env bash
+all="$*"
+app=""
+if [[ "$all" =~ (^|[[:space:]])-n[[:space:]](ca-hms-[a-z]+) ]]; then
+  app="${BASH_REMATCH[2]}"
+fi
+service="${app#ca-hms-}"
+if [[ "$all" == *"ingress traffic show"* ]]; then
+  if [[ "$app" == "ca-hms-edge" ]]; then
+    printf '[]\n'
+  else
+    printf '[{"revisionName":"%s--s-prev","weight":100}]\n' "$app"
+  fi
+  exit 0
+fi
+if [[ "$all" == *"revision show"* || "$all" == *"containerapp show"* ]]; then
+  printf 'acrmedicorehmsdev.azurecr.io/hms-%s:sha-ca54690f712413349eebc2f105812223d16702d0\n' "$service"
+  exit 0
+fi
+echo "unexpected az: $all" >&2
+exit 1
+EOS
+chmod +x "$bin/az"
+live_out="$(PATH="$bin:$PATH" bash .github/scripts/aca-live-tags.sh)"
+for service in identity patients scheduling edge; do
+  grep -qx "${service}"$'\t'"${old_tag}" <<<"$live_out" || fail "live tags missing $service: $live_out"
+done
+printf '%s\n' "$live_out" >"$stale_live"
+PLAN_LIVE="$stale_live"
+expect_all "$(plan_of apps/web/package-lock.json)" "live tags read from az"
+unset PLAN_LIVE
+echo "plan selects all four services"
 
 # Artifact uploads keep a retention window.
 python3 - <<'PY'

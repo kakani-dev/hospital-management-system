@@ -2,9 +2,11 @@
 #
 # Push to main runs CI first. This workflow starts only after that CI run succeeds, builds
 # the images whose paths changed, pushes sha-<full 40-character commit sha> to ACR, shifts traffic, and smoke-tests
-# through the public edge. A failed health or smoke check puts traffic back on the previous
-# revision and fails the run. workflow_dispatch is an emergency hatch (one service and/or an
-# existing tag), not the normal path.
+# through the public edge. An app whose running image tag is not that sha is built too, so a
+# container left on an older commit is not skipped. A failed health or smoke check puts traffic
+# back on the previous revision and fails the run. workflow_dispatch is an emergency hatch
+# (one service and/or an existing tag). With both inputs blank it uses the same plan: changed
+# paths, plus every app that is not already running this commit.
 #
 # Auth is Azure OIDC (AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID). No client secret,
 # no registry password. Nothing in this workflow waits on a repository variable or a
@@ -29,7 +31,7 @@ on:
   workflow_dispatch:
     inputs:
       service:
-        description: "Emergency only. One of identity, patients, scheduling, edge. Blank uses change detection, or all four when tag is set."
+        description: "Emergency only. One of identity, patients, scheduling, edge. Blank builds changed services plus any app whose running image is not this commit."
         required: false
         default: ""
       tag:
@@ -60,6 +62,9 @@ jobs:
        github.event.workflow_run.event == 'push' &&
        github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     outputs:
       sha: ${{ steps.p.outputs.sha }}
       tag: ${{ steps.p.outputs.tag }}
@@ -72,6 +77,12 @@ jobs:
         with:
           ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 2
+      - uses: azure/login@v2
+        if: github.event_name != 'workflow_dispatch' || (inputs.service == '' && inputs.tag == '')
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       - id: p
         env:
           INPUT_SERVICE: ${{ github.event_name == 'workflow_dispatch' && inputs.service || '' }}
@@ -81,15 +92,24 @@ jobs:
           set -euo pipefail
           [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::sha must be 40 hex, got '$SHA'"; exit 1; }
           files="$(mktemp)"
+          live_args=()
           if [[ -z "$INPUT_TAG" && -z "$INPUT_SERVICE" ]]; then
             if git rev-parse --verify -q 'HEAD^' >/dev/null; then
               git diff --name-only 'HEAD^' HEAD >"$files"
             else
               printf '%s\n' backend/platform/__all__ >"$files"
             fi
+            live="$(mktemp)"
+            bash .github/scripts/aca-live-tags.sh >"$live"
+            live_args=(--live "$live")
+            {
+              echo "Running image tags:"
+              cat "$live"
+            } >>"$GITHUB_STEP_SUMMARY"
           fi
           python3 .github/scripts/service_changes.py plan \
             --sha "$SHA" --service "$INPUT_SERVICE" --tag "$INPUT_TAG" --files "$files" \
+            "${live_args[@]}" \
             | tee -a "$GITHUB_OUTPUT"
           echo "Changed files considered; see the plan outputs above." >>"$GITHUB_STEP_SUMMARY"
 
