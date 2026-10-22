@@ -12,7 +12,7 @@ A multi-tenant Hospital Management System, built as a **modular monolith**: one 
 | Backend | ASP.NET Core (.NET 10 LTS) minimal APIs, EF Core + Npgsql, OpenAPI + Swagger UI, Serilog JSON logs, health checks |
 | Database | Supabase PostgreSQL: SQL migrations, a schema per service, RLS keyed on memberships, audit log |
 | Tests | Vitest (unit), xUnit (unit, API integration with signed JWTs on real Postgres, RLS defense in depth), SQL tests, full-stack Playwright + axe (mock Supabase Auth) |
-| CI | GitHub Actions (`ci.yml` = required gate, `cleanup.yml` weekly artifact/cache cleanup), optional Jenkins mirror (`Jenkinsfile`) |
+| CI | GitHub Actions (`ci.yml` required gate; skips unchanged jobs, nightly full run), `cleanup.yml` weekly artifact/cache cleanup, optional Jenkins mirror |
 | Hosting (planned, not deployed) | Vercel (web), Render Docker (API), Supabase Free (DB) |
 
 ## Repository layout
