@@ -17,7 +17,10 @@ public sealed class AppointmentsDbContext(DbContextOptions<AppointmentsDbContext
     public const string Schema = "appointment";
 
     public DbSet<Practitioner> Practitioners => Set<Practitioner>();
+    public DbSet<PractitionerBranch> PractitionerBranches => Set<PractitionerBranch>();
     public DbSet<Schedule> Schedules => Set<Schedule>();
+    public DbSet<ScheduleOverride> ScheduleOverrides => Set<ScheduleOverride>();
+    public DbSet<TenantSchedulingSettings> TenantSchedulingSettings => Set<TenantSchedulingSettings>();
     public DbSet<Appointment> Appointments => Set<Appointment>();
     public DbSet<QueueEntry> QueueEntries => Set<QueueEntry>();
 
@@ -34,11 +37,29 @@ public sealed class AppointmentsDbContext(DbContextOptions<AppointmentsDbContext
             e.HasQueryFilter(x => x.TenantId == CurrentTenantId && !x.IsDeleted);
         });
 
+        modelBuilder.Entity<PractitionerBranch>(e =>
+        {
+            e.ToTable("practitioner_branches");
+            e.HasQueryFilter(x => x.TenantId == CurrentTenantId && !x.IsDeleted);
+        });
+
         modelBuilder.Entity<Schedule>(e =>
         {
             e.ToTable("schedules");
             e.HasQueryFilter(x => x.TenantId == CurrentTenantId && !x.IsDeleted);
             // tenant_id / id are insert-only; the rest is in the update grant.
+        });
+
+        modelBuilder.Entity<ScheduleOverride>(e =>
+        {
+            e.ToTable("schedule_overrides");
+            e.HasQueryFilter(x => x.TenantId == CurrentTenantId && !x.IsDeleted);
+        });
+
+        modelBuilder.Entity<TenantSchedulingSettings>(e =>
+        {
+            e.ToTable("tenant_settings");
+            e.HasQueryFilter(x => x.TenantId == CurrentTenantId && !x.IsDeleted);
         });
 
         modelBuilder.Entity<Appointment>(e =>

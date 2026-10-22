@@ -86,6 +86,7 @@ export function AppShell() {
                 Icon: CalendarDaysIcon,
                 keys: has('appointments.book') ? 'Alt+K' : undefined,
               },
+              ...(roles.includes('doctor') ? [{ id: 'my-day', path: '/my-day', title: 'My day', Icon: ClockIcon }] : []),
             ]
           : []),
         ...(has('schedules.view') ? [{ id: 'schedules', path: '/schedules', title: 'Schedules', Icon: ClockIcon }] : []),

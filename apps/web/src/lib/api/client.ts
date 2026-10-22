@@ -10,6 +10,8 @@ import type {
   CreateBranchRequest,
   CreatePatientRequest,
   CreatePractitionerRequest,
+  CreatePractitionerBranchRequest,
+  CreateScheduleOverrideRequest,
   CreateScheduleRequest,
   CurrentTenant,
   CurrentUser,
@@ -25,15 +27,20 @@ import type {
   PatientStats,
   PatientSummary,
   Practitioner,
+  PractitionerBranchMembership,
   ProblemDetails,
   QueueEntry,
   QueueStatus,
   RescheduleAppointmentRequest,
   Schedule,
+  ScheduleOverride,
+  SchedulingSettings,
+  MyDay,
   Slot,
   SwitchContextRequest,
   UpdateBranchRequest,
   UpdatePractitionerRequest,
+  UpdatePractitionerBranchRequest,
   UpdateScheduleRequest,
   UpdateTenantRequest,
   UpdateMemberRequest,
@@ -492,6 +499,30 @@ export class ApiClient {
     /** 409 schedule_overlap when the restored hours overlap another active schedule. */
     restore: (id: string) => this.request<void>(`/api/v1/schedules/${encodeURIComponent(id)}/restore`, { method: 'POST' }),
   }
+
+  practitionerBranches = {
+    list: (params: { practitionerId?: string; branchId?: string } = {}) =>
+      this.request<PractitionerBranchMembership[]>(`/api/v1/practitioner-branches${qs(params)}`),
+    create: (body: CreatePractitionerBranchRequest) =>
+      this.request<PractitionerBranchMembership>('/api/v1/practitioner-branches', { method: 'POST', body: JSON.stringify(body) }),
+    update: (id: string, body: UpdatePractitionerBranchRequest) =>
+      this.request<PractitionerBranchMembership>(`/api/v1/practitioner-branches/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  }
+
+  scheduleOverrides = {
+    list: (params: { practitionerId?: string; branchId?: string; from?: string; to?: string } = {}) =>
+      this.request<ScheduleOverride[]>(`/api/v1/schedule-overrides${qs(params)}`),
+    create: (body: CreateScheduleOverrideRequest) =>
+      this.request<ScheduleOverride>('/api/v1/schedule-overrides', { method: 'POST', body: JSON.stringify(body) }),
+  }
+
+  schedulingSettings = {
+    get: () => this.request<SchedulingSettings>('/api/v1/scheduling-settings'),
+    update: (travelBufferMinutes: number) =>
+      this.request<SchedulingSettings>('/api/v1/scheduling-settings', { method: 'PUT', body: JSON.stringify({ travelBufferMinutes }) }),
+  }
+
+  myDay = (date: string) => this.request<MyDay>(`/api/v1/practitioners/me/day${qs({ date })}`)
 
   /** Free, future slots; `from`/`to` are branch-local dates, inclusive, ≤ 31 days. */
   slots = (params: { branchId: string; from: string; to: string; practitionerId?: string }) =>

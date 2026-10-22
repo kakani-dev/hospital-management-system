@@ -57,7 +57,7 @@ Totals: **OK 41 · BUG 1 (fixed) · GAP 9** (gaps = product decisions or new fea
 | E5 | Tenant isolation | RLS | 02, 29 | OK | – |
 
 ## F. Practitioners / schedules
-| F1 | No overlapping schedules per practitioner (any branch) | `schedules_no_overlap` gist exclusion | 29, 11 | OK | – |
+| F1 | No overlapping schedules per practitioner (any branch, absolute time) | `z_schedules_commitment` trigger plus `schedule_overrides_no_overlap` | 35, 29, 11 | OK | – |
 | F2 | valid_from ≤ valid_to; start<end; slot 5–240 min | check constraints | 29, 11 | OK | – |
 | F3 | Breaks inside a day | modelled as two schedules per weekday | – | OK (no separate break entity) / GAP for explicit breaks | Low |
 | F4 | Can't delete practitioner with open appointments | `soft_delete_practitioner` | AuditSoftDelete | OK | – |

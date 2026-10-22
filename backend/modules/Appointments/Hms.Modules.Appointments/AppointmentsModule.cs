@@ -27,5 +27,5 @@ public static class AppointmentsModule
     }
 
     public static RouteGroupBuilder MapAppointmentsModule(this RouteGroupBuilder api) =>
-        api.MapPractitionerScheduleEndpoints().MapAppointmentEndpoints().MapQueueEndpoints();
+        api.MapPractitionerScheduleEndpoints().MapPractitionerBranchEndpoints().MapAppointmentEndpoints().MapQueueEndpoints();
 }

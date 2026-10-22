@@ -412,7 +412,7 @@ export interface DeletePatientRequest {
   reason?: string
 }
 
-/** GET /api/v1/practitioners (tenant-wide; branch association comes from schedules). */
+/** GET /api/v1/practitioners (tenant-wide; which branches they work at is practitioner-branches). */
 export interface Practitioner {
   id: Guid
   userId: Guid | null
@@ -476,6 +476,75 @@ export interface UpdateScheduleRequest {
   validTo?: string
   clearValidTo?: boolean
   isActive?: boolean
+}
+
+/** A branch the practitioner works at, with optional room and fee placeholders. */
+export interface PractitionerBranchMembership {
+  id: Guid
+  practitionerId: Guid
+  branchId: Guid
+  isActive: boolean
+  consultationRoom: string | null
+  consultationFeeCents: number | null
+}
+
+export interface CreatePractitionerBranchRequest {
+  practitionerId: Guid
+  branchId: Guid
+  consultationRoom?: string | null
+  consultationFeeCents?: number | null
+}
+
+export interface UpdatePractitionerBranchRequest {
+  isActive?: boolean
+  consultationRoom?: string | null
+  consultationFeeCents?: number | null
+  clearFee?: boolean
+}
+
+/** One branch-local day that replaces the weekly template. */
+export interface ScheduleOverride {
+  id: Guid
+  practitionerId: Guid
+  branchId: Guid
+  date: string
+  isLeave: boolean
+  startTime: string | null
+  endTime: string | null
+  slotMinutes: number | null
+  isActive: boolean
+}
+
+export interface CreateScheduleOverrideRequest {
+  practitionerId: Guid
+  branchId: Guid
+  date: string
+  isLeave: boolean
+  startTime?: string | null
+  endTime?: string | null
+  slotMinutes?: number | null
+}
+
+export interface SchedulingSettings {
+  travelBufferMinutes: number
+}
+
+/** Doctor's day across every branch they work at. */
+export interface MyDayItem {
+  kind: 'appointment' | 'hours' | 'leave'
+  branchId: Guid
+  startsAt: string
+  endsAt: string
+  appointmentId: string | null
+  status: string | null
+  patient: { id: Guid; mrn: string; firstName: string; lastName: string } | null
+}
+
+export interface MyDay {
+  practitionerId: Guid | null
+  displayName: string | null
+  date: string
+  items: MyDayItem[]
 }
 
 /** GET /api/v1/patients/stats: dashboard counts (no PHI). "Today" = each branch's local day. */

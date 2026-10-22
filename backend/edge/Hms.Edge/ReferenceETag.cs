@@ -26,6 +26,9 @@ public static class ReferenceETag
         "/api/v1/branches",
         "/api/v1/practitioners",
         "/api/v1/schedules",
+        "/api/v1/practitioner-branches",
+        "/api/v1/schedule-overrides",
+        "/api/v1/scheduling-settings",
     ];
 
     public static bool Applies(HttpRequest request) =>

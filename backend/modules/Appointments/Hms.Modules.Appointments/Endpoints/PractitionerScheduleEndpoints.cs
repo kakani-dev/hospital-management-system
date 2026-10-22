@@ -72,8 +72,10 @@ public static class PractitionerScheduleEndpoints
             // "Active schedule at the branch": is_active and not ended before the branch-local today (future starts count).
             var tz = tenant.TimeZoneFor(branch);
             var today = BranchTime.Today(clock, tz);
-            query = query.Where(p => db.Schedules.Any(s =>
-                s.PractitionerId == p.Id && s.BranchId == branch && s.IsActive && (s.ValidTo == null || s.ValidTo >= today)));
+            query = query.Where(p =>
+                db.PractitionerBranches.Any(m => m.PractitionerId == p.Id && m.BranchId == branch && m.IsActive)
+                && db.Schedules.Any(s =>
+                    s.PractitionerId == p.Id && s.BranchId == branch && s.IsActive && (s.ValidTo == null || s.ValidTo >= today)));
         }
 
         var rows = await query.OrderBy(p => p.DisplayName).ThenBy(p => p.Id).ToListAsync(ct);
@@ -250,6 +252,14 @@ public static class PractitionerScheduleEndpoints
         if (!tenant.CanAtBranch(request.BranchId, HmsPermissions.PractitionersManage))
         {
             return await BranchScope.DenyAsync(db, tenant, request.BranchId, "You cannot manage schedules at this branch.", ct);
+        }
+
+        // Membership first, in this transaction, so the commitment trigger sees it. An inactive
+        // membership is left inactive and the trigger rejects the hours.
+        if (await db.Practitioners.AnyAsync(p => p.Id == schedule.PractitionerId, ct)
+            && await EnsureActiveMembershipAsync(db, schedule.PractitionerId, schedule.BranchId, ct) is { } membershipProblem)
+        {
+            return membershipProblem;
         }
 
         db.Schedules.Add(schedule);
@@ -458,9 +468,36 @@ public static class PractitionerScheduleEndpoints
         }
     }
 
+    /// <summary>
+    /// Inserts an active membership when none is live. An inactive live row is not reactivated.
+    /// The row is flushed before the schedule insert so the database trigger can see it.
+    /// </summary>
+    internal static async Task<ProblemHttpResult?> EnsureActiveMembershipAsync(
+        AppointmentsDbContext db, Guid practitionerId, Guid branchId, CancellationToken ct)
+    {
+        var live = await db.PractitionerBranches
+            .Where(m => m.PractitionerId == practitionerId && m.BranchId == branchId)
+            .ToListAsync(ct);
+        if (live.Count > 0)
+        {
+            return null;
+        }
+
+        db.PractitionerBranches.Add(new PractitionerBranch { PractitionerId = practitionerId, BranchId = branchId, IsActive = true });
+        try
+        {
+            await db.SaveChangesAsync(ct);
+            return null;
+        }
+        catch (Exception ex) when (HmsProblems.FromDatabase(ex, uniqueDetail: "This doctor is already at that branch.") is { } problem)
+        {
+            return problem;
+        }
+    }
+
     private static ProblemHttpResult? ScheduleProblem(Exception ex) =>
         HmsProblems.FromDatabase(ex, exclusionCode: HmsProblems.Codes.ScheduleOverlap,
-            exclusionDetail: "The practitioner already has an overlapping active schedule on that weekday.");
+            exclusionDetail: "The practitioner is already scheduled at that time, including at another branch.");
 
     // --------------------------------------------------------------------- slots
     private static async Task<Results<Ok<List<SlotDto>>, ValidationProblem, ProblemHttpResult>> SlotsAsync(
