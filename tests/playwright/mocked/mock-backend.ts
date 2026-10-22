@@ -350,6 +350,8 @@ export class MockBackend {
   /** patient.mrn_counters: per-tenant MRN sequence (seed MRNs use the legacy format). */
   readonly mrnCounters = new Map<string, number>()
   readonly branchNames = new Map<string, string>()
+  /** Branches created through POST /branches in this instance (the seed list is shared). */
+  readonly createdBranches: { id: string; name: string; code: string }[] = []
   readonly appointments: MockAppointment[] = []
   /** Latest booking time per patient (ms), for GET /patients?sort=recent. */
   readonly lastBooked = new Map<string, number>()
@@ -917,6 +919,7 @@ export class MockBackend {
     }
     if (method === 'POST' && path === '/api/v1/appointments') {
       const branchId = String(body.branchId)
+      // A clinician with follow-up permission books a follow-up of any earlier visit at a branch they can access.
       const followUp = rolesAt(branchId).includes('doctor') && !!body.parentAppointmentId
       if (!canAccessBranch(branchId) || (!has(REG_WRITE, rolesAt(branchId)) && !followUp)) return forbidden()
       // Contract v4: foreign/unknown/soft-deleted patient or practitioner → 404 (was 400 invalid_reference).
@@ -1011,9 +1014,22 @@ export class MockBackend {
     // Future bookings whose wall-clock time would move with a zone change (identity.change_time_zone_v1).
     const futureBookings = (branchIds: string[]) =>
       this.appointments.filter((a) => branchIds.includes(a.branchId) && a.status === 'booked' && a.startsAt > new Date().toISOString()).length
+    const tenantBranches = () => [...tenants[tenant]!.branches, ...this.createdBranches]
+    if (method === 'POST' && path === '/api/v1/branches') {
+      if (!isAdmin) return forbidden()
+      const code = String(body.code ?? '').trim()
+      const name = String(body.name ?? '').trim()
+      if (!/^[a-z0-9][a-z0-9-]{1,39}$/.test(code)) return reply(400, { title: 'Validation', status: 400, errors: { code: ['2-40 lowercase letters, digits or hyphens'] } }, tenant)
+      if (!name) return reply(400, { title: 'Validation', status: 400, errors: { name: ['Name is required'] } }, tenant)
+      if (tenantBranches().some((b) => b.code === code && !this.branchState.get(b.id)?.isDeleted)) return problem(409, 'conflict')
+      const created = { id: crypto.randomUUID(), name, code }
+      this.createdBranches.push(created)
+      if (typeof body.timezone === 'string' && body.timezone) this.branchTimeZones.set(created.id, body.timezone)
+      return reply(201, branchDto(created), tenant)
+    }
     if (method === 'GET' && path === '/api/v1/branches') {
       const withDeleted = isAdmin && url.searchParams.get('includeDeleted') === 'true'
-      return reply(200, tenants[tenant]!.branches.map(branchDto).filter((b) => (withDeleted || !b.isDeleted) && (isAdmin || b.isActive)), tenant)
+      return reply(200, tenantBranches().map(branchDto).filter((b) => (withDeleted || !b.isDeleted) && (isAdmin || b.isActive)), tenant)
     }
     const branchRestore = /^\/api\/v1\/branches\/([^/]+)\/restore$/.exec(path)
     if ((method === 'DELETE' && /^\/api\/v1\/branches\/[^/]+$/.test(path)) || (method === 'POST' && branchRestore)) {

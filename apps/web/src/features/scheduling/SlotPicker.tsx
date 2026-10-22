@@ -1,4 +1,5 @@
 import { useId, type ReactNode } from 'react'
+import { Illustration } from '../../components/ui/Illustration'
 import { formatDayLabel, formatTime } from '../../lib/dates'
 import type { Slot } from '../../lib/api/types'
 import { Button } from '../../components/ui/Button'
@@ -43,6 +44,7 @@ export function SlotPicker({
       {slots.isError && <p className="text-sm text-error-darker dark:text-error-lighter">Slots are unavailable right now.</p>}
       {slots.data?.length === 0 && !slots.isPlaceholderData && (
         <div className="space-y-2 text-sm text-gray-600 dark:text-dark-200" data-testid="no-free-slots">
+          <Illustration name="clock" size={72} className="mx-auto mb-2 block" />
           <p data-testid="slot-empty-reason">{emptyReason ?? 'No free slots on this day.'}</p>
           {nextDate && onNextDate && (
             <Button variant="secondary" onClick={() => onNextDate(nextDate)} data-testid="next-free-day">

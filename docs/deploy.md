@@ -1,0 +1,155 @@
+# Deploy the API to Azure Container Apps
+
+The web app stays on Vercel. This pipeline only rolls the four API containers.
+
+| App | Image | Ingress |
+|---|---|---|
+| `ca-hms-edge` | `hms-edge` | public |
+| `ca-hms-identity` | `hms-identity` | internal |
+| `ca-hms-patients` | `hms-patients` | internal |
+| `ca-hms-scheduling` | `hms-scheduling` | internal |
+
+Resource group `rg-medicore-hms-dev`, Central India. Registry `acrmedicorehmsdev` (admin user disabled). Every app pulls `acrmedicorehmsdev.azurecr.io/hms-<svc>:sha-<full 40-character commit sha>`, not GHCR. Patients uses its existing identity with AcrPull. Scheduling uses its system-assigned identity with AcrPull. The deploy does not change those bindings.
+
+`medicore-hms-api` (the App Service) stays up as the rollback target for the web app. Its outbox dispatcher stays **off** (`Outbox__Dispatcher__Enabled` unset or false). On the current schema `hms_api` no longer has `hms_dispatcher` (B1); a dispatcher on that app cannot claim rows and must not be turned on. This pipeline only reads that setting and refuses to deploy if it is true. It never restarts, deploys, or reconfigures the App Service. It also never runs a database migration.
+
+ACR Basic is a paid SKU (about $0.17 per day). Container Apps stay on the consumption plan the apps were created with.
+
+## What runs on its own
+
+1. Push to `main`.
+2. The `CI` workflow passes.
+3. `Deploy to Azure Container Apps` starts. A newer push cancels a deploy that has not finished. An emergency dispatch waits, so it does not cut off a rollback.
+4. Path filters pick the images to build. `backend/platform`, `backend/shared`, `Directory.Build.props`, `Directory.Packages.props`, `global.json`, and `.dockerignore` build all four. Otherwise only the service whose host or module changed is built. A change to this deploy workflow also builds the edge: `ca-hms-edge` was still running `sha-eb314ae`, and the enabling commit does not touch `backend/edge`. Web, SQL, and the legacy gateway build nothing.
+5. The image jobs run in parallel, push to ACR, and reuse Docker layer cache (`type=gha`).
+6. Each changed app is switched to multiple revision mode. The new revision is created from the `sha-` tag. Traffic moves to it only after the revision exists. Health is polled through the public edge (`/health/live`, and `/health/ready` for the services behind it).
+7. A smoke check then calls `GET /api/v1/public/invites/<64 zeros>`. That route is anonymous and read-only. Success is **404 from the identity service** (unknown token). The gateway's own "no such route" 404 fails the deploy. Nothing is written.
+8. If health or smoke fails, traffic goes back to the previous revision, the new revision is deactivated, and the job fails. Every app shifted in that run is restored, edge last.
+
+`ca-hms-identity` is the only app that receives mail secrets. The deploy stores `SMTP_PASSWORD` as `smtp-password` and sets `Smtp__Password=secretref:smtp-password`. It stores `SUPABASE_SERVICE_ROLE_KEY` as `supabase-service-role` and sets `Auth__Supabase__ServiceRoleKey=secretref:supabase-service-role`. It sets `Email__Dispatcher__Enabled=true` on that app. If either secret is empty, identity is not rolled. Patients, scheduling, and the edge are not given either secret. `Outbox__Dispatcher__Enabled` stays off.
+
+The identity database login `hms_identity_login` lives in the existing secret `hms-db`. The workflow never writes that secret and does not replace `ConnectionStrings__HmsDatabase`. Identity runs with `minReplicas` 1. A rollout that does not already see 1 stops instead of changing the scale. Other apps keep the replica counts they already have.
+
+## One-time setup
+
+Run this once, from a machine logged in to the subscription (`az login`) and, for the last line, authenticated to GitHub as someone who can write Actions secrets (`gh auth login`).
+
+```bash
+AZURE_OIDC_SETUP_APPROVED=1 GH_SET_SECRETS=1 bash scripts/azure-oidc-setup.sh
+```
+
+The script is idempotent. Re-running it does not create a second app, credential, registry, or role assignment. It never creates a client secret.
+
+This repository was created on 2026-10-06, after GitHub's 15 July 2026 cutoff, so Actions sends an immutable subject. The federated credential must be exactly `repo:kakani-dev@249468300/hospital-management-system@1407449638:ref:refs/heads/main` (owner id `249468300`, repository id `1407449638`). The older name-only subject will not match the token, and `azure/login` will fail. The workflow has no GitHub environment, so the subject includes the branch. The post-CI deploy and an emergency dispatch from `main` both present that subject. The script reads the ids with `gh api` when `gh` is installed, and otherwise uses these known ids for this repository.
+
+The same steps, if you need them without the script:
+
+```bash
+SUB=6f4c512a-8528-461a-962b-f4f8525223a3
+TENANT=ab1a6103-6bda-47b9-8f1b-3bab684f84e3
+RG=rg-medicore-hms-dev
+LOC=centralindia
+ACR_NAME=acrmedicorehmsdev
+APP_NAME=gh-medicore-hms-aca-deploy
+REPO=kakani-dev/hospital-management-system
+# Immutable subject. Do not drop the @id segments.
+SUBJECT="repo:kakani-dev@249468300/hospital-management-system@1407449638:ref:refs/heads/main"
+
+az account set --subscription "$SUB"
+# Register the registry provider only when it is not already registered.
+state=$(az provider show -n Microsoft.ContainerRegistry --query registrationState -o tsv)
+[[ "$state" == "Registered" ]] || az provider register -n Microsoft.ContainerRegistry --wait -o none
+
+APP_ID=$(az ad app list --display-name "$APP_NAME" --query "[?displayName=='$APP_NAME'].appId | [0]" -o tsv)
+[[ -n "$APP_ID" ]] || APP_ID=$(az ad app create --display-name "$APP_NAME" --sign-in-audience AzureADMyOrg --query appId -o tsv)
+az ad sp show --id "$APP_ID" -o none 2>/dev/null || az ad sp create --id "$APP_ID" -o none
+SP_OBJECT_ID=$(az ad sp show --id "$APP_ID" --query id -o tsv)
+
+# Federated credential for the main branch only. No client secret.
+az ad app federated-credential create --id "$APP_ID" --parameters "{\"name\":\"github-actions-main\",\"issuer\":\"https://token.actions.githubusercontent.com\",\"subject\":\"$SUBJECT\",\"audiences\":[\"api://AzureADTokenExchange\"]}"
+
+az acr show -n "$ACR_NAME" -o none 2>/dev/null || \
+  az acr create -g "$RG" -n "$ACR_NAME" -l "$LOC" --sku Basic --admin-enabled false \
+    --tags project=medicore-hms env=dev -o none
+az acr update -n "$ACR_NAME" --admin-enabled false -o none
+ACR_ID=$(az acr show -n "$ACR_NAME" --query id -o tsv)
+RG_ID=$(az group show -n "$RG" --query id -o tsv)
+
+# AcrPush lets Actions push. AcrDelete lets the weekly cleanup remove old sha- tags
+# (AcrPush cannot delete manifests). Contributor is limited to this resource group.
+az role assignment create --assignee-object-id "$SP_OBJECT_ID" --assignee-principal-type ServicePrincipal \
+  --role AcrPush --scope "$ACR_ID" -o none
+az role assignment create --assignee-object-id "$SP_OBJECT_ID" --assignee-principal-type ServicePrincipal \
+  --role AcrDelete --scope "$ACR_ID" -o none
+az role assignment create --assignee-object-id "$SP_OBJECT_ID" --assignee-principal-type ServicePrincipal \
+  --role Contributor --scope "$RG_ID" -o none
+
+# Leave an app that already pulls from this registry on its current identity.
+# Patients keeps its existing identity. Scheduling keeps system. Both have AcrPull.
+for app in ca-hms-edge ca-hms-identity ca-hms-patients ca-hms-scheduling; do
+  current=$(az containerapp show -g "$RG" -n "$app" \
+    --query "properties.configuration.registries[?server=='${ACR_NAME}.azurecr.io'].identity | [0]" -o tsv)
+  if [[ -n "$current" && "$current" != "None" ]]; then
+    echo "$app already pulls ACR with identity $current; leaving the registry binding alone"
+    continue
+  fi
+  az containerapp identity assign -g "$RG" -n "$app" --system-assigned -o none
+  pid=$(az containerapp identity show -g "$RG" -n "$app" --query principalId -o tsv)
+  az role assignment create --assignee-object-id "$pid" --assignee-principal-type ServicePrincipal \
+    --role AcrPull --scope "$ACR_ID" -o none
+  az containerapp registry set -g "$RG" -n "$app" --server "$ACR_NAME.azurecr.io" --identity system -o none
+done
+
+gh secret set AZURE_CLIENT_ID --repo "$REPO" --body "$APP_ID"
+gh secret set AZURE_TENANT_ID --repo "$REPO" --body "$TENANT"
+gh secret set AZURE_SUBSCRIPTION_ID --repo "$REPO" --body "$SUB"
+```
+
+Skip `GH_SET_SECRETS=1` if you want to set the secrets yourself. The script prints the three values either way.
+
+If a container app does not exist yet, the script still creates the app registration, the registry, and the roles, then tells you to re-run it after the apps exist (`infra/aca/deploy-aca.sh` creates the apps). Re-running wires `AcrPull`.
+
+## GitHub secrets
+
+| Secret | Required | Value |
+|---|---|---|
+| `AZURE_CLIENT_ID` | yes | Application (client) id of `gh-medicore-hms-aca-deploy` |
+| `AZURE_TENANT_ID` | yes | `ab1a6103-6bda-47b9-8f1b-3bab684f84e3` |
+| `AZURE_SUBSCRIPTION_ID` | yes | `6f4c512a-8528-461a-962b-f4f8525223a3` |
+| `SMTP_PASSWORD` | yes for identity | Gmail app password. Stored only on `ca-hms-identity` as `smtp-password`. Identity does not roll if this is empty. |
+| `SUPABASE_SERVICE_ROLE_KEY` | yes for identity | GoTrue service-role key. Stored only on `ca-hms-identity` as `supabase-service-role`. |
+
+Do not create a client secret. The workflow asks Entra for a short-lived token with the federated credential above. Pulls use the identity already on each app (`AcrPull`), not a registry password. Patients keeps its existing identity. Scheduling keeps its system-assigned identity.
+
+## Emergency hatch
+
+Normal deploys do not use this. From `main`:
+
+```bash
+# Roll patients back to an image that is already in the registry. Nothing is built.
+gh workflow run "Deploy to Azure Container Apps" --ref main \
+  -f service=patients -f tag=sha-0123456789ab
+
+# Rebuild and roll only the edge from the current main commit.
+gh workflow run "Deploy to Azure Container Apps" --ref main -f service=edge
+```
+
+The same health check, smoke test, and automatic rollback apply. `service` is one of `identity`, `patients`, `scheduling`, `edge`.
+
+## Cleanup
+
+`.github/workflows/cleanup.yml` runs every Monday at 03:17 UTC and deletes for real. It also has a manual run:
+
+```bash
+# Preview only.
+gh workflow run "Cleanup old artifacts, caches, and revisions" -f dry_run=true -f max_age_days=7
+
+# Real run (same as the weekly schedule).
+gh workflow run "Cleanup old artifacts, caches, and revisions" -f dry_run=false
+```
+
+- Artifacts older than 7 days, and caches not used for 7 days (`max_age_days` changes only this part).
+- In `acrmedicorehmsdev`, the 10 newest `sha-` tags of each `hms-*` repository, plus any tag that is on a running or traffic-bearing revision. Other tags are not deleted. If the deployed image cannot be read, nothing is deleted.
+- Inactive Container Apps revisions beyond the newest 3 are deactivated. A revision with traffic, replicas, or that is still starting is kept.
+
+Artifact uploads in CI set `retention-days: 7`.

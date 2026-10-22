@@ -17,6 +17,8 @@
     "sql:test": "bash supabase/scripts/run-sql-tests.sh",
     "api:build": "dotnet build backend/Hms.slnx",
     "api:test": "dotnet test backend/Hms.slnx --filter Category!=Database",
+    "verify": "bash scripts/verify.sh",
+    "prepare": "lefthook install",
     "clean": "bash scripts/clean.sh",
     "clean:all": "bash scripts/clean.sh --all",
     "e2e:db": "SKIP_SQL_TESTS=1 TEST_DB=${E2E_DB:-hms_e2e} bash supabase/scripts/run-sql-tests.sh",
@@ -28,6 +30,7 @@
     "@axe-core/playwright": "^4.13.0",
     "@playwright/test": "^1.63.0",
     "jose": "^6.2.12",
+    "lefthook": "^1.13.6",
     "pg": "^8.23.1"
   }
 }

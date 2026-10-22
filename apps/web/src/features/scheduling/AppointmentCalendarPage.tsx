@@ -1,5 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router'
+import { useQueryClient } from '@tanstack/react-query'
+import { useLocation, useNavigate } from 'react-router'
+import { Illustration } from '../../components/ui/Illustration'
+import { LoadingBlock } from '../../components/ui/LoadingBlock'
+import { prefetchPatientRecord } from '../patients/prefetchPatient'
+import { useWorkspace } from '../workspace/WorkspaceProvider'
 import { Card } from '../../components/ui/Card'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
@@ -38,6 +43,9 @@ export function AppointmentCalendarPage() {
   const [search, setSearch] = useState('')
   const location = useLocation()
   const navigate = useNavigate()
+  const qc = useQueryClient()
+  const { openPatient, bookingTick } = useWorkspace()
+  const [seenBooking, setSeenBooking] = useState(bookingTick)
   // Alt+K ({ openBooking }) or the way back from "Register new patient" ({ booking, pickedPatient }).
   const [restored] = useState(() => {
     const st = location.state as (ReturnedPatientState & { booking?: BookingDraft; openBooking?: boolean }) | null
@@ -45,10 +53,16 @@ export function AppointmentCalendarPage() {
   })
   const [booking, setBooking] = useState(restored !== null)
   const [followUp, setFollowUp] = useState<ReturnType<typeof followUpInitial> | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   useEffect(() => {
     if (location.state) navigate(`${location.pathname}${location.search}`, { replace: true, state: null })
   }, [location, navigate])
-  const [notice, setNotice] = useState<string | null>(null)
+  if (bookingTick !== seenBooking) {
+    setSeenBooking(bookingTick)
+    setFollowUp(null)
+    setNotice(null)
+    setBooking(true)
+  }
   const [moving, setMoving] = useState<{ appointment: Appointment; patientName: string } | null>(null)
   const [noShow, setNoShow] = useState<{ appointment: Appointment; patientName: string } | null>(null)
   const [noShowError, setNoShowError] = useState<string | null>(null)
@@ -289,10 +303,13 @@ export function AppointmentCalendarPage() {
                 {d === cal.today && <span className="ml-1 text-xs font-normal text-primary-600 dark:text-primary-400">today</span>}
               </h2>
               {(appointments.isPending || appointments.isPlaceholderData) && !!branchId && (byDay.get(d)?.length ?? 0) === 0 && (
-                <p className="text-sm text-gray-600 dark:text-dark-200">Loading…</p>
+                <LoadingBlock rows={2} label="Loading appointments" />
               )}
               {!appointments.isPending && !appointments.isPlaceholderData && (byDay.get(d)?.length ?? 0) === 0 && (
-                <p className="text-sm text-gray-500 dark:text-dark-300">{filtering ? 'No matching appointments' : 'No appointments'}</p>
+                <p className="text-sm text-gray-500 dark:text-dark-300">
+                  <Illustration name="calendar" size={64} className="mx-auto mb-1 block" />
+                  {filtering ? 'No matching appointments' : 'No appointments'}
+                </p>
               )}
               <ul className="space-y-2">
                 {byDay.get(d)?.map((a) => {
@@ -311,9 +328,16 @@ export function AppointmentCalendarPage() {
                         ) : p === null ? (
                           'Patient unavailable'
                         ) : (
-                          <Link to={`/patients/${p.id}`} className="text-primary-600 dark:text-primary-400 underline">
+                          <button
+                            type="button"
+                            className="text-primary-600 underline dark:text-primary-400"
+                            data-testid="open-patient-context"
+                            onMouseEnter={() => prefetchPatientRecord(qc, p.id)}
+                            onFocus={() => prefetchPatientRecord(qc, p.id)}
+                            onClick={() => openPatient({ id: p.id, mrn: p.mrn, firstName: p.firstName, lastName: p.lastName })}
+                          >
                             {p.lastName}, {p.firstName}
-                          </Link>
+                          </button>
                         )}
                         {p && <span className="ml-1 font-mono text-xs text-gray-600 dark:text-dark-200">{p.mrn}</span>}
                       </div>

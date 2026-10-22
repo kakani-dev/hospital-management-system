@@ -20,6 +20,14 @@ env:
   DOTNET_NOLOGO: "1"
 
 jobs:
+  deploy-scripts:
+    name: Deploy scripts (plan, rollback, cleanup rules)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Plan, rollback, retention, and workflow safety checks
+        run: bash .github/scripts/test-deploy-plan.sh
+
   web:
     name: Frontend (lint, unit tests, build)
     runs-on: ubuntu-latest

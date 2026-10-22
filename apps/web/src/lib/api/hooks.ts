@@ -156,7 +156,7 @@ export function useTenantCountryCode(): string | null {
 }
 
 export function usePatient(id: string) {
-  return useQuery({ queryKey: queryKeys.patient(id), queryFn: () => apiClient.patients.get(id), retry: false })
+  return useQuery({ queryKey: queryKeys.patient(id), queryFn: () => apiClient.patients.get(id), enabled: id.length > 0, retry: false })
 }
 
 export function useUpdatePatient(id: string) {

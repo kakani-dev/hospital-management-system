@@ -23,6 +23,7 @@ export function DuplicateWarning({
   proceedLabel = 'Register anyway',
   reason,
   onReasonChange,
+  focusOnShow = true,
 }: {
   matches: DuplicateCandidate[]
   busy: boolean
@@ -33,9 +34,13 @@ export function DuplicateWarning({
   proceedLabel?: string
   reason: string
   onReasonChange: (value: string) => void
+  /** Live warnings in a form the user is still typing into must not steal focus. */
+  focusOnShow?: boolean
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null)
-  useEffect(() => headingRef.current?.focus(), [])
+  useEffect(() => {
+    if (focusOnShow) headingRef.current?.focus()
+  }, [focusOnShow])
   const hard = duplicateMode(matches) === 'hard'
 
   return (

@@ -1,5 +1,7 @@
 import { lazy, Suspense, type ReactNode } from "react";
 import { Route, Routes } from "react-router";
+import { LoadingBlock } from "./components/ui/LoadingBlock";
+import { WorkspaceProvider } from "./features/workspace/WorkspaceProvider";
 import { useAuth } from "./features/auth/AuthProvider";
 import { AppShell } from "./components/layout/AppShell";
 import { LoginPage } from "./features/auth/LoginPage";
@@ -58,19 +60,12 @@ const QueueBoardPage = lazy(() =>
     default: m.QueueBoardPage,
   })),
 );
+const AdminDeskPage = lazy(() =>
+  import("./features/admin/AdminDeskPage").then((m) => ({ default: m.AdminDeskPage })),
+);
 
 function Lazy({ children }: { children: ReactNode }) {
-  return (
-    <Suspense
-      fallback={
-        <p role="status" className="p-6 text-sm text-gray-600 dark:text-dark-200">
-          Loading…
-        </p>
-      }
-    >
-      {children}
-    </Suspense>
-  );
+  return <Suspense fallback={<LoadingBlock className="p-6" label="Loading page" />}>{children}</Suspense>;
 }
 
 export function App() {
@@ -78,7 +73,7 @@ export function App() {
   // components never keep rendering data from a removed cache entry.
   const { cacheEpoch } = useAuth();
   return (
-    <>
+    <WorkspaceProvider>
     <WakingBanner />
     <Routes key={cacheEpoch}>
       <Route path="/login" element={<LoginPage />} />
@@ -135,6 +130,18 @@ export function App() {
             />
           </Route>
           <Route path="admin">
+            <Route
+              path="desk"
+              element={
+                <RequireCapability capability="admin.members">
+                  <RequireCapability capability="admin.branches">
+                    <Lazy>
+                      <AdminDeskPage />
+                    </Lazy>
+                  </RequireCapability>
+                </RequireCapability>
+              }
+            />
             <Route path="branches" element={<RequireCapability capability="admin.branches"><BranchesPage /></RequireCapability>} />
             <Route path="members" element={<RequireCapability capability="admin.members"><MembersPage /></RequireCapability>} />
             <Route
@@ -198,6 +205,6 @@ export function App() {
         </Route>
       </Route>
     </Routes>
-    </>
+    </WorkspaceProvider>
   );
 }

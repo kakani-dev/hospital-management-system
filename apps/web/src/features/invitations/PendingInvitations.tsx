@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Illustration } from '../../components/ui/Illustration'
 import { Card } from '../../components/ui/Card'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
@@ -62,6 +63,7 @@ export function PendingInvitations() {
       <div className="space-y-3" data-testid="pending-invitations">
         {message && <Alert tone={message.tone}>{message.text}</Alert>}
         {loadFailed && <Alert tone="warning">Could not load your invitations.</Alert>}
+        {items.length > 0 && <Illustration name="bell" size={56} />}
         {items.length > 0 && (
           <ul className="divide-y divide-gray-200 dark:divide-dark-500">
             {items.map((invitation) => (
