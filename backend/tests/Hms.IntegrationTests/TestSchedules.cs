@@ -31,17 +31,28 @@ public static class TestSchedules
     {
         await using var conn = new NpgsqlConnection(AdminConnection);
         await conn.OpenAsync();
-        await using var cmd = new NpgsqlCommand(Sql, conn);
-        cmd.Parameters.AddWithValue("b", branchId);
-        cmd.Parameters.AddWithValue("p", practitionerId);
-        cmd.Parameters.AddWithValue("s", start.ToUniversalTime());
-        try
+        // Concurrent bookings of one practitioner/day insert the same schedule. The exclusion constraint
+        // usually answers 23P01; under overlap it deadlocks (40P01) and rolls the victim back. Retry the
+        // victim so the winner's row is visible and the booking can proceed.
+        for (var attempt = 1; ; attempt++)
         {
-            await cmd.ExecuteNonQueryAsync();
-        }
-        catch (PostgresException ex) when (ex.SqlState is "23P01" or "23505")
-        {
-            // a concurrent helper call opened the same day first
+            try
+            {
+                await using var cmd = new NpgsqlCommand(Sql, conn);
+                cmd.Parameters.AddWithValue("b", branchId);
+                cmd.Parameters.AddWithValue("p", practitionerId);
+                cmd.Parameters.AddWithValue("s", start.ToUniversalTime());
+                await cmd.ExecuteNonQueryAsync();
+                return;
+            }
+            catch (PostgresException ex) when (ex.SqlState is "23P01" or "23505")
+            {
+                return;
+            }
+            catch (PostgresException ex) when (ex.SqlState is "40P01" && attempt < 4)
+            {
+                // loser of the deadlock; try again
+            }
         }
     }
 }
