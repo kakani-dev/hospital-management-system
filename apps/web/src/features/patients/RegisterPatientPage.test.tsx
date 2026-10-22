@@ -32,6 +32,7 @@ describe('RegisterPatientPage', () => {
   it('"All my branches": pre-selects the first accessible branch, still changeable', async () => {
     const calls = stubFetch({
       'GET /api/v1/me': () => json(meFor({ activeBranchId: null })),
+      'POST /api/v1/patients/duplicates': () => json({ candidates: [] }),
       'POST /api/v1/patients': (_u, init) => json({ id: 'p5', mrn: 'DEMO-ALPHA-000105', ...JSON.parse(String(init.body)) }, 201),
       'GET /api/v1/patients': () => json(listPage),
     })
@@ -67,6 +68,7 @@ describe('RegisterPatientPage', () => {
   it('submits the patient with the chosen branch and never a tenant id', async () => {
     const calls = stubFetch({
       'GET /api/v1/me': () => json(meFor({ activeBranchId: ALPHA_MAIN })),
+      'POST /api/v1/patients/duplicates': () => json({ candidates: [] }),
       'POST /api/v1/patients': (_u, init) => json({ id: 'p1', mrn: 'DEMO-ALPHA-000101', sex: 'female', dateOfBirth: null, ...JSON.parse(String(init.body)) }, 201),
       'GET /api/v1/patients': () => json(listPage),
     })
@@ -138,7 +140,7 @@ describe('RegisterPatientPage duplicate warning', () => {
     sex: 'female',
     phone: '+91 98450 00001',
     registeredBranchId: ALPHA_MAIN,
-    matchReasons: ['name_dob', 'phone'],
+    matchReasons: ['name'] as const,
   }
 
   async function fillForm(user: ReturnType<typeof userEvent.setup>) {
@@ -162,7 +164,7 @@ describe('RegisterPatientPage duplicate warning', () => {
 
     const warning = await screen.findByTestId('duplicate-warning')
     expect(warning).toHaveTextContent('ALP-0001')
-    expect(warning).toHaveTextContent('same name and date of birth and same phone number')
+    expect(warning).toHaveTextContent('same name')
     expect(screen.getByRole('link', { name: 'Open existing record ALP-0001' })).toHaveAttribute('href', `/patients/${match.id}`)
     expect(calls.some((c) => c.method === 'POST' && c.path === '/api/v1/patients')).toBe(false)
     expect(calls.find((c) => c.path === '/api/v1/patients/duplicates')!.body).toEqual({
@@ -170,8 +172,11 @@ describe('RegisterPatientPage duplicate warning', () => {
       lastName: 'Synthetic',
       dateOfBirth: '1990-01-01',
       phone: '+91 98450 00001',
+      email: null,
+      abhaNumber: null,
     })
 
+    await user.type(screen.getByLabelText('Why this is a different person'), 'Different person')
     await user.click(screen.getByRole('button', { name: 'Register anyway' }))
     expect(await screen.findByText(/patient DEMO-ALPHA-000102 registered/i)).toBeInTheDocument()
     expect(calls.filter((c) => c.method === 'POST' && c.path === '/api/v1/patients')).toHaveLength(1)

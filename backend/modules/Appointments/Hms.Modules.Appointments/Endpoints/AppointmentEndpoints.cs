@@ -184,13 +184,10 @@ public static class AppointmentEndpoints
                 return await BranchScope.DenyAsync(db, tenant, request.BranchId, "You cannot book appointments at this branch.", ct);
             }
 
-            // doctors: follow-ups only, of an earlier visit with their own (linked) practitioner, for themselves
-            if (request.ParentAppointmentId is not { } ownParent
-                || !await db.Appointments.AsNoTracking().AnyAsync(a => a.Id == ownParent
-                       && db.Practitioners.Any(p => p.Id == a.PractitionerId && p.UserId == tenant.UserId), ct)
-                || !await db.Practitioners.AsNoTracking().AnyAsync(p => p.Id == request.PractitionerId && p.UserId == tenant.UserId, ct))
+            // Doctors book follow-ups only, of any earlier visit in the hospital, at a branch they can access.
+            if (request.ParentAppointmentId is null)
             {
-                return HmsProblems.Forbidden("Doctors can only book follow-ups of their own patients, with themselves.");
+                return HmsProblems.Forbidden("Doctors can only book a follow-up of an earlier visit.");
             }
         }
 

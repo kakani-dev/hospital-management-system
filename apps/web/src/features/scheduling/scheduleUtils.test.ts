@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { practitionersAtBranch, schedulesOn } from './scheduleUtils'
+import { emptyDayText, explainEmptyDay, nextFreeDate, practitionersAtBranch, schedulesOn } from './scheduleUtils'
 import type { Practitioner, Schedule } from '../../lib/api/types'
 
 const base: Schedule = {
@@ -28,6 +28,22 @@ describe('schedulesOn', () => {
     expect(schedulesOn(schedules, '2026-10-09').map((s) => s.id)).toEqual(['s1', 's2']) // Friday
     expect(schedulesOn(schedules, '2026-10-05').map((s) => s.id)).toEqual(['s5']) // Monday
     expect(schedulesOn(schedules, '2026-10-16', 'd2').map((s) => s.id)).toEqual(['s6'])
+  })
+})
+
+describe('explainEmptyDay', () => {
+  const noon = new Date('2026-10-09T06:30:00Z') // 12:00 in Asia/Kolkata
+  it('names no schedule, a finished day, and a day that still has hours', () => {
+    expect(explainEmptyDay([], '2026-10-09', 'd1', noon, 'Asia/Kolkata')).toBe('no_schedule')
+    expect(explainEmptyDay([base], '2026-10-02', 'd1', noon, 'Asia/Kolkata')).toBe('day_over')
+    expect(explainEmptyDay([base], '2026-10-09', 'd1', noon, 'Asia/Kolkata')).toBe('fully_booked')
+    expect(explainEmptyDay([base], '2026-10-09', 'd1', new Date('2026-10-09T08:00:00Z'), 'Asia/Kolkata')).toBe('day_over')
+    expect(emptyDayText('no_schedule')).toMatch(/no working hours/)
+  })
+  it('picks the earliest date that still has a slot', () => {
+    const slot = (startsAt: string) => ({ practitionerId: 'd1', branchId: 'b1', startsAt, endsAt: startsAt })
+    expect(nextFreeDate([slot('2026-10-12T04:30:00Z'), slot('2026-10-11T04:30:00Z')], 'Asia/Kolkata')).toBe('2026-10-11')
+    expect(nextFreeDate([], 'Asia/Kolkata')).toBeNull()
   })
 })
 

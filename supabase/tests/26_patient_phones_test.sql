@@ -101,8 +101,10 @@ select tests.throws_ok($$select patient.set_patient_phones('aa000000-0000-4000-8
   '22023', 'non-E.164 input -> 22023');
 select tests.throws_ok($$select patient.set_patient_phones('aa000000-0000-4000-8000-000000000001', null, true, null)$$,
   '22023', 'WhatsApp same as phone without a phone -> 22023');
+select tests.authenticate_as('lab@alpha.example');
 select tests.throws_ok($$select patient.set_patient_phones('aa000000-0000-4000-8000-000000000003', '+919876543210', true, null)$$,
-  '42501', 'no writer role at the patient''s branch -> 42501');
+  '42501', 'no patients.edit in the hospital -> 42501');
+select tests.authenticate_as('reception@alpha.example');
 select tests.throws_ok($$select patient.set_patient_phones('bb000000-0000-4000-8000-000000000001', '+919876543210', true, null)$$,
   'P0002', 'another tenant''s patient -> P0002');
 select tests.throws_ok(

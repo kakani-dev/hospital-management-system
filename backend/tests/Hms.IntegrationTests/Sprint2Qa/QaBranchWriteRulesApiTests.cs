@@ -17,38 +17,27 @@ public sealed class QaBranchWriteRulesApiTests(HmsApiFactory factory) : IClassFi
         CreateUserAsync("s2qa-split", (Alpha, AlphaMain, "billing"), (Alpha, AlphaEast, "receptionist") /* RBAC: nurses no longer write patients */);
 
     [Fact]
-    public async Task Patient_patch_needs_a_writer_role_at_the_current_branch_and_at_the_new_one()
+    public async Task Patient_patch_is_tenant_wide_for_patients_edit_and_a_foreign_branch_is_404()
     {
         using var admin = factory.ClientAs(AlphaAdmin, Alpha);
         var atMain = await Qa.CreatePatientAsync(admin, AlphaMain, "Branch", Qa.NewSurname("Main"));
         var atEast = await Qa.CreatePatientAsync(admin, AlphaEast, "Branch", Qa.NewSurname("East"));
         var split = await BillingAtMainNurseAtEastAsync();
         using var user = factory.ClientAs(split, Alpha);
-        using var pinnedEast = factory.ClientAs(split, Alpha, AlphaEast);
 
-        // Billing at Main: can read, cannot edit (unpinned or pinned to East).
         Assert.Equal(HttpStatusCode.OK, (await user.GetAsync(QaRoutes.Patient(atMain.Id))).StatusCode);
-        var denied = await user.PatchAsJsonAsync(QaRoutes.Patient(atMain.Id), new { firstName = "Nope" });
+        Assert.Equal(HttpStatusCode.OK, (await user.PatchAsJsonAsync(QaRoutes.Patient(atMain.Id), new { firstName = "Edited" })).StatusCode);
+        var moved = await Qa.ReadAsync<QaPatient>(
+            await user.PatchAsJsonAsync(QaRoutes.Patient(atEast.Id), new { registeredBranchId = AlphaMain }), HttpStatusCode.OK);
+        Assert.Equal(AlphaMain, moved.RegisteredBranchId);
+        Assert.Equal(HttpStatusCode.NotFound, (await user.PatchAsJsonAsync(QaRoutes.Patient(atMain.Id), new { registeredBranchId = BetaMain })).StatusCode);
+
+        var billing = await CreateUserAsync("s2qa-billing-only", (Alpha, AlphaMain, "billing"));
+        using var view = factory.ClientAs(billing, Alpha);
+        var denied = await view.PatchAsJsonAsync(QaRoutes.Patient(atMain.Id), new { firstName = "Nope" });
         Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
         Assert.Equal(QaCodes.Forbidden, await Qa.CodeAsync(denied));
-        Assert.Equal(HttpStatusCode.Forbidden, (await pinnedEast.PatchAsJsonAsync(QaRoutes.Patient(atMain.Id), new { firstName = "Nope" })).StatusCode);
-        Assert.Equal("Branch", await Qa.ScalarAsync<string>("select first_name from patient.patients where id = @id", ("id", atMain.Id)));
-
-        // Nurse at East: can edit an East patient.
-        Assert.Equal(HttpStatusCode.OK, (await user.PatchAsJsonAsync(QaRoutes.Patient(atEast.Id), new { firstName = "Nursed" })).StatusCode);
-
-        // Moving East -> Main needs the writer role at Main too; Main -> East needs it at Main (current).
-        Assert.Equal(HttpStatusCode.Forbidden, (await user.PatchAsJsonAsync(QaRoutes.Patient(atEast.Id), new { registeredBranchId = AlphaMain })).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await user.PatchAsJsonAsync(QaRoutes.Patient(atMain.Id), new { registeredBranchId = AlphaEast })).StatusCode);
-        Assert.Equal(AlphaEast, await Qa.ScalarAsync<Guid>("select registered_branch_id from patient.patients where id = @id", ("id", atEast.Id)));
-        Assert.Equal(AlphaMain, await Qa.ScalarAsync<Guid>("select registered_branch_id from patient.patients where id = @id", ("id", atMain.Id)));
-
-        // A writer at both branches can move it.
-        var both = await CreateUserAsync("s2qa-both", (Alpha, AlphaMain, "receptionist"), (Alpha, AlphaEast, "receptionist"));
-        using var bothClient = factory.ClientAs(both, Alpha);
-        var moved = await Qa.ReadAsync<QaPatient>(
-            await bothClient.PatchAsJsonAsync(QaRoutes.Patient(atEast.Id), new { registeredBranchId = AlphaMain }), HttpStatusCode.OK);
-        Assert.Equal(AlphaMain, moved.RegisteredBranchId);
+        Assert.Equal("Edited", await Qa.ScalarAsync<string>("select first_name from patient.patients where id = @id", ("id", atMain.Id)));
     }
 
     [Fact]

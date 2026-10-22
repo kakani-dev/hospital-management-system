@@ -19,13 +19,13 @@ public sealed class RbacMatrixApiTests(HmsApiFactory factory) : IClassFixture<Hm
     private static readonly Guid Missing = Guid.Parse("99999999-9999-4999-8999-999999999999");
 
     // role -> set of allowed action names (mirror of the ADR table, written out independently of HmsPermissions)
-    private static readonly string[] AdminOnly = ["branches.create", "members.list", "invites.list", "settings.update", "practitioners.create", "patients.restore"];
+    private static readonly string[] AdminOnly = ["branches.create", "members.list", "invites.list", "settings.update", "practitioners.create", "patients.restore", "patients.merge"];
     private static readonly Dictionary<string, string[]> Allowed = new()
     {
         ["tenant_admin"] = ["patients.list", "patients.create", "patients.edit", "patients.delete", "appointments.list", "appointments.book", "appointments.cancel", "appointments.check_in", "queue.board", "queue.walk_in", "practitioners.list", .. AdminOnly],
         ["receptionist"] = ["patients.list", "patients.create", "patients.edit", "patients.delete", "appointments.list", "appointments.book", "appointments.cancel", "appointments.check_in", "queue.board", "queue.walk_in", "practitioners.list"],
         ["nurse"] = ["patients.list", "appointments.list", "appointments.book", "appointments.check_in", "queue.board", "queue.walk_in", "practitioners.list"],
-        // doctors reach booking only for follow-ups of their own patients (an empty body is 400, a fresh booking 403: BusinessRulesApiTests)
+        // doctors reach booking only for a follow-up of an earlier visit (an empty body is 400, a fresh booking 403: BusinessRulesApiTests)
         ["doctor"] = ["patients.list", "appointments.list", "appointments.book", "queue.board", "practitioners.list"],
         ["billing"] = ["patients.list", "appointments.list", "practitioners.list"],
         ["pharmacist"] = ["practitioners.list"],
@@ -40,6 +40,7 @@ public sealed class RbacMatrixApiTests(HmsApiFactory factory) : IClassFixture<Hm
         ("patients.edit", HttpMethod.Patch, $"/api/v1/patients/{Missing}", new { lastName = "X" }),
         ("patients.delete", HttpMethod.Delete, $"/api/v1/patients/{Missing}", null),
         ("patients.restore", HttpMethod.Post, $"/api/v1/patients/{Missing}/restore", null),
+        ("patients.merge", HttpMethod.Post, $"/api/v1/patients/{Missing}/merge", new { }),
         ("appointments.list", HttpMethod.Get, $"/api/v1/appointments?branchId={AlphaMain}", null),
         ("appointments.book", HttpMethod.Post, "/api/v1/appointments", new { }),
         ("appointments.cancel", HttpMethod.Post, $"/api/v1/appointments/{Missing}/cancel", new { }),

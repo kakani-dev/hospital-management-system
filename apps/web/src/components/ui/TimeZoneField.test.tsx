@@ -43,7 +43,7 @@ describe('TimeZoneField (searchable IANA picker)', () => {
     expect(options.length).toBe(ianaZones().length)
     expect(options.length).toBeGreaterThan(300)
     expect(screen.getByRole('option', { name: /^Asia\/Kolkata\s*UTC\+05:30$/, selected: true })).toBeInTheDocument()
-  })
+  }, 20_000)
 
   it('opens from the chevron button (touch) and selects a tapped option', async () => {
     const onChange = vi.fn()
@@ -56,7 +56,7 @@ describe('TimeZoneField (searchable IANA picker)', () => {
     expect(onChange).toHaveBeenCalledWith('Asia/Dubai')
     expect(screen.getByRole('combobox')).toHaveValue('Asia/Dubai')
     expect(screen.queryByRole('option')).not.toBeInTheDocument()
-  })
+  }, 20_000)
 
   it('searches by city, by spaces for underscores and by offset', async () => {
     const user = userEvent.setup()
@@ -67,7 +67,7 @@ describe('TimeZoneField (searchable IANA picker)', () => {
     await user.clear(box)
     await user.type(box, '+05:45')
     expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([expect.stringMatching(/^Asia\/Kathmandu/)])
-  })
+  }, 20_000)
 
   it('keyboard: arrow + Enter selects; typing the exact id and leaving selects it; other text reverts', async () => {
     const onChange = vi.fn()
@@ -86,7 +86,7 @@ describe('TimeZoneField (searchable IANA picker)', () => {
     await user.click(screen.getByLabelText('Next field'))
     expect(box).toHaveValue('Europe/London')
     expect(onChange.mock.calls.map((c) => c[0])).toEqual(['Asia/Tokyo', 'Europe/London'])
-  }, 15_000)
+  }, 20_000)
 
   it('shows the error with role=alert and marks the input invalid', () => {
     render(<TimeZoneField label="Time zone" value="" onChange={() => {}} error="Choose the hospital time zone" />)

@@ -9,17 +9,16 @@ namespace Hms.UnitTests;
 /// <summary>Sprint 2.1 patient endpoints through the real pipeline (EF InMemory + fake registry RPCs).</summary>
 public sealed class PatientsSprint2InProcessTests(ApiFactory factory) : IClassFixture<ApiFactory>
 {
-    private static readonly string[] BothReasons = ["name_dob", "phone"];
-
     private static string Unique(string prefix) => $"{prefix}{Guid.NewGuid():N}"[..18];
 
-    private async Task<Detail> CreateAsync(Guid branch, string? lastName = null, string? dob = null, string? phone = null, Guid? asUser = null)
+    private async Task<Detail> CreateAsync(
+        Guid branch, string? lastName = null, string? dob = null, string? phone = null, Guid? asUser = null, string? duplicateOverrideReason = null)
     {
         using var client = factory.ClientAs(asUser ?? Admin);
         var response = await client.PostAsJsonAsync("/api/v1/patients", new
         {
             mrn = Unique("m"), firstName = "Ravi", lastName = lastName ?? Unique("L"), registeredBranchId = branch,
-            dateOfBirth = dob, phone, email = "ravi@synthetic.example",
+            dateOfBirth = dob, phone, email = $"ravi-{Guid.NewGuid():N}@synthetic.example", duplicateOverrideReason,
         });
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         return (await response.Content.ReadFromJsonAsync<Detail>())!;
@@ -69,7 +68,7 @@ public sealed class PatientsSprint2InProcessTests(ApiFactory factory) : IClassFi
         using var client = factory.ClientAs(MixedUser); // billing at Main can read
         var detail = await client.GetFromJsonAsync<Detail>($"/api/v1/patients/{created.Id}");
         Assert.Equal("+919845012345", detail!.Phone); // normalized to E.164 (tenant default +91)
-        Assert.Equal("ravi@synthetic.example", detail.Email);
+        Assert.Equal(created.Email, detail.Email);
         Assert.Null(detail.DeletedAt);
 
         var missing = await client.GetAsync($"/api/v1/patients/{Guid.NewGuid()}");
@@ -83,7 +82,7 @@ public sealed class PatientsSprint2InProcessTests(ApiFactory factory) : IClassFi
     [Fact]
     public async Task Patch_has_merge_patch_semantics()
     {
-        var created = await CreateAsync(Main, dob: "1990-01-02", phone: "9845012345");
+        var created = await CreateAsync(Main, dob: "1990-01-02", phone: "9765432100");
         using var client = factory.ClientAs(Admin);
 
         var response = await PatchAsync(client, created.Id, new { firstName = "  Ravindra ", phone = (string?)null });
@@ -92,7 +91,7 @@ public sealed class PatientsSprint2InProcessTests(ApiFactory factory) : IClassFi
         Assert.Equal("Ravindra", updated.FirstName);
         Assert.Null(updated.Phone);                                      // explicit null clears
         Assert.Equal(new DateOnly(1990, 1, 2), updated.DateOfBirth);     // absent = unchanged
-        Assert.Equal("ravi@synthetic.example", updated.Email);
+        Assert.Equal(created.Email, updated.Email);
         Assert.Equal(created.Mrn, updated.Mrn);
 
         var reread = await client.GetFromJsonAsync<Detail>($"/api/v1/patients/{created.Id}");
@@ -132,22 +131,24 @@ public sealed class PatientsSprint2InProcessTests(ApiFactory factory) : IClassFi
     }
 
     [Fact]
-    public async Task Patch_is_authorized_at_the_current_and_the_new_branch()
+    public async Task Patch_is_tenant_wide_for_a_writer_and_a_foreign_branch_is_not_found()
     {
         var atMain = await CreateAsync(Main);
         var atEast = await CreateAsync(East);
-        using var mixed = factory.ClientAs(DoctorMainReceptionEast); // RBAC: doctor @Main is view-only, receptionist @East edits
+        var mainName = Unique("Mn");
+        var eastName = Unique("En");
+        using var mixed = factory.ClientAs(DoctorMainReceptionEast); // receptionist anywhere in the hospital may edit
 
-        Assert.Equal(HttpStatusCode.Forbidden, (await PatchAsync(mixed, atMain.Id, new { lastName = "Nope" })).StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await PatchAsync(mixed, atEast.Id, new { lastName = "Yes" })).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await PatchAsync(mixed, atEast.Id, new { registeredBranchId = Main })).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await PatchAsync(mixed, atEast.Id, new { registeredBranchId = BetaMain })).StatusCode); // foreign branch (v4)
+        Assert.Equal(HttpStatusCode.OK, (await PatchAsync(mixed, atMain.Id, new { lastName = mainName })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await PatchAsync(mixed, atEast.Id, new { lastName = eastName })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await PatchAsync(mixed, atEast.Id, new { registeredBranchId = Main })).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await PatchAsync(mixed, atEast.Id, new { registeredBranchId = BetaMain })).StatusCode);
 
-        using var nurse = factory.ClientAs(MixedUser); // nurse @East is view-only under RBAC
-        Assert.Equal(HttpStatusCode.Forbidden, (await PatchAsync(nurse, atEast.Id, new { lastName = "Nope" })).StatusCode);
+        using var nurse = factory.ClientAs(MixedUser); // billing + nurse: view only
+        Assert.Equal(HttpStatusCode.Forbidden, (await PatchAsync(nurse, atEast.Id, new { lastName = Unique("No") })).StatusCode);
 
         using var billing = factory.ClientAs(BillingOnly);
-        Assert.Equal(HttpStatusCode.Forbidden, (await PatchAsync(billing, atEast.Id, new { lastName = "Nope" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await PatchAsync(billing, atEast.Id, new { lastName = Unique("No") })).StatusCode);
 
         using var admin = factory.ClientAs(Admin);
         var moved = await PatchAsync(admin, atMain.Id, new { registeredBranchId = East });
@@ -198,9 +199,9 @@ public sealed class PatientsSprint2InProcessTests(ApiFactory factory) : IClassFi
         var atMain = await CreateAsync(Main);
         var atEast = await CreateAsync(East);
 
-        using var doctorMain = factory.ClientAs(DoctorMainReceptionEast); // RBAC: doctor can neither edit nor delete
-        Assert.Equal(HttpStatusCode.Forbidden, (await PatchAsync(doctorMain, atMain.Id, new { lastName = "Edited" })).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await doctorMain.DeleteAsync($"/api/v1/patients/{atMain.Id}")).StatusCode);
+        using var doctorMain = factory.ClientAs(DoctorMainReceptionEast); // receptionist role anywhere in the hospital may delete
+        Assert.Equal(HttpStatusCode.OK, (await PatchAsync(doctorMain, atMain.Id, new { lastName = Unique("Ed") })).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await doctorMain.DeleteAsync($"/api/v1/patients/{atMain.Id}")).StatusCode);
 
         using var nurse = factory.ClientAs(MixedUser);
         Assert.Equal(HttpStatusCode.Forbidden, (await nurse.DeleteAsync($"/api/v1/patients/{atEast.Id}")).StatusCode);
@@ -220,9 +221,9 @@ public sealed class PatientsSprint2InProcessTests(ApiFactory factory) : IClassFi
     public async Task Search_by_phone_and_dob_is_normalized_and_and_ed()
     {
         var last = Unique("Ph");
-        var a = await CreateAsync(Main, lastName: last, dob: "1970-03-04", phone: "+91 (98450) 77-1234");
-        var b = await CreateAsync(East, lastName: last, dob: "1971-03-04", phone: "098450 771234");
-        _ = await CreateAsync(East, lastName: last, dob: "1970-03-04", phone: "11112222");
+        var a = await CreateAsync(Main, lastName: last, dob: "1970-03-04", phone: "+91 (90011) 22-334");
+        var b = await CreateAsync(East, lastName: last, dob: "1971-03-04", phone: "9001122335");
+        _ = await CreateAsync(East, lastName: last, dob: "1970-03-04", phone: "9001122336", duplicateOverrideReason: "Twin, confirmed at the desk");
         using var client = factory.ClientAs(MixedUser);
 
         async Task<List<Summary>> Search(object body)
@@ -232,42 +233,67 @@ public sealed class PatientsSprint2InProcessTests(ApiFactory factory) : IClassFi
             return (await response.Content.ReadFromJsonAsync<Page>())!.Items;
         }
 
-        var byPhone = await Search(new { phone = "9845077 1234", search = last });
-        Assert.Equal(new[] { a.Id, b.Id }.Order(), byPhone.Select(x => x.Id).Order());
-        var byPhoneAndDob = await Search(new { phone = "9845077 1234", dateOfBirth = "1971-03-04" });
+        var byPhone = await Search(new { phone = "9001122 334", search = last });
+        Assert.Equal(a.Id, Assert.Single(byPhone).Id);
+        var byPhoneAndDob = await Search(new { phone = "9001122335", dateOfBirth = "1971-03-04" });
         Assert.Equal(b.Id, Assert.Single(byPhoneAndDob).Id);
         Assert.Equal(2, (await Search(new { dateOfBirth = "1970-03-04", search = last })).Count);
-        Assert.Equal("+9198450771234", byPhoneAndDob[0].Phone);
+        Assert.Empty(await Search(new { phone = "9001122334", dateOfBirth = "1971-03-04" }));
+        Assert.Equal("+919001122335", byPhoneAndDob[0].Phone);
 
         Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync("/api/v1/patients/search", new { phone = "12-34" })).StatusCode);
     }
 
     [Fact]
-    public async Task Create_returns_advisory_duplicate_warnings()
+    public async Task Create_blocks_shared_phone_and_requires_a_reason_for_the_same_name()
     {
         var last = Unique("Dup");
-        var first = await CreateAsync(Main, lastName: last, dob: "1960-12-31", phone: "+91 90000 11111");
+        var phone = $"9{Random.Shared.Next(100000000, 999999999)}";
+        var first = await CreateAsync(Main, lastName: last, dob: "1960-12-31", phone: $"+91 {phone[..5]} {phone[5..]}");
         Assert.Empty(first.DuplicateWarnings);
 
         using var client = factory.ClientAs(Admin);
-        var response = await client.PostAsJsonAsync("/api/v1/patients", new
+        var sameName = await client.PostAsJsonAsync("/api/v1/patients", new
         {
-            mrn = Unique("m"), firstName = " ravi ", lastName = last.ToUpperInvariant(), dateOfBirth = "1960-12-31",
-            registeredBranchId = East, phone = "9000011111",
+            firstName = " ravi ", lastName = last.ToUpperInvariant(), dateOfBirth = "1960-12-31", registeredBranchId = East,
         });
-        Assert.Equal(HttpStatusCode.Created, response.StatusCode); // advisory: never blocks (D3)
-        var second = (await response.Content.ReadFromJsonAsync<Detail>())!;
+        Assert.Equal(HttpStatusCode.Conflict, sameName.StatusCode);
+        Assert.Equal("duplicate_name_confirmation", await CodeOf(sameName));
+
+        var blankDob = await client.PostAsJsonAsync("/api/v1/patients", new
+        {
+            firstName = "Ravi", lastName = last, registeredBranchId = East,
+        });
+        Assert.Equal(HttpStatusCode.Conflict, blankDob.StatusCode);
+        Assert.Equal("duplicate_name_confirmation", await CodeOf(blankDob));
+
+        var confirmed = await client.PostAsJsonAsync("/api/v1/patients", new
+        {
+            firstName = " ravi ", lastName = last.ToUpperInvariant(), dateOfBirth = "1960-12-31", registeredBranchId = East,
+            duplicateOverrideReason = "Different person, same name", email = $"other-{Guid.NewGuid():N}@synthetic.example",
+        });
+        Assert.Equal(HttpStatusCode.Created, confirmed.StatusCode);
+        var second = (await confirmed.Content.ReadFromJsonAsync<Detail>())!;
         var warning = Assert.Single(second.DuplicateWarnings);
         Assert.Equal(first.Id, warning.Id);
-        Assert.Equal(BothReasons, warning.MatchReasons);
+        Assert.Equal("name_dob", Assert.Single(warning.MatchReasons));
 
-        // Pre-check endpoint, excluding the patient being edited.
-        var check = await (await client.PostAsJsonAsync("/api/v1/patients/duplicates", new { phone = "90000-11111", excludePatientId = first.Id }))
-            .Content.ReadFromJsonAsync<Dupes>();
+        var sharedPhone = await client.PostAsJsonAsync("/api/v1/patients", new
+        {
+            firstName = "Other", lastName = Unique("Ph"), registeredBranchId = East, phone = $"0{phone}",
+            duplicateOverrideReason = "should not override a phone",
+        });
+        Assert.Equal(HttpStatusCode.Conflict, sharedPhone.StatusCode);
+        Assert.Equal("duplicate_patient", await CodeOf(sharedPhone));
+
+        var check = await (await client.PostAsJsonAsync("/api/v1/patients/duplicates", new
+        {
+            firstName = "Ravi", lastName = last, dateOfBirth = "1960-12-31", excludePatientId = first.Id,
+        })).Content.ReadFromJsonAsync<Dupes>();
         Assert.Equal(second.Id, Assert.Single(check!.Candidates).Id);
 
         using var billing = factory.ClientAs(BillingOnly);
-        Assert.Equal(HttpStatusCode.Forbidden, (await billing.PostAsJsonAsync("/api/v1/patients/duplicates", new { phone = "9000011111" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await billing.PostAsJsonAsync("/api/v1/patients/duplicates", new { phone })).StatusCode);
     }
 
     [Fact]
@@ -286,16 +312,16 @@ public sealed class PatientsSprint2InProcessTests(ApiFactory factory) : IClassFi
         using var client = factory.ClientAs(Admin);
         var response = await client.PostAsJsonAsync("/api/v1/patients", new
         {
-            firstName = "Wa", lastName = Unique("Same"), registeredBranchId = Main, phone = "098450 12345",
+            firstName = "Wa", lastName = Unique("Same"), registeredBranchId = Main, phone = "090011 12233",
             whatsapp = new { sameAsPhone = true },
         });
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var body = (await response.Content.ReadFromJsonAsync<Detail>())!;
-        Assert.Equal("+919845012345", body.Phone);
+        Assert.Equal("+919001112233", body.Phone);
         Assert.True(body.WhatsappSameAsPhone);
         var phone = Assert.Single(body.Phones!);
         Assert.True(phone.IsPrimary && phone.IsWhatsapp);
-        Assert.Equal("+919845012345", phone.Number);
+        Assert.Equal("+919001112233", phone.Number);
     }
 
     [Fact]
@@ -304,31 +330,75 @@ public sealed class PatientsSprint2InProcessTests(ApiFactory factory) : IClassFi
         using var client = factory.ClientAs(Admin);
         var response = await client.PostAsJsonAsync("/api/v1/patients", new
         {
-            firstName = "Wa", lastName = Unique("Diff"), registeredBranchId = Main, phone = "9845012345",
+            firstName = "Wa", lastName = Unique("Diff"), registeredBranchId = Main, phone = "9345012345",
             whatsapp = new { sameAsPhone = false, number = "+971 50 123 4567" },
         });
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var body = (await response.Content.ReadFromJsonAsync<Detail>())!;
         Assert.False(body.WhatsappSameAsPhone);
-        Assert.Equal(["+919845012345:True:False", "+971501234567:False:True"],
+        Assert.Equal(["+919345012345:True:False", "+971501234567:False:True"],
             body.Phones!.Select(p => $"{p.Number}:{p.IsPrimary}:{p.IsWhatsapp}"));
 
         // a WhatsApp number typed equal to the phone collapses into "same"
-        var same = await PatchAsync(client, body.Id, new { whatsapp = new { sameAsPhone = false, number = "09845012345" } });
+        var same = await PatchAsync(client, body.Id, new { whatsapp = new { sameAsPhone = false, number = "09345012345" } });
         Assert.Equal(HttpStatusCode.OK, same.StatusCode);
         var patched = (await same.Content.ReadFromJsonAsync<Detail>())!;
         Assert.True(patched.WhatsappSameAsPhone);
         Assert.Single(patched.Phones!);
 
         // phone change: WhatsApp keeps following the phone
-        var moved = (await (await PatchAsync(client, body.Id, new { phone = "9845099999" })).Content.ReadFromJsonAsync<Detail>())!;
+        var moved = (await (await PatchAsync(client, body.Id, new { phone = "9345099999" })).Content.ReadFromJsonAsync<Detail>())!;
         Assert.True(moved.WhatsappSameAsPhone);
-        Assert.Equal("+919845099999", Assert.Single(moved.Phones!).Number);
+        Assert.Equal("+919345099999", Assert.Single(moved.Phones!).Number);
 
         // whatsapp: null removes WhatsApp, keeps the phone
         var none = (await (await PatchAsync(client, body.Id, new { whatsapp = (object?)null })).Content.ReadFromJsonAsync<Detail>())!;
         Assert.False(none.WhatsappSameAsPhone);
         Assert.False(Assert.Single(none.Phones!).IsWhatsapp);
+    }
+
+    [Fact]
+    public async Task Admin_can_merge_a_duplicate_and_a_receptionist_cannot()
+    {
+        var survivorLast = Unique("Keep");
+        var duplicateLast = Unique("Copy");
+        using var admin = factory.ClientAs(Admin);
+        var survivor = await (await admin.PostAsJsonAsync("/api/v1/patients", new
+        {
+            firstName = "Keep", lastName = survivorLast, registeredBranchId = Main, sex = "unknown",
+        })).Content.ReadFromJsonAsync<Detail>();
+        var duplicate = await (await admin.PostAsJsonAsync("/api/v1/patients", new
+        {
+            firstName = "Copy", lastName = duplicateLast, registeredBranchId = East, sex = "female",
+            dateOfBirth = "1991-04-05", email = $"copy-{Guid.NewGuid():N}@synthetic.example", phone = "9845099001",
+        })).Content.ReadFromJsonAsync<Detail>();
+
+        using var reception = factory.ClientAs(DoctorMainReceptionEast);
+        Assert.Equal(HttpStatusCode.Forbidden, (await reception.PostAsJsonAsync($"/api/v1/patients/{survivor!.Id}/merge", new
+        {
+            duplicatePatientId = duplicate!.Id, reason = "Same person",
+        })).StatusCode);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await admin.PostAsJsonAsync($"/api/v1/patients/{survivor.Id}/merge", new
+        {
+            duplicatePatientId = duplicate.Id, reason = "Same person, second chart",
+        })).StatusCode);
+
+        var kept = await (await admin.GetAsync($"/api/v1/patients/{survivor.Id}")).Content.ReadFromJsonAsync<Detail>();
+        Assert.Equal(duplicate.Email, kept!.Email);
+        Assert.Equal("female", kept.Sex);
+        Assert.Equal(duplicate.Phone, kept.Phone);
+        Assert.Equal(HttpStatusCode.NotFound, (await admin.GetAsync($"/api/v1/patients/{duplicate.Id}")).StatusCode);
+        var hidden = await (await admin.PostAsJsonAsync("/api/v1/patients/search", new { search = duplicateLast, includeDeleted = true })).Content.ReadFromJsonAsync<Page>();
+        Assert.DoesNotContain(hidden!.Items, p => p.Id == duplicate.Id);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await admin.PostAsJsonAsync($"/api/v1/patients/{survivor.Id}/merge", new
+        {
+            duplicatePatientId = duplicate.Id, reason = "Same person, second chart",
+        })).StatusCode);
+        var restore = await admin.PostAsync($"/api/v1/patients/{duplicate.Id}/restore", null);
+        Assert.Equal(HttpStatusCode.Conflict, restore.StatusCode);
+        Assert.Equal("invalid_state", await CodeOf(restore));
     }
 
     [Theory]

@@ -49,6 +49,12 @@ public sealed class PatientsDbContext(DbContextOptions<PatientsDbContext> option
             // patient.set_patient_phones (the client grants on phone are revoked), never by EF.
             e.Property(x => x.Phone).Metadata.SetBeforeSaveBehavior(PropertySaveBehavior.Ignore);
             e.Property(x => x.Phone).Metadata.SetAfterSaveBehavior(PropertySaveBehavior.Ignore);
+            // Written only by patient.merge_patients (column grants revoked). Never sent by EF.
+            foreach (var mergeColumn in new[] { nameof(Patient.MergedIntoPatientId), nameof(Patient.MergedAt), nameof(Patient.MergedBy) })
+            {
+                e.Property(mergeColumn).Metadata.SetBeforeSaveBehavior(PropertySaveBehavior.Ignore);
+                e.Property(mergeColumn).Metadata.SetAfterSaveBehavior(PropertySaveBehavior.Ignore);
+            }
         });
 
         modelBuilder.Entity<PatientPhoneNumber>(e =>

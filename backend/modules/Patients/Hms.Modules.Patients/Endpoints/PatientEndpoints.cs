@@ -36,17 +36,19 @@ public static class PatientEndpoints
         group.MapPost("/search", SearchAsync).WithName("SearchPatients")
             .WithSummary("Search by MRN / name, phone (normalized) and/or date of birth; terms are sent in the JSON body.");
         group.MapPost("/duplicates", DuplicatesAsync).WithName("FindDuplicatePatients")
-            .WithSummary("Advisory duplicate check (name + DOB, or phone) before registering or editing a patient.");
+            .WithSummary("Duplicate check before registering or editing. Email, phone and ABHA hard-match; the same name warns even when the date of birth is blank.");
         group.MapGet("/stats", StatsAsync).WithName("GetPatientStats")
             .WithSummary("Dashboard counts: live patients and those registered today (each branch's own local day). No PHI.");
         group.MapGet("/{id:guid}", GetAsync).WithName("GetPatient");
         group.MapPost("/", CreateAsync).WithName("CreatePatient");
         group.MapPatch("/{id:guid}", UpdateAsync).WithName("UpdatePatient")
-            .WithSummary("Merge-patch edit. Needs a writer role at the patient's branch (and at the new branch when it changes).");
+            .WithSummary("Merge-patch edit. Needs patients.edit in the hospital. The registered branch is metadata.");
         group.MapDelete("/{id:guid}", DeleteAsync).WithName("DeletePatient")
-            .WithSummary("Soft delete (patient.soft_delete_patient). tenant_admin, or receptionist at the patient's branch.");
+            .WithSummary("Soft delete (patient.soft_delete_patient). Needs patients.delete in the hospital.");
         group.MapPost("/{id:guid}/restore", RestoreAsync).WithName("RestorePatient")
             .WithSummary("Restore a soft-deleted patient (tenant_admin only).");
+        group.MapPost("/{id:guid}/merge", MergeAsync).WithName("MergePatient")
+            .WithSummary("Merge a duplicate chart into this one (tenant_admin only). The duplicate is soft-deleted.");
 
         return api;
     }
@@ -143,7 +145,8 @@ public static class PatientEndpoints
         }
 
         IQueryable<Patient> query = request.IncludeDeleted == true
-            ? db.Patients.IgnoreQueryFilters().AsNoTracking().Where(x => x.TenantId == tenant.TenantId)
+            ? db.Patients.IgnoreQueryFilters().AsNoTracking()
+                .Where(x => x.TenantId == tenant.TenantId && x.MergedIntoPatientId == null)
             : db.Patients.AsNoTracking();
 
         if (!string.IsNullOrWhiteSpace(request.Search))
@@ -265,7 +268,8 @@ public static class PatientEndpoints
         try
         {
             var candidates = await FindDuplicatesAsync(
-                registry, tenant, request.FirstName, request.LastName, request.DateOfBirth, request.Phone, request.ExcludePatientId, ct);
+                registry, tenant, request.FirstName, request.LastName, request.DateOfBirth, request.Phone, request.ExcludePatientId,
+                request.Email, request.AbhaNumber, ct);
             return TypedResults.Ok(new DuplicateCheckResponse(candidates));
         }
         catch (Exception ex) when (HmsProblems.FromDatabase(ex) is { } problem)
@@ -322,9 +326,19 @@ public static class PatientEndpoints
 
         // The MRN is server-generated (Level 1): any client-supplied "mrn" is ignored. The DB trigger
         // patient.assign_mrn() takes the next number from the tenant's counter and EF reads it back.
-        // Advisory duplicate detection (D3). Runs before the insert so the new row never matches itself.
+        var abha = CreatePatientValidator.NormalizeAbha(request.AbhaNumber);
+        var email = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email.Trim();
         var warnings = await FindDuplicatesAsync(
-            registry, tenant, request.FirstName, request.LastName, request.DateOfBirth, phoneE164 ?? whatsappE164, null, ct);
+            registry, tenant, request.FirstName, request.LastName, request.DateOfBirth, phoneE164, null, email, abha, ct, whatsappE164);
+        if (DuplicateReasonProblem(request.DuplicateOverrideReason) is { } reasonProblem)
+        {
+            return reasonProblem;
+        }
+
+        if (RejectDuplicates(warnings, request.DuplicateOverrideReason, out var storedReason) is { } duplicate)
+        {
+            return duplicate;
+        }
 
         var patient = new Patient
         {
@@ -333,8 +347,9 @@ public static class PatientEndpoints
             DateOfBirth = request.DateOfBirth,
             Sex = request.Sex ?? PatientSex.Unknown,
             RegisteredBranchId = request.RegisteredBranchId,
-            Email = request.Email,
-            AbhaNumber = CreatePatientValidator.NormalizeAbha(request.AbhaNumber),
+            Email = email,
+            AbhaNumber = abha,
+            DuplicateOverrideReason = storedReason,
             // TenantId is assigned by TenantSaveChangesInterceptor from the resolved context.
             // Audit columns are DB-managed and never sent (see AuditColumnConventions).
         };
@@ -343,9 +358,9 @@ public static class PatientEndpoints
         {
             await db.SaveChangesAsync(ct);
         }
-        catch (Exception ex) when (IsDuplicateAbha(ex))
+        catch (Exception ex) when (DuplicateConflict(ex) is { } conflict)
         {
-            return DuplicateAbha();
+            return conflict;
         }
         catch (Exception ex) when (HmsProblems.FromDatabase(ex, HmsProblems.Codes.DuplicateMrn, uniqueDetail: DuplicateMrnDetail) is { } problem)
         {
@@ -358,6 +373,10 @@ public static class PatientEndpoints
             {
                 await registry.SetPhonesAsync(patient.Id, phoneE164, whatsappSame, whatsappE164, ct);
                 patient.Phone = phoneE164; // the DB function rewrote the deprecated mirror
+            }
+            catch (Exception ex) when (DuplicateConflict(ex) is { } conflict)
+            {
+                return conflict;
             }
             catch (Exception ex) when (HmsProblems.FromDatabase(ex) is { } problem)
             {
@@ -373,7 +392,7 @@ public static class PatientEndpoints
         Guid id, JsonElement body, PatientsDbContext db, ITenantContext tenant, TimeProvider timeProvider,
         IPatientRegistryFunctions registry, CancellationToken ct)
     {
-        if (!tenant.CanAtAnyBranch(HmsPermissions.PatientsEdit))
+        if (!tenant.Can(HmsPermissions.PatientsEdit))
         {
             return HmsProblems.Forbidden();
         }
@@ -391,16 +410,11 @@ public static class PatientEndpoints
             return HmsProblems.NotFound("Patient not found.");
         }
 
-        // Authorize against the CURRENT branch, and the NEW branch when it moves (mirrors RLS USING / WITH CHECK).
-        if (!tenant.CanAtBranch(patient.RegisteredBranchId, HmsPermissions.PatientsEdit))
-        {
-            return HmsProblems.Forbidden("You cannot edit patients registered at this branch.");
-        }
-
+        // Registered branch is metadata. It must still be a branch of this hospital.
         var targetBranch = patch.RegisteredBranchId.Or(patient.RegisteredBranchId) ?? patient.RegisteredBranchId;
-        if (targetBranch != patient.RegisteredBranchId && !tenant.CanAtBranch(targetBranch, HmsPermissions.PatientsEdit))
+        if (targetBranch != patient.RegisteredBranchId && !await BranchScope.ExistsInTenantAsync(db, tenant, targetBranch, ct))
         {
-            return await BranchScope.DenyAsync(db, tenant, targetBranch, "You cannot move patients to that branch.", ct);
+            return HmsProblems.NotFound("Branch not found.");
         }
 
         // The MRN is server-generated and immutable: sending the current value (any case) is a no-op,
@@ -461,13 +475,49 @@ public static class PatientEndpoints
             return TypedResults.ValidationProblem(errors);
         }
 
+        var email = string.IsNullOrWhiteSpace(merged.Email) ? null : merged.Email.Trim();
+        var abha = CreatePatientValidator.NormalizeAbha(merged.AbhaNumber);
+        var nameChanged = !string.Equals(patient.FirstName.Trim(), merged.FirstName!.Trim(), StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(patient.LastName.Trim(), merged.LastName!.Trim(), StringComparison.OrdinalIgnoreCase)
+            || patient.DateOfBirth != merged.DateOfBirth;
+        var emailChanged = !string.Equals(NormEmail(patient.Email), NormEmail(email), StringComparison.Ordinal);
+        var abhaChanged = patient.AbhaNumber != abha;
+        if (nameChanged || emailChanged || abhaChanged || phonesChange)
+        {
+            if (DuplicateReasonProblem(patch.DuplicateOverrideReason.Or(null)) is { } reasonProblem)
+            {
+                return reasonProblem;
+            }
+
+            var matches = await FindDuplicatesAsync(
+                registry, tenant,
+                nameChanged ? merged.FirstName : null,
+                nameChanged ? merged.LastName : null,
+                nameChanged ? merged.DateOfBirth : null,
+                phonesChange ? phoneE164 : null,
+                patient.Id,
+                emailChanged ? email : null,
+                abhaChanged ? abha : null,
+                ct,
+                phonesChange ? whatsappE164 : null);
+            if (RejectDuplicates(matches, patch.DuplicateOverrideReason.Or(null), out var storedReason) is { } duplicate)
+            {
+                return duplicate;
+            }
+
+            if (nameChanged)
+            {
+                patient.DuplicateOverrideReason = storedReason;
+            }
+        }
+
         patient.FirstName = merged.FirstName!.Trim();
         patient.LastName = merged.LastName!.Trim();
         patient.DateOfBirth = merged.DateOfBirth;
         patient.Sex = merged.Sex!;
         patient.RegisteredBranchId = targetBranch;
-        patient.Email = merged.Email;
-        patient.AbhaNumber = CreatePatientValidator.NormalizeAbha(merged.AbhaNumber);
+        patient.Email = email;
+        patient.AbhaNumber = abha;
 
         try
         {
@@ -478,9 +528,9 @@ public static class PatientEndpoints
             // 0 rows: deleted concurrently, or RLS USING hid it (deleted_at is not null).
             return HmsProblems.NotFound("Patient not found.");
         }
-        catch (Exception ex) when (IsDuplicateAbha(ex))
+        catch (Exception ex) when (DuplicateConflict(ex) is { } conflict)
         {
-            return DuplicateAbha();
+            return conflict;
         }
         catch (Exception ex) when (HmsProblems.FromDatabase(ex) is { } problem)
         {
@@ -493,6 +543,10 @@ public static class PatientEndpoints
             {
                 await registry.SetPhonesAsync(patient.Id, phoneE164, whatsappSame, whatsappE164, ct);
                 patient.Phone = phoneE164; // the DB function rewrote the deprecated mirror
+            }
+            catch (Exception ex) when (DuplicateConflict(ex) is { } conflict)
+            {
+                return conflict;
             }
             catch (Exception ex) when (HmsProblems.FromDatabase(ex) is { } problem)
             {
@@ -525,14 +579,54 @@ public static class PatientEndpoints
             return HmsProblems.NotFound("Patient not found.");
         }
 
-        if (!tenant.CanAtBranch(patient.RegisteredBranchId, HmsPermissions.PatientsDelete))
+        try
         {
-            return HmsProblems.Forbidden("You cannot delete patients registered at this branch.");
+            await registry.SoftDeleteAsync(id, string.IsNullOrWhiteSpace(request?.Reason) ? null : request.Reason.Trim(), ct);
+        }
+        catch (Exception ex) when (HmsProblems.FromDatabase(ex) is { } problem)
+        {
+            return problem;
+        }
+
+        return TypedResults.NoContent();
+    }
+
+    private static async Task<Results<NoContent, ValidationProblem, ProblemHttpResult>> MergeAsync(
+        Guid id, MergePatientRequest? request, ITenantContext tenant, IPatientRegistryFunctions registry, CancellationToken ct)
+    {
+        if (!tenant.Can(HmsPermissions.PatientsRestore))
+        {
+            return HmsProblems.Forbidden("Only tenant admins can merge patients.");
+        }
+
+        var errors = new Dictionary<string, string[]>();
+        if (request?.DuplicatePatientId is null || request.DuplicatePatientId == Guid.Empty)
+        {
+            errors["duplicatePatientId"] = ["Duplicate patient is required."];
+        }
+
+        if (string.IsNullOrWhiteSpace(request?.Reason))
+        {
+            errors["reason"] = ["Reason is required."];
+        }
+        else if (request.Reason.Trim().Length > DeletionReasonMaxLength)
+        {
+            errors["reason"] = [$"Reason must be at most {DeletionReasonMaxLength} characters."];
+        }
+
+        if (errors.Count > 0)
+        {
+            return TypedResults.ValidationProblem(errors);
+        }
+
+        if (request!.DuplicatePatientId == id)
+        {
+            return HmsProblems.BadRequest(HmsProblems.Codes.InvalidParameter, "A chart cannot be merged into itself.");
         }
 
         try
         {
-            await registry.SoftDeleteAsync(id, string.IsNullOrWhiteSpace(request?.Reason) ? null : request.Reason.Trim(), ct);
+            await registry.MergeAsync(id, request.DuplicatePatientId!.Value, request.Reason!.Trim(), ct);
         }
         catch (Exception ex) when (HmsProblems.FromDatabase(ex) is { } problem)
         {
@@ -564,30 +658,120 @@ public static class PatientEndpoints
 
     private static async Task<IReadOnlyList<DuplicateCandidateDto>> FindDuplicatesAsync(
         IPatientRegistryFunctions registry, ITenantContext tenant, string? firstName, string? lastName, DateOnly? dob, string? phone,
-        Guid? excludeId, CancellationToken ct)
+        Guid? excludeId, string? email, string? abha, CancellationToken ct, string? alsoPhone = null)
     {
-        var byNameDob = !string.IsNullOrWhiteSpace(firstName) && !string.IsNullOrWhiteSpace(lastName) && dob is not null;
-        var byPhone = PatientPhone.Normalize(phone) is not null;
-        if (!byNameDob && !byPhone)
+        var byName = !string.IsNullOrWhiteSpace(firstName) && !string.IsNullOrWhiteSpace(lastName);
+        var phones = new[] { phone, alsoPhone }
+            .Where(p => PatientPhone.Normalize(p) is not null)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        var byEmail = !string.IsNullOrWhiteSpace(email);
+        var byAbha = !string.IsNullOrWhiteSpace(abha);
+        if (!byName && phones.Count == 0 && !byEmail && !byAbha)
         {
             return [];
         }
 
-        return await registry.FindDuplicatesAsync(tenant.TenantId, firstName, lastName, dob, phone, excludeId, ct);
+        if (phones.Count == 0)
+        {
+            phones.Add(null);
+        }
+
+        var merged = new Dictionary<Guid, DuplicateCandidateDto>();
+        foreach (var number in phones)
+        {
+            foreach (var row in await registry.FindDuplicatesAsync(tenant.TenantId, firstName, lastName, dob, number, excludeId, email, abha, ct))
+            {
+                if (merged.TryGetValue(row.Id, out var existing))
+                {
+                    merged[row.Id] = existing with { MatchReasons = existing.MatchReasons.Union(row.MatchReasons).ToArray() };
+                }
+                else
+                {
+                    merged[row.Id] = row;
+                }
+            }
+        }
+
+        return merged.Values.ToList();
+    }
+
+    private static ValidationProblem? DuplicateReasonProblem(string? reason)
+    {
+        if (reason?.Trim() is { Length: > DeletionReasonMaxLength })
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["duplicateOverrideReason"] = [$"Reason must be at most {DeletionReasonMaxLength} characters."],
+            });
+        }
+
+        return null;
     }
 
     /// <summary>
-    /// Authorization for creating OR updating a patient registered at <paramref name="branchId"/>.
-    /// Update endpoints call this with the patient's CURRENT branch and, when the branch changes,
-    /// the NEW branch too (mirrors the RLS USING/WITH CHECK pair).
+    /// Email, phone and ABHA are a hard conflict. A name match (with or without a date of birth) needs a stored reason.
     /// </summary>
+    private static ProblemHttpResult? RejectDuplicates(IReadOnlyList<DuplicateCandidateDto> matches, string? reason, out string? storedReason)
+    {
+        storedReason = null;
+        if (matches.Count == 0)
+        {
+            return null;
+        }
+
+        var reasons = matches.SelectMany(m => m.MatchReasons).ToHashSet(StringComparer.Ordinal);
+        // ABHA keeps its own code so existing clients can tell it from an email or phone clash.
+        if (reasons.Contains("abha") && !reasons.Contains("email") && !reasons.Contains("phone"))
+        {
+            return HmsProblems.Conflict("duplicate_abha", "Another patient in this hospital already has this ABHA number.");
+        }
+
+        if (reasons.Overlaps(HardDuplicateReasons))
+        {
+            return HmsProblems.Conflict("duplicate_patient", "Another patient in this hospital already has this email or phone number.");
+        }
+
+        if (reasons.Overlaps(NameDuplicateReasons))
+        {
+            var trimmed = reason?.Trim();
+            if (string.IsNullOrEmpty(trimmed))
+            {
+                return HmsProblems.Conflict("duplicate_name_confirmation", "A patient with this name already exists. Record why this is a different person.");
+            }
+
+            storedReason = trimmed;
+        }
+
+        return null;
+    }
+
+    private static readonly HashSet<string> HardDuplicateReasons = new(StringComparer.Ordinal) { "email", "phone", "abha" };
+    private static readonly HashSet<string> NameDuplicateReasons = new(StringComparer.Ordinal) { "name", "name_dob" };
+
+    private static string? NormEmail(string? email) => string.IsNullOrWhiteSpace(email) ? null : email.Trim().ToLowerInvariant();
 
     private const string DuplicateMrnDetail = "A patient with this MRN already exists in this hospital.";
 
 
-    private static bool IsDuplicateAbha(Exception ex) =>
-        HmsProblems.FindDbError(ex) is Npgsql.PostgresException { SqlState: "23505", ConstraintName: "patients_tenant_abha_key" };
+    private static ProblemHttpResult? DuplicateConflict(Exception ex)
+    {
+        if (HmsProblems.FindDbError(ex) is not Npgsql.PostgresException pg || pg.SqlState != "23505")
+        {
+            return null;
+        }
 
-    private static ProblemHttpResult DuplicateAbha() =>
-        HmsProblems.Conflict("duplicate_abha", "Another patient in this hospital already has this ABHA number.");
+        if (pg.ConstraintName == "patients_tenant_abha_key")
+        {
+            return HmsProblems.Conflict("duplicate_abha", "Another patient in this hospital already has this ABHA number.");
+        }
+
+        if (pg.ConstraintName is "patients_tenant_email_key" or "patient_phones_tenant_number_key"
+            || (pg.MessageText?.Contains("duplicate_phone", StringComparison.Ordinal) ?? false))
+        {
+            return HmsProblems.Conflict("duplicate_patient", "Another patient in this hospital already has this email, phone number, or ABHA number.");
+        }
+
+        return null;
+    }
 }

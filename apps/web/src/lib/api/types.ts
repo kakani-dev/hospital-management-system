@@ -71,6 +71,8 @@ export interface CreatePatientRequest {
   whatsapp?: WhatsappInput | null
   /** Optional ABHA number (14 digits); the server stores it as XX-XXXX-XXXX-XXXX. */
   abhaNumber?: string | null
+  /** Required when the name matches a live patient (date of birth may be blank). Email, phone and ABHA cannot be overridden. */
+  duplicateOverrideReason?: string | null
 }
 
 export const ROLES = [
@@ -376,18 +378,22 @@ export interface UpdatePatientRequest {
   email?: string | null
   /** null removes WhatsApp; absent leaves it unchanged. */
   whatsapp?: WhatsappInput | null
+  /** Sent when a same-name chart is confirmed as a different person. */
+  duplicateOverrideReason?: string | null
 }
 
-/** POST /api/v1/patients/duplicates (advisory, D3). */
+/** POST /api/v1/patients/duplicates. Email, phone and ABHA are hard matches; name is a warning. */
 export interface DuplicateCheckRequest {
   firstName?: string
   lastName?: string
   dateOfBirth?: string | null
   phone?: string | null
+  email?: string | null
+  abhaNumber?: string | null
   excludePatientId?: Guid
 }
 
-export type DuplicateMatchReason = 'name_dob' | 'phone'
+export type DuplicateMatchReason = 'name_dob' | 'name' | 'phone' | 'email' | 'abha'
 
 /** DuplicateCandidateDto. */
 export interface DuplicateCandidate {
@@ -531,12 +537,13 @@ export interface Appointment {
   hoursOverride?: boolean
 }
 
-/** GET /api/v1/appointments query (subset the UI uses). `from`/`to` are instants. */
+/** GET /api/v1/appointments query (subset the UI uses). `from`/`to` are instants. Omit branchId to list a patient's visits across branches. */
 export interface AppointmentQuery {
-  branchId: Guid
-  from: string
-  to: string
+  branchId?: Guid
+  from?: string
+  to?: string
   practitionerId?: Guid
+  patientId?: Guid
   /** Server-side status filter (one status). */
   status?: AppointmentStatus
   page?: number
@@ -550,7 +557,7 @@ export interface CreateAppointmentRequest {
   startsAt: string
   endsAt: string
   reason?: string
-  /** Follow-up: the earlier visit it continues (same patient; doctors may only book these, for their own patients). */
+  /** Follow-up: the earlier visit it continues (same patient; a doctor may book any earlier visit at a branch they can access). */
   parentAppointmentId?: Guid
   /** Admins only: book outside the doctor's working hours (checked and audited on the server). */
   overrideWorkingHours?: boolean

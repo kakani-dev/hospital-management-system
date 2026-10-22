@@ -31,6 +31,7 @@ describe('PatientDetailPage', () => {
     const calls = stubFetch({
       'GET /api/v1/me': () => json(meWithRoles(['receptionist'])),
       [`GET /api/v1/patients/${PID}`]: () => json(detail),
+      'POST /api/v1/patients/duplicates': () => json({ candidates: [] }),
       [`PATCH /api/v1/patients/${PID}`]: (_u, init) => json({ ...detail, ...JSON.parse(String(init.body)) }),
     })
     const user = userEvent.setup()
@@ -90,6 +91,7 @@ describe('PatientDetailPage', () => {
     const calls = stubFetch({
       'GET /api/v1/me': () => json(meWithRoles(['receptionist'])),
       [`GET /api/v1/patients/${PID}`]: () => json(other),
+      'POST /api/v1/patients/duplicates': () => json({ candidates: [] }),
       [`PATCH /api/v1/patients/${PID}`]: (_u, init) => json({ ...other, ...JSON.parse(String(init.body)) }),
     })
     const user = userEvent.setup()
@@ -113,6 +115,7 @@ describe('PatientDetailPage', () => {
     stubFetch({
       'GET /api/v1/me': () => json(meFor()),
       [`GET /api/v1/patients/${PID}`]: () => json(detail),
+      'POST /api/v1/patients/duplicates': () => json({ candidates: [] }),
       [`PATCH /api/v1/patients/${PID}`]: () => json({ title: 'Validation', status: 400, errors: { lastName: ['Too long'] } }, 400),
     })
     const user = userEvent.setup()
@@ -123,9 +126,48 @@ describe('PatientDetailPage', () => {
     expect(screen.getByText('Please fix the highlighted fields.')).toBeInTheDocument()
   })
 
-  it('a receptionist at another branch cannot edit or delete', async () => {
+  it('a receptionist at another branch can still edit and delete', async () => {
     stubFetch({
       'GET /api/v1/me': () => json(meWithRoles(['receptionist'], ALPHA_EAST)),
+      [`GET /api/v1/patients/${PID}`]: () => json(detail),
+    })
+    renderWithProviders(<App />, { path: `/patients/${PID}`, auth: fakeAuthClient({ session: fakeSession() }) })
+    expect(await screen.findByTestId('patient-details')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Edit patient' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Delete patient' })).toBeInTheDocument()
+  })
+
+  it('lists visits from every branch and offers a follow-up at the current desk', async () => {
+    stubFetch({
+      'GET /api/v1/me': () => json(meWithRoles(['doctor'], ALPHA_MAIN)),
+      'GET /api/v1/branches': () =>
+        json([
+          { id: ALPHA_MAIN, code: 'main', name: 'Alpha Main', timezone: 'Asia/Kolkata', isActive: true },
+          { id: ALPHA_EAST, code: 'east', name: 'Alpha East', timezone: 'Asia/Kolkata', isActive: true },
+        ]),
+      'GET /api/v1/practitioners': () => json([{ id: 'd1', userId: null, displayName: 'Dr. Rao', specialty: null, isActive: true }]),
+      [`GET /api/v1/patients/${PID}`]: () => json(detail),
+      'GET /api/v1/appointments': () =>
+        json({
+          items: [
+            { id: 'v-east', branchId: ALPHA_EAST, practitionerId: 'd1', patientId: PID, startsAt: '2026-10-01T04:30:00.000Z', endsAt: '2026-10-01T04:45:00.000Z', status: 'completed', reason: null },
+            { id: 'v-main', branchId: ALPHA_MAIN, practitionerId: 'd1', patientId: PID, startsAt: '2026-10-02T04:30:00.000Z', endsAt: '2026-10-02T04:45:00.000Z', status: 'booked', reason: null },
+          ],
+          page: 1,
+          pageSize: 100,
+          totalCount: 2,
+        }),
+    })
+    renderWithProviders(<App />, { path: `/patients/${PID}`, auth: fakeAuthClient({ session: fakeSession() }) })
+    const history = await screen.findByTestId('visit-history')
+    expect(await within(history).findByText('Alpha East')).toBeInTheDocument()
+    expect(within(history).getByText('Alpha Main')).toBeInTheDocument()
+    expect(within(history).getByRole('link', { name: 'Book follow-up' })).toHaveAttribute('href', `/appointments?branch=${ALPHA_MAIN}`)
+  })
+
+  it('a doctor can read the chart but not edit or delete it', async () => {
+    stubFetch({
+      'GET /api/v1/me': () => json(meWithRoles(['doctor'], ALPHA_EAST)),
       [`GET /api/v1/patients/${PID}`]: () => json(detail),
     })
     renderWithProviders(<App />, { path: `/patients/${PID}`, auth: fakeAuthClient({ session: fakeSession() }) })
@@ -205,6 +247,7 @@ describe('PatientDetailPage', () => {
           { id: ALPHA_EAST, code: 'east', name: 'Alpha East', timezone: 'America/New_York', isActive: true },
         ]),
       [`GET /api/v1/patients/${PID}`]: () => json(detail),
+      'POST /api/v1/patients/duplicates': () => json({ candidates: [] }),
       [`PATCH /api/v1/patients/${PID}`]: (_u, init) => json({ ...detail, ...JSON.parse(String(init.body)) }),
     })
     const user = userEvent.setup()

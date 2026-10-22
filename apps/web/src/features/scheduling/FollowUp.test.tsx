@@ -33,13 +33,15 @@ describe('Book follow-up', () => {
     expect(within(form).getByTestId('follow-up-link')).toBeInTheDocument()
   })
 
-  it('a doctor sees neither "Book appointment" nor a follow-up of another practitioner\'s patient', async () => {
+  it('a doctor sees "Book follow-up" for another clinician\'s visit and not a fresh booking', async () => {
     routes({ 'GET /api/v1/me': () => json(meWithRoles(['doctor'], ALPHA_MAIN)) })
+    const user = userEvent.setup()
     renderWithProviders(<App />, { path: `/appointments?branch=${ALPHA_MAIN}`, auth: fakeAuthClient({ session: fakeSession() }) })
     const item = await screen.findByTestId('appointment')
     await waitFor(() => expect(item).toHaveTextContent('Synthetic-Alpha, Asha'))
-    expect(within(item).queryByRole('button', { name: 'Book follow-up' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Book appointment' })).not.toBeInTheDocument()
+    await user.click(within(item).getByRole('button', { name: 'Book follow-up' }))
+    expect(await screen.findByTestId('follow-up-link')).toBeInTheDocument()
   })
 
   it('a booked appointment does not offer a follow-up', async () => {

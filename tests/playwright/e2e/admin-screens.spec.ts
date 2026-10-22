@@ -1,14 +1,34 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page, type Response } from '@playwright/test'
 import { bearer, ids, signIn, tokenFor, unique, users } from './helpers'
+
+function isMainRegistrationStats(res: Response) {
+  if (!res.ok()) return false
+  const url = new URL(res.url())
+  return url.pathname.endsWith('/api/v1/patients/stats') && url.searchParams.get('branchId') === ids.alphaMain
+}
+
+/** The stat shows "—" while the selected branch's count is loading. Read it only after that response. */
+async function registeredToday(page: Page, options: { reload?: boolean } = {}) {
+  const picker = page.getByLabel('Showing branch')
+  const stat = page.getByTestId('stat-registered')
+  const already = options.reload ? '' : await picker.inputValue()
+  const pending = already === ids.alphaMain ? null : page.waitForResponse(isMainRegistrationStats)
+  if (options.reload) await page.reload()
+  else if (already !== ids.alphaMain) await picker.selectOption(ids.alphaMain)
+  if (pending) await pending
+  await expect(picker).toHaveValue(ids.alphaMain)
+  await expect(stat).toHaveAttribute('aria-busy', 'false')
+  await expect(stat).toHaveText(/^\d+$/)
+  const value = Number((await stat.textContent())?.trim())
+  expect(Number.isInteger(value)).toBe(true)
+  return value
+}
 
 /** Phase 2 screens through the edge: dashboard counts, practitioner and working-hours admin. */
 test.describe('phase 2 admin screens', () => {
   test('dashboard "Registered today" counts a patient registered at the branch just now', async ({ page, request }) => {
     await signIn(page, users.alphaAdmin)
-    await page.getByLabel('Showing branch').selectOption(ids.alphaMain)
-    const stat = page.getByTestId('stat-registered')
-    await expect(stat).toHaveText(/^\d+$/)
-    const before = Number(await stat.textContent())
+    const before = await registeredToday(page)
 
     const token = await tokenFor(request, users.alphaAdmin)
     const created = await request.post('/api/v1/patients', {
@@ -17,8 +37,9 @@ test.describe('phase 2 admin screens', () => {
     })
     expect(created.status()).toBe(201)
 
-    await page.reload()
-    await expect(stat).toHaveText(String(before + 1))
+    const after = await registeredToday(page, { reload: true })
+    // Other specs register patients in this hospital at the same time, so the count can rise by more than one.
+    expect(after).toBeGreaterThanOrEqual(before + 1)
     await expect(page.getByTestId('stat-appointments')).toHaveText(/^\d+$/)
     await expect(page.getByTestId('stat-waiting')).toHaveText(/^\d+$/)
   })
