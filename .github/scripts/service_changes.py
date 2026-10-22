@@ -12,7 +12,8 @@ Path rules (deploy order is always identity, patients, scheduling, then edge):
 - The legacy gateway, the Vercel app, and SQL migrations do not select an image.
   This pipeline never deploys medicore-hms-api.
 
-Image tags are sha- plus the first 12 hex characters of the commit.
+Image tags are sha- plus the full 40-character commit sha, matching the tags
+already running in ACR (acrmedicorehmsdev.azurecr.io/hms-<svc>:sha-<40 hex>).
 """
 
 from __future__ import annotations
@@ -50,7 +51,7 @@ EDGE_ALSO = {".github/workflows/deploy-aca.yml"}
 
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 TAG_RE = re.compile(r"^sha-[0-9a-f]{7,40}$")
-SHORT_LEN = 12
+SHORT_LEN = 12  # only used when a suffix would make the revision name longer than 64
 # Container Apps revision names are "{app}--{suffix}" and must be at most 64 characters.
 MAX_REVISION_NAME = 64
 
@@ -77,10 +78,11 @@ def services_for_paths(paths: list[str]) -> list[str]:
     return [service for service in ORDER if service in chosen]
 
 
-def short_tag(sha: str) -> str:
+def image_tag(sha: str) -> str:
+    """Tag pushed to ACR. Production apps run sha- plus the full 40-character commit sha."""
     if not SHA_RE.fullmatch(sha):
         raise SystemExit(f"sha must be 40 hex characters, got {sha!r}")
-    return "sha-" + sha[:SHORT_LEN]
+    return "sha-" + sha
 
 
 def revision_suffix(app: str, tag: str) -> str:
@@ -129,11 +131,11 @@ def plan(sha: str, service: str, tag: str, paths: list[str]) -> dict[str, str]:
     elif service:
         services = [service]
         build = True
-        tag = short_tag(sha)
+        tag = image_tag(sha)
     else:
         services = services_for_paths(paths)
         build = bool(services)
-        tag = short_tag(sha)
+        tag = image_tag(sha)
 
     return {
         "sha": sha,
@@ -174,19 +176,23 @@ def self_test() -> None:
 
     sha = "0123456789abcdef" * 2 + "01234567"
     assert len(sha) == 40
-    assert short_tag(sha) == "sha-0123456789ab"
+    assert image_tag(sha) == "sha-" + sha
+    assert len(image_tag(sha)) == 44
     try:
-        short_tag("abc")
+        image_tag("abc")
     except SystemExit:
         pass
     else:
         raise AssertionError("short sha must be rejected")
 
     assert revision_suffix("ca-hms-scheduling", "sha-" + "a" * 12) == "sha-" + "a" * 12
+    # The longest app name plus sha- and 40 hex is 63 characters, inside the 64 limit.
     long_tag = "sha-" + "b" * 40
-    suffix = revision_suffix("ca-hms-scheduling", long_tag)
-    assert len("ca-hms-scheduling--" + suffix) <= MAX_REVISION_NAME
-    assert suffix.startswith("sha-")
+    assert revision_suffix("ca-hms-scheduling", long_tag) == long_tag
+    assert len("ca-hms-scheduling--" + long_tag) <= MAX_REVISION_NAME
+    squeezed = revision_suffix("ca-hms-scheduling-extra", long_tag)
+    assert squeezed != long_tag
+    assert len("ca-hms-scheduling-extra--" + squeezed) <= MAX_REVISION_NAME
 
     no_change = plan(sha, "", "", ["apps/web/src/main.tsx"])
     assert no_change["deploy"] == "false" and no_change["build"] == "false"
@@ -194,7 +200,7 @@ def self_test() -> None:
 
     forced = plan(sha, "patients", "", [])
     assert forced["build"] == "true" and forced["services"] == "patients"
-    assert forced["tag"] == short_tag(sha)
+    assert forced["tag"] == image_tag(sha)
 
     emergency = plan(sha, "edge", "sha-" + "c" * 12, ["apps/web/src/x.tsx"])
     assert emergency["build"] == "false" and emergency["deploy"] == "true"

@@ -17,7 +17,8 @@ for script in \
   .github/scripts/aca-cleanup-azure.sh \
   .github/scripts/cleanup-github.sh \
   scripts/azure-oidc-setup.sh \
-  scripts/smoke/post-deploy.sh
+  scripts/smoke/post-deploy.sh \
+  scripts/verify.sh
 do
   bash -n "$script"
 done
@@ -94,6 +95,13 @@ grep -q 'AcrPush' scripts/azure-oidc-setup.sh
 grep -q 'AcrDelete' scripts/azure-oidc-setup.sh
 grep -q 'Contributor' scripts/azure-oidc-setup.sh
 grep -q 'AcrPull' scripts/azure-oidc-setup.sh
+grep -q 'leaving the registry binding alone' scripts/azure-oidc-setup.sh
+grep -q 'full 40-character commit sha' .github/workflows/deploy-aca.yml
+grep -q 'def image_tag' .github/scripts/service_changes.py
+if grep -nE 'hms-db=|replace-env-vars|registry set|identity assign' .github/scripts/aca-rollout.sh; then
+  fail "rollout must not write hms-db, replace env vars, or rebind the registry"
+fi
+grep -q 'minReplicas is' .github/scripts/aca-rollout.sh
 
 empty="$(mktemp)"
 if python3 .github/scripts/retention.py delete-tags --keep 10 --protected "$empty" </dev/null 2>"$empty.err"; then
@@ -251,6 +259,22 @@ if [[ "$all" == *"ingress traffic show"* ]]; then
   printf '[{"revisionName":"%s--sha-prevprevprev","weight":100}]\n' "$app"
   exit 0
 fi
+if [[ "$all" == *"secret list"* ]]; then
+  if [[ -n "${NO_HMS_DB:-}" ]]; then
+    printf 'hms-edge-key\n'
+  else
+    printf 'hms-db\nhms-edge-key\n'
+  fi
+  exit 0
+fi
+if [[ "$all" == *"minReplicas"* ]]; then
+  if [[ -n "${IDENTITY_MIN_ZERO:-}" && "$app" == "ca-hms-identity" ]]; then echo 0; else echo 1; fi
+  exit 0
+fi
+if [[ "$all" == *"maxReplicas"* ]]; then
+  echo 1
+  exit 0
+fi
 if [[ "$all" == *"secret set"* ]]; then exit 0; fi
 if [[ "$all" == containerapp\ update* ]]; then
   mkdir -p "$AZ_STATE"
@@ -368,6 +392,13 @@ grep -q 'supabase-service-role=' "$ROLLOUT_LOG" || fail "supabase-service-role s
 grep -q 'Smtp__Password=secretref:smtp-password' "$ROLLOUT_LOG" || fail "SMTP env ref missing"
 grep -q 'Auth__Supabase__ServiceRoleKey=secretref:supabase-service-role' "$ROLLOUT_LOG" || fail "service role env ref missing"
 grep -q 'Email__Dispatcher__Enabled=true' "$ROLLOUT_LOG" || fail "email dispatcher was not enabled on identity"
+grep -q -- '--min-replicas 1' "$ROLLOUT_LOG" || fail "identity minReplicas was not kept at 1"
+if grep -q 'hms-db=' "$ROLLOUT_LOG"; then
+  fail "hms-db secret was overwritten"
+fi
+if grep -q 'replace-env-vars' "$ROLLOUT_LOG"; then
+  fail "env vars were replaced"
+fi
 if grep 'containerapp update' "$ROLLOUT_LOG" | grep -q 'Outbox__Dispatcher__Enabled'; then
   fail "outbox dispatcher must stay untouched"
 fi
@@ -389,6 +420,19 @@ SMTP_PASSWORD='smtp-test-value' SUPABASE_SERVICE_ROLE_KEY='role-test-value' run_
 grep -q 'secret set' "$ROLLOUT_LOG" && fail "patients deploy stored an identity secret" || true
 unset SMTP_PASSWORD SUPABASE_SERVICE_ROLE_KEY
 echo "rollout patients skip identity secrets ok"
+
+SMTP_PASSWORD='smtp-test-value' SUPABASE_SERVICE_ROLE_KEY='role-test-value' \
+  NO_HMS_DB=1 run_rollout fail identity
+grep -q 'containerapp update' "$ROLLOUT_LOG" && fail "missing hms-db still updated identity" || true
+grep -q 'secret set' "$ROLLOUT_LOG" && fail "missing hms-db still wrote secrets" || true
+unset NO_HMS_DB
+echo "rollout hms-db preserved ok"
+
+SMTP_PASSWORD='smtp-test-value' SUPABASE_SERVICE_ROLE_KEY='role-test-value' \
+  IDENTITY_MIN_ZERO=1 run_rollout fail identity
+grep -q 'containerapp update' "$ROLLOUT_LOG" && fail "identity scale was changed" || true
+unset IDENTITY_MIN_ZERO
+echo "rollout identity minReplicas guard ok"
 
 SMTP_PASSWORD='smtp-test-value' SUPABASE_SERVICE_ROLE_KEY='role-test-value' \
   HEALTH_TIMEOUT_SECONDS=1 FAIL_READY=1 run_rollout fail identity
@@ -587,5 +631,18 @@ if command -v jq >/dev/null; then
 ]}
 JSON
 fi
+
+web_plan="$(VERIFY_PATHS='apps/web/src/App.tsx' bash scripts/verify.sh --plan)"
+[[ "$web_plan" == "web" ]] || fail "verify plan for web was '$web_plan'"
+api_plan="$(VERIFY_PATHS='backend/Hms.slnx' bash scripts/verify.sh --plan)"
+[[ "$api_plan" == "api" ]] || fail "verify plan for api was '$api_plan'"
+none_plan="$(VERIFY_PATHS=$'docs/deploy.md\n.github/workflows/ci.yml' bash scripts/verify.sh --plan)"
+[[ "$none_plan" == "none" ]] || fail "verify plan for docs was '$none_plan'"
+both_plan="$(VERIFY_PATHS=$'apps/web/package.json\nbackend/global.json' bash scripts/verify.sh --plan)"
+[[ "$both_plan" == $'web\napi' ]] || fail "verify plan for both was '$both_plan'"
+grep -q 'scripts/verify.sh' lefthook.yml
+grep -q 'pre-push:' lefthook.yml
+grep -q 'scripts/verify.sh' CONTRIBUTING.md AGENTS.md .cursor/rules/verify-before-commit.mdc
+echo "verify plan ok"
 
 echo "all deploy-plan checks passed"

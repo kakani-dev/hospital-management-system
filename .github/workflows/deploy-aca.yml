@@ -1,7 +1,7 @@
 # Deploy identity, patients, scheduling, and the YARP edge to Azure Container Apps.
 #
 # Push to main runs CI first. This workflow starts only after that CI run succeeds, builds
-# the images whose paths changed, pushes sha-<12 hex> to ACR, shifts traffic, and smoke-tests
+# the images whose paths changed, pushes sha-<full 40-character commit sha> to ACR, shifts traffic, and smoke-tests
 # through the public edge. A failed health or smoke check puts traffic back on the previous
 # revision and fails the run. workflow_dispatch is an emergency hatch (one service and/or an
 # existing tag), not the normal path.
@@ -12,6 +12,9 @@
 # A deploy of ca-hms-identity stores SMTP_PASSWORD as smtp-password and
 # SUPABASE_SERVICE_ROLE_KEY as supabase-service-role, and turns on the email dispatcher.
 # Identity is not rolled if either secret is empty. Other apps do not receive those secrets.
+# The identity hms-db secret (hms_identity_login) is never written. Identity minReplicas
+# stays 1. Registry bindings are not changed: patients keeps its existing ACR identity,
+# scheduling keeps its system-assigned identity.
 #
 # Does not deploy the Vercel web app, does not modify medicore-hms-api, does not turn the
 # outbox dispatcher on, and does not run a database migration.

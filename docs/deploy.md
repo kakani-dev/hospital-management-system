@@ -9,7 +9,7 @@ The web app stays on Vercel. This pipeline only rolls the four API containers.
 | `ca-hms-patients` | `hms-patients` | internal |
 | `ca-hms-scheduling` | `hms-scheduling` | internal |
 
-Resource group `rg-medicore-hms-dev`, Central India. Registry `acrmedicorehmsdev` (admin user disabled). Images are tagged `sha-` plus the first 12 hex characters of the commit, for example `acrmedicorehmsdev.azurecr.io/hms-identity:sha-0123456789ab`.
+Resource group `rg-medicore-hms-dev`, Central India. Registry `acrmedicorehmsdev` (admin user disabled). Every app pulls `acrmedicorehmsdev.azurecr.io/hms-<svc>:sha-<full 40-character commit sha>`, not GHCR. Patients uses its existing identity with AcrPull. Scheduling uses its system-assigned identity with AcrPull. The deploy does not change those bindings.
 
 `medicore-hms-api` (the App Service) stays up as the rollback target for the web app. Its outbox dispatcher stays **off** (`Outbox__Dispatcher__Enabled` unset or false). On the current schema `hms_api` no longer has `hms_dispatcher` (B1); a dispatcher on that app cannot claim rows and must not be turned on. This pipeline only reads that setting and refuses to deploy if it is true. It never restarts, deploys, or reconfigures the App Service. It also never runs a database migration.
 
@@ -27,6 +27,8 @@ ACR Basic is a paid SKU (about $0.17 per day). Container Apps stay on the consum
 8. If health or smoke fails, traffic goes back to the previous revision, the new revision is deactivated, and the job fails. Every app shifted in that run is restored, edge last.
 
 `ca-hms-identity` is the only app that receives mail secrets. The deploy stores `SMTP_PASSWORD` as `smtp-password` and sets `Smtp__Password=secretref:smtp-password`. It stores `SUPABASE_SERVICE_ROLE_KEY` as `supabase-service-role` and sets `Auth__Supabase__ServiceRoleKey=secretref:supabase-service-role`. It sets `Email__Dispatcher__Enabled=true` on that app. If either secret is empty, identity is not rolled. Patients, scheduling, and the edge are not given either secret. `Outbox__Dispatcher__Enabled` stays off.
+
+The identity database login `hms_identity_login` lives in the existing secret `hms-db`. The workflow never writes that secret and does not replace `ConnectionStrings__HmsDatabase`. Identity runs with `minReplicas` 1. A rollout that does not already see 1 stops instead of changing the scale. Other apps keep the replica counts they already have.
 
 ## One-time setup
 
@@ -82,8 +84,15 @@ az role assignment create --assignee-object-id "$SP_OBJECT_ID" --assignee-princi
 az role assignment create --assignee-object-id "$SP_OBJECT_ID" --assignee-principal-type ServicePrincipal \
   --role Contributor --scope "$RG_ID" -o none
 
-# Passwordless pull. Adds the ACR server; an existing GHCR registry entry is left in place.
+# Leave an app that already pulls from this registry on its current identity.
+# Patients keeps its existing identity. Scheduling keeps system. Both have AcrPull.
 for app in ca-hms-edge ca-hms-identity ca-hms-patients ca-hms-scheduling; do
+  current=$(az containerapp show -g "$RG" -n "$app" \
+    --query "properties.configuration.registries[?server=='${ACR_NAME}.azurecr.io'].identity | [0]" -o tsv)
+  if [[ -n "$current" && "$current" != "None" ]]; then
+    echo "$app already pulls ACR with identity $current; leaving the registry binding alone"
+    continue
+  fi
   az containerapp identity assign -g "$RG" -n "$app" --system-assigned -o none
   pid=$(az containerapp identity show -g "$RG" -n "$app" --query principalId -o tsv)
   az role assignment create --assignee-object-id "$pid" --assignee-principal-type ServicePrincipal \
@@ -110,7 +119,7 @@ If a container app does not exist yet, the script still creates the app registra
 | `SMTP_PASSWORD` | yes for identity | Gmail app password. Stored only on `ca-hms-identity` as `smtp-password`. Identity does not roll if this is empty. |
 | `SUPABASE_SERVICE_ROLE_KEY` | yes for identity | GoTrue service-role key. Stored only on `ca-hms-identity` as `supabase-service-role`. |
 
-Do not create a client secret. The workflow asks Entra for a short-lived token with the federated credential above. Pulls use each app's system identity (`AcrPull`), not a registry password.
+Do not create a client secret. The workflow asks Entra for a short-lived token with the federated credential above. Pulls use the identity already on each app (`AcrPull`), not a registry password. Patients keeps its existing identity. Scheduling keeps its system-assigned identity.
 
 ## Emergency hatch
 

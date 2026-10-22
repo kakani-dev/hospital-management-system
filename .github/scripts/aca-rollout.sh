@@ -15,6 +15,11 @@
 # supabase-service-role, Auth__Supabase__ServiceRoleKey=secretref:supabase-service-role),
 # and Email__Dispatcher__Enabled=true. Identity is not rolled when either value is empty.
 #
+# Does not change registry bindings. Patients keeps its existing ACR identity.
+# Scheduling keeps its system-assigned identity. Both already have AcrPull.
+# Does not write the identity app's hms-db secret (that value is hms_identity_login).
+# Passes the current min/max replicas through. Identity must already be minReplicas 1.
+#
 #   IMAGE_TAG=sha-<hex> .github/scripts/aca-rollout.sh identity patients
 #   .github/scripts/aca-rollout.sh --rollback-only
 #
@@ -122,6 +127,29 @@ record() {
   printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" >>"$STATE"
 }
 
+# Read scale and pass it back on update so a new revision cannot fall back to 0.
+# Identity is warm (minReplicas 1). Any other value means stop, not "fix" it.
+read_scale() {
+  local app="$1" service="$2"
+  SCALE_MIN="$(az containerapp show -g "$RG" -n "$app" --query "properties.template.scale.minReplicas" -o tsv)"
+  SCALE_MAX="$(az containerapp show -g "$RG" -n "$app" --query "properties.template.scale.maxReplicas" -o tsv)"
+  if [[ "$service" == "identity" && "$SCALE_MIN" != "1" ]]; then
+    die "$app minReplicas is '${SCALE_MIN:-unset}', expected 1. Refusing to change scale."
+  fi
+  [[ "$SCALE_MIN" =~ ^[0-9]+$ && "$SCALE_MAX" =~ ^[0-9]+$ ]] || die "$app scale could not be read"
+}
+
+secret_names() {
+  az containerapp secret list -g "$RG" -n "$1" --query "[].name" -o tsv
+}
+
+# hms-db holds the identity database login. Never send a new value for it.
+assert_hms_db() {
+  local app="$1" names="$2" flat
+  flat=" $(printf '%s' "$names" | tr '\n' ' ') "
+  [[ "$flat" == *" hms-db "* ]] || die "$app is missing secret hms-db. Refusing to write secrets."
+}
+
 rollout_one() {
   local service="$1" app="ca-hms-$1" prev="" new="" suffix image rev_name
   image="${ACR_LOGIN_SERVER}/hms-${service}:${IMAGE_TAG}"
@@ -146,9 +174,13 @@ print(rows[0].get("revisionName", "") if rows else "")
     new="$rev_name"
     echo "$app revision $new already has $image"
   else
+    read_scale "$app" "$service"
     if [[ "$service" == "identity" ]]; then
-      local err
+      local err before after name
+      before="$(secret_names "$app")"
+      assert_hms_db "$app" "$before"
       err="$(mktemp)"
+      # Only the two mail secrets. hms-db is not in this list, so its value is not replaced.
       if ! az containerapp secret set -g "$RG" -n "$app" --secrets \
           "smtp-password=${SMTP_PASSWORD}" "supabase-service-role=${SUPABASE_SERVICE_ROLE_KEY}" \
           -o none >"$err" 2>&1; then
@@ -156,13 +188,22 @@ print(rows[0].get("revisionName", "") if rows else "")
         die "failed to set identity mail secrets on $app (the values were not logged)"
       fi
       rm -f "$err"
-      az containerapp update -g "$RG" -n "$app" --image "$image" --revision-suffix "$suffix" -o none \
+      after="$(secret_names "$app")"
+      while IFS= read -r name; do
+        [[ -z "$name" ]] && continue
+        [[ " $(printf '%s' "$after" | tr '\n' ' ') " == *" $name "* ]] || die "$app lost secret $name"
+      done <<<"$before"
+      assert_hms_db "$app" "$after"
+      # --set-env-vars adds these three. It does not replace ConnectionStrings__HmsDatabase.
+      az containerapp update -g "$RG" -n "$app" --image "$image" --revision-suffix "$suffix" \
+        --min-replicas "$SCALE_MIN" --max-replicas "$SCALE_MAX" -o none \
         --set-env-vars \
         "Smtp__Password=secretref:smtp-password" \
         "Auth__Supabase__ServiceRoleKey=secretref:supabase-service-role" \
         "Email__Dispatcher__Enabled=true"
     else
-      az containerapp update -g "$RG" -n "$app" --image "$image" --revision-suffix "$suffix" -o none
+      az containerapp update -g "$RG" -n "$app" --image "$image" --revision-suffix "$suffix" \
+        --min-replicas "$SCALE_MIN" --max-replicas "$SCALE_MAX" -o none
     fi
     new="$(az containerapp show -g "$RG" -n "$app" --query properties.latestRevisionName -o tsv)"
   fi

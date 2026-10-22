@@ -1,0 +1,10 @@
+---
+description: Run scripts/verify.sh before every commit
+alwaysApply: true
+---
+
+Before every commit, run `bash scripts/verify.sh` from the repo root and do not commit if it fails.
+
+The script runs web lint, unit tests, and the production build only when `apps/web` changed, and `dotnet build` plus unit tests (`Category!=Database`) only when `backend` changed. Other paths exit 0. `bash scripts/verify.sh --plan` prints `web`, `api`, or `none`.
+
+Lefthook runs the same script on pre-push after `npm install` at the repo root. Run it before the commit anyway.

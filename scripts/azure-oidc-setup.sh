@@ -15,9 +15,10 @@
 #     rg-medicore-hms-dev, Central India.
 #   - AcrPush and AcrDelete on that registry (push from Actions, delete of old sha- tags).
 #   - Contributor on rg-medicore-hms-dev (container app rollouts and revision cleanup).
-#   - For each existing ca-hms-* app: system identity, AcrPull on the registry, and the
-#     ACR login server added beside any registry already configured (GHCR stays so the
-#     current image can still start).
+#   - For an app that already pulls from ACR, leave that registry identity alone.
+#     Patients keeps its existing identity (AcrPull). Scheduling keeps its
+#     system-assigned identity (AcrPull). Only an app with no ACR identity gets
+#     a system identity, AcrPull, and a registry binding.
 #
 # It does not deploy an image, does not change medicore-hms-api, and does not enable the
 # outbox dispatcher. Override defaults with SUB, TENANT, RG, LOC, ACR_NAME, APP_NAME, REPO.
@@ -188,6 +189,13 @@ for app in "${APPS[@]}"; do
     missing+=("$app")
     continue
   fi
+  current="$(az containerapp show -g "$RG" -n "$app" \
+    --query "properties.configuration.registries[?server=='${ACR_LOGIN_SERVER}'].identity | [0]" -o tsv)"
+  if [[ -n "$current" && "$current" != "None" ]]; then
+    echo "$app already pulls $ACR_LOGIN_SERVER with identity $current; leaving the registry binding alone"
+    continue
+  fi
+
   az containerapp identity assign -g "$RG" -n "$app" --system-assigned -o none
   pid=""
   for _ in $(seq 1 12); do
@@ -197,21 +205,13 @@ for app in "${APPS[@]}"; do
   done
   [[ -n "$pid" ]] || die "$app system identity has no principal id"
   ensure_role "$pid" "AcrPull" "$ACR_ID"
-
-  current="$(az containerapp show -g "$RG" -n "$app" \
-    --query "properties.configuration.registries[?server=='${ACR_LOGIN_SERVER}'].identity | [0]" -o tsv)"
-  if [[ "$current" == "system" ]]; then
-    echo "$app already pulls $ACR_LOGIN_SERVER with the system identity"
-  else
-    # Adds this server. Other registries (GHCR, if the app was created by deploy-aca.sh) stay.
-    az containerapp registry set -g "$RG" -n "$app" --server "$ACR_LOGIN_SERVER" --identity system -o none
-    names="$(az containerapp secret list -g "$RG" -n "$app" --query "[].name" -o tsv | tr '\n' ' ')"
-    [[ " $names " == *" hms-edge-key "* ]] || die "$app lost secret hms-edge-key after registry set (names: $names)"
-    if [[ "$app" != "ca-hms-edge" ]]; then
-      [[ " $names " == *" hms-db "* ]] || die "$app lost secret hms-db after registry set (names: $names)"
-    fi
-    echo "$app registry set to $ACR_LOGIN_SERVER (secrets still present: $names)"
+  az containerapp registry set -g "$RG" -n "$app" --server "$ACR_LOGIN_SERVER" --identity system -o none
+  names="$(az containerapp secret list -g "$RG" -n "$app" --query "[].name" -o tsv | tr '\n' ' ')"
+  [[ " $names " == *" hms-edge-key "* ]] || die "$app lost secret hms-edge-key after registry set (names: $names)"
+  if [[ "$app" != "ca-hms-edge" ]]; then
+    [[ " $names " == *" hms-db "* ]] || die "$app lost secret hms-db after registry set (names: $names)"
   fi
+  echo "$app registry set to $ACR_LOGIN_SERVER (secrets still present: $names)"
 done
 
 echo
@@ -222,7 +222,7 @@ echo "No client secret was created. Do not create one."
 if [[ "${#missing[@]}" -gt 0 ]]; then
   echo "Container apps not found yet (re-run this script after they exist): ${missing[*]}"
 fi
-echo "Optional GitHub secret SMTP_PASSWORD: if you set it, the deploy stores it on each app as smtp-password. If you leave it unset, the deploy still succeeds."
+echo "Identity deploy also needs GitHub secrets SMTP_PASSWORD and SUPABASE_SERVICE_ROLE_KEY. They are stored only on ca-hms-identity. hms-db is not overwritten."
 echo "The legacy app medicore-hms-api is unchanged. Keep Outbox__Dispatcher__Enabled off (B1)."
 
 if [[ "${GH_SET_SECRETS:-}" == "1" ]]; then

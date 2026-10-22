@@ -5,7 +5,7 @@ All notable changes to this project follow [Conventional Commits](https://www.co
 ## [0.2.0] - Unreleased (Sprint 1: Tenant & Identity, not deployed)
 
 ### Added
-- GitHub Actions deploy to Azure Container Apps after CI on `main` (OIDC, changed services only, smoke through the edge, automatic traffic rollback) and weekly cleanup of artifacts, caches, old registry tags, and inactive revisions. One-time setup is `scripts/azure-oidc-setup.sh` ([docs/deploy.md](docs/deploy.md)).
+- GitHub Actions deploy to Azure Container Apps after CI on `main` (OIDC, ACR images tagged `sha-<40 hex>`, changed services only, smoke through the edge, automatic traffic rollback). Identity keeps `hms-db` and `minReplicas` 1. Weekly cleanup of artifacts, caches, old registry tags, and inactive revisions. One-time setup is `scripts/azure-oidc-setup.sh` ([docs/deploy.md](docs/deploy.md)). Local gate: `scripts/verify.sh` (also a pre-push hook).
 - Supabase Auth in the SPA (`@supabase/supabase-js`): email/password sign-in, persisted session, protected routes, sign-out; the API client sends the current access token (never a tenant header).
 - Gateway JWT validation against Supabase JWKS (ES256/RS256) with optional HS256 legacy secret; issuer/audience/lifetime checks; only `role=authenticated` user tokens accepted; fail closed when unconfigured.
 - `identity.custom_access_token_hook` (tenant_id, branch_id, branch_ids, hms_roles; forged values stripped; never blocks sign-in), executable only by `supabase_auth_admin`.
