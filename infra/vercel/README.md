@@ -18,6 +18,12 @@
 4. Add the Vercel domain(s) to the API's `Cors__AllowedOrigins__N` on Render.
 5. Check Vercel's current Hobby-plan limits and terms before deploying. Hobby is for non-commercial use.
 
+## Production git deploys
+
+`git.deploymentEnabled.main` is false in both `vercel.json` files. A push to `main` does not create a Vercel git deployment. Every other branch still does (pull-request previews). Production is deployed by `.github/workflows/deploy-web.yml` after CI. See [docs/runbooks/deploy-web.md](../../docs/runbooks/deploy-web.md).
+
+Keep `apps/web/vercel.json` and `infra/vercel/vercel.json` identical. Vercel reads `apps/web/vercel.json` because the project Root Directory is `apps/web`.
+
 ## TODO
 - Add a Content-Security-Policy once the API and Supabase origins are known (`connect-src 'self' <api> <supabase>`).
 - Preview deployments must never point at production data.

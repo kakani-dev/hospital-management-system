@@ -1,0 +1,129 @@
+# Deploy the Vite web app (apps/web) to Vercel project medicore-hms.
+#
+# Push to main runs CI first. This workflow starts only after that CI run
+# succeeds for a push to main. It deploys when the commit touches apps/web,
+# infra/vercel, or this file. workflow_dispatch from main deploys the current
+# tip. A nightly CI run does not deploy.
+#
+# Vercel git deploys of main are off (git.deploymentEnabled.main in
+# apps/web/vercel.json). Squash-merge commits are authored by kakani17481a0566,
+# who is not the Hobby team member, and those production deploys are blocked.
+# Preview deploys from that account still succeed, so other branches stay on.
+#
+# The deploy job's concurrency group is deploy-web with cancel-in-progress.
+# The plan job is outside that group: a main push that does not touch the web
+# app must not cancel a production deploy that is still running.
+#
+# Auth is the VERCEL_TOKEN, VERCEL_ORG_ID, and VERCEL_PROJECT_ID secrets.
+# The token has to belong to the Hobby team owner (kakani-dev). No GitHub
+# environment reviewer. Commands run from the repo root so the project's
+# Root Directory (apps/web) is applied once. See docs/runbooks/deploy-web.md.
+
+name: Deploy web to Vercel
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "24"
+  PRODUCTION_URL: https://medicore-hms-three.vercel.app
+  VERCEL_TELEMETRY_DISABLED: "1"
+
+jobs:
+  plan:
+    name: Plan (web paths)
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      deploy: ${{ steps.p.outputs.deploy }}
+      sha: ${{ steps.p.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 2
+      - id: p
+        env:
+          SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          FORCE: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::sha must be 40 hex, got '$SHA'"; exit 1; }
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          if [[ "$FORCE" == "true" ]]; then
+            bash .github/scripts/web-deploy-plan.sh --force | tee -a "$GITHUB_OUTPUT"
+          else
+            files="$(mktemp)"
+            if git rev-parse --verify -q 'HEAD^' >/dev/null; then
+              git diff --name-only 'HEAD^' HEAD >"$files"
+            else
+              printf '%s\n' apps/web >"$files"
+            fi
+            {
+              echo "Changed files:"
+              cat "$files"
+            } >>"$GITHUB_STEP_SUMMARY"
+            bash .github/scripts/web-deploy-plan.sh "$files" | tee -a "$GITHUB_OUTPUT"
+          fi
+
+  deploy:
+    name: Deploy and smoke
+    needs: plan
+    if: needs.plan.outputs.deploy == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: deploy-web
+      cancel-in-progress: true
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Install Vercel CLI
+        run: npm install --global vercel@65.1.0
+      - name: Pull production settings
+        run: vercel pull --yes --environment=production --non-interactive
+      - name: Build production bundle
+        run: vercel build --prod --non-interactive
+      - name: Deploy prebuilt production
+        id: deploy
+        run: |
+          set -euo pipefail
+          log="$(mktemp)"
+          vercel deploy --prebuilt --prod --non-interactive | tee "$log"
+          url="$(grep -Eo 'https://[^[:space:]]+' "$log" | tail -n 1 || true)"
+          echo "url=${url}" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Vercel production"
+            echo ""
+            echo "Deployment: ${url:-"(URL not parsed)"}"
+            echo "Smoke: ${PRODUCTION_URL}"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Smoke production
+        run: bash scripts/smoke/vercel-web-smoke.sh "$PRODUCTION_URL"
+      - name: Roll back production
+        if: failure() && steps.deploy.outcome == 'success'
+        run: |
+          set -euo pipefail
+          echo "Smoke check failed. Rolling production back to the previous deployment."
+          vercel rollback --yes --non-interactive
+          echo "Rolled back to the previous production deployment." >> "$GITHUB_STEP_SUMMARY"

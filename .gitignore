@@ -42,6 +42,8 @@ supabase/.temp/
 !.env.example
 *.pem
 *.pfx
+# vercel pull writes production env files here
+.vercel/
 
 # CI test reports (Jenkins)
 reports/
