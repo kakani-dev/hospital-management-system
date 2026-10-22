@@ -26,6 +26,10 @@ public static class AppointmentsModule
         return services;
     }
 
+    /// <summary>
+    /// Routes the legacy monolith still serves. Branch membership, day overrides, the travel buffer
+    /// and my-day are mapped only by the scheduling service (<c>MapPractitionerBranchEndpoints</c>).
+    /// </summary>
     public static RouteGroupBuilder MapAppointmentsModule(this RouteGroupBuilder api) =>
-        api.MapPractitionerScheduleEndpoints().MapPractitionerBranchEndpoints().MapAppointmentEndpoints().MapQueueEndpoints();
+        api.MapPractitionerScheduleEndpoints().MapAppointmentEndpoints().MapQueueEndpoints();
 }
