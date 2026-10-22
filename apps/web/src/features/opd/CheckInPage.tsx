@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router'
+import { Illustration } from '../../components/ui/Illustration'
 import { Card } from '../../components/ui/Card'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
@@ -121,11 +122,14 @@ export function CheckInPage() {
       {branchId && !canCheckIn && me.data && <Alert tone="warning">Your role at this branch cannot check patients in.</Alert>}
       <div aria-live="polite">
         {issued && (
-          <div ref={tokenRef} tabIndex={-1} data-testid="token-issued" className="this:success rounded-lg border border-this/30 bg-this-darker/10 p-4 text-this-darker focus:outline-2 focus:outline-this dark:border-this-lighter/30 dark:bg-this-lighter/10 dark:text-this-lighter">
-            <p className="text-sm">Checked in {issued.name}.</p>
-            <p className="text-3xl font-bold">
-              Token <span data-testid="token-number">{issued.result.tokenNo}</span>
-            </p>
+          <div ref={tokenRef} tabIndex={-1} data-testid="token-issued" className="this:success flex items-center gap-3 rounded-lg border border-this/30 bg-this-darker/10 p-4 text-this-darker focus:outline-2 focus:outline-this dark:border-this-lighter/30 dark:bg-this-lighter/10 dark:text-this-lighter">
+            <Illustration name="tick" size={48} />
+            <div>
+              <p className="text-sm">Checked in {issued.name}.</p>
+              <p className="text-3xl font-bold">
+                Token <span data-testid="token-number">{issued.result.tokenNo}</span>
+              </p>
+            </div>
           </div>
         )}
       </div>
@@ -139,7 +143,12 @@ export function CheckInPage() {
         <Card title="Today’s appointments">
           {appointments.isPending && !!branchId && <p className="text-sm text-gray-600 dark:text-dark-200">Loading…</p>}
           {appointments.isError && <Alert tone="warning">Appointments are unavailable right now.</Alert>}
-          {!appointments.isPending && todays.length === 0 && <p className="text-sm text-gray-600 dark:text-dark-200">No appointments today.</p>}
+          {!appointments.isPending && todays.length === 0 && (
+            <p className="text-sm text-gray-600 dark:text-dark-200">
+              <Illustration name="calendar" size={72} className="mx-auto mb-2 block" />
+              No appointments today.
+            </p>
+          )}
           <ul className="divide-y divide-gray-200 dark:divide-dark-500" data-shortcut="checkin-list">
             {todays.map((a) => {
               const p = patient(a)

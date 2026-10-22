@@ -1,7 +1,10 @@
 import { useState } from 'react'
-import { Link } from 'react-router'
-import { followUpRouteState } from '../scheduling/followUp'
+import { useQueryClient } from '@tanstack/react-query'
 import { Card } from '../../components/ui/Card'
+import { Illustration } from '../../components/ui/Illustration'
+import { LoadingBlock } from '../../components/ui/LoadingBlock'
+import { prefetchPatientRecord } from '../patients/prefetchPatient'
+import { useWorkspace } from '../workspace/WorkspaceProvider'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
 import { BranchPicker } from '../../components/scheduling/BranchPicker'
@@ -27,6 +30,8 @@ const ACTION_LABEL: Partial<Record<QueueStatus, string>> = { in_consultation: 'C
 /** OPD queue of a branch for the branch-local day; polls every QUEUE_REFRESH_MS. */
 export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: number }) {
   const { me } = useCurrentContext()
+  const { openPatient } = useWorkspace()
+  const qc = useQueryClient()
   const { branches, branchId, timeZone, timeZoneReady, timeZoneMissing, setBranchId } = useBranchSelection()
   const today = localToday(new Date(), timeZone)
   const queue = useQueue(timeZoneReady ? branchId : null, today, { refetchInterval: refreshMs })
@@ -81,12 +86,19 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
       </div>
       <BranchPicker branches={branches} value={branchId} onChange={setBranchId} />
       <BranchNotice branchId={branchId} timeZoneMissing={timeZoneMissing} />
+      {queue.isPending && <LoadingBlock label="Loading the queue" />}
       {queue.isError && (
         <Alert tone="warning">
           {queue.error instanceof ApiError && queue.error.status === 403 ? 'You cannot view the queue of this branch.' : 'The queue is unavailable right now.'}
         </Alert>
       )}
       {error && (error.retry ? <RetryAlert message={error.message} onRetry={error.retry} /> : <Alert tone="error">{error.message}</Alert>)}
+      {queue.data && entries.length === 0 && (
+        <div className="flex flex-col items-center gap-2 py-2 text-center">
+          <Illustration name="clock" size={96} />
+          <p className="text-sm text-gray-600 dark:text-dark-200">No tokens on the board yet.</p>
+        </div>
+      )}
       <div className={`grid gap-4 md:grid-cols-3 ${queue.isPlaceholderData ? 'opacity-60' : ''}`} aria-busy={queue.isFetching && !queue.data}>
         {COLUMNS.map((col) => {
           const items = entries.filter((e) => e.status === col.status)
@@ -118,7 +130,22 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
                             </span>
                           )}
                           <span className="text-sm">
-                            <strong>{p === undefined ? 'Loading…' : p === null ? 'Patient unavailable' : `${p.lastName}, ${p.firstName}`}</strong>
+                            {p === undefined ? (
+                              <strong>Loading…</strong>
+                            ) : p === null ? (
+                              <strong>Patient unavailable</strong>
+                            ) : (
+                              <button
+                                type="button"
+                                className="font-semibold text-primary-600 underline dark:text-primary-400"
+                                data-testid="open-patient-context"
+                                onMouseEnter={() => prefetchPatientRecord(qc, p.id)}
+                                onFocus={() => prefetchPatientRecord(qc, p.id)}
+                                onClick={() => openPatient({ id: p.id, mrn: p.mrn, firstName: p.firstName, lastName: p.lastName })}
+                              >
+                                {p.lastName}, {p.firstName}
+                              </button>
+                            )}
                             <span className="block text-xs text-gray-600 dark:text-dark-200">
                               {practitionerName(e.practitionerId)} · {e.appointmentId ? 'appointment' : 'walk-in'} · in at{' '}
                               {formatTime(e.checkedInAt, timeZone)}
@@ -126,13 +153,18 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
                           </span>
                         </div>
                         {(canBook || (canFollowUpOwn && !!e.appointmentId)) && p && (e.status === 'done' || e.status === 'in_consultation') && (
-                          <Link
-                            to="/appointments"
-                            state={followUpRouteState(p, e.practitionerId, e.appointmentId)}
-                            className="mt-2 inline-block text-xs font-medium text-primary-600 underline dark:text-primary-400"
+                          <button
+                            type="button"
+                            className="mt-2 text-xs font-medium text-primary-600 underline dark:text-primary-400"
+                            onClick={() =>
+                              openPatient(
+                                { id: p.id, mrn: p.mrn, firstName: p.firstName, lastName: p.lastName },
+                                { mode: 'book', followUp: { practitionerId: e.practitionerId, parentAppointmentId: e.appointmentId } },
+                              )
+                            }
                           >
                             Book follow-up
-                          </Link>
+                          </button>
                         )}
                         {allowed(e.status).length > 0 && (
                           <div className="mt-2 flex gap-2">

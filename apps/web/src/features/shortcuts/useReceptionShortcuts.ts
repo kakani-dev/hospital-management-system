@@ -44,7 +44,10 @@ export function useReceptionShortcuts({ roles, onHelp }: { roles: string[]; onHe
         else if (id === 'check-in') go('/reception/check-in', '[data-shortcut="checkin-list"] button:not([disabled])', undefined, MAIN)
         else if (id === 'walk-in') go('/reception/check-in', WALK_IN)
         else if (id === 'queue') go('/queue', MAIN)
-        else if (id === 'book') {
+        else if (id === 'desk') {
+          if (!can(latest.current.roles, 'admin.branches')) return
+          go('/admin/desk', MAIN)
+        } else if (id === 'book') {
           const open = document.querySelector<HTMLButtonElement>('[data-shortcut="open-booking"]')
           if (open && latest.current.pathname === '/appointments') {
             open.click()

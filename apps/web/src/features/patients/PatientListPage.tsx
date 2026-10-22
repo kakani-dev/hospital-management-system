@@ -3,9 +3,13 @@ import { PlusIcon } from '@heroicons/react/20/solid'
 import { Badge, Button as TxButton, Checkbox, Input } from '@tailux/components/ui'
 import { DataTable, type ColumnDef } from '../../components/table/DataTable'
 import { ServerPagination } from '../../components/table/ServerPagination'
+import { Illustration } from '../../components/ui/Illustration'
 import { Card } from '../../components/ui/Card'
 import { Alert } from '../../components/ui/Alert'
 import { Link, useLocation } from 'react-router'
+import { useQueryClient } from '@tanstack/react-query'
+import { prefetchPatientRecord } from './prefetchPatient'
+import { useWorkspace } from '../workspace/WorkspaceProvider'
 import { PATIENT_SEARCH_DEBOUNCE_MS, PATIENT_SEARCH_MAX_LENGTH, PHONE_SEARCH_MIN_DIGITS, PATIENT_PAGE_SIZE, usePatients, useRestorePatient } from '../../lib/api/hooks'
 import { useDebouncedValue } from '../../lib/useDebouncedValue'
 import { ApiError } from '../../lib/api/client'
@@ -46,6 +50,8 @@ export function PatientListPage() {
       ? zones.map((z) => localToday(new Date(), z)).reduce((a, b) => (b > a ? b : a))
       : latestToday()
   const location = useLocation()
+  const { openPatient } = useWorkspace()
+  const qc = useQueryClient()
   const flash = location.state as { registered?: string; deleted?: string } | null
   const registered = flash?.registered
   const canRegister = can(roles, 'patients.write')
@@ -81,13 +87,25 @@ export function PatientListPage() {
             {p.lastName}, {p.firstName}
           </span>
         ) : (
-          <Link
-            to={`/patients/${p.id}`}
-            className="font-medium text-primary-600 hover:underline dark:text-primary-400"
-            data-testid="patient-link"
-          >
-            {p.lastName}, {p.firstName}
-          </Link>
+          <span className="inline-flex flex-wrap items-center gap-2">
+            <Link
+              to={`/patients/${p.id}`}
+              className="font-medium text-primary-600 hover:underline dark:text-primary-400"
+              data-testid="patient-link"
+              onMouseEnter={() => prefetchPatientRecord(qc, p.id)}
+              onFocus={() => prefetchPatientRecord(qc, p.id)}
+            >
+              {p.lastName}, {p.firstName}
+            </Link>
+            <button
+              type="button"
+              className="text-xs font-medium text-gray-600 underline dark:text-dark-200"
+              data-testid="open-patient-context"
+              onClick={() => openPatient({ id: p.id, mrn: p.mrn, firstName: p.firstName, lastName: p.lastName })}
+            >
+              Open here
+            </button>
+          </span>
         ),
     },
     { id: 'dob', accessorFn: (p) => p.dateOfBirth ?? '', header: 'Date of birth', cell: ({ row }) => (row.original.dateOfBirth ? `${row.original.dateOfBirth} (${ageOn(row.original.dateOfBirth, localToday()) ?? '—'})` : '—') },
@@ -210,7 +228,12 @@ export function PatientListPage() {
             isLoading={patients.isPending}
             isStale={patients.isPlaceholderData}
             isFetching={patients.isFetching}
-            empty="No patients to show."
+            empty={
+              <span className="inline-flex flex-col items-center gap-2">
+                <Illustration name="person" size={72} />
+                No patients to show.
+              </span>
+            }
             emptyTestId="patients-empty"
             getRowId={(p) => p.id}
             getRowProps={(row) => ({

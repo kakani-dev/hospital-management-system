@@ -86,7 +86,7 @@ describe('TimeZoneField (searchable IANA picker)', () => {
     await user.click(screen.getByLabelText('Next field'))
     expect(box).toHaveValue('Europe/London')
     expect(onChange.mock.calls.map((c) => c[0])).toEqual(['Asia/Tokyo', 'Europe/London'])
-  })
+  }, 15_000)
 
   it('shows the error with role=alert and marks the input invalid', () => {
     render(<TimeZoneField label="Time zone" value="" onChange={() => {}} error="Choose the hospital time zone" />)

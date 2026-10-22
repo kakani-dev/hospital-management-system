@@ -25,7 +25,7 @@ function zoneLabel(b: Branch) {
   return b.timezoneOverride ?? b.timezone
 }
 
-export function BranchesPage() {
+export function BranchesPage({ embedded = false }: { embedded?: boolean } = {}) {
   const [showDeleted, setShowDeleted] = useState(false)
   const branches = useAdminBranches(showDeleted)
   const deleteBranch = useDeleteBranch()
@@ -211,7 +211,7 @@ export function BranchesPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold text-gray-800 dark:text-dark-50">Branches</h1>
+      {!embedded && <h1 className="text-xl font-semibold text-gray-800 dark:text-dark-50">Branches</h1>}
       {message && <Alert tone={message.tone}>{message.text}</Alert>}
       <Card title="Add branch">
         <form noValidate aria-label="Add branch" onSubmit={handleSubmit(onSubmit)} className="grid gap-4 sm:grid-cols-4 sm:items-start">

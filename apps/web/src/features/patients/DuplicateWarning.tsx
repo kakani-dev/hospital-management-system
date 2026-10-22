@@ -16,6 +16,7 @@ export function DuplicateWarning({
   onDismiss,
   onUseExisting,
   proceedLabel = 'Register anyway',
+  focusOnShow = true,
 }: {
   matches: DuplicateCandidate[]
   busy: boolean
@@ -24,9 +25,13 @@ export function DuplicateWarning({
   /** Embedded (booking drawer): pick the existing record in place instead of opening it. */
   onUseExisting?: (match: DuplicateCandidate) => void
   proceedLabel?: string
+  /** Live warnings in a form the user is still typing into must not steal focus. */
+  focusOnShow?: boolean
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null)
-  useEffect(() => headingRef.current?.focus(), [])
+  useEffect(() => {
+    if (focusOnShow) headingRef.current?.focus()
+  }, [focusOnShow])
 
   return (
     <section

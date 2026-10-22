@@ -18,7 +18,7 @@ import { useMe } from '../../lib/api/hooks'
 
 const roleLabel = (r: string) => r.replace(/_/g, ' ')
 
-export function MembersPage() {
+export function MembersPage({ embedded = false }: { embedded?: boolean } = {}) {
   const members = useMembers()
   const branches = useBranches()
   const me = useMe()
@@ -198,7 +198,7 @@ export function MembersPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold text-gray-800 dark:text-dark-50">Members</h1>
+      {!embedded && <h1 className="text-xl font-semibold text-gray-800 dark:text-dark-50">Members</h1>}
       {message && <Alert tone={message.tone}>{message.text}</Alert>}
       <Card title="Add member">
         <p className="mb-3 text-sm text-gray-600 dark:text-dark-200">

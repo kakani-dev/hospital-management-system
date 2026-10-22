@@ -1,5 +1,8 @@
-import { useCallback, useMemo, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { Outlet, useNavigate } from 'react-router'
+import { LoadingBlock } from '../ui/LoadingBlock'
+import { prefetchRoute } from '../../features/workspace/routePrefetch'
+import { useWorkspace } from '../../features/workspace/WorkspaceProvider'
 import {
   BuildingOffice2Icon,
   CalendarDaysIcon,
@@ -14,8 +17,11 @@ import {
   CalendarIcon,
   GlobeAltIcon,
   InboxStackIcon,
+  MagnifyingGlassIcon,
+  RectangleGroupIcon,
+  ArrowLeftStartOnRectangleIcon,
+  CommandLineIcon,
 } from '@heroicons/react/24/outline'
-import { ArrowLeftStartOnRectangleIcon, CommandLineIcon } from '@heroicons/react/24/outline'
 import { ShortcutHelp } from '../../features/shortcuts/ShortcutHelp'
 import { useReceptionShortcuts } from '../../features/shortcuts/useReceptionShortcuts'
 import { useAuth } from '../../features/auth/AuthProvider'
@@ -26,6 +32,9 @@ import { ContextErrorBanner } from '../../features/tenancy/ContextErrorBanner'
 import { Sideblock, type NavGroup } from '../../tailux/layouts/Sideblock'
 import { ThemeModeSwitch } from '../../tailux/components/shared/ThemeModeSwitch'
 import { Avatar, Button } from '@tailux/components/ui'
+
+const PatientContextDrawer = lazy(() => import('../../features/patients/PatientContextDrawer').then((m) => ({ default: m.PatientContextDrawer })))
+const CommandPalette = lazy(() => import('../../features/workspace/CommandPalette').then((m) => ({ default: m.CommandPalette })))
 
 function initialsSource(email: string | null | undefined) {
   const local = (email ?? '').split('@')[0] ?? ''
@@ -41,6 +50,7 @@ function initialsSource(email: string | null | undefined) {
 export function AppShell() {
   const { email, signOut } = useAuth()
   const { roles, me, has } = useCurrentContext()
+  const { patient, paletteOpen, setPaletteOpen } = useWorkspace()
   const isPlatformAdmin = me.data?.isPlatformAdmin === true
   // An operator outside any hospital has no clinical screens (the APIs answer 403 anyway).
   const operatorOnly = isPlatformAdmin && !me.data?.activeTenantId
@@ -49,6 +59,16 @@ export function AppShell() {
   const openHelp = useCallback(() => setHelpOpen(true), [])
   const closeHelp = useCallback(() => setHelpOpen(false), [])
   useReceptionShortcuts({ roles, onHelp: openHelp })
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setPaletteOpen(!paletteOpen)
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [paletteOpen, setPaletteOpen])
 
   const navigation = useMemo<NavGroup[]>(() => {
     const clinical: NavGroup = {
@@ -85,6 +105,9 @@ export function AppShell() {
       id: 'admin',
       title: 'Administration',
       childs: operatorOnly ? [] : [
+        ...(has('admin.members') && has('admin.branches')
+          ? [{ id: 'desk', path: '/admin/desk', title: 'Hospital desk', Icon: RectangleGroupIcon, keys: 'Alt+D' }]
+          : []),
         ...(has('admin.branches') ? [{ id: 'branches', path: '/admin/branches', title: 'Branches', Icon: BuildingOffice2Icon }] : []),
         ...(has('admin.members') ? [{ id: 'members', path: '/admin/members', title: 'Members', Icon: UserGroupIcon }] : []),
         ...(has('admin.practitioners')
@@ -107,7 +130,9 @@ export function AppShell() {
           ]
         : [],
     }
-    return [clinical, reception, admin, platform].filter((g) => g.childs.length > 0)
+    return [clinical, reception, admin, platform]
+      .filter((g) => g.childs.length > 0)
+      .map((g) => ({ ...g, childs: g.childs.map((item) => ({ ...item, onPrefetch: () => prefetchRoute(item.path) })) }))
   // eslint-disable-next-line react-hooks/exhaustive-deps -- `has` derives from me.data (roles/permissions)
   }, [roles, me.data, isPlatformAdmin, operatorOnly])
 
@@ -128,6 +153,18 @@ export function AppShell() {
         sidebarTop={<SidebarContextSwitcher />}
         headerEnd={
           <>
+            <Button
+              variant="flat"
+              isIcon
+              className="size-9 rounded-full"
+              aria-label="Command palette"
+              title="Search (Ctrl+K)"
+              aria-keyshortcuts="Control+K"
+              onClick={() => setPaletteOpen(true)}
+              data-testid="command-palette-button"
+            >
+              <MagnifyingGlassIcon className="size-5" aria-hidden="true" />
+            </Button>
             <ThemeModeSwitch className="max-sm:hidden" />
             <Button
               variant="flat"
@@ -172,6 +209,16 @@ export function AppShell() {
         </div>
       </Sideblock>
       {helpOpen && <ShortcutHelp roles={roles} onClose={closeHelp} />}
+      {paletteOpen && (
+        <Suspense fallback={null}>
+          <CommandPalette onClose={() => setPaletteOpen(false)} />
+        </Suspense>
+      )}
+      {patient && (
+        <Suspense fallback={<LoadingBlock className="fixed right-4 top-20 z-100 w-80" label="Opening patient" />}>
+          <PatientContextDrawer />
+        </Suspense>
+      )}
     </>
   )
 }

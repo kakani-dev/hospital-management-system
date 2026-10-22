@@ -225,7 +225,10 @@ describe('AppointmentCalendarPage', () => {
     expect(confirm).toBeDisabled()
     await waitFor(() => expect(within(form).getAllByRole('option').length).toBeGreaterThan(1))
     await user.selectOptions(within(form).getByLabelText('Practitioner'), DR_RAO)
-    expect(within(form).getByTestId('booking-missing')).toHaveTextContent(/^Choose a free slot\.$/)
+    // The next free slot is preselected, so the patient + doctor already complete the form.
+    await waitFor(() => expect(within(form).getByRole('radio', { checked: true })).toBeChecked())
+    expect(within(form).queryByTestId('booking-missing')).not.toBeInTheDocument()
+    expect(confirm).toBeEnabled()
     await user.click(await within(form).findByRole('radio', { name: '23:00' }))
     expect(within(form).queryByTestId('booking-missing')).not.toBeInTheDocument()
     expect(confirm).toBeEnabled()

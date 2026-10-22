@@ -350,6 +350,8 @@ export class MockBackend {
   /** patient.mrn_counters: per-tenant MRN sequence (seed MRNs use the legacy format). */
   readonly mrnCounters = new Map<string, number>()
   readonly branchNames = new Map<string, string>()
+  /** Branches created through POST /branches in this instance (the seed list is shared). */
+  readonly createdBranches: { id: string; name: string; code: string }[] = []
   readonly appointments: MockAppointment[] = []
   /** Latest booking time per patient (ms), for GET /patients?sort=recent. */
   readonly lastBooked = new Map<string, number>()
@@ -891,7 +893,7 @@ export class MockBackend {
       if (!has(REG_READ)) return forbidden()
       const q = url.searchParams
       const items = this.appointments
-        .filter((a) => a.tenantId === tenant && (!q.get('branchId') || a.branchId === q.get('branchId')) && (!q.get('practitionerId') || a.practitionerId === q.get('practitionerId')) && (!q.get('from') || a.endsAt > new Date(q.get('from')!).toISOString()) && (!q.get('to') || a.startsAt < new Date(q.get('to')!).toISOString()) && (!q.get('status') || a.status === q.get('status')))
+        .filter((a) => a.tenantId === tenant && (!q.get('branchId') || a.branchId === q.get('branchId')) && (!q.get('patientId') || a.patientId === q.get('patientId')) && (!q.get('practitionerId') || a.practitionerId === q.get('practitionerId')) && (!q.get('from') || a.endsAt > new Date(q.get('from')!).toISOString()) && (!q.get('to') || a.startsAt < new Date(q.get('to')!).toISOString()) && (!q.get('status') || a.status === q.get('status')))
         .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
         .map(withPatient)
       const size = Number(q.get('pageSize') ?? 25)
@@ -899,7 +901,13 @@ export class MockBackend {
     }
     if (method === 'POST' && path === '/api/v1/appointments') {
       const branchId = String(body.branchId)
-      if (!canAccessBranch(branchId) || !has(REG_WRITE, rolesAt(branchId))) return forbidden()
+      // Doctors book a follow-up of their own linked practitioner only (same rule as the API).
+      const ownFollowUp =
+        rolesAt(branchId).includes('doctor') &&
+        typeof body.parentAppointmentId === 'string' &&
+        this.practitioners.some((p) => p.id === body.practitionerId && p.userId === user.id) &&
+        this.appointments.some((a) => a.id === body.parentAppointmentId && this.practitioners.some((p) => p.id === a.practitionerId && p.userId === user.id))
+      if (!canAccessBranch(branchId) || !(has(REG_WRITE, rolesAt(branchId)) || ownFollowUp)) return forbidden()
       // Contract v4: foreign/unknown/soft-deleted patient or practitioner → 404 (was 400 invalid_reference).
       if (!livePatients.some((p) => p.id === body.patientId) || !practitioners.some((p) => p.tenantId === tenant && p.id === body.practitionerId)) return notFound()
       const startsAt = new Date(String(body.startsAt)).toISOString()
@@ -992,9 +1000,22 @@ export class MockBackend {
     // Future bookings whose wall-clock time would move with a zone change (identity.change_time_zone_v1).
     const futureBookings = (branchIds: string[]) =>
       this.appointments.filter((a) => branchIds.includes(a.branchId) && a.status === 'booked' && a.startsAt > new Date().toISOString()).length
+    const tenantBranches = () => [...tenants[tenant]!.branches, ...this.createdBranches]
+    if (method === 'POST' && path === '/api/v1/branches') {
+      if (!isAdmin) return forbidden()
+      const code = String(body.code ?? '').trim()
+      const name = String(body.name ?? '').trim()
+      if (!/^[a-z0-9][a-z0-9-]{1,39}$/.test(code)) return reply(400, { title: 'Validation', status: 400, errors: { code: ['2-40 lowercase letters, digits or hyphens'] } }, tenant)
+      if (!name) return reply(400, { title: 'Validation', status: 400, errors: { name: ['Name is required'] } }, tenant)
+      if (tenantBranches().some((b) => b.code === code && !this.branchState.get(b.id)?.isDeleted)) return problem(409, 'conflict')
+      const created = { id: crypto.randomUUID(), name, code }
+      this.createdBranches.push(created)
+      if (typeof body.timezone === 'string' && body.timezone) this.branchTimeZones.set(created.id, body.timezone)
+      return reply(201, branchDto(created), tenant)
+    }
     if (method === 'GET' && path === '/api/v1/branches') {
       const withDeleted = isAdmin && url.searchParams.get('includeDeleted') === 'true'
-      return reply(200, tenants[tenant]!.branches.map(branchDto).filter((b) => (withDeleted || !b.isDeleted) && (isAdmin || b.isActive)), tenant)
+      return reply(200, tenantBranches().map(branchDto).filter((b) => (withDeleted || !b.isDeleted) && (isAdmin || b.isActive)), tenant)
     }
     const branchRestore = /^\/api\/v1\/branches\/([^/]+)\/restore$/.exec(path)
     if ((method === 'DELETE' && /^\/api\/v1\/branches\/[^/]+$/.test(path)) || (method === 'POST' && branchRestore)) {

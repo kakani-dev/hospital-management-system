@@ -6,12 +6,14 @@ import { toast } from 'sonner'
 import { RetryAlert } from '../../components/ui/RetryAlert'
 import { transientWriteMessage } from '../../lib/api/errors'
 import type { RegisterPatientState, ReturnedPatientState } from './registerReturn'
+import { Illustration } from '../../components/ui/Illustration'
 import { Card } from '../../components/ui/Card'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
 import { FormField } from '../../components/ui/FormField'
 import { SelectField } from '../../components/ui/SelectField'
-import { useCreatePatient, useTenantCountryCode } from '../../lib/api/hooks'
+import { PATIENT_SEARCH_DEBOUNCE_MS, useCreatePatient, useTenantCountryCode } from '../../lib/api/hooks'
+import { useDebouncedValue } from '../../lib/useDebouncedValue'
 import { ApiError, apiClient, fieldErrors } from '../../lib/api/client'
 import { SEXES, type DuplicateCandidate, type PatientSummary } from '../../lib/api/types'
 import { DuplicateWarning } from './DuplicateWarning'
@@ -49,6 +51,8 @@ export function RegisterPatientPage({ embedded }: { embedded?: EmbeddedRegisterO
   const resolver = useBranchZonedResolver<PatientFormValues>(createPatientSchema)
   const [formError, setFormError] = useState<string | null>(null)
   const [duplicates, setDuplicates] = useState<{ matches: DuplicateCandidate[]; values: PatientFormValues } | null>(null)
+  const [liveFetched, setLiveFetched] = useState<{ key: string; matches: DuplicateCandidate[] } | null>(null)
+  const [dismissedLive, setDismissedLive] = useState<string | null>(null)
   const [creatingAnyway, setCreatingAnyway] = useState(false)
   const [retryValues, setRetryValues] = useState<PatientFormValues | null>(null)
   const {
@@ -81,6 +85,46 @@ export function RegisterPatientPage({ embedded }: { embedded?: EmbeddedRegisterO
     const p = origin.prefill ?? {}
     setFocus(!p.firstName ? 'firstName' : !p.lastName ? 'lastName' : isEmbedded ? 'phone' : 'dateOfBirth')
   }, [origin, setFocus, isEmbedded])
+
+  const watchedName = useWatch({ control, name: 'firstName' }) ?? ''
+  const watchedLast = useWatch({ control, name: 'lastName' }) ?? ''
+  const watchedPhone = useWatch({ control, name: 'phone' }) ?? ''
+  const watchedDob = useWatch({ control, name: 'dateOfBirth' }) ?? ''
+  const liveKey = [watchedName, watchedLast, watchedPhone, watchedDob].join('\u0001')
+  const debouncedLive = useDebouncedValue(liveKey, PATIENT_SEARCH_DEBOUNCE_MS)
+  // Booking drawer only: warn while the name or phone is still being typed. The full page keeps
+  // the check at submit so a half-typed form never interrupts registration.
+  useEffect(() => {
+    if (!isEmbedded || dismissedLive === debouncedLive) return
+    const [firstName = '', lastName = '', phone = '', dateOfBirth = ''] = debouncedLive.split('\u0001')
+    const nameReady = firstName.trim().length >= 2 && lastName.trim().length >= 2
+    const phoneReady = phone.replace(/\D/g, '').length >= 7
+    if (!nameReady && !phoneReady) return
+    let cancelled = false
+    const key = debouncedLive
+    void apiClient.patients
+      .duplicates({
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        ...(dateOfBirth.trim() ? { dateOfBirth: dateOfBirth.trim() } : {}),
+        ...(phone.trim() ? { phone: phone.trim() } : {}),
+      })
+      .then((matches) => {
+        if (!cancelled) setLiveFetched({ key, matches })
+      })
+      .catch(() => {
+        if (!cancelled) setLiveFetched({ key, matches: [] })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [debouncedLive, dismissedLive, isEmbedded])
+  const [liveFirst = '', liveLast = '', livePhone = ''] = debouncedLive.split('\u0001')
+  const liveReady =
+    isEmbedded &&
+    dismissedLive !== debouncedLive &&
+    ((liveFirst.trim().length >= 2 && liveLast.trim().length >= 2) || livePhone.replace(/\D/g, '').length >= 7)
+  const liveMatches = liveReady && liveFetched?.key === debouncedLive && liveFetched.matches.length > 0 ? liveFetched.matches : null
 
   // DOB "today" is the selected branch's date — the API validates in the branch's zone.
   const branchToday = useBranchToday(useWatch({ control, name: 'registeredBranchId' }))
@@ -196,21 +240,27 @@ export function RegisterPatientPage({ embedded }: { embedded?: EmbeddedRegisterO
           ) : (
             <Alert tone="error">{formError}</Alert>
           ))}
-        {duplicates && (
+        {(duplicates || liveMatches) && (
           <DuplicateWarning
-            matches={duplicates.matches}
+            matches={(duplicates ?? { matches: liveMatches! }).matches}
             busy={creatingAnyway}
             proceedLabel="Create new anyway"
+            focusOnShow={!!duplicates}
             onUseExisting={embedded.onUseExisting}
             onProceed={async () => {
+              const values = duplicates?.values ?? getValues()
               setCreatingAnyway(true)
               try {
-                await create(duplicates.values)
+                await create(values)
               } finally {
                 setCreatingAnyway(false)
               }
             }}
-            onDismiss={() => setDuplicates(null)}
+            onDismiss={() => {
+              setDuplicates(null)
+              setLiveFetched(null)
+              setDismissedLive(debouncedLive)
+            }}
           />
         )}
         <div className="grid gap-3 sm:grid-cols-2">
@@ -250,8 +300,11 @@ export function RegisterPatientPage({ embedded }: { embedded?: EmbeddedRegisterO
 
   return (
     <div className="max-w-2xl space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-gray-800 dark:text-dark-50">Register patient</h1>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <Illustration name="person" size={64} />
+          <h1 className="text-xl font-semibold text-gray-800 dark:text-dark-50">Register patient</h1>
+        </div>
         <Link to={origin.returnTo ?? '/patients'} className="text-sm font-medium text-primary-600 hover:underline dark:text-primary-400">
           {origin.returnTo ? 'Back' : 'Back to patients'}
         </Link>
