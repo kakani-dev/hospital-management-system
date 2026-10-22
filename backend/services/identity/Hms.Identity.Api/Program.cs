@@ -5,9 +5,9 @@ using Hms.Platform.Hosting;
 
 // Identity service: /me, /me/context, /me/invitations, /tenants/current, /branches, /members,
 // plus the platform console (/platform/**) and the public hospital registration (/public/**),
-// which only this service hosts (not the legacy monolith, code review MIN-5).
+// which only this service hosts (code review MIN-5).
 // Product mail is queued on messaging.outbox and sent here. Do not register the scheduling
-// outbox dispatcher: tenant events are a log, and the legacy host stays off (B1).
+// outbox dispatcher: tenant events are a log, and that dispatcher stays off (B1).
 var builder = WebApplication.CreateBuilder(args);
 builder.AddHmsServiceDefaults("hms-identity");
 builder.Services.AddIdentityModule(builder.Configuration);

@@ -109,18 +109,6 @@ jobs:
         run: >-
           dotnet test backend/Hms.slnx -c Release --filter "Category=Database"
           --logger "trx;LogFilePrefix=db" --results-directory test-results
-      # Same API suite against the legacy all-in-one host (on hold, still the live Azure API until the
-      # Phase 1 cutover), on a fresh database so data from the first run cannot leak into it.
-      - name: Fresh database for the monolith run
-        run: SKIP_SQL_TESTS=1 TEST_DB=hms_sql_test_monolith bash supabase/scripts/run-sql-tests.sh
-      - name: Integration tests against the legacy monolith (HMS_SYSTEM_TARGET=monolith)
-        env:
-          HMS_SYSTEM_TARGET: monolith
-          HMS_DB_TEST_CONNECTION: Host=localhost;Port=5432;Database=hms_sql_test_monolith;Username=postgres;Password=postgres
-          HMS_API_TEST_CONNECTION: Host=localhost;Port=5432;Database=hms_sql_test_monolith;Username=hms_api_login;Password=hms_api_local_only
-        run: >-
-          dotnet test backend/tests/Hms.IntegrationTests -c Release --no-build --filter "Category=Database"
-          --logger "trx;LogFilePrefix=db-monolith" --results-directory test-results
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -165,8 +153,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: api
-            dockerfile: infra/docker/api.Dockerfile
           - name: edge
             dockerfile: backend/edge/Dockerfile
           - name: identity
@@ -177,11 +163,9 @@ jobs:
             dockerfile: backend/services/scheduling/Dockerfile
     steps:
       - uses: actions/checkout@v7
-      - name: Validate docker-compose.yml (default + monolith profile)
-        if: matrix.name == 'api'
-        run: |
-          docker compose -f docker-compose.yml config -q
-          docker compose -f docker-compose.yml --profile monolith config -q
+      - name: Validate docker-compose.yml
+        if: matrix.name == 'edge'
+        run: docker compose -f docker-compose.yml config -q
       - name: docker build ${{ matrix.name }}
         run: docker build -f ${{ matrix.dockerfile }} -t hms-${{ matrix.name }}:ci .
       - name: Boot ${{ matrix.name }} and check /health/live (no database needed)

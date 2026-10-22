@@ -3,21 +3,17 @@ using Hms.Modules.Identity;
 using Hms.Modules.Patients;
 using Hms.Modules.Patients.Endpoints;
 using Hms.Platform.Hosting;
-using Hms.Platform.Messaging;
 
-// Legacy all-in-one host (the modular monolith): every module in one process. It stays the
-// deployed API until the YARP edge routes each prefix to its own service (MICROSERVICES-PLAN.md §12).
+// In-memory composition for unit tests. It is not a service, not an image, and not deployed.
+// Production hosts are the three services behind the edge. This process does not register the
+// email worker or the outbox dispatcher (those need Postgres and stay on their owning service).
 var builder = WebApplication.CreateBuilder(args);
 
-builder.AddHmsServiceDefaults("hms-gateway");
+builder.AddHmsServiceDefaults("hms-test-host");
 
-// ---- Modules (each owns its schema, endpoints and DbContext)
 builder.Services.AddIdentityModule(builder.Configuration);
 builder.Services.AddPatientsModule(builder.Configuration);
 builder.Services.AddAppointmentsModule(builder.Configuration);
-
-// ---- Transactional outbox consumer (events are written by DB triggers; Sprint 2 publisher = log only)
-builder.Services.AddHmsOutboxDispatcher(builder.Configuration);
 
 var app = builder.Build();
 
@@ -30,5 +26,5 @@ v1.MapAppointmentsModule();
 
 app.Run();
 
-/// <summary>Exposed for WebApplicationFactory-based integration tests.</summary>
+/// <summary>Exposed for WebApplicationFactory-based unit tests.</summary>
 public partial class Program;

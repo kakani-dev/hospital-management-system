@@ -8,7 +8,7 @@ namespace Hms.Modules.Identity.Email;
 /// <summary>
 /// Claims identity email events, sends one message per <c>event_id</c>, then acks the outbox row.
 /// A later claim of the same event (lost ack, or a retry after the receipt was written) does not
-/// send again. The legacy host does not register this worker.
+/// send again. Only the identity service registers this worker.
 /// </summary>
 public sealed partial class EmailOutboxDispatcher(
     IEmailOutbox store,

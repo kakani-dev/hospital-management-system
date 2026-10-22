@@ -85,8 +85,8 @@ internal static class ATz
     public static async Task<string?> CodeAsync(HttpResponseMessage response) => await Sprint2.S2.CodeAsync(response);
 
     /// <summary>
-    /// Creates a tenant with identity.create_tenant as a trusted caller (what the identity service will
-    /// do; the monolith has no create-tenant endpoint, code review MIN-5), then the invited admin
+    /// Creates a tenant with identity.create_tenant as a trusted caller (the identity service's
+    /// platform console does this over HTTP, code review MIN-5), then the invited admin
     /// accepts the invitation through /me/invitations, exactly as a real onboarding would.
     /// </summary>
     public static async Task<ATzTenantFixture> NewTenantAsync(HmsApiFactory factory, string timeZone = "Asia/Kolkata")

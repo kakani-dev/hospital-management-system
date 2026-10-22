@@ -1,6 +1,10 @@
 # Architecture overview
 
-_Owner (simulated): CTO / Solution Architect. Status: Sprint 0._
+_Owner (simulated): CTO / Solution Architect. Status: Sprint 0 (historical)._
+
+> Current shape: [microservices.md](architecture/microservices.md). `Hms.Gateway` and
+> `infra/docker/api.Dockerfile` are removed from the repository. The App Service
+> `medicore-hms-api` is still running until [monolith-cutover.md](runbooks/monolith-cutover.md).
 
 ## Shape: a modular monolith with service boundaries
 

@@ -1,4 +1,7 @@
 using System.Text.Json;
+using Hms.Identity.Api;
+using Hms.Patients.Api;
+using Hms.Scheduling.Api;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.Routing;
@@ -22,14 +25,9 @@ public sealed class EdgeRouteCoverageTests
     [Fact]
     public void Every_module_api_prefix_is_routed_by_the_edge_to_its_owning_service()
     {
-        using var monolith = new WebApplicationFactory<Hms.Gateway.MonolithMarker>()
-            .WithWebHostBuilder(b => b.UseEnvironment("Testing").UseSetting("Auth:Supabase:ProjectUrl", TestJwt.ProjectUrl));
-        var served = monolith.Services.GetRequiredService<EndpointDataSource>().Endpoints
-            .OfType<RouteEndpoint>()
-            .Select(e => (Pattern: e.RoutePattern.RawText ?? string.Empty, Module: e.Metadata.OfType<System.Reflection.MethodInfo>().FirstOrDefault()?.DeclaringType?.Assembly.GetName().Name))
-            .Where(e => e.Pattern.TrimStart('/').StartsWith("api/v1/", StringComparison.Ordinal))
-            .Select(e => (Prefix: e.Pattern.TrimStart('/').Split('/')[2], e.Module))
-            .Where(e => e.Prefix != "warmup")
+        var served = Prefixes<IdentityServiceMarker>()
+            .Concat(Prefixes<PatientsServiceMarker>())
+            .Concat(Prefixes<SchedulingServiceMarker>())
             .Distinct()
             .ToList();
         Assert.NotEmpty(served);
@@ -41,6 +39,19 @@ public sealed class EdgeRouteCoverageTests
             Assert.True(module is not null && ModuleToCluster.ContainsKey(module), $"/api/v1/{prefix}: unknown owning module '{module}'");
             Assert.True(ModuleToCluster[module!] == cluster, $"/api/v1/{prefix} belongs to {module} ({ModuleToCluster[module!]}) but the edge routes it to {cluster}");
         }
+    }
+
+    private static IEnumerable<(string Prefix, string? Module)> Prefixes<TMarker>()
+        where TMarker : class
+    {
+        using var host = new WebApplicationFactory<TMarker>()
+            .WithWebHostBuilder(b => b.UseEnvironment("Testing").UseSetting("Auth:Supabase:ProjectUrl", TestJwt.ProjectUrl));
+        return host.Services.GetRequiredService<EndpointDataSource>().Endpoints
+            .OfType<RouteEndpoint>()
+            .Select(e => (Pattern: e.RoutePattern.RawText ?? string.Empty, Module: e.Metadata.OfType<System.Reflection.MethodInfo>().FirstOrDefault()?.DeclaringType?.Assembly.GetName().Name))
+            .Where(e => e.Pattern.TrimStart('/').StartsWith("api/v1/", StringComparison.Ordinal))
+            .Select(e => (Prefix: e.Pattern.TrimStart('/').Split('/')[2], e.Module))
+            .Where(e => e.Prefix != "warmup");
     }
 
     private static Dictionary<string, string> EdgeRoutes()

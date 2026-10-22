@@ -9,9 +9,9 @@ _Owners (simulated): Security Team, React Team, Database Engineering._
 | Supabase Auth (GoTrue) | hosted project `gvgomzogbzbjhlcsimrx` (locally: `tests/mock-auth`) | Email/password sign-in for people who already have a password; verifies the magic-link token hash minted for a new invitee |
 | Custom access token hook | `identity.custom_access_token_hook(event jsonb)` | Adds `tenant_id`, `branch_id`, `branch_ids`, `hms_roles` claims from memberships |
 | SPA auth | `apps/web/src/lib/supabase.ts`, `features/auth/AuthProvider.tsx` | `supabase-js` session; protected routes; sign-out |
-| Gateway JWT validation | `backend/gateway/Hms.Gateway/Infrastructure/AuthenticationSetup.cs` | JWKS (ES256/RS256) + optional HS256 legacy secret; issuer/audience/lifetime checks |
+| JWT validation | `backend/platform/Hms.Platform/Auth/AuthenticationSetup.cs` (edge and every service) | JWKS (ES256/RS256) + optional HS256 legacy secret; issuer/audience/lifetime checks |
 | Tenant resolution | `Hms.Modules.Identity.Tenancy.TenantResolutionMiddleware` | Verifies the claimed (or stored default) tenant against active memberships |
-| DB session | `Hms.SharedKernel.Persistence.RlsTransactionInterceptor` | Each transaction runs `SET LOCAL ROLE authenticated` + `request.jwt.claims` so RLS applies |
+| DB session | `Hms.SharedKernel.Persistence.RlsTransactionInterceptor` | Each transaction runs `SET LOCAL ROLE` to `Database:SessionRole` (`hms_svc_*` on a service) + `request.jwt.claims` so RLS applies. The JWT claim `role` stays `authenticated`. |
 
 ## Sign-in
 

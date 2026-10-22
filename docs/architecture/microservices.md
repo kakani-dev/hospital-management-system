@@ -1,7 +1,9 @@
 # Microservices architecture
 
-Status: **current development model** (decision 9 Oct 2026). Work on the monolith is on hold.
-The approved plan is in `MICROSERVICES-PLAN.md`; database contracts are in `docs/contracts/db.md`.
+Status: **current development model** (decision 9 Oct 2026). The all-in-one host is removed from
+the repository. The App Service `medicore-hms-api` stays up until
+`docs/runbooks/monolith-cutover.md`. The approved plan is in `MICROSERVICES-PLAN.md`; database
+contracts are in `docs/contracts/db.md`; ownership is ADR 0002.
 
 ```text
 browser (Vercel SPA) ──► edge (YARP, public)  /api/v1/*   one base URL, CORS, JWT, rate limits
@@ -22,10 +24,10 @@ browser (Vercel SPA) ──► edge (YARP, public)  /api/v1/*   one base URL, CO
 | `backend/services/patients/Hms.Patients.Api` | Patients module host (8102) |
 | `backend/services/scheduling/Hms.Scheduling.Api` | Appointments/queue module host (8103); the only outbox publisher |
 | `backend/platform/Hms.Platform` | Shared plumbing: JWT, tenant resolution (`identity.my_tenant_grant_v1`), problem mapping, Npgsql (`No Reset On Close`, `Database:MaxPoolSize`), health, outbox, edge key, request id |
-| `backend/gateway/Hms.Gateway` | Legacy all-in-one host. On hold; it stays deployable until the Phase 1 cutover. |
+| `backend/tests/Hms.TestHost` | In-process composition for unit tests. Not a service, not an image, not deployed. |
 
 `ArchitectureTests` enforce the boundaries: each service hosts exactly its own module, the edge
-references only the platform, and only the legacy host references several modules.
+references only the platform, and no production host references more than one module.
 `EdgeRouteCoverageTests` fail when a module serves an `/api/v1/<prefix>` the edge does not route
 to the owning service.
 
@@ -77,43 +79,26 @@ to the owning service.
   `Email:Dispatcher:Enabled` on the identity service only (off until `Smtp__Password` is set).
   Invite sign-in codes are one of those emails. Turning a checked code into a session also needs
   `Auth__Supabase__ServiceRoleKey` on identity only.
-  The legacy host registers neither mailer nor an enabled dispatcher (B1).
+  The scheduling dispatcher stays off (B1). The App Service must stay off too until it is stopped.
 
 ## Local development and tests
 
 - `docker compose up --build`: edge on :8080, services internal, web on :8081.
-  `--profile monolith` adds the legacy host on :8090.
 - Without Docker: `scripts/dev/run-microservices.sh` (see `docs/local-development.md`).
 - API integration tests: `HMS_SYSTEM_TARGET=edge` (default, in-process edge plus the 3 services,
-  each with its own login role) | `monolith` | `edge-url` (with `HMS_SYSTEM_BASE_URL`). Tests that
+  each with its own login role) or `edge-url` (with `HMS_SYSTEM_BASE_URL`). Tests that
   need in-process hosts are tagged `[Trait("Mode","in-process-only")]`.
 - CI (required check names unchanged):
   - **Backend** builds and unit-tests every project.
-  - **SQL/RLS + integration** runs the migration chain check, then the SQL tests, then the API
-    suite through the edge, then the API suite against the monolith on a fresh database.
+  - **SQL/RLS + integration** runs the migration chain check, the schema-ownership check, the SQL
+    tests, then the API suite through the edge.
   - **Playwright E2E** runs through the edge.
-  - **Service images** builds and boots all five images, only when Docker-relevant files change.
+  - **Service images** builds and boots the four images (edge, identity, patients, scheduling),
+    only when Docker-relevant files change.
 
-## Phase 1 deploy (Azure Container Apps): what it needs
+## Deploy
 
-Nothing below has been done. **Each item needs Mohith's approval.**
-
-1. **Database (hosted Supabase):**
-   - Apply `20261012090000`, `20261012090100` (audit-tz, PR #4), then `20261013090000` and `20261013090100` (PR #5).
-   - Create `hms_identity_login`, `hms_patients_login` and `hms_scheduling_login` out of band, each with a generated secret, and `grant hms_svc_<svc> to hms_<svc>_login`.
-   - `20261013090100` removes `hms_dispatcher` from `hms_api`. Set `Outbox__Dispatcher__Enabled=false` on the live monolith **before** applying it.
-2. **Azure resources:**
-   - One Container Apps environment (Consumption, free monthly grant) and an image registry (ACR Basic, or GHCR).
-   - Four apps. `edge` gets external ingress with min replicas 0 (or 1 to avoid cold starts). `identity`, `patients` and `scheduling` get internal ingress (environment only).
-3. **Secrets** (Container Apps secrets or Key Vault):
-   - The per-service `ConnectionStrings__HmsDatabase` through the Supavisor pooler.
-   - `Edge__Key`, one random value shared by the edge and the services.
-   - `Auth__Supabase__ProjectUrl`.
-4. **Edge config:**
-   - `ReverseProxy__Clusters__<svc>__Destinations__primary__Address=http://<svc>/` (internal FQDNs).
-   - `Cors__AllowedOrigins` and `Cors__AllowedOriginPatterns` as above.
-5. **Pool sizing:** 3 services × `Database__MaxPoolSize=5` per replica must fit the Supavisor limit alongside the monolith during the overlap.
-6. **Cutover:**
-   - Smoke test `/health/ready` and `/api/v1/warmup` on the edge URL, then run the E2E suite with `HMS_SYSTEM_TARGET=edge-url`.
-   - Change Vercel `VITE_API_BASE_URL` to the edge URL and redeploy. Rollback means pointing it back at the monolith.
-7. **CI/CD:** a deploy workflow (build, push, `az containerapp update`) with OIDC federated credentials. Creating the service principal or federated credential is also an Azure change.
+The live path is `docs/deploy.md` (Azure Container Apps). It does not deploy, restart, or
+reconfigure `medicore-hms-api`, and it refuses to deploy if that app's outbox dispatcher is on.
+Pointing the web app at the edge, applying `20261022140000`, and stopping the App Service are
+separate approvals in `docs/runbooks/monolith-cutover.md`. This repository change does none of those.

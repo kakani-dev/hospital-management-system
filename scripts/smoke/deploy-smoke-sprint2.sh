@@ -8,7 +8,11 @@
 # Secrets: the demo password is READ FROM A FILE and never printed; the token stays in a shell variable.
 set -euo pipefail
 WEB_URL="${WEB_URL:-https://medicore-hms-three.vercel.app}"
-API_URL="${API_URL:-https://medicore-hms-api.azurewebsites.net}"
+# The public edge (ca-hms-edge). Do not default to the legacy App Service.
+if [[ -z "${API_URL:-}" || "$API_URL" == *medicore-hms-api.azurewebsites.net* ]]; then
+  echo "set API_URL to the public edge URL (docs/runbooks/monolith-cutover.md). This script does not call medicore-hms-api." >&2
+  exit 2
+fi
 SUPABASE_URL="${SUPABASE_URL:-https://gvgomzogbzbjhlcsimrx.supabase.co}"
 PUBLISHABLE_KEY="${PUBLISHABLE_KEY:?set PUBLISHABLE_KEY (public sb_publishable_... key)}"
 DEMO_EMAIL="${DEMO_EMAIL:-admin@alpha.example}"

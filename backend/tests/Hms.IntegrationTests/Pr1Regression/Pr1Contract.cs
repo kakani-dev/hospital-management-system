@@ -41,8 +41,7 @@ public sealed record PatientAuditRow(
 
 /// <summary>
 /// Read-back helpers. Assertions read the persisted state as the DB owner (like
-/// HmsApiFactory.CreateUserAsync), while every request under test goes through the API, which
-/// connects as hms_api_login.
+/// HmsApiFactory.CreateUserAsync), while every request under test goes through the edge.
 /// </summary>
 internal static class Pr1Db
 {

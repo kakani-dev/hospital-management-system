@@ -10,8 +10,8 @@ public static class EmailDeliverySetup
 {
     /// <summary>
     /// Registers the Gmail sender and the identity email worker. Call this from the identity
-    /// service only. The legacy host must not (B1: it cannot assume <c>hms_mailer</c>, and its
-    /// outbox dispatcher stays off). The worker no-ops until <c>Email:Dispatcher:Enabled</c> is true.
+    /// service only (B1: only that service may assume <c>hms_mailer</c>). The worker no-ops
+    /// until <c>Email:Dispatcher:Enabled</c> is true.
     /// </summary>
     public static IServiceCollection AddIdentityEmailDelivery(this IServiceCollection services, IConfiguration configuration)
     {

@@ -1,9 +1,10 @@
 # Legacy monolith inventory
 
-Audit date: 2026-10-22. Host: `backend/gateway/Hms.Gateway` (Azure App Service `medicore-hms-api`).
-The HTTP surface of that host is a subset of the three services behind `Hms.Edge`. Nothing that the
-monolith serves is missing from its owning service. This document is the map for retiring the host
-from the repository. It does not stop the App Service.
+Audit date: 2026-10-22. The host `backend/gateway/Hms.Gateway` is removed from the repository.
+Azure App Service `medicore-hms-api` still runs the last deployed build of that host. The HTTP
+surface of that host is a subset of the three services behind `Hms.Edge`. Nothing that the monolith
+serves is missing from its owning service. Stopping the App Service is
+`docs/runbooks/monolith-cutover.md`, and this change does not do it.
 
 Status values:
 
@@ -57,13 +58,13 @@ There is no catch-all route to the App Service. A prefix that is not in the tabl
 
 | Worker or job | Where it runs | Monolith | Status |
 |---|---|---|---|
-| `OutboxDispatcher` (`AddHmsOutboxDispatcher`) | scheduling `Program.cs`, and the monolith `Program.cs` | registered | **kept off**. `Outbox:Dispatcher:Enabled` is false on scheduling and must stay false on `medicore-hms-api` (B1). `hms_api` is not a member of `hms_dispatcher`. |
+| `OutboxDispatcher` (`AddHmsOutboxDispatcher`) | scheduling `Program.cs` only (the repo host is gone) | the App Service process still has the last deployed registration | **kept off**. `Outbox:Dispatcher:Enabled` is false on scheduling and must stay false on `medicore-hms-api` (B1). `hms_api` is not a member of `hms_dispatcher`. |
 | `EmailOutboxDispatcher` | identity only (`Email:Dispatcher:Enabled`) | not registered | service only. Off until SMTP is configured; the ACA rollout sets it on `ca-hms-identity` only. |
 | pg_cron `hms-close-stale-queues` (`*/15 * * * *`, `select appointment.close_stale_queues()`) | database, migration `20261020150000_scheduling_enable_pg_cron.sql` | not an app worker | in service (scheduling schema). No app change. |
 
 ## Config the monolith carries
 
-`backend/gateway/Hms.Gateway/appsettings.json`:
+Recorded from the removed `backend/gateway/Hms.Gateway/appsettings.json`:
 
 | Key | Monolith value | Service equivalent |
 |---|---|---|
@@ -84,12 +85,12 @@ There is no catch-all route to the App Service. A prefix that is not in the tabl
 | Vercel project `medicore-hms`, `VITE_API_BASE_URL` production and preview | `https://medicore-hms-api.azurewebsites.net` (set outside the repo) | **Do not change in this change.** Cutover step in `docs/runbooks/monolith-cutover.md`. |
 | `apps/web` local and Docker | empty `VITE_API_BASE_URL` falls back to same-origin; Docker build arg is `http://localhost:8080` (the edge) | already on the edge |
 | `scripts/dev/run-microservices.sh` | edge on :8080 | already the default dev path |
-| Playwright default | that dev script | already the edge. `E2E_API_COMMAND` can still start `Hms.Gateway` (comment only). |
-| `scripts/smoke/deploy-smoke-sprint2.sh` | default `API_URL` is the App Service | repo default moves to the edge URL placeholder in the retirement change; production smoke stays an operator choice |
-| `.github/workflows/ci.yml` | second integration run `HMS_SYSTEM_TARGET=monolith`, and the `api` image job (`infra/docker/api.Dockerfile`) | removed with the host |
-| `docker-compose.yml` profile `monolith` | `http://localhost:8090` | removed with the host |
-| `infra/render/render.yaml` | `api.Dockerfile` | blueprint only, not deployed; pointed off the monolith image with the host |
-| `backend/tests` `WebApplicationFactory<Program>` and `HmsApiFactory` monolith mode | the gateway project | replaced by a test-only host that is not deployed |
+| Playwright default | that dev script | already the edge. Jenkins publishes the four hosts and sets `HMS_MS_PUBLISH`. |
+| `scripts/smoke/deploy-smoke-sprint2.sh` | refuses an empty `API_URL` and refuses the App Service hostname | operator sets the public edge URL |
+| `.github/workflows/ci.yml` | integration runs through the edge only; image matrix is edge, identity, patients, scheduling | monolith job and `infra/docker/api.Dockerfile` removed |
+| `docker-compose.yml` | edge on :8080, no monolith profile | removed with the host |
+| `infra/render/render.yaml` | retired comment, no image | not deployed |
+| `backend/tests` | `Hms.TestHost` for in-process unit tests; `HmsApiFactory` is `edge` or `edge-url` | gateway project removed. Test host is not deployed. |
 | `docs/runbooks/deploy-azure.md`, `deploy-sprint-2-hosted.md` | historical zip-deploy of `Hms.Gateway` | left as history. The live path is `docs/deploy.md` (Container Apps) plus the cutover runbook. |
 
 ## Cross-schema access

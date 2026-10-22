@@ -78,8 +78,15 @@ pipeline {
                 --filter "Category!=Database" \
                 --logger "trx;LogFilePrefix=unit" --results-directory test-results
             '''
-            // Self-contained gateway for the E2E stage (the Playwright image has no .NET SDK).
-            sh 'dotnet publish backend/gateway/Hms.Gateway -c Release -r linux-x64 --self-contained -o api-publish'
+            // Self-contained services + edge for the E2E stage (the Playwright image has no .NET SDK).
+            sh '''
+              set -euo pipefail
+              publish() { dotnet publish "backend/$1" -c Release -r linux-x64 --self-contained -o "api-publish/$2"; }
+              publish services/identity/Hms.Identity.Api identity
+              publish services/patients/Hms.Patients.Api patients
+              publish services/scheduling/Hms.Scheduling.Api scheduling
+              publish edge/Hms.Edge edge
+            '''
             stash name: 'api-publish', includes: 'api-publish/**'
           }
           post {
@@ -147,7 +154,7 @@ pipeline {
                 "npm_config_cache=${env.WORKSPACE}/.npm",
                 'E2E_PG_HOST=db',
                 "E2E_PG_PASSWORD=${env.PG_PASSWORD}",
-                "E2E_API_COMMAND=${env.WORKSPACE}/api-publish/Hms.Gateway --contentRoot ${env.WORKSPACE}/api-publish",
+                "HMS_MS_PUBLISH=${env.WORKSPACE}/api-publish",
               ]) {
                 sh 'npm ci --no-audit --no-fund'
                 sh 'npm --prefix apps/web ci --no-audit --no-fund'

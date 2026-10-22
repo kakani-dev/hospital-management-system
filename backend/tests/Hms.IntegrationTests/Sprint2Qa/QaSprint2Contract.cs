@@ -95,7 +95,7 @@ public sealed record QaCheckIn(Guid QueueEntryId, int TokenNo, DateOnly QueueDat
 
 public sealed record QaBranch(Guid Id, string Code, string Name, string Timezone, bool IsActive);
 
-/// <summary>Request helpers that go through the API (hms_api_login + RLS) and fixture helpers as the DB owner.</summary>
+/// <summary>Request helpers that go through the edge (each service's login + RLS) and fixture helpers as the DB owner.</summary>
 internal static class Qa
 {
     public static string NewMrn(string prefix) => $"{prefix}-{Guid.NewGuid():N}"[..Math.Min(32, prefix.Length + 13)].ToUpperInvariant();

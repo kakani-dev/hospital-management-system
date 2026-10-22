@@ -9,9 +9,9 @@ using Npgsql;
 namespace Hms.DatabaseTests;
 
 /// <summary>
-/// Connects exactly like the API does (low-privilege hms_api_login, RlsTransactionInterceptor) and
-/// proves that Postgres RLS still isolates tenants when the EF query filter is bypassed or a
-/// buggy/malicious context is supplied to the app layer.
+/// Connects as hms_api_login (member of authenticated, the role the App Service still uses) with
+/// RlsTransactionInterceptor and proves that Postgres RLS still isolates tenants when the EF query
+/// filter is bypassed or a buggy/malicious context is supplied to the app layer.
 /// </summary>
 [Trait("Category", "Database")]
 public sealed class RlsDefenseInDepthTests
