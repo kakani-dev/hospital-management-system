@@ -12,6 +12,17 @@ namespace Hms.IntegrationTests;
 /// </summary>
 public static class TestSchedules
 {
+    private const string MembershipSql = """
+        insert into appointment.practitioner_branches (tenant_id, practitioner_id, branch_id, is_active)
+        select p.tenant_id, p.id, @b, true
+          from appointment.practitioners p
+         where p.id = @p
+           and exists (select 1 from identity.branches b where b.id = @b and b.tenant_id = p.tenant_id)
+           and not exists (
+             select 1 from appointment.practitioner_branches m
+              where m.tenant_id = p.tenant_id and m.practitioner_id = p.id and m.branch_id = @b and not m.is_deleted)
+        """;
+
     private const string Sql = """
         with d as (
           select (@s::timestamptz at time zone identity.branch_time_zone_v1(@b))::date as day)
@@ -38,6 +49,18 @@ public static class TestSchedules
         {
             try
             {
+                try
+                {
+                    await using var member = new NpgsqlCommand(MembershipSql, conn);
+                    member.Parameters.AddWithValue("b", branchId);
+                    member.Parameters.AddWithValue("p", practitionerId);
+                    await member.ExecuteNonQueryAsync();
+                }
+                catch (PostgresException ex) when (ex.SqlState is "23505")
+                {
+                    // Another booking inserted the same membership first.
+                }
+
                 await using var cmd = new NpgsqlCommand(Sql, conn);
                 cmd.Parameters.AddWithValue("b", branchId);
                 cmd.Parameters.AddWithValue("p", practitionerId);

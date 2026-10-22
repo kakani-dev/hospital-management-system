@@ -26,6 +26,9 @@ const AppointmentCalendarPage = lazy(() =>
     default: m.AppointmentCalendarPage,
   })),
 );
+const MyDayPage = lazy(() =>
+  import("./features/scheduling/MyDayPage").then((m) => ({ default: m.MyDayPage })),
+);
 const StaffSchedulePage = lazy(() =>
   import("./features/scheduling/StaffSchedulePage").then((m) => ({
     default: m.StaffSchedulePage,
@@ -90,6 +93,14 @@ export function App() {
             <Route path="patients/new" element={<RegisterPatientPage />} />
           </Route>
           <Route element={<RequireCapability capability="appointments.view" />}>
+            <Route
+              path="my-day"
+              element={
+                <Lazy>
+                  <MyDayPage />
+                </Lazy>
+              }
+            />
             <Route
               path="appointments"
               element={

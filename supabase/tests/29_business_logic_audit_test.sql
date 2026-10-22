@@ -69,6 +69,8 @@ select tests.throws_ok(format($$insert into identity.branches (tenant_id, code, 
   '23505', 'branch codes are unique per tenant');
 insert into appointment.practitioners (id, tenant_id, display_name)
   values ('c2900000-0000-4000-8000-000000000001', (select tenant_id from t_new), 'Dr. Zz-BL');
+insert into appointment.practitioner_branches (tenant_id, practitioner_id, branch_id)
+  select tenant_id, 'c2900000-0000-4000-8000-000000000001', 'b2900000-0000-4000-8000-000000000001' from t_new;
 insert into appointment.schedules (tenant_id, practitioner_id, branch_id, weekday, start_time, end_time, slot_minutes, valid_from)
   select (select tenant_id from t_new), 'c2900000-0000-4000-8000-000000000001', 'b2900000-0000-4000-8000-000000000001',
          w, '09:00', '17:00', 15, current_date - 1 from generate_series(1, 7) w;

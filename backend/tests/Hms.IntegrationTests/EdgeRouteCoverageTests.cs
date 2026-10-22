@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Hms.Scheduling.Api;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.Routing;
@@ -24,15 +25,15 @@ public sealed class EdgeRouteCoverageTests
     {
         using var monolith = new WebApplicationFactory<Hms.Gateway.MonolithMarker>()
             .WithWebHostBuilder(b => b.UseEnvironment("Testing").UseSetting("Auth:Supabase:ProjectUrl", TestJwt.ProjectUrl));
-        var served = monolith.Services.GetRequiredService<EndpointDataSource>().Endpoints
-            .OfType<RouteEndpoint>()
-            .Select(e => (Pattern: e.RoutePattern.RawText ?? string.Empty, Module: e.Metadata.OfType<System.Reflection.MethodInfo>().FirstOrDefault()?.DeclaringType?.Assembly.GetName().Name))
-            .Where(e => e.Pattern.TrimStart('/').StartsWith("api/v1/", StringComparison.Ordinal))
-            .Select(e => (Prefix: e.Pattern.TrimStart('/').Split('/')[2], e.Module))
-            .Where(e => e.Prefix != "warmup")
-            .Distinct()
-            .ToList();
+        // Membership, overrides, the travel buffer and my-day are scheduling-service routes. The monolith
+        // does not map them, so coverage has to read that host as well as the legacy all-in-one host.
+        using var scheduling = new WebApplicationFactory<SchedulingServiceMarker>()
+            .WithWebHostBuilder(b => b.UseEnvironment("Testing").UseSetting("Auth:Supabase:ProjectUrl", TestJwt.ProjectUrl));
+        var onMonolith = ServedPrefixes(monolith).ToList();
+        Assert.DoesNotContain(onMonolith, s => s.Prefix is "practitioner-branches" or "schedule-overrides" or "scheduling-settings");
+        var served = onMonolith.Concat(ServedPrefixes(scheduling)).Distinct().ToList();
         Assert.NotEmpty(served);
+        Assert.Contains(served, s => s.Prefix == "practitioner-branches" && s.Module == "Hms.Modules.Appointments");
 
         var routes = EdgeRoutes();
         foreach (var (prefix, module) in served)
@@ -42,6 +43,16 @@ public sealed class EdgeRouteCoverageTests
             Assert.True(ModuleToCluster[module!] == cluster, $"/api/v1/{prefix} belongs to {module} ({ModuleToCluster[module!]}) but the edge routes it to {cluster}");
         }
     }
+
+    private static IEnumerable<(string Prefix, string? Module)> ServedPrefixes<TEntry>(WebApplicationFactory<TEntry> factory)
+        where TEntry : class =>
+        factory.Services.GetRequiredService<EndpointDataSource>().Endpoints
+            .OfType<RouteEndpoint>()
+            .Select(e => (Pattern: e.RoutePattern.RawText ?? string.Empty, Module: e.Metadata.OfType<System.Reflection.MethodInfo>().FirstOrDefault()?.DeclaringType?.Assembly.GetName().Name))
+            .Where(e => e.Pattern.TrimStart('/').StartsWith("api/v1/", StringComparison.Ordinal))
+            .Select(e => (Prefix: e.Pattern.TrimStart('/').Split('/')[2], e.Module))
+            .Where(e => e.Prefix != "warmup")
+            .Distinct();
 
     private static Dictionary<string, string> EdgeRoutes()
     {

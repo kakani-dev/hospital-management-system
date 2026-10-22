@@ -108,9 +108,15 @@ public sealed class RbacMatrixApiTests(HmsApiFactory factory) : IClassFixture<Hm
             "insert into appointment.practitioners (tenant_id, user_id, display_name) values (@t, @u, 'Dr Other (synthetic)') returning id",
             ("t", Alpha), ("u", await CreateUserAsync("rbac-doc-other", (Alpha, null, "doctor"))));
         var start = DateTimeOffset.UtcNow.AddHours(-2);
-        async Task<Guid> Book(Guid practitioner, int minutes) => await ATz.ScalarAsync<Guid>(
-            "insert into appointment.appointments (tenant_id, branch_id, patient_id, practitioner_id, starts_at, ends_at) values (@t, @b, @p, @pr, @s, @e) returning id",
-            ("t", Alpha), ("b", AlphaMain), ("p", AlphaPatientId), ("pr", practitioner), ("s", start.AddMinutes(minutes)), ("e", start.AddMinutes(minutes + 10)), ("u", AlphaAdmin));
+        async Task<Guid> Book(Guid practitioner, int minutes)
+        {
+            await ATz.ScalarAsync<Guid>(
+                "insert into appointment.practitioner_branches (tenant_id, practitioner_id, branch_id) values (@t, @pr, @b) returning id",
+                ("t", Alpha), ("pr", practitioner), ("b", AlphaMain));
+            return await ATz.ScalarAsync<Guid>(
+                "insert into appointment.appointments (tenant_id, branch_id, patient_id, practitioner_id, starts_at, ends_at) values (@t, @b, @p, @pr, @s, @e) returning id",
+                ("t", Alpha), ("b", AlphaMain), ("p", AlphaPatientId), ("pr", practitioner), ("s", start.AddMinutes(minutes)), ("e", start.AddMinutes(minutes + 10)));
+        }
         var mine = await Book(own, 0);
         var theirs = await Book(other, 20);
 

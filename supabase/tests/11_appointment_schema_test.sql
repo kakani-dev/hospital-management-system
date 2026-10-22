@@ -5,8 +5,10 @@ begin;
 -- ---------- structure ----------
 select tests.ok(
   exists (select 1 from pg_constraint where conname = 'appointments_no_practitioner_overlap' and contype = 'x')
-  and exists (select 1 from pg_constraint where conname = 'schedules_no_overlap' and contype = 'x'),
-  'exclusion constraints exist on appointments and schedules');
+  and exists (select 1 from pg_constraint where conname = 'schedule_overrides_no_overlap' and contype = 'x')
+  and exists (select 1 from pg_trigger where tgname = 'z_schedules_commitment')
+  and not exists (select 1 from pg_constraint where conname = 'schedules_no_overlap'),
+  'appointments and day overrides exclude absolute overlaps; weekly hours use the commitment trigger');
 select tests.ok(
   not has_table_privilege('authenticated', 'appointment.appointments', 'DELETE')
   and not has_column_privilege('authenticated', 'appointment.appointments', 'status', 'INSERT')
@@ -35,6 +37,9 @@ select tests.ok(exists (select 1 from appointment.practitioners where id = 'c111
   'Alpha admin creates a practitioner');
 
 -- ---------- schedules ----------
+-- Dr. Alpha General's seeded hours are at Main; an East row needs a membership before the overlap rule runs.
+insert into appointment.practitioner_branches (tenant_id, practitioner_id, branch_id)
+values ('11111111-1111-4111-8111-111111111111', 'c1111111-0000-4000-8000-000000000002', 'a1111111-0000-4000-8000-000000000002');
 select tests.throws_ok(
   $$insert into appointment.schedules (tenant_id, practitioner_id, branch_id, weekday, start_time, end_time, valid_from)
     values ('11111111-1111-4111-8111-111111111111', 'c1111111-0000-4000-8000-000000000002', 'a1111111-0000-4000-8000-000000000002', 1, '13:00', '15:00', '2026-01-01')$$,
@@ -91,6 +96,10 @@ insert into appointment.appointments (tenant_id, branch_id, practitioner_id, pat
 values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'c1111111-0000-4000-8000-000000000002',
         'aa000000-0000-4000-8000-000000000004', '2030-01-08 10:30+05:30', '2030-01-08 11:00+05:30');
 select tests.ok(true, 'back-to-back booking ([) range) is accepted');
+select tests.as_superuser();
+insert into appointment.practitioner_branches (tenant_id, practitioner_id, branch_id)
+values ('11111111-1111-4111-8111-111111111111', 'c1111111-0000-4000-8000-000000000001', 'a1111111-0000-4000-8000-000000000001');
+select tests.authenticate_as('reception@alpha.example');
 insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at)
 values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'c1111111-0000-4000-8000-000000000001',
         'aa000000-0000-4000-8000-000000000004', '2030-01-08 10:00+05:30', '2030-01-08 10:30+05:30');

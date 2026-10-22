@@ -135,3 +135,19 @@ adds a cross-schema reference must carry the header line `-- cross-schema: appro
   `patient_phones` (any live number, last 10 digits). Email, phone and ABHA are unique among live patients
   of the hospital. An exact name is a warning (`name_dob` when both dates match, `name` when either date is blank).
   `patient.merge_patients(survivor, duplicate, reason)` is tenant-admin only (P0002 for another hospital or an unknown chart, 42501 otherwise). It soft-deletes the duplicate (`merged_into_patient_id`, `merged_at`, `merged_by`), repoints appointments, follow-ups, queue rows and phone numbers onto the survivor, fills blank survivor fields without overwriting, and writes `audit.audit_log` plus a `patient.merged` outbox event that carries ids only. `patient.merge_duplicate_charts()` keeps the oldest live chart in each same-hospital email, phone or ABHA set and is idempotent. Merged charts stay out of search and out of the live unique indexes. Restoring a merged chart is 55000.
+
+## Practitioner branches (20261022150000)
+
+A practitioner is tenant-scoped. `appointment.practitioner_branches` is the membership
+(practitioner, branch, active, optional consultation room and fee). Weekly hours stay on
+`appointment.schedules`, one row per practitioner, branch and weekday, with `valid_from` /
+`valid_to`. `appointment.schedule_overrides` replaces that template for one branch-local day
+(leave, or a different window). The override's `during tstzrange` is maintained by the database
+and excluded per practitioner (`schedule_overrides_no_overlap`).
+
+Weekly templates are not one range, so overlap across branches is a trigger
+(`z_schedules_commitment`, `z_schedule_overrides_commitment`, `z_appointments_commitment`) that
+builds a `tstzrange` with `(local date + time) AT TIME ZONE identity.branch_time_zone_v1(branch)`
+and rejects `23P01` when the same practitioner is already committed. The optional travel buffer is
+`appointment.tenant_settings.travel_buffer_minutes` (0–180, missing row means 0) so scheduling does
+not read `identity.tenants`. No new `_v1` function. Existing schedule rows are not rewritten.

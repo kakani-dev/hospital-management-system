@@ -7,6 +7,7 @@ const loaders: Record<string, () => Promise<unknown>> = {
   '/patients': () => import('../patients/PatientListPage'),
   '/patients/new': () => import('../patients/RegisterPatientPage'),
   '/appointments': () => import('../scheduling/AppointmentCalendarPage'),
+  '/my-day': () => import('../scheduling/MyDayPage'),
   '/schedules': () => import('../scheduling/StaffSchedulePage'),
   '/reception/check-in': () => import('../opd/CheckInPage'),
   '/queue': () => import('../opd/QueueBoardPage'),

@@ -38,7 +38,7 @@ function statusOf(s: Schedule) {
 function scheduleError(error: unknown, action: string): string {
   const code = problemCode(error)
   if (code === 'schedule_overlap' || (error instanceof ApiError && error.status === 409))
-    return 'These hours overlap another active schedule of this practitioner on that weekday.'
+    return 'These hours overlap another active schedule of this practitioner, including hours at another branch.'
   if (error instanceof ApiError && error.status === 403) return 'Only tenant admins can manage working hours.'
   if (error instanceof ApiError && error.status === 404) return 'This schedule (or its practitioner) no longer exists.'
   return `Could not ${action}.`

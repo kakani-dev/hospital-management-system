@@ -34,6 +34,43 @@ public sealed record UpdateScheduleRequest(
 
 public sealed record SlotDto(Guid PractitionerId, Guid BranchId, DateTimeOffset StartsAt, DateTimeOffset EndsAt);
 
+public sealed record PractitionerBranchDto(
+    Guid Id, Guid PractitionerId, Guid BranchId, bool IsActive, string? ConsultationRoom, int? ConsultationFeeCents)
+{
+    public static PractitionerBranchDto From(PractitionerBranch m) =>
+        new(m.Id, m.PractitionerId, m.BranchId, m.IsActive, m.ConsultationRoom, m.ConsultationFeeCents);
+}
+
+public sealed record CreatePractitionerBranchRequest(Guid PractitionerId, Guid BranchId, string? ConsultationRoom, int? ConsultationFeeCents);
+
+/// <summary>Absent = unchanged. consultationRoom "" clears the room; clearFee removes the fee.</summary>
+public sealed record UpdatePractitionerBranchRequest(bool? IsActive, string? ConsultationRoom, int? ConsultationFeeCents, bool? ClearFee);
+
+public sealed record ScheduleOverrideDto(
+    Guid Id, Guid PractitionerId, Guid BranchId, DateOnly Date, bool IsLeave, string? StartTime, string? EndTime, int? SlotMinutes, bool IsActive)
+{
+    public static ScheduleOverrideDto From(ScheduleOverride o) => new(
+        o.Id, o.PractitionerId, o.BranchId, o.OverrideDate, o.IsLeave,
+        o.StartTime is { } s ? HhMm.Format(s) : null,
+        o.EndTime is { } e ? HhMm.Format(e) : null,
+        o.SlotMinutes, o.IsActive);
+}
+
+public sealed record CreateScheduleOverrideRequest(
+    Guid PractitionerId, Guid BranchId, DateOnly? Date, bool? IsLeave, string? StartTime, string? EndTime, int? SlotMinutes);
+
+public sealed record UpdateScheduleOverrideRequest(bool? IsLeave, string? StartTime, string? EndTime, int? SlotMinutes, bool? IsActive);
+
+public sealed record SchedulingSettingsDto(int TravelBufferMinutes);
+
+public sealed record UpdateSchedulingSettingsRequest(int? TravelBufferMinutes);
+
+/// <param name="Kind">appointment, hours, or leave.</param>
+public sealed record MyDayItemDto(
+    string Kind, Guid BranchId, DateTimeOffset StartsAt, DateTimeOffset EndsAt, Guid? AppointmentId, string? Status, PatientRefDto? Patient);
+
+public sealed record MyDayDto(Guid? PractitionerId, string? DisplayName, DateOnly Date, IReadOnlyList<MyDayItemDto> Items);
+
 // ------------------------------------------------------------------ appointments
 public sealed record AppointmentDto(
     Guid Id, Guid BranchId, Guid PractitionerId, Guid PatientId, DateTimeOffset StartsAt, DateTimeOffset EndsAt, string Status,

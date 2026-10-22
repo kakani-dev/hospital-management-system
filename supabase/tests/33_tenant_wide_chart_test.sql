@@ -71,6 +71,8 @@ select tests.ok(
 select tests.as_superuser();
 insert into appointment.practitioners (id, tenant_id, display_name, specialty)
 values ('c1310000-0000-4000-8000-000000000001', '11111111-1111-4111-8111-111111111111', 'Dr. East Only (synthetic)', 'General Medicine');
+insert into appointment.practitioner_branches (tenant_id, practitioner_id, branch_id)
+values ('11111111-1111-4111-8111-111111111111', 'c1310000-0000-4000-8000-000000000001', 'a1111111-0000-4000-8000-000000000002');
 insert into appointment.schedules (id, tenant_id, practitioner_id, branch_id, weekday, start_time, end_time, slot_minutes, valid_from)
 values ('d1310000-0000-4000-8000-000000000001', '11111111-1111-4111-8111-111111111111',
         'c1310000-0000-4000-8000-000000000001', 'a1111111-0000-4000-8000-000000000002', 3, '09:00', '13:00', 15, '2026-01-01');
