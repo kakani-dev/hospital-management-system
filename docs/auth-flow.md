@@ -6,7 +6,7 @@ _Owners (simulated): Security Team, React Team, Database Engineering._
 
 | Piece | Where | Role |
 |---|---|---|
-| Supabase Auth (GoTrue) | hosted project `gvgomzogbzbjhlcsimrx` (locally: `tests/mock-auth`) | Email/password sign-in, issues access + refresh tokens |
+| Supabase Auth (GoTrue) | hosted project `gvgomzogbzbjhlcsimrx` (locally: `tests/mock-auth`) | Email/password sign-in for people who already have a password; verifies the magic-link token hash minted for a new invitee |
 | Custom access token hook | `identity.custom_access_token_hook(event jsonb)` | Adds `tenant_id`, `branch_id`, `branch_ids`, `hms_roles` claims from memberships |
 | SPA auth | `apps/web/src/lib/supabase.ts`, `features/auth/AuthProvider.tsx` | `supabase-js` session; protected routes; sign-out |
 | Gateway JWT validation | `backend/gateway/Hms.Gateway/Infrastructure/AuthenticationSetup.cs` | JWKS (ES256/RS256) + optional HS256 legacy secret; issuer/audience/lifetime checks |
@@ -36,6 +36,19 @@ sequenceDiagram
 ```
 
 - The SPA uses only the **publishable/anon key** (`VITE_SUPABASE_PUBLISHABLE_KEY` or `VITE_SUPABASE_ANON_KEY`). Service-role/secret keys never go into `VITE_*` variables.
+
+## Invite sign-in (no password yet)
+
+Issuing an invite writes `identity.invite_links` only. It does not create `auth.users` and it does not set a password.
+
+1. The invite email (template `invite_link`, or `signup_approved` for the first hospital admin) contains `https://medicore-hms-three.vercel.app/invite/<token>` from `Email:PublicBaseUrl`.
+2. `/invite/:token` is anonymous. **Email me a sign-in code** calls `POST /api/v1/public/invites/{token}/sign-in-code`. Identity queues a six-digit code through the SMTP outbox.
+3. The invitee opens the link in the email (`#code=` is filled in) or types the code. `POST /api/v1/public/invites/{token}/sign-in` checks the hash. Identity then calls GoTrue admin (`Auth:Supabase:ServiceRoleKey`, identity container only) and returns `{tokenHash, verificationType: "magiclink"}`.
+4. The SPA calls `supabase.auth.verifyOtp({ token_hash, type: 'magiclink' })`. The API accepts that session because it is a normal GoTrue JWT.
+5. `user_metadata.needs_password` is true, so the page asks the invitee to choose a password (`supabase.auth.updateUser`) before **Join**. The password is never emailed.
+6. **I already have a password** goes to `/login`, which is still `POST /auth/v1/token?grant_type=password`.
+
+Playwright keeps the password path: those specs insert `auth.users` first. The code path is covered by SQL test 32, the email unit tests, and the invite page test. Mock auth does not implement the GoTrue admin API.
 - The API client asks `supabase.auth.getSession()` for the current (auto-refreshed) token on every request and **never sends a tenant header**.
 - Protected routes (`RequireAuth`) redirect to `/login`; after sign-in the user returns to the page they asked for.
 - Sign-out calls `supabase.auth.signOut()` and clears every cached query.

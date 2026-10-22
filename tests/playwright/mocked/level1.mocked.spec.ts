@@ -87,7 +87,7 @@ test('a tenant admin invites by link; the invitee signs in, accepts and lands in
   await backend.install(other)
   const invitee = await other.newPage()
   await invitee.goto(link)
-  await invitee.getByRole('button', { name: 'Sign in to accept' }).click()
+  await invitee.getByRole('button', { name: 'I already have a password' }).click()
   await invitee.getByLabel('Email').fill(INVITEE_EMAIL)
   await invitee.getByLabel('Password').fill(PASSWORD)
   await invitee.getByRole('button', { name: 'Sign in' }).click()

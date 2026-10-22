@@ -80,6 +80,112 @@ public sealed class EmailDeliveryRetryTests
         Assert.Equal("done", await AdminScalarAsync<string>("select status from messaging.outbox where event_id = @id", ("id", eventId)));
     }
 
+    [Fact]
+    public async Task A_sign_in_code_is_emailed_once_and_still_checks_after_redaction()
+    {
+        const string recipient = "signin-retry@synthetic.example";
+        var (token, code, pendingId, eventId) = await IssueSignInCodeAsync(recipient);
+
+        var payload = await AdminScalarAsync<string>(
+            "select payload::text from messaging.outbox where event_id = @id", ("id", eventId));
+        Assert.DoesNotContain(recipient, payload, StringComparison.Ordinal);
+        Assert.DoesNotContain(code, payload, StringComparison.Ordinal);
+        Assert.DoesNotContain(token, payload, StringComparison.Ordinal);
+        Assert.DoesNotContain("@", payload, StringComparison.Ordinal);
+        Assert.Equal("sign_in_code", await AdminScalarAsync<string>(
+            "select payload ->> 'template_key' from messaging.outbox where event_id = @id", ("id", eventId)));
+
+        await using var dataSource = NpgsqlDataSource.Create(ServiceConnection("identity"));
+        var store = new OnlyThisEvent(new PostgresEmailOutbox(dataSource), eventId);
+        var sender = new CountingSender();
+        var dispatcher = new EmailOutboxDispatcher(
+            store,
+            sender,
+            Options.Create(new EmailDeliveryOptions
+            {
+                PublicBaseUrl = BaseUrl,
+                Dispatcher = new EmailDispatcherOptions { BatchSize = 20, LeaseSeconds = 120, RetryBaseSeconds = 30, DailySendLimit = 10_000 },
+            }),
+            TimeProvider.System,
+            NullLogger<EmailOutboxDispatcher>.Instance);
+
+        for (var i = 0; i < 30 && sender.Failures == 0; i++)
+        {
+            await dispatcher.RunOnceAsync(CancellationToken.None);
+        }
+
+        Assert.Equal(1, sender.Failures);
+        await AdminAsync(
+            "update messaging.outbox set status = 'pending', claimed_by = null, claimed_until = null, available_at = now() - interval '1 second' where event_id = @id",
+            ("id", eventId));
+
+        for (var i = 0; i < 5 && sender.Delivered == 0; i++)
+        {
+            await dispatcher.RunOnceAsync(CancellationToken.None);
+        }
+
+        Assert.Equal(1, sender.Delivered);
+        Assert.Contains(code, sender.LastText, StringComparison.Ordinal);
+        Assert.Contains($"{BaseUrl}/invite/{token}#code={code}", sender.LastText, StringComparison.Ordinal);
+        Assert.Equal(1, await AdminScalarAsync<long>("select count(*) from messaging.email_send_receipts where event_id = @id", ("id", eventId)));
+        Assert.Equal(1L, await AdminScalarAsync<long>(
+            "select count(*) from identity.pending_emails where id = @id and recipient = 'redacted@invalid.local' and variables = '{}'::jsonb and redacted_on is not null",
+            ("id", pendingId)));
+
+        Assert.Equal(recipient, await AdminScalarAsync<string>(
+            "select identity.consume_invite_sign_in_code(@token, @code)", ("token", token), ("code", code)));
+
+        await AdminAsync(
+            "update messaging.outbox set status = 'pending', claimed_by = null, claimed_until = null, available_at = now() - interval '1 second', processed_at = null where event_id = @id",
+            ("id", eventId));
+        await dispatcher.RunOnceAsync(CancellationToken.None);
+        Assert.Equal(1, sender.Delivered);
+        Assert.Equal(1, await AdminScalarAsync<long>("select count(*) from messaging.email_send_receipts where event_id = @id", ("id", eventId)));
+    }
+
+    private static async Task<(string Token, string Code, Guid PendingId, Guid EventId)> IssueSignInCodeAsync(string recipient)
+    {
+        await using var connection = await OpenAdminAsync();
+        string token;
+        await using (var issue = new NpgsqlCommand(
+            """
+            select token from identity.issue_invite_link(
+              '11111111-1111-4111-8111-111111111111',
+              @recipient,
+              'tenant_admin',
+              null,
+              'tenant_admin',
+              interval '14 days',
+              false)
+            """,
+            connection))
+        {
+            issue.Parameters.AddWithValue("recipient", recipient);
+            token = (string)(await issue.ExecuteScalarAsync())!;
+        }
+
+        await using (var code = new NpgsqlCommand("select identity.issue_invite_sign_in_code(@token)", connection))
+        {
+            code.Parameters.AddWithValue("token", token);
+            _ = await code.ExecuteScalarAsync();
+        }
+
+        await using var lookup = new NpgsqlCommand(
+            """
+            select p.variables ->> 'code', p.id, o.event_id
+              from identity.pending_emails p
+              join messaging.outbox o on (o.payload ->> 'pending_email_id')::uuid = p.id
+             where p.template_key = 'sign_in_code' and p.recipient = @recipient and p.redacted_on is null
+            """,
+            connection);
+        lookup.Parameters.AddWithValue("recipient", recipient);
+        await using var reader = await lookup.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        var issued = (token, reader.GetString(0), reader.GetGuid(1), reader.GetGuid(2));
+        Assert.False(await reader.ReadAsync());
+        return issued;
+    }
+
     private static async Task<(Guid PendingId, Guid EventId)> EnqueueAsync(string recipient, string hospital, string token)
     {
         await using var connection = await OpenAdminAsync();

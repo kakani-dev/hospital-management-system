@@ -71,8 +71,9 @@ adds a cross-schema reference must carry the header line `-- cross-schema: appro
   **no longer** has it (DB review B1), so the monolith must keep `Outbox:Dispatcher:Enabled=false`.
 - `hms_mailer` (migration `20261022090000`) is granted to `hms_svc_identity` only. It claims
   `email_message` rows through `messaging.claim_email_outbox`, reads `messaging.caller_sources`, and
-  acks them with `complete_outbox` / `fail_outbox`. It is not granted to `hms_api`, so the legacy
-  host still cannot dispatch (B1).
+  acks them with `complete_outbox` / `fail_outbox`. It also executes `identity.issue_invite_sign_in_code`
+  and `identity.consume_invite_sign_in_code` (migration `20261022120000`). It is not granted to
+  `hms_api`, so the legacy host still cannot dispatch (B1).
   Identity does not run the scheduling dispatcher; mail is `Email:Dispatcher:Enabled` on the identity
   service only. Go-live steps are in `docs/runbooks/email-delivery.md`.
 - Pool size: about 5 connections per service (`Database:MaxPoolSize`), within the Supavisor limit.
@@ -85,8 +86,11 @@ adds a cross-schema reference must carry the header line `-- cross-schema: appro
 - `claim_outbox` / `complete_outbox` / `fail_outbox` only touch rows whose `source_service` belongs to
   the **calling login's** service role (derived from `session_user`, never from an argument).
 - `email_message` (source `identity`) is product mail. The payload is only `pending_email_id` and
-  `template_key`. Recipient, names, tokens and reasons live in `identity.pending_emails` (redacted
-  after send). `messaging.email_send_receipts` is unique on `event_id`, so a retry does not send twice.
+  `template_key` (`invite_link`, `signup_received`, `signup_approved`, `signup_rejected`, `sign_in_code`).
+  Recipient, names, tokens, codes and reasons live in `identity.pending_emails` (redacted after send,
+  and when the invite is revoked, superseded or claimed). `identity.email_sign_in_codes` stores a
+  SHA-256 of `code || ':' || id` (32 bytes), not the raw code. Five mismatches or one success set
+  `consumed_on`. `messaging.email_send_receipts` is unique on `event_id`, so a retry does not send twice.
   Sign-up mail that has no hospital yet uses outbox tenant `00000000-0000-0000-0000-000000000000`;
   `pending_emails.tenant_id` stays null. `claim_email_outbox` is the only claim path for these rows.
 

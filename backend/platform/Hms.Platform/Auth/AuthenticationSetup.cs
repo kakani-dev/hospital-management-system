@@ -26,6 +26,13 @@ public sealed class SupabaseAuthOptions
     public string? LegacyJwtSecret { get; set; }
 
     /// <summary>
+    /// GoTrue service-role key used only to turn a checked invite sign-in code into a magic-link
+    /// token hash. Supply via secret store / env (<c>Auth__Supabase__ServiceRoleKey</c>). Never
+    /// commit it, log it, or put it in appsettings.
+    /// </summary>
+    public string ServiceRoleKey { get; set; } = "";
+
+    /// <summary>
     /// Allow http:// JWKS (local mock auth / tests only). Only honoured in the environments listed in
     /// <see cref="AuthenticationSetup.InsecureHttpEnvironments"/>; startup fails anywhere else.
     /// </summary>

@@ -74,6 +74,8 @@ to the owning service.
   scheduling login may act as `hms_dispatcher`. That dispatcher is off by default
   (`Outbox:Dispatcher:Enabled`). Identity mail uses a separate role, `hms_mailer`, and
   `Email:Dispatcher:Enabled` on the identity service only (off until `Smtp__Password` is set).
+  Invite sign-in codes are one of those emails. Turning a checked code into a session also needs
+  `Auth__Supabase__ServiceRoleKey` on identity only.
   The legacy host registers neither mailer nor an enabled dispatcher (B1).
 
 ## Local development and tests

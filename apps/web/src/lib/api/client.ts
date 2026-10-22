@@ -391,6 +391,17 @@ export class ApiClient {
       this.request<{ message: string } | undefined>('/api/v1/public/hospital-signups', { method: 'POST', body: JSON.stringify(body), auth: false }),
     /** 404 when unknown, used, revoked or expired. */
     previewInvite: (token: string) => this.request<InvitePreview>(`/api/v1/public/invites/${encodeURIComponent(token)}`, { auth: false, retry: false }),
+    /** 202 when a code is queued. 404 unknown invite. 429 rate_limited. 503 when email sign-in is not configured. */
+    requestInviteSignInCode: (token: string) =>
+      this.request<{ expiresOn: string }>(`/api/v1/public/invites/${encodeURIComponent(token)}/sign-in-code`, { method: 'POST', auth: false, retry: false }),
+    /** 200 { tokenHash, verificationType }. 401 bad code. 404 unknown invite. */
+    exchangeInviteSignInCode: (token: string, code: string) =>
+      this.request<{ tokenHash: string; verificationType: string }>(`/api/v1/public/invites/${encodeURIComponent(token)}/sign-in`, {
+        method: 'POST',
+        body: JSON.stringify({ code }),
+        auth: false,
+        retry: false,
+      }),
   }
 
   /** Claim an invite link as the signed-in user (email must match: 403 invite_email_mismatch). */

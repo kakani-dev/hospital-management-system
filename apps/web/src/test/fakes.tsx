@@ -22,13 +22,17 @@ export function fakeJwt(claims: Record<string, unknown>): string {
   return `${b64url({ alg: 'ES256', typ: 'JWT' })}.${b64url({ sub: '0a000000-0000-4000-8000-000000000001', ...claims })}.sig`
 }
 
-export function fakeSession(email = 'admin@alpha.example', token = 'token-1'): Session {
+export function fakeSession(
+  email = 'admin@alpha.example',
+  token = 'token-1',
+  userMetadata: Record<string, unknown> = {},
+): Session {
   return {
     access_token: token,
     refresh_token: 'refresh',
     expires_in: 3600,
     token_type: 'bearer',
-    user: { id: '0a000000-0000-4000-8000-000000000001', email, app_metadata: {}, user_metadata: {}, aud: 'authenticated', created_at: '' },
+    user: { id: '0a000000-0000-4000-8000-000000000001', email, app_metadata: {}, user_metadata: userMetadata, aud: 'authenticated', created_at: '' },
   } as Session
 }
 
@@ -62,6 +66,22 @@ export function fakeAuthClient(
       }
       session = fakeSession(email)
       return { data: { session, user: session.user }, error: null }
+    }),
+    verifyOtp: vi.fn(async ({ token_hash }: { token_hash: string; type: 'magiclink' }) => {
+      if (!token_hash) return { data: { session: null, user: null }, error: { message: 'Sign-in failed.' } }
+      session = fakeSession(opts.session?.user.email ?? 'invitee@lotus.example', 'token-code', { needs_password: true })
+      notify('SIGNED_IN', session)
+      return { data: { session, user: session.user }, error: null }
+    }),
+    updateUser: vi.fn(async ({ password, data }: { password: string; data?: { needs_password?: boolean } }) => {
+      if (password.length < 8) return { data: { user: null }, error: { message: 'Password must be at least 8 characters' } }
+      if (session) {
+        session = {
+          ...session,
+          user: { ...session.user, user_metadata: { ...session.user.user_metadata, ...data } },
+        }
+      }
+      return { data: { user: session?.user ?? null }, error: null }
     }),
     signOut: vi.fn<(options?: { scope?: 'global' | 'local' | 'others' }) => Promise<{ error: null }>>(async () => {
       session = null

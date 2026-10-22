@@ -21,6 +21,7 @@ public static partial class EmailTemplates
             "signup_received" => Received(hospital, contact),
             "signup_approved" => Approved(hospital, contact, Link(variables, publicBaseUrl), Require(variables, "expiresOn")),
             "signup_rejected" => Rejected(hospital, contact, Require(variables, "reason")),
+            "sign_in_code" => SignInCode(hospital, Require(variables, "code"), Link(variables, publicBaseUrl), Require(variables, "expiresOn")),
             _ => throw new InvalidOperationException("Unknown email template."),
         };
     }
@@ -34,13 +35,15 @@ public static partial class EmailTemplates
         var subject = $"You're invited to {where} on MediCore HMS";
         var text =
             $"You have been invited to {where} on MediCore HMS as {roleLabel} ({scope}).\n\n" +
-            $"Open this link to accept. It works once and expires {when}. Sign in with this same email address.\n\n" +
+            $"Open this link. It works once and expires {when}. On that page we email a one-time sign-in code to this address. " +
+            "You then choose your own password. Nobody sends you a password.\n\n" +
             $"{link}\n\n" +
             "If you were not expecting this invitation, you can ignore this email.\n";
         var html = Document(subject, $"""
             <p>You have been invited to <strong>{H(where)}</strong> on MediCore HMS as {H(roleLabel)} ({H(scope)}).</p>
-            <p>The link works once and expires {H(when)}. Sign in with this same email address.</p>
-            {Button("Accept invitation", link)}
+            <p>The link works once and expires {H(when)}. On that page we email a one-time sign-in code to this address.
+            You then choose your own password. Nobody sends you a password.</p>
+            {Button("Open invitation", link)}
             """);
         return new RenderedEmail(subject, text, html);
     }
@@ -73,14 +76,14 @@ public static partial class EmailTemplates
         var text =
             $"Hello {name},\n\n" +
             $"{where} has been approved. You are the first administrator.\n\n" +
-            $"Create an account or sign in with this same email address, then open the link below. " +
-            $"It works once and expires {when}.\n\n" +
+            $"Open the link below. It works once and expires {when}. On that page we email a one-time sign-in code to this address. " +
+            "You then choose your own password. Nobody sends you a password.\n\n" +
             $"{link}\n";
         var html = Document(subject, $"""
             <p>Hello {H(name)},</p>
             <p><strong>{H(where)}</strong> has been approved. You are the first administrator.</p>
-            <p>Create an account or sign in with this same email address, then open the link.
-            It works once and expires {H(when)}.</p>
+            <p>The link works once and expires {H(when)}. On that page we email a one-time sign-in code to this address.
+            You then choose your own password. Nobody sends you a password.</p>
             {Button("Open your invite", link)}
             """);
         return new RenderedEmail(subject, text, html);
@@ -101,6 +104,31 @@ public static partial class EmailTemplates
             <p>The registration for <strong>{H(where)}</strong> was not approved.</p>
             <p><strong>Reason:</strong> {H(reason)}</p>
             <p>You can submit a new request if the details change.</p>
+            """);
+        return new RenderedEmail(subject, text, html);
+    }
+
+    private static RenderedEmail SignInCode(string? hospital, string code, string link, string expiresOn)
+    {
+        if (!SixDigits().IsMatch(code))
+        {
+            throw new InvalidOperationException("Sign-in email is missing a code.");
+        }
+
+        var where = string.IsNullOrWhiteSpace(hospital) ? "your hospital" : hospital;
+        var when = FormatWhen(expiresOn);
+        var magic = $"{link}#code={code}";
+        const string subject = "Your MediCore HMS sign-in code";
+        var text =
+            $"Your sign-in code for {where} is {code}.\n\n" +
+            $"It expires {when}. Open the link below, or type the code on the invite page. " +
+            "Then choose your own password. We never email a password.\n\n" +
+            $"{magic}\n";
+        var html = Document(subject, $"""
+            <p>Your sign-in code for <strong>{H(where)}</strong> is</p>
+            <p style="font-size:28px;letter-spacing:4px;font-weight:bold;">{H(code)}</p>
+            <p>It expires {H(when)}. Then choose your own password. We never email a password.</p>
+            {Button("Sign in with this code", magic)}
             """);
         return new RenderedEmail(subject, text, html);
     }
@@ -189,4 +217,7 @@ public static partial class EmailTemplates
 
     [GeneratedRegex("^[0-9a-fA-F]{64}$", RegexOptions.CultureInvariant)]
     private static partial Regex Token();
+
+    [GeneratedRegex("^[0-9]{6}$", RegexOptions.CultureInvariant)]
+    private static partial Regex SixDigits();
 }

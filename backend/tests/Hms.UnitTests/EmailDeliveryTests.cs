@@ -1,5 +1,7 @@
+using System.Net;
 using System.Text.Json;
 using Hms.Modules.Identity.Email;
+using Hms.Platform.Auth;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
@@ -52,6 +54,27 @@ public sealed class EmailTemplateTests
         {
             Assert.Contains("Not a hospital", rendered.TextBody, StringComparison.Ordinal);
         }
+    }
+
+    [Fact]
+    public void A_sign_in_code_email_contains_the_code_and_a_fragment_link()
+    {
+        using var document = JsonDocument.Parse(
+            $$"""{"hospitalName":"Synthetic Hospital","code":"123456","token":"{{Token}}","expiresOn":"2026-11-01T00:10:00Z"}""");
+        var rendered = EmailTemplates.Render("sign_in_code", document.RootElement, "https://links.example.test");
+        Assert.Contains("123456", rendered.TextBody, StringComparison.Ordinal);
+        Assert.Contains("https://links.example.test/invite/" + Token + "#code=123456", rendered.TextBody, StringComparison.Ordinal);
+        Assert.Contains("https://links.example.test/invite/" + Token + "#code=123456", rendered.HtmlBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("password is", rendered.TextBody, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void A_bad_sign_in_code_is_refused_without_echoing_it()
+    {
+        using var document = JsonDocument.Parse(
+            $$"""{"hospitalName":"H","code":"12-ABC","token":"{{Token}}","expiresOn":"soon"}""");
+        var error = Assert.Throws<InvalidOperationException>(() => EmailTemplates.Render("sign_in_code", document.RootElement, "https://links.example.test"));
+        Assert.DoesNotContain("12-ABC", error.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -252,14 +275,28 @@ public sealed class SmtpConfigurationTests
                 var value = password.ValueKind == JsonValueKind.String ? password.GetString() : null;
                 Assert.True(string.IsNullOrEmpty(value), file);
             }
+
+            if (document.RootElement.TryGetProperty("Auth", out var auth)
+                && auth.TryGetProperty("Supabase", out var supabase)
+                && supabase.TryGetProperty("ServiceRoleKey", out var serviceRole))
+            {
+                var value = serviceRole.ValueKind == JsonValueKind.String ? serviceRole.GetString() : null;
+                Assert.True(string.IsNullOrEmpty(value), file);
+            }
         }
 
         var workflow = File.ReadAllText(Path.Combine(root, ".github", "workflows", "deploy-aca.yml"));
         Assert.Contains("secrets.SMTP_PASSWORD", workflow, StringComparison.Ordinal);
+        Assert.Contains("secrets.SUPABASE_SERVICE_ROLE_KEY", workflow, StringComparison.Ordinal);
         Assert.Contains("Smtp__Password=secretref:smtp-password", workflow, StringComparison.Ordinal);
+        Assert.Contains("Auth__Supabase__ServiceRoleKey=secretref:supabase-service-role", workflow, StringComparison.Ordinal);
         Assert.Contains("refs/heads/main", workflow, StringComparison.Ordinal);
         Assert.DoesNotContain("pull_request:", workflow, StringComparison.Ordinal);
-        Assert.DoesNotContain("Smtp__Password=", workflow.Replace("Smtp__Password=secretref:smtp-password", "", StringComparison.Ordinal), StringComparison.Ordinal);
+        var assignments = workflow
+            .Replace("Smtp__Password=secretref:smtp-password", "", StringComparison.Ordinal)
+            .Replace("Auth__Supabase__ServiceRoleKey=secretref:supabase-service-role", "", StringComparison.Ordinal);
+        Assert.DoesNotContain("Smtp__Password=", assignments, StringComparison.Ordinal);
+        Assert.DoesNotContain("ServiceRoleKey=", assignments, StringComparison.Ordinal);
     }
 
     private static string FindRepo()
@@ -273,5 +310,72 @@ public sealed class SmtpConfigurationTests
         }
 
         throw new InvalidOperationException("repository root not found above the test output directory.");
+    }
+}
+
+public sealed class PasswordlessSessionIssuerTests
+{
+    [Fact]
+    public async Task An_empty_service_role_key_does_not_call_GoTrue()
+    {
+        var handler = new RecordingHandler();
+        var issuer = Issuer(handler, serviceRoleKey: "");
+        Assert.False(issuer.IsConfigured);
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => issuer.CreateAsync("person@synthetic.example", CancellationToken.None));
+        Assert.Equal(GoTruePasswordlessSessionIssuer.NotConfiguredMessage, error.Message);
+        Assert.Empty(handler.Requests);
+        Assert.DoesNotContain("person@", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_new_user_and_an_existing_user_both_return_the_token_hash()
+    {
+        var handler = new RecordingHandler(
+            new HttpResponseMessage(HttpStatusCode.UnprocessableEntity),
+            JsonResponse("""{"hashed_token":"hash-from-root","verification_type":"magiclink","email_otp":"999999"}"""));
+        var issuer = Issuer(handler, "test-service-role-key");
+        var proof = await issuer.CreateAsync("person@synthetic.example", CancellationToken.None);
+        Assert.Equal("hash-from-root", proof.TokenHash);
+        Assert.Equal("magiclink", proof.VerificationType);
+        Assert.Equal(2, handler.Requests.Count);
+        Assert.Equal("Bearer test-service-role-key", handler.Requests[0].Headers.Authorization?.ToString());
+        Assert.DoesNotContain("999999", proof.TokenHash, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_nested_hashed_token_is_accepted()
+    {
+        var handler = new RecordingHandler(
+            new HttpResponseMessage(HttpStatusCode.OK),
+            JsonResponse("""{"properties":{"hashed_token":"hash-nested"}}"""));
+        var proof = await Issuer(handler, "test-service-role-key").CreateAsync("person@synthetic.example", CancellationToken.None);
+        Assert.Equal("hash-nested", proof.TokenHash);
+    }
+
+    private static GoTruePasswordlessSessionIssuer Issuer(RecordingHandler handler, string serviceRoleKey) =>
+        new(new HttpClient(handler), Options.Create(new SupabaseAuthOptions
+        {
+            ProjectUrl = "https://auth.example.test",
+            ServiceRoleKey = serviceRoleKey,
+        }));
+
+    private static HttpResponseMessage JsonResponse(string json) =>
+        new(HttpStatusCode.OK) { Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json") };
+
+    private sealed class RecordingHandler(params HttpResponseMessage[] responses) : HttpMessageHandler
+    {
+        public List<HttpRequestMessage> Requests { get; } = [];
+
+        private int _index;
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Requests.Add(request);
+            var response = responses.Length == 0
+                ? new HttpResponseMessage(HttpStatusCode.InternalServerError)
+                : responses[Math.Min(_index, responses.Length - 1)];
+            _index++;
+            return Task.FromResult(response);
+        }
     }
 }

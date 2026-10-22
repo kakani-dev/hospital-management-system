@@ -1,3 +1,4 @@
+using Hms.Platform.Auth;
 using Hms.Platform.Persistence;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -18,8 +19,12 @@ public static class EmailDeliverySetup
         services.Configure<SmtpOptions>(configuration.GetSection(SmtpOptions.Section));
         services.Configure<EmailDeliveryOptions>(configuration.GetSection(EmailDeliveryOptions.Section));
         services.TryAddSingleton(TimeProvider.System);
+        services.Configure<SupabaseAuthOptions>(configuration.GetSection(SupabaseAuthOptions.Section));
         services.AddSingleton<IEmailSender, SmtpEmailSender>();
         services.AddSingleton<IEmailOutbox, PostgresEmailOutbox>();
+        services.AddSingleton<IInviteSignInStore, InviteSignInStore>();
+        services.AddHttpClient<IPasswordlessSessionIssuer, GoTruePasswordlessSessionIssuer>()
+            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
         services.AddHostedService<EmailOutboxDispatcher>();
         return services;
     }
