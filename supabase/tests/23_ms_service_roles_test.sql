@@ -53,6 +53,15 @@ select tests.ok(
   not pg_has_role('hms_api', 'hms_dispatcher', 'MEMBER') and not pg_has_role('hms_api_login', 'hms_dispatcher', 'MEMBER'),
   'B1: the legacy hms_api / hms_api_login can no longer reach hms_dispatcher');
 
+select tests.ok(
+  pg_has_role('hms_svc_identity', 'hms_mailer', 'SET')
+  and pg_has_role('hms_identity_login', 'hms_mailer', 'SET')
+  and not pg_has_role('hms_svc_scheduling', 'hms_mailer', 'SET')
+  and not pg_has_role('hms_svc_patients', 'hms_mailer', 'SET')
+  and not pg_has_role('hms_api', 'hms_mailer', 'MEMBER')
+  and not pg_has_role('hms_api_login', 'hms_mailer', 'MEMBER'),
+  'only the identity service can switch to hms_mailer; the legacy login cannot (B1)');
+
 -- ---------- outbox source_service (set by the DB, never by the caller) ----------
 select tests.ok(
   (select attnotnull from pg_attribute where attrelid = 'messaging.outbox'::regclass and attname = 'source_service'),

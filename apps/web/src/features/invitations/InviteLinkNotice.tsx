@@ -9,8 +9,8 @@ const formatExpiry = (iso: string, timeZone?: string) =>
   (timeZone ? '' : ' UTC')
 
 /**
- * The one-time invite link, shown ONCE right after it was issued. No email provider is configured,
- * so the person who issued it copies the link and sends it to the invitee themselves.
+ * The one-time invite link, shown ONCE right after it was issued. The same action queues an email;
+ * the link is also shown here in case that message is delayed.
  */
 export function InviteLinkNotice({ invite, email, timeZone }: { invite: InviteLinkIssued; email: string; timeZone?: string }) {
   const url = `${window.location.origin}${invite.path}`
@@ -18,8 +18,8 @@ export function InviteLinkNotice({ invite, email, timeZone }: { invite: InviteLi
   return (
     <div className="space-y-3" data-testid="invite-link-notice">
       <Alert tone="info">
-        Invite link for {email} (single use, expires {formatExpiry(invite.expiresOn, timeZone)}). No email was sent: copy the link and send it to them. It
-        is shown only now.
+        An email with this link is on its way to {email}. It works once, expires {formatExpiry(invite.expiresOn, timeZone)}, and is shown here only this
+        once if you also need to copy it.
       </Alert>
       <div className="flex flex-wrap items-end gap-2">
         <div className="min-w-0 grow">

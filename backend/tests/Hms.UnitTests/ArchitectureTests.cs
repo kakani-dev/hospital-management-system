@@ -59,6 +59,18 @@ public class ArchitectureTests
         Assert.Equal(["Hms.Platform"], References("edge/Hms.Edge/Hms.Edge.csproj"));
 
     [Fact]
+    public void Only_the_identity_service_registers_the_email_worker()
+    {
+        var identity = File.ReadAllText(Path.Combine(Backend, "services", "identity", "Hms.Identity.Api", "Program.cs"));
+        var gateway = File.ReadAllText(Path.Combine(Backend, "gateway", "Hms.Gateway", "Program.cs"));
+        var scheduling = File.ReadAllText(Path.Combine(Backend, "services", "scheduling", "Hms.Scheduling.Api", "Program.cs"));
+        Assert.Contains("AddIdentityEmailDelivery", identity, StringComparison.Ordinal);
+        Assert.DoesNotContain("AddIdentityEmailDelivery", gateway, StringComparison.Ordinal);
+        Assert.DoesNotContain("AddIdentityEmailDelivery", scheduling, StringComparison.Ordinal);
+        Assert.DoesNotContain("AddHmsOutboxDispatcher", identity, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Only_the_legacy_all_in_one_host_references_several_modules()
     {
         var sep = Path.DirectorySeparatorChar;

@@ -91,6 +91,8 @@ Tokens are numbered from 1 per branch per **branch-local** day, shared by appoin
 
 Appointment and queue changes write events (`appointment.*`, `queue.token_issued`, `queue.status_changed`) to `messaging.outbox` from DB triggers in the same transaction; the payload carries ids, status and times only (no PHI). The gateway's `OutboxDispatcher` (off by default: `Outbox:Dispatcher:Enabled`) claims batches as `hms_dispatcher` with SKIP LOCKED leases and publishes at least once; consumers dedupe on `eventId`.
 
+Invite links and hospital sign-up decisions write `email.*` events in the same transaction. The payload is `pending_email_id` and `template_key` only. The identity service sends them (`Email:Dispatcher:Enabled`, off by default) and dedupes on `event_id`. Sign-in and account-verification messages stay with Supabase Auth. See `docs/runbooks/email-delivery.md`.
+
 ## Errors
 
 Errors use RFC 7807 problem details with an optional machine-readable `code`:

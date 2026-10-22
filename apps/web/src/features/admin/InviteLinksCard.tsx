@@ -59,8 +59,8 @@ export function InviteLinksCard({ branches, timeZone }: { branches: Branch[]; ti
   return (
     <Card title="Invite links">
       <p className="mb-3 text-sm text-gray-600 dark:text-dark-200">
-        For people without an HMS account. The link works once, for that email only, and expires after 7 days. No email is sent: copy it and send it
-        yourself.
+        For people without an HMS account. The link is emailed to them, works once, for that email only, and expires after 7 days. It is also shown
+        here once so you can copy it if the message is delayed.
       </p>
       {error && <Alert tone="error">{error}</Alert>}
       <form noValidate aria-label="Create invite link" onSubmit={handleSubmit(onSubmit)} className="grid gap-4 sm:grid-cols-4 sm:items-end">

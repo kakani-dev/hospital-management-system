@@ -109,7 +109,7 @@ export function PlatformHospitalDetailPage() {
         </Card>
         <Card title="First admin invite">
           <p className="mb-3 text-sm text-gray-600 dark:text-dark-200">
-            Issue a new tenant-admin invite link (for example if the first one expired). Any earlier pending link for that email stops working.
+            Email a new tenant-admin invite link (for example if the first one expired). Any earlier pending link for that email stops working.
           </p>
           {invite ? (
             <InviteLinkNotice invite={invite.invite} email={invite.email} />

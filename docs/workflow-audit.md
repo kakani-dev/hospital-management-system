@@ -14,7 +14,7 @@ shots/before/audit.json); full-stack local Playwright (55 specs) on a throwaway 
 | B5 | Nav shows links a role can't open (e.g. Patients) | Sign in as lab tech | Medium | Owned by feat/rbac (not touched here) |
 | B6 | /api/v1/warmup returns 429 on repeated full page loads (console error, harmless) | Reload pages quickly | Low | Open — the warm-up should be once per session |
 | B7 | Invitees have no "create account" screen | Invite link for a new email | High (product gap) | Needs Mohith's decision |
-| B8 | Invite links are not emailed | Invite member | Medium | Needs email provider decision |
+| B8 | Invite links are not emailed | Invite member | Medium | Addressed: identity email outbox (Gmail SMTP behind `IEmailSender`; see `docs/runbooks/email-delivery.md`) |
 | B9 | Hospitals can only be suspended, not deactivated | Platform console | Low | Needs decision |
 
 ## UX friction (clicks)

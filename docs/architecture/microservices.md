@@ -71,8 +71,10 @@ to the owning service.
   per page of at most 500 ids and no cross-schema join. Soft-deleted patients still embed as
   `null`, so the API contract is unchanged.
 - **Outbox:** a single `messaging.outbox` table, where the database sets `source_service`. Only the
-  scheduling login may act as `hms_dispatcher`. The dispatcher is off by default
-  (`Outbox:Dispatcher:Enabled`) until a consumer exists.
+  scheduling login may act as `hms_dispatcher`. That dispatcher is off by default
+  (`Outbox:Dispatcher:Enabled`). Identity mail uses a separate role, `hms_mailer`, and
+  `Email:Dispatcher:Enabled` on the identity service only (off until `Smtp__Password` is set).
+  The legacy host registers neither mailer nor an enabled dispatcher (B1).
 
 ## Local development and tests
 

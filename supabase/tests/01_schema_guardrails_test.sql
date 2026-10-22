@@ -8,10 +8,11 @@ select tests.ok(
     from information_schema.tables t
     where t.table_schema in ('identity', 'patient', 'audit')
       and t.table_type = 'BASE TABLE'
-      and t.table_name not in ('tenants', 'user_profiles', 'platform_admins', 'audit_log', 'tenant_signup_requests', 'role_permissions')
+      and t.table_name not in ('tenants', 'user_profiles', 'platform_admins', 'audit_log', 'tenant_signup_requests', 'role_permissions', 'pending_emails')
       -- tenant root, global profile, platform operators, audit_log (tenant_id NULL for global rows since 20261012090000),
       -- public hospital sign-up requests (no tenant exists until a platform admin approves, 20261019090000),
-      -- and the global RBAC matrix (reference data, 20261020090000)
+      -- the global RBAC matrix (reference data, 20261020090000),
+      -- and pending product emails (a sign-up acknowledgement exists before any hospital, 20261022090000)
       and not exists (
         select 1 from information_schema.columns c
         where c.table_schema = t.table_schema and c.table_name = t.table_name
