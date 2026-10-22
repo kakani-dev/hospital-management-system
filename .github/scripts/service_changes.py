@@ -4,11 +4,15 @@
 Path rules (deploy order is always identity, patients, scheduling, then edge):
 
 - backend/platform, backend/shared, Directory.Build.props, Directory.Packages.props,
-  global.json, or .dockerignore change every image.
+  global.json, a backend packages.lock.json (the NuGet lock), or .dockerignore
+  change every image.
+- .github/scripts/aca-rollout.sh, .github/scripts/service_changes.py,
+  .github/scripts/aca-live-tags.sh, and .github/workflows/deploy-aca.yml also
+  change every image. A rollout or plan change has to roll the apps that are
+  already running, which a path filter on one service would skip.
 - Each service image otherwise changes only with its own host and module.
-- .github/workflows/deploy-aca.yml also selects the edge. The running edge revision
-  can be older than main (it was still sha-eb314ae when this pipeline was enabled)
-  even when backend/edge itself did not change.
+- When live image tags are supplied, an app whose running tag is not the tag
+  this commit would build is included too.
 - The legacy gateway, the Vercel app, and SQL migrations do not select an image.
   This pipeline never deploys medicore-hms-api.
 
@@ -47,9 +51,23 @@ SERVICE_PREFIXES = {
     "scheduling": ("backend/services/scheduling/", "backend/modules/Appointments/"),
     "edge": ("backend/edge/",),
 }
-# Enabling or changing the deploy workflow publishes the edge. Path filters on the
-# enabling commit would otherwise skip it, and ca-hms-edge was still on sha-eb314ae.
-EDGE_ALSO = {".github/workflows/deploy-aca.yml"}
+# Rollout and plan changes are not inside a service directory. They still have to
+# publish every app, or a merge that only touches these files deploys nothing.
+ALL_DEPLOY_FILES = {
+    ".github/scripts/aca-rollout.sh",
+    ".github/scripts/aca-live-tags.sh",
+    ".github/scripts/service_changes.py",
+    ".github/workflows/deploy-aca.yml",
+}
+# Basenames that rebuild every image when they sit at the repo root or under backend/.
+# packages.lock.json is the NuGet lock (RestorePackagesWithLockFile); there is no
+# lock file committed today, and a future one must not be filtered out.
+SHARED_BASENAMES = {
+    "Directory.Build.props",
+    "Directory.Packages.props",
+    "global.json",
+    "packages.lock.json",
+}
 
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 TAG_RE = re.compile(r"^sha-[0-9a-f]{7,40}$")
@@ -68,19 +86,59 @@ def norm(path: str) -> str:
     return path
 
 
+def affects_all(path: str) -> bool:
+    """True when this path is shared by every container image or by the deploy itself."""
+    if path in SHARED_FILES or path in ALL_DEPLOY_FILES or path.startswith(SHARED_PREFIXES):
+        return True
+    base = path.rsplit("/", 1)[-1]
+    if base not in SHARED_BASENAMES:
+        return False
+    return "/" not in path or path.startswith("backend/")
+
+
 def services_for_paths(paths: list[str]) -> list[str]:
     """Return deploy-ordered service names touched by these paths."""
     normalized = [norm(p) for p in paths if norm(p)]
-    if any(p in SHARED_FILES or p.startswith(SHARED_PREFIXES) for p in normalized):
+    if any(affects_all(path) for path in normalized):
         return list(ORDER)
     chosen = [
         service
         for service in ORDER
-        if any(p.startswith(SERVICE_PREFIXES[service]) for p in normalized)
+        if any(path.startswith(SERVICE_PREFIXES[service]) for path in normalized)
     ]
-    if any(p in EDGE_ALSO for p in normalized) and "edge" not in chosen:
-        chosen.append("edge")
     return [service for service in ORDER if service in chosen]
+
+
+def parse_live_tags(text: str) -> dict[str, str]:
+    """Parse `service<TAB>tag` lines for every app. Missing or extra services fail closed."""
+    found: dict[str, str] = {}
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if "\t" not in line:
+            raise SystemExit(f"live tag line must be service<TAB>tag, got {line!r}")
+        service, tag = line.split("\t", 1)
+        service, tag = service.strip(), tag.strip()
+        if service not in ORDER:
+            raise SystemExit(f"unknown service in live tags: {service}")
+        if service in found:
+            raise SystemExit(f"duplicate live tag for {service}")
+        if not tag:
+            raise SystemExit(f"{service} live image has no tag")
+        found[service] = tag
+    missing = [name for name in ORDER if name not in found]
+    if missing:
+        raise SystemExit(f"live image tags missing for {', '.join(missing)}")
+    return found
+
+
+def drifted_services(live_tags: dict[str, str], desired_tag: str) -> list[str]:
+    """Apps whose running image tag is not the tag this commit builds."""
+    missing = [name for name in ORDER if name not in live_tags]
+    if missing:
+        raise SystemExit(f"live image tags missing for {', '.join(missing)}")
+    return [name for name in ORDER if live_tags[name] != desired_tag]
 
 
 def image_tag(sha: str) -> str:
@@ -132,7 +190,13 @@ def matrix(services: list[str]) -> str:
     return json.dumps({"include": include}, separators=(",", ":"))
 
 
-def plan(sha: str, service: str, tag: str, paths: list[str]) -> dict[str, str]:
+def plan(
+    sha: str,
+    service: str,
+    tag: str,
+    paths: list[str],
+    live_tags: dict[str, str] | None = None,
+) -> dict[str, str]:
     if not SHA_RE.fullmatch(sha):
         raise SystemExit(f"sha must be 40 hex characters, got {sha!r}")
     service = service.strip()
@@ -142,7 +206,8 @@ def plan(sha: str, service: str, tag: str, paths: list[str]) -> dict[str, str]:
     if tag and not TAG_RE.fullmatch(tag):
         raise SystemExit(f"tag must look like sha-<7-40 hex>, got {tag!r}")
 
-    # Emergency hatch: an explicit tag is rolled onto one service or onto all four. Nothing is built.
+    # Emergency hatch: an explicit service or tag stays narrow. Drift does not widen it.
+    # An explicit tag is rolled as-is and nothing is built.
     if tag:
         services = [service] if service else list(ORDER)
         build = False
@@ -151,9 +216,13 @@ def plan(sha: str, service: str, tag: str, paths: list[str]) -> dict[str, str]:
         build = True
         tag = image_tag(sha)
     else:
-        services = services_for_paths(paths)
+        desired = image_tag(sha)
+        selected = set(services_for_paths(paths))
+        if live_tags is not None:
+            selected.update(drifted_services(live_tags, desired))
+        services = [name for name in ORDER if name in selected]
         build = bool(services)
-        tag = image_tag(sha)
+        tag = desired
 
     return {
         "sha": sha,
@@ -174,11 +243,21 @@ def self_test() -> None:
     assert services_for_paths(["apps/web/src/App.tsx", "backend/gateway/Program.cs"]) == []
     assert services_for_paths(["supabase/migrations/20261013090100_x.sql"]) == []
     assert services_for_paths(["backend/services/patients/Dockerfile"]) == ["patients"]
-    assert services_for_paths([".github/workflows/deploy-aca.yml"]) == ["edge"]
+    assert services_for_paths([".github/workflows/deploy-aca.yml"]) == list(ORDER)
+    assert services_for_paths([".github/scripts/aca-rollout.sh"]) == list(ORDER)
+    assert services_for_paths([".github/scripts/service_changes.py"]) == list(ORDER)
+    assert services_for_paths([".github/scripts/aca-live-tags.sh"]) == list(ORDER)
+    assert services_for_paths(["backend/Directory.Build.props"]) == list(ORDER)
+    assert services_for_paths(["backend/global.json"]) == list(ORDER)
+    assert services_for_paths(["backend/services/identity/packages.lock.json"]) == list(ORDER)
+    assert services_for_paths(["backend/shared/Hms.SharedKernel/Hms.SharedKernel.csproj"]) == list(ORDER)
     assert services_for_paths(
         ["backend/modules/Identity/Endpoints/Me.cs", ".github/workflows/deploy-aca.yml"]
-    ) == ["identity", "edge"]
+    ) == list(ORDER)
     assert services_for_paths([".github/workflows/ci.yml", "docs/deploy.md"]) == []
+    assert services_for_paths([".github/scripts/test-deploy-plan.sh"]) == []
+    assert services_for_paths([".github/scripts/aca-cleanup-azure.sh"]) == []
+    assert services_for_paths(["package-lock.json", "apps/web/package-lock.json"]) == []
     assert services_for_paths(["./backend/services/patients/Dockerfile"]) == ["patients"]
     assert services_for_paths(["backend/modules/Identity/Endpoints/Me.cs"]) == ["identity"]
     assert services_for_paths(["backend/modules/Appointments/Scheduling/Book.cs"]) == ["scheduling"]
@@ -242,6 +321,58 @@ def self_test() -> None:
     assert all_tags["services"] == "identity,patients,scheduling,edge"
     assert all_tags["build"] == "false"
 
+    old = "sha-" + "ca54690f712413349eebc2f105812223d16702d0"
+    assert len(old) == 44
+    desired = image_tag(sha)
+    current = {name: desired for name in ORDER}
+    stale = {name: old for name in ORDER}
+    assert drifted_services(current, desired) == []
+    assert drifted_services(stale, desired) == list(ORDER)
+    assert parse_live_tags("".join(f"{name}\t{old}\n" for name in ORDER)) == stale
+    try:
+        parse_live_tags(f"identity\t{old}\n")
+    except SystemExit:
+        pass
+    else:
+        raise AssertionError("incomplete live tags must be rejected")
+
+    web_only = ["apps/web/src/main.tsx"]
+    caught_up = plan(sha, "", "", web_only, current)
+    assert caught_up["deploy"] == "false" and caught_up["build"] == "false"
+
+    behind = plan(sha, "", "", web_only, stale)
+    assert behind["deploy"] == "true" and behind["build"] == "true"
+    assert behind["services"] == "identity,patients,scheduling,edge"
+    assert behind["tag"] == desired
+
+    one = dict(current)
+    one["scheduling"] = old
+    partial = plan(sha, "", "", ["backend/services/patients/Dockerfile"], one)
+    assert partial["services"] == "patients,scheduling"
+    assert partial["build"] == "true" and partial["tag"] == desired
+
+    # Emergency hatch stays narrow even when every running image is stale.
+    pinned = plan(sha, "edge", "", web_only, stale)
+    assert pinned["services"] == "edge" and pinned["build"] == "true"
+    rolled = plan(sha, "", old, web_only, stale)
+    assert rolled["services"] == "identity,patients,scheduling,edge" and rolled["build"] == "false"
+    assert rolled["tag"] == old
+
+    # A merge that only touches the rollout/plan scripts still builds all four.
+    scripted = plan(
+        sha,
+        "",
+        "",
+        [
+            ".github/scripts/aca-rollout.sh",
+            ".github/scripts/service_changes.py",
+            ".github/workflows/deploy-aca.yml",
+        ],
+        current,
+    )
+    assert scripted["services"] == "identity,patients,scheduling,edge"
+    assert scripted["build"] == "true" and scripted["tag"] == desired
+
     root = Path(__file__).resolve().parents[2]
     for rel in DOCKERFILES.values():
         if not (root / rel).is_file():
@@ -276,6 +407,7 @@ def main(argv: list[str]) -> None:
         raise SystemExit(f"unknown command {cmd}")
     sha = service = tag = ""
     files: list[str] = []
+    live_tags: dict[str, str] | None = None
     args = argv[2:]
     i = 0
     while i < len(args):
@@ -293,9 +425,12 @@ def main(argv: list[str]) -> None:
             text = Path(file_arg).read_text(encoding="utf-8") if file_arg != "-" else sys.stdin.read()
             files = [line for line in text.splitlines() if line.strip()]
             i += 2
+        elif args[i] == "--live":
+            live_tags = parse_live_tags(Path(args[i + 1]).read_text(encoding="utf-8"))
+            i += 2
         else:
             raise SystemExit(f"unknown argument {args[i]}")
-    emit(plan(sha, service, tag, files))
+    emit(plan(sha, service, tag, files, live_tags))
 
 
 if __name__ == "__main__":
