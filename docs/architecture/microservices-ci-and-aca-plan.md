@@ -1,6 +1,8 @@
 # MediCore HMS microservices: CI per service + Azure Container Apps plan (PLAN ONLY)
 
 Status: **PLAN, nothing executed.** Written 9 Oct 2026, ~18:40 IST, from `main @ 1306b8a` (Sprint 2 merged).
+
+**Update October 2026:** `.github/workflows/ci.yml` now has a `changes` job, per-job pass markers, reporter jobs for the four required check names, and a `ci-ok` aggregate. Nightly `schedule` and `workflow_dispatch` run everything and ignore the pass cache. The reusable per-service workflows in this plan are still not what CI runs.
 **Update 19 Oct 2026 (IST), rebased on main @ 495f987 (PRs #4, #5, #6 merged):** the code gaps listed at prep time are
 closed on main: edge-key / pool-size / routing code is committed, `backend/edge/Dockerfile` plus one Dockerfile per service
 exist, and CI builds and health-smokes every image (non-required). Still open before Deploy day: (1) no workflow *publishes*

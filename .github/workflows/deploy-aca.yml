@@ -13,6 +13,10 @@
 # Azure auth: OIDC via azure/login (secrets AZURE_CLIENT_ID / AZURE_TENANT_ID / AZURE_SUBSCRIPTION_ID;
 # IDs only, no client secret). The container apps must already exist (infra/aca/deploy-aca.sh): this
 # workflow rolls the image (`az containerapp update --image`).
+# On workflow_run after CI succeeds for a push to main, only services whose image inputs
+# changed are built and rolled (a frontend-only or migration-only push deploys nothing).
+# workflow_dispatch with an empty services list still deploys all four. cancel-in-progress
+# stays false so a newer push does not abort a rollout that is already applying.
 # On a deploy job from main (not a pull request or a fork), the identity app also receives the
 # repository secrets SMTP_PASSWORD (Container Apps secret smtp-password, env Smtp__Password=secretref:smtp-password)
 # and SUPABASE_SERVICE_ROLE_KEY (secret supabase-service-role, env Auth__Supabase__ServiceRoleKey=secretref:supabase-service-role).
@@ -38,6 +42,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: deploy-aca
@@ -58,16 +63,59 @@ jobs:
     outputs:
       sha: ${{ steps.p.outputs.sha }}
       matrix: ${{ steps.p.outputs.matrix }}
+      deploy: ${{ steps.p.outputs.deploy }}
     steps:
+      - uses: actions/checkout@v7
+        if: github.event_name == 'workflow_run'
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 1
       - id: p
         env:
           INPUT_SHA: ${{ inputs.sha }}
           INPUT_SERVICES: ${{ inputs.services }}
           RUN_SHA: ${{ github.event.workflow_run.head_sha }}
           DISPATCH_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
         run: |
+          set -euo pipefail
           sha="${INPUT_SHA:-${RUN_SHA:-$DISPATCH_SHA}}"
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::sha must be 40 hex, got '$sha'"; exit 1; }
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_run" ] && [ -z "${INPUT_SERVICES}" ]; then
+            want=""
+            if pr=$(gh api "repos/${REPO}/commits/${sha}/pulls" --jq '.[0].number // empty'); then
+              if [ -n "$pr" ]; then
+                if ! files=$(gh api --paginate "repos/${REPO}/pulls/${pr}/files?per_page=100" --jq '.[].filename'); then
+                  echo "::warning::could not list files for PR #${pr}; deploying all services"
+                  want="identity,patients,scheduling,edge"
+                elif [ -f .github/scripts/deploy-changed-services.sh ]; then
+                  want=$(printf '%s\n' "$files" | bash .github/scripts/deploy-changed-services.sh)
+                else
+                  echo "::warning::deploy-changed-services.sh missing; deploying all services"
+                  want="identity,patients,scheduling,edge"
+                fi
+                echo "PR #${pr} services: ${want:-<none>}"
+              else
+                echo "No pull request associated with ${sha}; deploying all services"
+                want="identity,patients,scheduling,edge"
+              fi
+            else
+              echo "::warning::could not list pull-request files; deploying all services"
+              want="identity,patients,scheduling,edge"
+            fi
+            if [ -z "$want" ]; then
+              {
+                echo "sha=${sha}"
+                echo "deploy=false"
+                echo 'matrix={"include":[{"service":"edge","dockerfile":"backend/edge/Dockerfile"}]}'
+              } >> "$GITHUB_OUTPUT"
+              echo "No service image inputs changed at ${sha}; not deploying." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            INPUT_SERVICES="$want"
+          fi
+          echo "deploy=true" >> "$GITHUB_OUTPUT"
           all='identity,patients,scheduling,edge'
           want="${INPUT_SERVICES:-$all}"
           json=$(python3 - "$want" "$all" <<'PY'
@@ -92,14 +140,14 @@ jobs:
   image:
     name: Image ${{ matrix.service }}
     needs: plan
-    if: vars.ACA_DEPLOY_ENABLED == 'true'
+    if: vars.ACA_DEPLOY_ENABLED == 'true' && needs.plan.outputs.deploy == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
     strategy:
       fail-fast: true
-      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix || '{"include":[{"service":"edge","dockerfile":"backend/edge/Dockerfile"}]}') }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -127,7 +175,7 @@ jobs:
   deploy:
     name: Deploy ${{ matrix.service }}
     needs: [plan, image]
-    if: vars.ACA_DEPLOY_ENABLED == 'true'
+    if: vars.ACA_DEPLOY_ENABLED == 'true' && needs.plan.outputs.deploy == 'true'
     runs-on: ubuntu-latest
     environment: aca-dev            # required reviewer: Mohith (repo settings; approval item A6)
     permissions:
@@ -136,7 +184,7 @@ jobs:
     strategy:
       fail-fast: true
       max-parallel: 1               # services first, edge last (matrix order); one at a time
-      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix || '{"include":[{"service":"edge","dockerfile":"backend/edge/Dockerfile"}]}') }}
     concurrency:
       group: deploy-aca-${{ matrix.service }}
       cancel-in-progress: false
@@ -204,7 +252,7 @@ jobs:
   smoke:
     name: Post-deploy smoke (public checks)
     needs: [plan, deploy]
-    if: vars.ACA_DEPLOY_ENABLED == 'true'
+    if: vars.ACA_DEPLOY_ENABLED == 'true' && needs.plan.outputs.deploy == 'true'
     runs-on: ubuntu-latest
     environment: aca-dev
     permissions:

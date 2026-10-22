@@ -1,0 +1,21 @@
+name: Save CI pass marker
+description: Save an actions/cache marker keyed <job>-<hash> after the job succeeds. Callers should set continue-on-error so a cache write failure does not fail a green job.
+inputs:
+  job:
+    description: Job id used as the cache key prefix
+    required: true
+  hash:
+    description: Hash of the job's inputs
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      working-directory: ${{ github.workspace }}
+      run: |
+        mkdir -p .ci-pass
+        printf '%s %s\n' "${{ inputs.job }}" "${{ inputs.hash }}" > .ci-pass/marker
+    - uses: actions/cache/save@v6
+      with:
+        path: .ci-pass
+        key: ${{ inputs.job }}-${{ inputs.hash }}

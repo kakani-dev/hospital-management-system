@@ -87,11 +87,26 @@ to the owning service.
   each with its own login role) | `monolith` | `edge-url` (with `HMS_SYSTEM_BASE_URL`). Tests that
   need in-process hosts are tagged `[Trait("Mode","in-process-only")]`.
 - CI (required check names unchanged):
-  - **Backend** builds and unit-tests every project.
-  - **SQL/RLS + integration** runs the migration chain check, then the SQL tests, then the API
-    suite through the edge, then the API suite against the monolith on a fresh database.
-  - **Playwright E2E** runs through the edge.
-  - **Service images** builds and boots all five images, only when Docker-relevant files change.
+  - A `changes` job maps paths to jobs. Shared files (workflows, lockfiles, root config, CI
+    scripts) select every job. Each heavy job then skips when `actions/cache` already holds a
+    pass marker for that job's input hash (`<job>-<hash>`, git tree ids of its paths plus
+    `ci.yml`). The marker is saved only after success, so a failed job reruns on the next push.
+  - **Frontend** runs for `apps/web/**`.
+  - **Backend** builds and unit-tests every project, and also runs when `supabase/migrations/**` changes.
+  - **SQL/RLS + integration** runs the migration chain check, the SQL tests, the API suite
+    through the edge, then the API suite against the monolith on a fresh database. It runs for
+    migrations, other SQL inputs, and backend changes. The Supabase-stack prototype follows the
+    SQL and migration paths and stays `continue-on-error`.
+  - **Playwright E2E** (full stack and mocked web) runs when web or API/service paths, or their
+    test files, change. A migration-only change does not select them.
+  - **Service images** build and boot only the images whose Docker inputs changed.
+  - `schedule` (04:17 UTC nightly on main) and `workflow_dispatch` ignore the pass cache and run
+    every heavy job. Push to main still deploys only the services whose image inputs changed
+    (`deploy-aca.yml`, `cancel-in-progress: false`).
+  - The four required check names are reporter jobs. They **succeed** when the heavy job was
+    skipped, and **fail** when that job or `changes` failed or was cancelled. `ci-ok` is the
+    aggregate: `needs` every job, `if: always()`, and it fails only when a needed job failed or
+    was cancelled (the prototype is ignored). Branch protection does not need a settings change.
 
 ## Phase 1 deploy (Azure Container Apps): what it needs
 
