@@ -457,7 +457,7 @@ export class ApiClient {
     restore: (id: string) => this.request<void>(`/api/v1/patients/${encodeURIComponent(id)}/restore`, { method: 'POST' }),
     /** Counts only (no PHI); omit branchId for the whole hospital. */
     stats: (params: { branchId?: string } = {}) => this.request<PatientStats>(`/api/v1/patients/stats${qs(params)}`),
-    /** Possible duplicates (≤ 20, advisory). Identifiers are PHI: body, never URL. */
+    /** Possible duplicates (≤ 20). Identifiers are PHI: body, never URL. Email, phone and ABHA block registration. */
     duplicates: async (body: DuplicateCheckRequest) => {
       const result = await this.request<{ candidates?: DuplicateCandidate[] } | DuplicateCandidate[] | undefined>('/api/v1/patients/duplicates', {
         method: 'POST',

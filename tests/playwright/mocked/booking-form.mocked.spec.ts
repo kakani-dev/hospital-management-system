@@ -73,7 +73,7 @@ test('no free slots on the date: says so and links admins to working hours', asy
   for (const s of backend.schedules) if (s.practitionerId === practitionerIds.rao) s.validTo = branchToday()
   await form.getByLabel('Appointment date').fill(addDays(branchToday(), 1))
   const none = form.getByTestId('no-free-slots')
-  await expect(none).toContainText('No free slots on this day. Try another date')
+  await expect(none.getByTestId('slot-empty-reason')).toContainText('no working hours')
   await expect(none.getByRole('link', { name: 'check working hours' })).toHaveAttribute('href', '/admin/working-hours')
   await shot(page, info, 'booking-no-free-slots')
 })

@@ -5,10 +5,9 @@ using static Hms.IntegrationTests.HmsApiFactory;
 namespace Hms.IntegrationTests.Sprint2Qa;
 
 /// <summary>
-/// Duplicate patient detection (contract §1.4-1.5, §A.3, D3): same tenant, not deleted, matched on
-/// name+DOB (trimmed, case-insensitive) or normalized phone (last 10 digits); both-reasons first;
-/// at most 20; advisory only (create still succeeds and returns duplicateWarnings).
-/// Every test uses a fresh random surname/phone so results are deterministic on a shared database.
+/// Duplicate patient detection: email, phone and ABHA are a hard conflict in the hospital.
+/// An exact name warns (name_dob when both dates match, name when either date is blank) and create
+/// stores a reason. Another hospital never appears. Every test uses a fresh surname or phone.
 /// </summary>
 [Trait("Category", "Database")]
 public sealed class QaDuplicateDetectionApiTests(HmsApiFactory factory) : IClassFixture<HmsApiFactory>
@@ -30,7 +29,8 @@ public sealed class QaDuplicateDetectionApiTests(HmsApiFactory factory) : IClass
         Assert.Equal<string>(["name_dob"], hit.MatchReasons);
 
         Assert.Empty(await CheckAsync(admin, new { firstName = "Leela", lastName = surname, dateOfBirth = Dob.AddDays(1) }));
-        Assert.Empty(await CheckAsync(admin, new { firstName = "Leela", lastName = surname })); // no DOB -> no name_dob match
+        var blankDob = Assert.Single(await CheckAsync(admin, new { firstName = "Leela", lastName = surname }));
+        Assert.Equal<string>(["name"], blankDob.MatchReasons);
         Assert.Empty(await CheckAsync(admin, new { firstName = "Leelavathi", lastName = surname, dateOfBirth = Dob }));
     }
 
@@ -60,18 +60,15 @@ public sealed class QaDuplicateDetectionApiTests(HmsApiFactory factory) : IClass
         var digits = Qa.NewPhoneDigits();
         var nameOnly = await Qa.CreatePatientAsync(admin, AlphaMain, "Arun", surname, Dob);
         var phoneOnly = await Qa.CreatePatientAsync(admin, AlphaMain, "Zed", Qa.NewSurname("Aaa"), new DateOnly(2000, 1, 1), digits);
-        var both = await Qa.CreatePatientAsync(admin, AlphaEast, "Arun", surname, Dob, digits);
 
         var candidates = await CheckAsync(admin, new { firstName = "Arun", lastName = surname, dateOfBirth = Dob, phone = digits });
-        Assert.Equal(both.Id, candidates[0].Id);
-        Assert.Equal<string>(["name_dob", "phone"], candidates[0].MatchReasons.Order());
-        // Both-reasons first, then last_name, first_name, mrn ("Zz-Aaa-..." sorts before "Zz-Rank-...").
-        Assert.Equal<Guid>([both.Id, phoneOnly.Id, nameOnly.Id], candidates.Select(c => c.Id));
+        Assert.Equal(phoneOnly.Id, candidates[0].Id);
+        Assert.Equal<string>(["phone"], candidates[0].MatchReasons);
+        Assert.Equal<Guid>([phoneOnly.Id, nameOnly.Id], candidates.Select(c => c.Id));
 
-        // Editing `both`: it must not report itself.
-        var whileEditing = await CheckAsync(admin, new { firstName = "Arun", lastName = surname, dateOfBirth = Dob, phone = digits, excludePatientId = both.Id });
-        Assert.DoesNotContain(whileEditing, c => c.Id == both.Id);
-        Assert.Equal(2, whileEditing.Count);
+        var whileEditing = await CheckAsync(admin, new { firstName = "Arun", lastName = surname, dateOfBirth = Dob, phone = digits, excludePatientId = phoneOnly.Id });
+        Assert.DoesNotContain(whileEditing, c => c.Id == phoneOnly.Id);
+        Assert.Equal(nameOnly.Id, Assert.Single(whileEditing).Id);
     }
 
     [Fact]
@@ -95,19 +92,52 @@ public sealed class QaDuplicateDetectionApiTests(HmsApiFactory factory) : IClass
     }
 
     [Fact]
-    public async Task Duplicates_are_advisory_create_succeeds_with_warnings()
+    public async Task Same_name_needs_a_stored_reason_and_email_phone_or_abha_is_a_hard_block()
     {
         using var reception = factory.ClientAs(AlphaReception, Alpha);
         var surname = Qa.NewSurname("Adv");
-        var first = await Qa.CreatePatientAsync(reception, AlphaMain, "Nila", surname, Dob);
+        var email = $"{Guid.NewGuid():N}@patients.example";
+        var digits = Qa.NewPhoneDigits();
+        var first = await Qa.CreatePatientAsync(reception, AlphaMain, "Nila", surname, Dob, digits);
         Assert.Empty(first.DuplicateWarnings!);
 
-        var second = await Qa.CreatePatientAsync(reception, AlphaMain, "Nila", surname, Dob);
-        Assert.NotEqual(first.Id, second.Id);
-        var warning = Assert.Single(second.DuplicateWarnings!);
-        Assert.Equal((first.Id, first.Mrn), (warning.Id, warning.Mrn));
-        Assert.Contains("name_dob", warning.MatchReasons);
-        Assert.Equal(2L, await Qa.ScalarAsync<long>("select count(*) from patient.patients where last_name = @l", ("l", surname)));
+        var blocked = await reception.PostAsJsonAsync(QaRoutes.Patients, new
+        {
+            firstName = "Nila", lastName = surname, dateOfBirth = Dob, sex = "female", registeredBranchId = AlphaMain,
+        });
+        Assert.Equal(HttpStatusCode.Conflict, blocked.StatusCode);
+        Assert.Equal("duplicate_name_confirmation", await Qa.CodeAsync(blocked));
+
+        var second = await reception.PostAsJsonAsync(QaRoutes.Patients, new
+        {
+            firstName = "Nila", lastName = surname, dateOfBirth = Dob, sex = "female", registeredBranchId = AlphaMain,
+            duplicateOverrideReason = "Twin registered at the other desk", email,
+        });
+        Assert.Equal(HttpStatusCode.Created, second.StatusCode);
+        var created = await second.Content.ReadFromJsonAsync<QaPatient>();
+        Assert.Contains("name_dob", Assert.Single(created!.DuplicateWarnings!).MatchReasons);
+        Assert.Equal("Twin registered at the other desk", await Qa.ScalarAsync<string>(
+            "select duplicate_override_reason from patient.patients where id = @id", ("id", created.Id)));
+
+        var sharedPhone = await reception.PostAsJsonAsync(QaRoutes.Patients, new
+        {
+            firstName = "Other", lastName = Qa.NewSurname("Ph"), sex = "female", registeredBranchId = AlphaMain, phone = $"0{digits}",
+        });
+        Assert.Equal(HttpStatusCode.Conflict, sharedPhone.StatusCode);
+        Assert.Equal("duplicate_patient", await Qa.CodeAsync(sharedPhone));
+
+        var sharedEmail = await reception.PostAsJsonAsync(QaRoutes.Patients, new
+        {
+            firstName = "Other", lastName = Qa.NewSurname("Em"), sex = "female", registeredBranchId = AlphaMain, email = email.ToUpperInvariant(),
+        });
+        Assert.Equal(HttpStatusCode.Conflict, sharedEmail.StatusCode);
+        Assert.Equal("duplicate_patient", await Qa.CodeAsync(sharedEmail));
+
+        using var beta = factory.ClientAs(BetaAdmin, Beta);
+        Assert.Equal(HttpStatusCode.Created, (await beta.PostAsJsonAsync(QaRoutes.Patients, new
+        {
+            firstName = "Other", lastName = Qa.NewSurname("Be"), sex = "female", registeredBranchId = BetaMain, email,
+        })).StatusCode);
     }
 
     [Fact]

@@ -59,8 +59,10 @@ public sealed class InProcessApiTests : IClassFixture<InProcessApiTests.ApiFacto
 
     private static string NewMrn(string prefix = "t") => $"{prefix}-{Guid.NewGuid():N}"[..20];
 
+    // Each chart gets its own name. The in-memory registry is shared by this class, and a repeated
+    // name is now a 409 until a reason is stored. Tests that care about the name pass their own.
     private static object NewPatient(Guid branch, string? mrn = null, string? dob = null) =>
-        new { mrn = mrn ?? NewMrn(), firstName = "Test", lastName = "Patient", registeredBranchId = branch, dateOfBirth = dob };
+        new { mrn = mrn ?? NewMrn(), firstName = "Test", lastName = $"P{Guid.NewGuid():N}"[..12], registeredBranchId = branch, dateOfBirth = dob };
 
     [Fact]
     public async Task M1_role_at_another_branch_does_not_authorize_writes_here()

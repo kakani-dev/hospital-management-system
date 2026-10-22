@@ -115,46 +115,38 @@ select tests.ok(
    where q.id = (select queue_entry_id from t_q3)),
   'MAJ-1: in_consultation -> cancelled via the queue keeps queue and appointment consistent');
 
--- ---------- MIN-3: patients UPDATE row filter covers the current branch ----------
+-- ---------- chart edits are hospital-wide; another hospital stays invisible ----------
 -- Meera (aa..03) is registered at Alpha East; reception@alpha.example is scoped to Alpha Main.
 select tests.authenticate_as('reception@alpha.example');
 select tests.ok(
   tests.affected_rows($$update patient.patients set first_name = 'Edited'
-                        where id = 'aa000000-0000-4000-8000-000000000003'$$) = 0,
-  'MIN-3: receptionist@Main cannot edit an East patient (0 rows)');
-select tests.ok(
-  tests.affected_rows($$update patient.patients set registered_branch_id = 'a1111111-0000-4000-8000-000000000001', first_name = 'Moved'
-                        where id = 'aa000000-0000-4000-8000-000000000003'$$) = 0,
-  'MIN-3: receptionist@Main cannot move an East patient into Main (PoC D4, 0 rows)');
-select tests.ok(
-  tests.affected_rows($$update patient.patients set email = 'min3@patients.example'
-                        where id = 'aa000000-0000-4000-8000-000000000001'$$) = 1,
-  'MIN-3: receptionist@Main can still edit a Main patient');
-select tests.throws_ok(
-  $$update patient.patients set registered_branch_id = 'a1111111-0000-4000-8000-000000000002'
-    where id = 'aa000000-0000-4000-8000-000000000001'$$,
-  '42501', 'MIN-3: receptionist@Main cannot move a Main patient to East (WITH CHECK, new branch)');
-
-select tests.authenticate_as('reception-east-15@alpha.example');
-select tests.ok(
-  tests.affected_rows($$update patient.patients set first_name = 'Meera'
                         where id = 'aa000000-0000-4000-8000-000000000003'$$) = 1,
-  'MIN-3: receptionist@East can edit an East patient');
-select tests.ok(
-  tests.affected_rows($$update patient.patients set first_name = 'Edited'
-                        where id = 'aa000000-0000-4000-8000-000000000001'$$) = 0,
-  'MIN-3: receptionist@East cannot edit a Main patient (0 rows)');
-
-select tests.authenticate_as('admin@alpha.example');
+  'receptionist@Main can edit an East patient');
 select tests.ok(
   tests.affected_rows($$update patient.patients set registered_branch_id = 'a1111111-0000-4000-8000-000000000001'
                         where id = 'aa000000-0000-4000-8000-000000000003'$$) = 1,
-  'MIN-3: tenant admin (all branches) can still move a patient between branches');
+  'receptionist@Main can change the registered branch to another branch of this hospital');
+select tests.ok(
+  tests.affected_rows($$update patient.patients set first_name = 'Nope'
+                        where id = 'bb000000-0000-4000-8000-000000000001'$$) = 0,
+  'receptionist@Main cannot edit a Beta patient (0 rows)');
+
+select tests.authenticate_as('lab@alpha.example');
+select tests.ok(
+  tests.affected_rows($$update patient.patients set first_name = 'Lab'
+                        where id = 'aa000000-0000-4000-8000-000000000001'$$) = 0,
+  'lab technician has no patients.edit (0 rows)');
+
+select tests.authenticate_as('admin@alpha.example');
+select tests.ok(
+  tests.affected_rows($$update patient.patients set first_name = 'Meera', registered_branch_id = 'a1111111-0000-4000-8000-000000000002'
+                        where id = 'aa000000-0000-4000-8000-000000000003'$$) = 1,
+  'tenant admin can still move a patient between branches');
 
 select tests.as_superuser();
 select tests.ok(
-  (select first_name = 'Meera' and registered_branch_id = 'a1111111-0000-4000-8000-000000000001'
+  (select first_name = 'Meera' and registered_branch_id = 'a1111111-0000-4000-8000-000000000002'
    from patient.patients where id = 'aa000000-0000-4000-8000-000000000003'),
-  'MIN-3: only the permitted edits landed');
+  'the permitted edits landed and the East registration was restored');
 
 rollback;

@@ -28,7 +28,7 @@ public static class HmsPermissions
     public const string AppointmentsNoShow = "appointments.no_show";
     /// <summary>No-show only on appointments of the practitioner linked to the caller (doctor).</summary>
     public const string AppointmentsNoShowOwn = "appointments.no_show_own";
-    /// <summary>Book a follow-up of an earlier appointment of the practitioner linked to the caller (doctor).</summary>
+    /// <summary>Book a follow-up of any earlier visit in the hospital, at a branch the caller can access (doctor).</summary>
     public const string AppointmentsBookFollowUpOwn = "appointments.book_followup_own";
     /// <summary>Book outside the practitioner's working hours (explicit override, audited).</summary>
     public const string AppointmentsOverrideHours = "appointments.override_hours";

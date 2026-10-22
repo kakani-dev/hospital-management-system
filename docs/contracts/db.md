@@ -127,9 +127,10 @@ adds a cross-schema reference must carry the header line `-- cross-schema: appro
   row with both flags; a different WhatsApp number is a second row. RLS mirrors `patients` (read roles,
   deleted rows admin-only, the parent patient must be visible); clients only get `SELECT`.
   Writes go through `patient.set_patient_phones(patient, phone, whatsapp_same, whatsapp)` (definer:
-  P0002 foreign/deleted patient, 42501 no writer role at the branch, 22023 bad input), which soft-deletes
-  rows whose flags change and inserts the new ones.
+  P0002 foreign/deleted patient, 42501 without `patients.edit` in the hospital, 22023 bad input, 23505 when
+  another live patient already has that number), which soft-deletes rows whose flags change and inserts the new ones.
 - **`patients.phone` is deprecated (expand → contract).** It is kept as a mirror of the primary number,
   written only by `set_patient_phones`; clients can no longer write it. TODO (contract step): drop the
   column once no reader is left. Duplicate detection (`find_duplicate_patients`) and phone search read
-  `patient_phones` (any live number, last 10 digits).
+  `patient_phones` (any live number, last 10 digits). Email, phone and ABHA are unique among live patients
+  of the hospital. An exact name is a warning (`name_dob` when both dates match, `name` when either date is blank).

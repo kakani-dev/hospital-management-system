@@ -67,7 +67,8 @@ export const patientSchema = createPatientSchema()
 
 export type PatientFormValues = z.infer<typeof patientSchema>
 
-export function toCreatePatientRequest(v: PatientFormValues) {
+export function toCreatePatientRequest(v: PatientFormValues, duplicateOverrideReason?: string) {
+  const reason = duplicateOverrideReason?.trim()
   return {
     firstName: v.firstName.trim(),
     lastName: v.lastName.trim(),
@@ -78,6 +79,7 @@ export function toCreatePatientRequest(v: PatientFormValues) {
     email: v.email || null,
     whatsapp: toWhatsappInput(v),
     abhaNumber: toAbha(v.abhaNumber ?? ''),
+    ...(reason ? { duplicateOverrideReason: reason } : {}),
   }
 }
 
@@ -87,7 +89,8 @@ export const patientEditSchema = createPatientEditSchema()
 export type PatientEditValues = z.infer<typeof patientEditSchema>
 
 /** Full replacement of the editable fields; cleared optional fields are sent as null. */
-export function toUpdatePatientRequest(v: PatientEditValues) {
+export function toUpdatePatientRequest(v: PatientEditValues, duplicateOverrideReason?: string) {
+  const reason = duplicateOverrideReason?.trim()
   return {
     firstName: v.firstName.trim(),
     lastName: v.lastName.trim(),
@@ -98,5 +101,6 @@ export function toUpdatePatientRequest(v: PatientEditValues) {
     email: v.email || null,
     whatsapp: toWhatsappInput(v),
     abhaNumber: toAbha(v.abhaNumber ?? ''),
+    ...(reason ? { duplicateOverrideReason: reason } : {}),
   }
 }

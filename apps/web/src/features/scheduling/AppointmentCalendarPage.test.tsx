@@ -264,8 +264,28 @@ describe('AppointmentCalendarPage', () => {
     await waitFor(() => expect(within(form).getAllByRole('option').length).toBeGreaterThan(1))
     await user.selectOptions(within(form).getByLabelText('Practitioner'), DR_RAO)
     const none = await within(form).findByTestId('no-free-slots')
-    expect(none).toHaveTextContent('No free slots on this day. Try another date')
+    expect(within(none).getByTestId('slot-empty-reason')).toBeInTheDocument()
     expect(within(none).getByRole('link', { name: 'check working hours' })).toHaveAttribute('href', '/admin/working-hours')
+  })
+
+  it('offers the next date that still has a free slot', async () => {
+    const day = addDays(today(), 3)
+    routes(['receptionist'], {
+      'GET /api/v1/slots': (url) => {
+        const from = url.searchParams.get('from')
+        const to = url.searchParams.get('to')
+        if (from === to) return json([])
+        return json([{ practitionerId: DR_RAO, branchId: ALPHA_MAIN, startsAt: at(day, '10:00'), endsAt: at(day, '10:15') }])
+      },
+    }, ALPHA_MAIN)
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: '/appointments', auth: fakeAuthClient({ session: fakeSession() }) })
+    await user.click(await screen.findByRole('button', { name: 'Book appointment' }))
+    const form = screen.getByRole('form', { name: 'Book appointment' })
+    await waitFor(() => expect(within(form).getAllByRole('option').length).toBeGreaterThan(1))
+    await user.selectOptions(within(form).getByLabelText('Practitioner'), DR_RAO)
+    await user.click(await within(form).findByTestId('next-free-day'))
+    expect(within(form).getByLabelText('Appointment date')).toHaveValue(day)
   })
 
   it('cancels a booked appointment', async () => {

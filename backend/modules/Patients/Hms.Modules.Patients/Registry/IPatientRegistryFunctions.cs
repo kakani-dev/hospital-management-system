@@ -10,9 +10,13 @@ namespace Hms.Modules.Patients.Registry;
 /// </summary>
 public interface IPatientRegistryFunctions
 {
-    /// <summary><c>patient.find_duplicate_patients</c>: advisory, RLS-scoped, max 20 rows, both-reasons first.</summary>
+    /// <summary>
+    /// <c>patient.find_duplicate_patients</c>: live patients in this hospital. Email, phone and ABHA are hard
+    /// matches; exact name is a warning (<c>name_dob</c> when both dates match, <c>name</c> when either date is blank).
+    /// </summary>
     Task<IReadOnlyList<DuplicateCandidateDto>> FindDuplicatesAsync(
-        Guid tenantId, string? firstName, string? lastName, DateOnly? dateOfBirth, string? phone, Guid? excludePatientId, CancellationToken ct);
+        Guid tenantId, string? firstName, string? lastName, DateOnly? dateOfBirth, string? phone, Guid? excludePatientId,
+        string? email, string? abha, CancellationToken ct);
 
     /// <summary><c>patient.soft_delete_patient</c>: P0002 not found/deleted, 42501, 55000 open appointments/queue, 22023 reason too long.</summary>
     Task SoftDeleteAsync(Guid patientId, string? reason, CancellationToken ct);
@@ -29,7 +33,7 @@ public interface IPatientRegistryFunctions
     /// <summary>
     /// <c>patient.set_patient_phones</c>: sets the DESIRED numbers (E.164 or null). whatsappSameAsPhone
     /// flags the phone row; otherwise whatsapp is a separate number (equal to phone = same row).
-    /// 22023 invalid, P0002 not found, 42501 no writer role at the patient's branch.
+    /// 22023 invalid, P0002 not found, 42501 no patients.edit in the hospital, 23505 duplicate phone.
     /// </summary>
     Task SetPhonesAsync(Guid patientId, string? phone, bool whatsappSameAsPhone, string? whatsapp, CancellationToken ct);
 }

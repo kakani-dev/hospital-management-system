@@ -44,7 +44,7 @@ const CAPABILITIES = {
   'schedules.view': ['practitioners.view'],
   'appointments.view': ['appointments.view'],
   'appointments.book': ['appointments.book'],
-  /** Follow-up of an earlier visit: any booker, or a doctor for their own patients (server checks ownership). */
+  /** Follow-up of an earlier visit: any booker, or any clinician who may book follow-ups at this branch. */
   'appointments.bookFollowUp': ['appointments.book', 'appointments.book_followup_own'],
   /** Book outside the doctor's working hours (admins; audited). */
   'appointments.overrideHours': ['appointments.override_hours'],

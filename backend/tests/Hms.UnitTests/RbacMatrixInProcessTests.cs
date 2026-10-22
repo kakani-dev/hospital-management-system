@@ -63,7 +63,7 @@ public sealed class RbacMatrixInProcessTests(ApiFactory factory) : IClassFixture
         }
 
         var response = await client.SendAsync(request);
-        // doctors reach the booking endpoint for their own follow-ups (the body then decides)
+        // doctors reach the booking endpoint for a follow-up (the body then decides)
         var allowed = HmsPermissions.ByRole[role].Contains(a.Permission)
             || (a.Permission == HmsPermissions.AppointmentsBook && HmsPermissions.ByRole[role].Contains(HmsPermissions.AppointmentsBookFollowUpOwn));
         if (allowed)
