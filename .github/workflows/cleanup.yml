@@ -1,57 +1,82 @@
-name: Cleanup old artifacts and caches
+# Weekly (and on demand) cleanup.
+# Real mode is the default. workflow_dispatch can set dry_run=true to print actions only.
+# GitHub: artifacts older than 7 days, caches unused for 7 days.
+# Azure (when the OIDC secrets exist): keep the 10 newest sha- tags per service plus every
+# tag that is currently deployed; deactivate inactive Container Apps revisions outside the
+# newest 3. Never deletes the running image or the revision that has traffic.
+# Does not touch medicore-hms-api.
+name: Cleanup old artifacts, caches, and revisions
 
-# Deletes GitHub Actions artifacts older than 7 days and caches not used for 7 days.
-# Runs weekly and on demand. Uses only the workflow's GITHUB_TOKEN (no stored secrets).
 on:
   schedule:
     - cron: "17 3 * * 1" # Mondays 03:17 UTC
   workflow_dispatch:
     inputs:
+      dry_run:
+        description: "Print what would be deleted without deleting"
+        type: boolean
+        default: false
       max_age_days:
-        description: "Delete artifacts/caches older than / unused for this many days"
+        description: "Delete artifacts and caches older than / unused for this many days"
         required: false
         default: "7"
 
 permissions:
-  actions: write
   contents: read
 
 concurrency:
   group: cleanup
   cancel-in-progress: false
 
+env:
+  RESOURCE_GROUP: rg-medicore-hms-dev
+  ACR_NAME: acrmedicorehmsdev
+
 jobs:
-  cleanup:
+  github:
     name: Delete stale artifacts and caches
     runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       REPO: ${{ github.repository }}
       MAX_AGE_DAYS: ${{ github.event.inputs.max_age_days || '7' }}
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
     steps:
-      - name: Compute cutoff
-        run: |
-          [[ "$MAX_AGE_DAYS" =~ ^[0-9]+$ ]] || { echo "max_age_days must be an integer"; exit 1; }
-          echo "CUTOFF=$(date -u -d "-${MAX_AGE_DAYS} days" +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v7
+      - name: Delete stale artifacts and caches
+        run: bash .github/scripts/cleanup-github.sh
 
-      - name: Delete artifacts older than cutoff
+  azure:
+    name: Prune registry tags and inactive revisions
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Azure OIDC secrets present?
+        id: gate
         run: |
-          deleted=0
-          while read -r id name created; do
-            [[ -z "$id" ]] && continue
-            echo "Deleting artifact $id ($name, created $created)"
-            gh api -X DELETE "repos/$REPO/actions/artifacts/$id" && deleted=$((deleted + 1))
-          done < <(gh api --paginate "repos/$REPO/actions/artifacts?per_page=100" \
-                     --jq ".artifacts[] | select(.expired == false and .created_at < \"$CUTOFF\") | \"\(.id) \(.name) \(.created_at)\"")
-          echo "Deleted $deleted artifact(s) created before $CUTOFF" | tee -a "$GITHUB_STEP_SUMMARY"
-
-      - name: Delete caches not used since cutoff
-        run: |
-          deleted=0
-          while read -r id key last; do
-            [[ -z "$id" ]] && continue
-            echo "Deleting cache $id ($key, last used $last)"
-            gh cache delete "$id" --repo "$REPO" && deleted=$((deleted + 1))
-          done < <(gh cache list --repo "$REPO" --limit 1000 --json id,key,lastAccessedAt \
-                     --jq ".[] | select(.lastAccessedAt < \"$CUTOFF\") | \"\(.id) \(.key) \(.lastAccessedAt)\"")
-          echo "Deleted $deleted cache(s) not used since $CUTOFF" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [[ -n "$AZURE_CLIENT_ID" && -n "$AZURE_TENANT_ID" && -n "$AZURE_SUBSCRIPTION_ID" ]]; then
+            echo "ready=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >>"$GITHUB_OUTPUT"
+            echo "Azure OIDC secrets are not set, so registry and revision cleanup was skipped. Run scripts/azure-oidc-setup.sh once." >>"$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: azure/login@v2
+        if: steps.gate.outputs.ready == 'true'
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Prune registry tags and inactive revisions
+        if: steps.gate.outputs.ready == 'true'
+        run: bash .github/scripts/aca-cleanup-azure.sh

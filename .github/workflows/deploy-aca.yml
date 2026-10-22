@@ -1,215 +1,154 @@
-# =====================================================================================================
-# DRAFT - Deploy MediCore HMS microservices to Azure Container Apps (docs/architecture/microservices-ci-and-aca-plan.md)
+# Deploy identity, patients, scheduling, and the YARP edge to Azure Container Apps.
 #
-# INERT BY DEFAULT: every job is gated on the repository variable ACA_DEPLOY_ENABLED == 'true'. Until
-# Mohith approves (plan "Deploy day" checklist: A2 environment + apps, A4 public GHCR packages, A6 OIDC
-# federated credential + RG-scoped role, GitHub environment "aca-dev" with him as required reviewer),
-# that variable must stay unset and this workflow does nothing.
+# Push to main runs CI first. This workflow starts only after that CI run succeeds, builds
+# the images whose paths changed, pushes sha-<12 hex> to ACR, shifts traffic, and smoke-tests
+# through the public edge. A failed health or smoke check puts traffic back on the previous
+# revision and fails the run. workflow_dispatch is an emergency hatch (one service and/or an
+# existing tag), not the normal path.
 #
-# Triggers:
-#   - workflow_dispatch: deploy a chosen sha (default: the dispatching commit) for chosen services.
-#   - workflow_run: after the "CI" workflow completes successfully on main (push), deploy that sha.
-# Images: ghcr.io/kakani-dev/hms-<svc>:sha-<40hex> built with GITHUB_TOKEN (packages: write).
-# Azure auth: OIDC via azure/login (secrets AZURE_CLIENT_ID / AZURE_TENANT_ID / AZURE_SUBSCRIPTION_ID;
-# IDs only, no client secret). The container apps must already exist (infra/aca/deploy-aca.sh): this
-# workflow rolls the image (`az containerapp update --image`).
-# On a deploy job from main (not a pull request or a fork), the identity app also receives the
-# repository secrets SMTP_PASSWORD (Container Apps secret smtp-password, env Smtp__Password=secretref:smtp-password)
-# and SUPABASE_SERVICE_ROLE_KEY (secret supabase-service-role, env Auth__Supabase__ServiceRoleKey=secretref:supabase-service-role).
-# Neither value is echoed. No hosted database migration ever runs from here.
-# =====================================================================================================
-name: Deploy to Azure Container Apps (DRAFT)
+# Auth is Azure OIDC (AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID). No client secret,
+# no registry password. Nothing in this workflow waits on a repository variable or a
+# GitHub environment reviewer, so a merge to main deploys after CI with no extra click.
+# A deploy of ca-hms-identity stores SMTP_PASSWORD as smtp-password and
+# SUPABASE_SERVICE_ROLE_KEY as supabase-service-role, and turns on the email dispatcher.
+# Identity is not rolled if either secret is empty. Other apps do not receive those secrets.
+#
+# Does not deploy the Vercel web app, does not modify medicore-hms-api, does not turn the
+# outbox dispatcher on, and does not run a database migration.
+# One-time Azure setup: scripts/azure-oidc-setup.sh and docs/deploy.md.
+name: Deploy to Azure Container Apps
 
 on:
-  workflow_dispatch:
-    inputs:
-      sha:
-        description: "Full 40-hex commit sha on main to deploy (blank = this run's commit)"
-        required: false
-        default: ""
-      services:
-        description: "Comma-separated subset of identity,patients,scheduling,edge (blank = all)"
-        required: false
-        default: ""
   workflow_run:
-    workflows: [CI]
+    workflows: ["CI"]
     types: [completed]
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      service:
+        description: "Emergency only. One of identity, patients, scheduling, edge. Blank uses change detection, or all four when tag is set."
+        required: false
+        default: ""
+      tag:
+        description: "Emergency only. Existing image tag sha-<hex> to roll onto. Blank builds this commit."
+        required: false
+        default: ""
 
 permissions:
   contents: read
 
 concurrency:
   group: deploy-aca
-  cancel-in-progress: false
+  # A newer push cancels a deploy that has not finished. An emergency dispatch waits its turn
+  # so it does not interrupt a rollback already in progress.
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 env:
-  REGISTRY: ghcr.io/kakani-dev
   RESOURCE_GROUP: rg-medicore-hms-dev
+  ACR_NAME: acrmedicorehmsdev
+  ACR_LOGIN_SERVER: acrmedicorehmsdev.azurecr.io
 
 jobs:
   plan:
-    name: Plan (sha + services)
+    name: Plan (changed services)
     if: >-
-      vars.ACA_DEPLOY_ENABLED == 'true' &&
-      (github.event_name == 'workflow_dispatch' ||
-       (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'))
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-latest
     outputs:
       sha: ${{ steps.p.outputs.sha }}
+      tag: ${{ steps.p.outputs.tag }}
+      build: ${{ steps.p.outputs.build }}
+      deploy: ${{ steps.p.outputs.deploy }}
+      services: ${{ steps.p.outputs.services }}
       matrix: ${{ steps.p.outputs.matrix }}
     steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 2
       - id: p
         env:
-          INPUT_SHA: ${{ inputs.sha }}
-          INPUT_SERVICES: ${{ inputs.services }}
-          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
-          DISPATCH_SHA: ${{ github.sha }}
+          INPUT_SERVICE: ${{ github.event_name == 'workflow_dispatch' && inputs.service || '' }}
+          INPUT_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || '' }}
+          SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
         run: |
-          sha="${INPUT_SHA:-${RUN_SHA:-$DISPATCH_SHA}}"
-          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::sha must be 40 hex, got '$sha'"; exit 1; }
-          all='identity,patients,scheduling,edge'
-          want="${INPUT_SERVICES:-$all}"
-          json=$(python3 - "$want" "$all" <<'PY'
-          import json, sys
-          want = [s.strip() for s in sys.argv[1].split(",") if s.strip()]
-          allowed = sys.argv[2].split(",")
-          bad = [s for s in want if s not in allowed]
-          if bad:
-              sys.exit(f"unknown service(s): {bad}")
-          want = [s for s in allowed if s in want]   # services first, edge last
-          files = {"edge": "backend/edge/Dockerfile",
-                   "identity": "backend/services/identity/Dockerfile",
-                   "patients": "backend/services/patients/Dockerfile",
-                   "scheduling": "backend/services/scheduling/Dockerfile"}
-          print(json.dumps({"include": [{"service": s, "dockerfile": files[s]} for s in want]}))
-          PY
-          )
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "matrix=$json" >> "$GITHUB_OUTPUT"
-          echo "Deploying $sha: $want" >> "$GITHUB_STEP_SUMMARY"
+          set -euo pipefail
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::sha must be 40 hex, got '$SHA'"; exit 1; }
+          files="$(mktemp)"
+          if [[ -z "$INPUT_TAG" && -z "$INPUT_SERVICE" ]]; then
+            if git rev-parse --verify -q 'HEAD^' >/dev/null; then
+              git diff --name-only 'HEAD^' HEAD >"$files"
+            else
+              printf '%s\n' backend/platform/__all__ >"$files"
+            fi
+          fi
+          python3 .github/scripts/service_changes.py plan \
+            --sha "$SHA" --service "$INPUT_SERVICE" --tag "$INPUT_TAG" --files "$files" \
+            | tee -a "$GITHUB_OUTPUT"
+          echo "Changed files considered; see the plan outputs above." >>"$GITHUB_STEP_SUMMARY"
 
   image:
     name: Image ${{ matrix.service }}
     needs: plan
-    if: vars.ACA_DEPLOY_ENABLED == 'true'
+    if: needs.plan.outputs.build == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
-      packages: write
+      id-token: write
     strategy:
       fail-fast: true
-      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+      # An empty include is a valid matrix. The fallback covers a skipped plan job,
+      # whose outputs are blank; fromJSON of a blank string fails the workflow file.
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix || '{"include":[]}') }}
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.plan.outputs.sha }}
       - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ${{ matrix.dockerfile }}
-          push: true
-          tags: ${{ env.REGISTRY }}/hms-${{ matrix.service }}:sha-${{ needs.plan.outputs.sha }}
-          labels: |
-            org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.revision=${{ needs.plan.outputs.sha }}
-          sbom: true
-          provenance: mode=max
-          cache-from: type=gha,scope=img-${{ matrix.service }}
-          cache-to: type=gha,scope=img-${{ matrix.service }},mode=max
-
-  deploy:
-    name: Deploy ${{ matrix.service }}
-    needs: [plan, image]
-    if: vars.ACA_DEPLOY_ENABLED == 'true'
-    runs-on: ubuntu-latest
-    environment: aca-dev            # required reviewer: Mohith (repo settings; approval item A6)
-    permissions:
-      contents: read
-      id-token: write
-    strategy:
-      fail-fast: true
-      max-parallel: 1               # services first, edge last (matrix order); one at a time
-      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
-    concurrency:
-      group: deploy-aca-${{ matrix.service }}
-      cancel-in-progress: false
-    steps:
       - uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      - name: Roll image (no secrets, no scale or ingress changes)
-        if: matrix.service != 'identity' || github.event.repository.fork == true || github.event_name == 'pull_request' || (github.ref != 'refs/heads/main' && github.event.workflow_run.head_branch != 'main')
-        env:
-          APP: ca-hms-${{ matrix.service }}
-          IMAGE: ${{ env.REGISTRY }}/hms-${{ matrix.service }}:sha-${{ needs.plan.outputs.sha }}
-        run: |
-          az containerapp show -g "$RESOURCE_GROUP" -n "$APP" -o none   # must already exist (deploy-aca.sh)
-          az containerapp update -g "$RESOURCE_GROUP" -n "$APP" --image "$IMAGE" -o none
-          az containerapp show -g "$RESOURCE_GROUP" -n "$APP" \
-            --query "{image:properties.template.containers[0].image,min:properties.template.scale.minReplicas,max:properties.template.scale.maxReplicas,revision:properties.latestRevisionName}" -o table
-      - name: Roll identity image and bind mail secrets (main only)
-        if: matrix.service == 'identity' && github.event.repository.fork == false && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.event.workflow_run.head_branch == 'main')
-        env:
-          APP: ca-hms-identity
-          IMAGE: ${{ env.REGISTRY }}/hms-identity:sha-${{ needs.plan.outputs.sha }}
-          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: |
-          set -euo pipefail
-          case $- in *x*) echo "::error::refusing to run with xtrace"; exit 1 ;; esac
-          if [ -z "${SMTP_PASSWORD:-}" ] || [ -z "${SUPABASE_SERVICE_ROLE_KEY:-}" ]; then
-            echo "::error::Repository secret SMTP_PASSWORD or SUPABASE_SERVICE_ROLE_KEY is empty. Refusing to deploy identity without them."
-            exit 1
-          fi
-          az containerapp show -g "$RESOURCE_GROUP" -n "$APP" -o none
-          # Both values are GitHub secrets, so the runner masks them. Do not echo them.
-          python3 - <<'PY'
-          import os, subprocess, sys
-          smtp = os.environ.get("SMTP_PASSWORD") or ""
-          role = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or ""
-          if not smtp or not role:
-              sys.exit("SMTP_PASSWORD or SUPABASE_SERVICE_ROLE_KEY is missing")
-          app = os.environ["APP"]
-          rg = os.environ["RESOURCE_GROUP"]
-          image = os.environ["IMAGE"]
+      - name: Log in to ACR with the OIDC token
+        run: az acr login --name "$ACR_NAME"
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          platforms: linux/amd64
+          tags: ${{ env.ACR_LOGIN_SERVER }}/hms-${{ matrix.service }}:${{ needs.plan.outputs.tag }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ needs.plan.outputs.sha }}
+          sbom: true
+          provenance: mode=max
+          cache-from: type=gha,scope=hms-${{ matrix.service }}
+          cache-to: type=gha,scope=hms-${{ matrix.service }},mode=max
 
-          def redact(text):
-              return text.replace(smtp, "***").replace(role, "***")
-
-          def run(args):
-              result = subprocess.run(args, capture_output=True, text=True)
-              if result.returncode != 0:
-                  sys.stderr.write(redact(result.stderr))
-                  sys.exit(f"{args[1]} {args[2]} failed")
-
-          run(["az", "containerapp", "secret", "set", "-g", rg, "-n", app, "--secrets",
-               f"smtp-password={smtp}", f"supabase-service-role={role}", "-o", "none"])
-          run(["az", "containerapp", "update", "-g", rg, "-n", app, "--image", image, "-o", "none",
-               "--set-env-vars", "Smtp__Password=secretref:smtp-password",
-               "Auth__Supabase__ServiceRoleKey=secretref:supabase-service-role",
-               "Email__Dispatcher__Enabled=true"])
-          PY
-          az containerapp show -g "$RESOURCE_GROUP" -n "$APP" \
-            --query "{image:properties.template.containers[0].image,min:properties.template.scale.minReplicas,max:properties.template.scale.maxReplicas,revision:properties.latestRevisionName}" -o table
-
-  smoke:
-    name: Post-deploy smoke (public checks)
-    needs: [plan, deploy]
-    if: vars.ACA_DEPLOY_ENABLED == 'true'
+  deploy:
+    name: Deploy and smoke
+    needs: [plan, image]
+    if: >-
+      always() && !cancelled() &&
+      needs.plan.result == 'success' &&
+      needs.plan.outputs.deploy == 'true' &&
+      (needs.image.result == 'success' || needs.image.result == 'skipped')
     runs-on: ubuntu-latest
-    environment: aca-dev
+    timeout-minutes: 30
     permissions:
       contents: read
       id-token: write
+    env:
+      IMAGE_TAG: ${{ needs.plan.outputs.tag }}
+      SERVICES: ${{ needs.plan.outputs.services }}
+      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -219,7 +158,11 @@ jobs:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      - name: Gateway smoke (health, per-service readiness, CORS, isolation; no sign-in, no writes)
+      - name: Roll out, wait for health, smoke, roll back on failure
         run: |
-          fqdn=$(az containerapp show -g "$RESOURCE_GROUP" -n ca-hms-edge --query properties.configuration.ingress.fqdn -o tsv)
-          GATEWAY_URL="https://$fqdn" SMOKE_AUTH=0 bash scripts/smoke/smoke-gateway.sh
+          set -euo pipefail
+          IFS=',' read -r -a services <<<"$SERVICES"
+          bash .github/scripts/aca-rollout.sh "${services[@]}"
+      - name: Restore previous revisions if this job was cancelled
+        if: cancelled()
+        run: bash .github/scripts/aca-rollout.sh --rollback-only
