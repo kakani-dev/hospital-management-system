@@ -12,6 +12,25 @@ python3 -m py_compile .github/scripts/service_changes.py .github/scripts/retenti
 python3 .github/scripts/service_changes.py --self-test
 python3 .github/scripts/retention.py --self-test
 
+# The revision Azure rejected was ca-hms-edge--sha-<40 hex> (57 characters).
+# Every app's full revision name must stay <= 54. Image tags stay the full sha.
+grep -q 'Azure allows at most 54' .github/scripts/aca-rollout.sh \
+  || fail "rollout is missing the 54-character revision-name guard"
+failed_sha=b896ba108cf95c3193dbf7598d2882659a8c0da9
+failed_tag="sha-${failed_sha}"
+[[ "${#failed_sha}" -eq 40 && "$failed_tag" == "sha-${failed_sha}" ]] || fail "image tag fixture was shortened"
+for app in ca-hms-edge ca-hms-identity ca-hms-patients ca-hms-scheduling; do
+  suffix="$(python3 .github/scripts/service_changes.py suffix --app "$app" --tag "$failed_tag")"
+  name="${app}--${suffix}"
+  [[ "$suffix" == "s-${failed_sha:0:12}" ]] || fail "$app suffix is '$suffix', expected s-${failed_sha:0:12}"
+  [[ "$suffix" =~ ^[a-z][a-z0-9-]*[a-z0-9]$ ]] || fail "$app suffix '$suffix' is not lowercase alnum/hyphen"
+  [[ "$suffix" != *"--"* ]] || fail "$app suffix contains consecutive hyphens"
+  if ((${#name} > 54)); then
+    fail "revision name $name is ${#name} characters (Azure max is 54)"
+  fi
+  echo "revision $name (${#name} chars) image $failed_tag"
+done
+
 for script in \
   .github/scripts/aca-rollout.sh \
   .github/scripts/aca-cleanup-azure.sh \
@@ -376,7 +395,9 @@ run_rollout pass patients
 grep -q 'ingress traffic set' "$ROLLOUT_LOG" || fail "success run did not shift traffic"
 grep -q 'revision deactivate' "$ROLLOUT_LOG" && fail "success run deactivated a revision" || true
 grep -q 'secret set' "$ROLLOUT_LOG" && fail "patients deploy stored an identity secret" || true
-new_rev="ca-hms-patients--sha-0123456789ab"
+new_rev="ca-hms-patients--s-0123456789ab"
+grep -q -- "--revision-suffix s-0123456789ab" "$ROLLOUT_LOG" || fail "short revision suffix was not used"
+grep -q 'hms-patients:sha-0123456789ab' "$ROLLOUT_LOG" || fail "image tag was not kept in full"
 grep -q -- "--revision-weight ${new_rev}=100" "$ROLLOUT_LOG" || fail "traffic did not move to $new_rev"
 grep -q 'sha-prevprevprev=100' "$ROLLOUT_LOG" && fail "success run rolled traffic back" || true
 echo "rollout success ok"
@@ -444,9 +465,24 @@ SMTP_PASSWORD='smtp-test-value' SUPABASE_SERVICE_ROLE_KEY='role-test-value' \
   HEALTH_TIMEOUT_SECONDS=1 FAIL_LIVE_AFTER=1 run_rollout fail identity patients
 for app in ca-hms-identity ca-hms-patients; do
   grep -q "${app}--sha-prevprevprev=100" "$ROLLOUT_LOG" || fail "$app was not restored"
-  grep -q -- "--revision ${app}--sha-0123456789ab" "$ROLLOUT_LOG" || fail "$app new revision was not deactivated"
+  grep -q -- "--revision ${app}--s-0123456789ab" "$ROLLOUT_LOG" || fail "$app new revision was not deactivated"
+  grep -q "hms-${app#ca-hms-}:sha-0123456789ab" "$ROLLOUT_LOG" || fail "$app image tag was shortened"
 done
 echo "rollout multi-service rollback ok"
+
+# The name Azure rejected on main b896ba1. Rollback must deactivate s-<12 sha>,
+# and the container image must still be the full sha- tag.
+IMAGE_TAG="sha-${failed_sha}" HEALTH_TIMEOUT_SECONDS=1 FAIL_READY=1 run_rollout fail edge
+grep -q "hms-edge:sha-${failed_sha}" "$ROLLOUT_LOG" || fail "full sha image tag was not used"
+grep -q -- '--revision-suffix s-b896ba108cf9' "$ROLLOUT_LOG" || fail "short revision suffix was not used for the rejected sha"
+grep -q -- '--revision ca-hms-edge--s-b896ba108cf9' "$ROLLOUT_LOG" || fail "rollback did not find the short revision name"
+grep -q 'ca-hms-edge--sha-prevprevprev=100' "$ROLLOUT_LOG" || fail "traffic was not restored to the previous revision"
+if grep -q "ca-hms-edge--sha-${failed_sha}" "$ROLLOUT_LOG"; then
+  fail "rollout still used the 57-character revision name Azure rejected"
+fi
+IMAGE_TAG=sha-0123456789ab
+unset FAIL_READY
+echo "rollout full-sha revision name ok"
 
 SMTP_PASSWORD='smtp-test-value' SUPABASE_SERVICE_ROLE_KEY='role-test-value' \
   FAIL_ROUTE=1 run_rollout fail identity

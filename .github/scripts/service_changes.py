@@ -14,6 +14,8 @@ Path rules (deploy order is always identity, patients, scheduling, then edge):
 
 Image tags are sha- plus the full 40-character commit sha, matching the tags
 already running in ACR (acrmedicorehmsdev.azurecr.io/hms-<svc>:sha-<40 hex>).
+Revision names are "{app}--s-<first 12 hex>" and must be at most 54 characters.
+The image tag is not shortened to make the revision name fit.
 """
 
 from __future__ import annotations
@@ -51,9 +53,12 @@ EDGE_ALSO = {".github/workflows/deploy-aca.yml"}
 
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 TAG_RE = re.compile(r"^sha-[0-9a-f]{7,40}$")
-SHORT_LEN = 12  # only used when a suffix would make the revision name longer than 64
-# Container Apps revision names are "{app}--{suffix}" and must be at most 64 characters.
-MAX_REVISION_NAME = 64
+SUFFIX_RE = re.compile(r"^[a-z][a-z0-9-]*[a-z0-9]$")
+# Azure rejects "{app}--{suffix}" longer than 54 characters. s- plus 12 hex fits
+# every current app (ca-hms-scheduling--s-<12> is 33). The image tag stays full.
+SUFFIX_HEX = 12
+MAX_REVISION_NAME = 54
+APPS = tuple(f"ca-hms-{service}" for service in ORDER)
 
 
 def norm(path: str) -> str:
@@ -86,19 +91,32 @@ def image_tag(sha: str) -> str:
 
 
 def revision_suffix(app: str, tag: str) -> str:
-    """Suffix that keeps '{app}--{suffix}' within the Container Apps name limit.
+    """Short revision suffix. The image tag is left unchanged.
 
-    The suffix starts with a letter (Azure rejects a leading digit).
+    Azure names the revision "{app}--{suffix}" and rejects that string when it
+    is longer than 54 characters. sha- plus a 40-character sha is already 44
+    characters, so ca-hms-edge--sha-<40> is 57 and was rejected. The suffix is
+    s- plus the first 12 hex characters of the tag (all of them when the tag
+    is shorter). It is lowercase letters, digits, and single hyphens, and it
+    starts with a letter.
     """
     if not TAG_RE.fullmatch(tag):
         raise SystemExit(f"image tag must look like sha-<hex>, got {tag!r}")
-    suffix = tag
-    if len(app) + 2 + len(suffix) > MAX_REVISION_NAME:
-        suffix = "sha-" + tag.split("-", 1)[1][:SHORT_LEN]
-    if len(app) + 2 + len(suffix) > MAX_REVISION_NAME:
-        raise SystemExit(f"revision name for {app} and {tag} is still too long")
-    if not re.fullmatch(r"[a-z][a-z0-9-]*[a-z0-9]", suffix):
-        raise SystemExit(f"revision suffix {suffix!r} is not a valid Container Apps suffix")
+    if not app:
+        raise SystemExit("app name is required")
+    hexpart = tag.split("-", 1)[1]
+    suffix = "s-" + hexpart[:SUFFIX_HEX]
+    name = f"{app}--{suffix}"
+    if (
+        len(name) > MAX_REVISION_NAME
+        or not SUFFIX_RE.fullmatch(suffix)
+        or "--" in suffix
+        or not name[0].isalpha()
+    ):
+        raise SystemExit(
+            f"revision name {name} is not a valid Container Apps revision "
+            f"({len(name)} characters; Azure allows at most {MAX_REVISION_NAME})"
+        )
     return suffix
 
 
@@ -185,14 +203,27 @@ def self_test() -> None:
     else:
         raise AssertionError("short sha must be rejected")
 
-    assert revision_suffix("ca-hms-scheduling", "sha-" + "a" * 12) == "sha-" + "a" * 12
-    # The longest app name plus sha- and 40 hex is 63 characters, inside the 64 limit.
-    long_tag = "sha-" + "b" * 40
-    assert revision_suffix("ca-hms-scheduling", long_tag) == long_tag
-    assert len("ca-hms-scheduling--" + long_tag) <= MAX_REVISION_NAME
-    squeezed = revision_suffix("ca-hms-scheduling-extra", long_tag)
-    assert squeezed != long_tag
-    assert len("ca-hms-scheduling-extra--" + squeezed) <= MAX_REVISION_NAME
+    # The tag Azure rejected on the first main deploy (57 characters as a revision name).
+    rejected = "b896ba108cf95c3193dbf7598d2882659a8c0da9"
+    full_tag = image_tag(rejected)
+    assert full_tag == "sha-" + rejected and len(full_tag) == 44
+    assert APPS == ("ca-hms-identity", "ca-hms-patients", "ca-hms-scheduling", "ca-hms-edge")
+    for app in APPS:
+        suffix = revision_suffix(app, full_tag)
+        name = f"{app}--{suffix}"
+        assert suffix == "s-" + rejected[:SUFFIX_HEX]
+        assert suffix != full_tag
+        assert "--" not in suffix
+        assert SUFFIX_RE.fullmatch(suffix)
+        assert len(name) <= MAX_REVISION_NAME, name
+    assert revision_suffix("ca-hms-scheduling", "sha-" + "a" * 12) == "s-" + "a" * 12
+    assert revision_suffix("ca-hms-edge", "sha-" + "c" * 7) == "s-" + "c" * 7
+    try:
+        revision_suffix("a" * 41, full_tag)  # 41 + "--" + 14 = 57
+    except SystemExit:
+        pass
+    else:
+        raise AssertionError("a revision name over 54 characters must be rejected")
 
     no_change = plan(sha, "", "", ["apps/web/src/main.tsx"])
     assert no_change["deploy"] == "false" and no_change["build"] == "false"
