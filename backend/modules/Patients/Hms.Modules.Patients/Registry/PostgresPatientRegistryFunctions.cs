@@ -4,6 +4,8 @@ using Hms.SharedKernel.Persistence;
 
 namespace Hms.Modules.Patients.Registry;
 
+// cross-schema: approved — identity.tenant_default_country_code_v1 and appointment.patient_last_booked_v1.
+
 public sealed class PostgresPatientRegistryFunctions(PatientsDbContext db) : IPatientRegistryFunctions
 {
     internal const string FindDuplicatesSql =

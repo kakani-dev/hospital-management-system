@@ -12,8 +12,13 @@ namespace Hms.Platform.Tenancy;
 /// <see cref="RlsTransactionInterceptor"/> (role <c>authenticated</c> + JWT claims, transaction-local),
 /// so the reads run under RLS as that user.
 /// </summary>
-public sealed class NpgsqlMembershipStore(NpgsqlDataSource dataSource, DbSessionContext session) : IMembershipStore
+public sealed class NpgsqlMembershipStore(
+    NpgsqlDataSource dataSource,
+    DbSessionContext session,
+    DatabaseSessionOptions? options = null) : IMembershipStore
 {
+    // cross-schema: approved — identity.my_tenant_grant_v1 and identity.my_active_context (docs/contracts/db.md).
+    private readonly string _authenticatedRole = options?.AuthenticatedRole ?? DatabaseSessionOptions.DefaultRole;
     internal const string GrantSql = "select identity.my_tenant_grant_v1(@tenant)::text";
     internal const string DefaultContextSql = "select tenant_id, branch_id from identity.my_active_context()";
 
@@ -83,7 +88,7 @@ public sealed class NpgsqlMembershipStore(NpgsqlDataSource dataSource, DbSession
         await using var tx = await connection.BeginTransactionAsync(ct).ConfigureAwait(false);
         await using (var setup = new NpgsqlCommand(RlsTransactionInterceptor.Sql, connection, tx))
         {
-            setup.Parameters.AddWithValue("role", session.IsAuthenticated ? "authenticated" : "anon");
+            setup.Parameters.AddWithValue("role", session.IsAuthenticated ? _authenticatedRole : "anon");
             setup.Parameters.AddWithValue("claims", session.ToClaimsJson());
             setup.Parameters.AddWithValue("sub", session.UserId?.ToString() ?? string.Empty);
             await setup.ExecuteNonQueryAsync(ct).ConfigureAwait(false);

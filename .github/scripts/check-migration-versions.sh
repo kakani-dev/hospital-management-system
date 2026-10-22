@@ -24,8 +24,15 @@ if [ -n "$dups" ]; then
 fi
 
 if [ -n "${BASE_REF:-}" ]; then
-  git fetch --no-tags --depth=1 origin "$BASE_REF" >/dev/null 2>&1 || true
-  base_files=$(git ls-tree --name-only "origin/$BASE_REF" "$DIR/" 2>/dev/null | xargs -rn1 basename | sort || true)
+  # A depth-1 fetch of origin/$BASE_REF drops parent commits in a reused checkout.
+  # Use the ref we already have; otherwise fetch into a temporary ref.
+  if git rev-parse --verify -q "origin/$BASE_REF" >/dev/null; then
+    base_commit="origin/$BASE_REF"
+  else
+    git fetch --no-tags --depth=1 origin "$BASE_REF:refs/tmp/migration-base" >/dev/null 2>&1 || true
+    base_commit="refs/tmp/migration-base"
+  fi
+  base_files=$(git ls-tree --name-only "$base_commit" "$DIR/" 2>/dev/null | xargs -rn1 basename | sort || true)
   if [ -n "$base_files" ]; then
     base_max=$(printf '%s\n' "$base_files" | cut -c1-14 | sort | tail -1)
     for f in "${files[@]}"; do
@@ -36,12 +43,19 @@ if [ -n "${BASE_REF:-}" ]; then
         fi
       fi
     done
-    # A migration that exists on the base branch must not be renamed or deleted here.
+    # A migration that exists on the base branch must not be renamed, deleted, or edited.
+    # Applied files are forward-only: ship a new migration instead.
     for f in $base_files; do
-      [ -f "$DIR/$f" ] || { echo "::error::$f exists on $BASE_REF but not on this branch (applied migrations are immutable)"; fail=1; }
+      if [ ! -f "$DIR/$f" ]; then
+        echo "::error::$f exists on $BASE_REF but not on this branch (applied migrations are immutable)"
+        fail=1
+      elif ! git diff --quiet "$base_commit" -- "$DIR/$f"; then
+        echo "::error file=$DIR/$f::applied migration content changed (forward-only; add a new migration)"
+        fail=1
+      fi
     done
   else
-    echo "note: could not read $DIR on origin/$BASE_REF; skipped the ordering check"
+    echo "note: could not read $DIR on $base_commit; skipped the ordering check"
   fi
 fi
 

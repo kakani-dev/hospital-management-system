@@ -94,6 +94,10 @@ jobs:
         env:
           BASE_REF: ${{ github.base_ref }}
         run: bash .github/scripts/check-migration-versions.sh
+      - name: Schema ownership (service code and new migrations stay in their schema)
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: bash .github/scripts/check-schema-ownership.sh
       - name: Install psql client
         run: sudo apt-get update -y && sudo apt-get install -y postgresql-client
       - name: Apply migrations + seed, run SQL tests (hook, API role, RLS)

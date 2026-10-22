@@ -60,6 +60,16 @@ public class DbSessionContextTests
     }
 
     [Fact]
+    public void Session_role_is_a_postgres_identifier_or_the_authenticated_default()
+    {
+        Assert.Equal("authenticated", new DatabaseSessionOptions(null).AuthenticatedRole);
+        Assert.Equal("authenticated", new DatabaseSessionOptions("  ").AuthenticatedRole);
+        Assert.Equal("hms_svc_patients", new DatabaseSessionOptions(" hms_svc_patients ").AuthenticatedRole);
+        Assert.Throws<ArgumentException>(() => new DatabaseSessionOptions("authenticated; select 1"));
+        Assert.Throws<ArgumentException>(() => new DatabaseSessionOptions("Hms_Svc"));
+    }
+
+    [Fact]
     public void Claims_json_escapes_hostile_email_values()
     {
         var session = new DbSessionContext();

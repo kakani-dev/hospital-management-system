@@ -6,6 +6,8 @@ using Hms.SharedKernel.Tenancy;
 
 namespace Hms.Modules.Appointments.Functions;
 
+// cross-schema: approved — patient.patient_summary_v1 (docs/contracts/db.md). Scheduling does not read patient.patients.
+
 /// <summary>
 /// Patient summaries for embedding in appointment / queue responses. Scheduling never reads
 /// <c>patient.patients</c>: it calls the patients service's PUBLISHED, tenant-checked definer function
