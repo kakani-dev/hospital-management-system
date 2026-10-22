@@ -1,15 +1,16 @@
 import type { ComponentType, ReactNode, SVGProps } from 'react'
 import { Link, Navigate } from 'react-router'
+import { prefetchRoute } from '../workspace/routePrefetch'
 import {
   CalendarDaysIcon,
   ClipboardDocumentCheckIcon,
   QueueListIcon,
   ServerStackIcon,
   UserPlusIcon,
-  UsersIcon,
 } from '@heroicons/react/24/outline'
 import { Card as TxCard } from '@tailux/components/ui'
 import { Card } from '../../components/ui/Card'
+import { Illustration, type IllustrationName } from '../../components/ui/Illustration'
 import { BranchPicker } from '../../components/scheduling/BranchPicker'
 import { can } from '../../lib/permissions'
 import { useApiHealth, useAppointmentCount, usePatientStats, useQueue } from '../../lib/api/hooks'
@@ -31,33 +32,22 @@ interface QuickAction {
   icon: Icon
 }
 
-// Literal class names so Tailwind keeps them (the Tailux `this:` colour indirection).
-const TINTS = {
-  primary: 'this:primary',
-  info: 'this:info',
-  success: 'this:success',
-  warning: 'this:warning',
-  secondary: 'this:secondary',
-} as const
-
 /**
- * Tailux dashboard statistic card (demo dashboards' "stat" cards: value, label and a tinted icon).
+ * Tailux dashboard statistic card: value, label, and a decorative illustration.
  * A count is only ever the API's answer: "—" while loading, "Unavailable" on error, never a guess.
  */
 function StatCard({
   label,
   value,
   error,
-  icon: IconComponent,
-  color,
+  illustration,
   testId,
   children,
 }: {
   label: string
   value: number | undefined
   error: boolean
-  icon: Icon
-  color: keyof typeof TINTS
+  illustration: IllustrationName
   testId: string
   children?: ReactNode
 }) {
@@ -75,9 +65,7 @@ function StatCard({
         </p>
         {children && <div className="mt-1 text-xs text-gray-600 dark:text-dark-200">{children}</div>}
       </div>
-      <div className={`${TINTS[color]} flex size-11 shrink-0 items-center justify-center rounded-lg bg-this-darker/10 text-this-darker dark:bg-this-lighter/10 dark:text-this-lighter`}>
-        <IconComponent className="size-6" aria-hidden="true" />
-      </div>
+      <Illustration name={illustration} size={64} />
     </TxCard>
   )
 }
@@ -137,22 +125,22 @@ export function DashboardPage() {
       {hasStats && (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" data-testid="dashboard-stats" aria-label={`Today at ${branch?.name ?? 'this branch'}`} role="group">
           {showAppointments && (
-            <StatCard label="Today’s appointments" value={appointments.data} error={appointments.isError} icon={CalendarDaysIcon} color="primary" testId="stat-appointments">
+            <StatCard label="Today’s appointments" value={appointments.data} error={appointments.isError} illustration="calendar" testId="stat-appointments">
               {timeZoneReady ? `Branch day in ${timeZone}` : null}
             </StatCard>
           )}
           {showQueue && (
-            <StatCard label="Waiting in queue" value={waiting} error={queue.isError && !queue.data} icon={QueueListIcon} color="warning" testId="stat-waiting">
+            <StatCard label="Waiting in queue" value={waiting} error={queue.isError && !queue.data} illustration="clock" testId="stat-waiting">
               {queue.data ? `${inConsultation} in consultation` : null}
             </StatCard>
           )}
           {showQueue && (
-            <StatCard label="Checked in today" value={checkedIn} error={queue.isError && !queue.data} icon={ClipboardDocumentCheckIcon} color="success" testId="stat-checked-in">
+            <StatCard label="Checked in today" value={checkedIn} error={queue.isError && !queue.data} illustration="tick" testId="stat-checked-in">
               Tokens issued, excluding cancelled
             </StatCard>
           )}
           {showPatients && (
-            <StatCard label="Registered today" value={patients.data?.registeredToday} error={patients.isError} icon={UsersIcon} color="info" testId="stat-registered">
+            <StatCard label="Registered today" value={patients.data?.registeredToday} error={patients.isError} illustration="person" testId="stat-registered">
               {patients.data ? `${patients.data.total} ${patients.data.total === 1 ? 'patient' : 'patients'} in total at this branch` : null}
             </StatCard>
           )}
@@ -191,7 +179,13 @@ export function DashboardPage() {
           <ul className="space-y-2 text-sm" data-testid="dashboard-today">
             {actions.map((a) => (
               <li key={a.label}>
-                <Link className="inline-flex items-center gap-2 text-primary-600 underline dark:text-primary-400" to={a.to} state={a.state}>
+                <Link
+                  className="inline-flex items-center gap-2 text-primary-600 underline dark:text-primary-400"
+                  to={a.to}
+                  state={a.state}
+                  onMouseEnter={() => prefetchRoute(a.to)}
+                  onFocus={() => prefetchRoute(a.to)}
+                >
                   <a.icon className="size-4" aria-hidden="true" />
                   {a.label}
                 </Link>

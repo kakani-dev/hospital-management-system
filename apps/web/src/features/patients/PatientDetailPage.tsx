@@ -10,19 +10,22 @@ import { Button } from '../../components/ui/Button'
 import { FormField } from '../../components/ui/FormField'
 import { SelectField } from '../../components/ui/SelectField'
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
-import { useDeletePatient, usePatient, useUpdatePatient } from '../../lib/api/hooks'
-import { ApiError, fieldErrors } from '../../lib/api/client'
-import { SEXES, type PatientDetail } from '../../lib/api/types'
-import { can } from '../../lib/permissions'
-import { rolesAtBranch, useCurrentContext } from '../tenancy/useCurrentContext'
+import { useBranches, useDeletePatient, usePatient, usePatientVisits, usePractitioners, useUpdatePatient } from '../../lib/api/hooks'
+import { ApiError, apiClient, fieldErrors } from '../../lib/api/client'
+import { SEXES, type Appointment, type DuplicateCandidate, type PatientDetail } from '../../lib/api/types'
+import { defaultBranchId, useCurrentContext } from '../tenancy/useCurrentContext'
 import { createPatientEditSchema, toUpdatePatientRequest, type PatientEditValues } from './patientSchema'
+import { DuplicateWarning } from './DuplicateWarning'
+import { duplicateMode } from './duplicateCheck'
+import { FOLLOW_UP_STATUSES, followUpRouteState } from '../scheduling/followUp'
+import { dateInZone, formatDayLabel, formatTime } from '../../lib/dates'
 import { useBranchToday, useBranchZonedResolver } from './useBranchZonedResolver'
 import { WhatsappFields } from './WhatsappFields'
 
 export function PatientDetailPage() {
   const { patientId = '' } = useParams()
   const patient = usePatient(patientId)
-  const { me, branches } = useCurrentContext()
+  const { me, branches, has, activeBranchId } = useCurrentContext()
   const [editing, setEditing] = useState(false)
   const [saved, setSaved] = useState(false)
 
@@ -49,10 +52,10 @@ export function PatientDetailPage() {
   const p = patient.data
   const deleted = !!p.deletedAt
   const branchName = branches.find((b) => b.id === p.registeredBranchId)?.name ?? '—'
-  // Writes need the role at the patient's registered branch (tenant_admin is tenant-wide).
-  const branchRoles = rolesAtBranch(me.data, p.registeredBranchId)
-  const canWrite = can(branchRoles, 'patients.edit') && !deleted
-  const canDelete = can(branchRoles, 'patients.delete') && !deleted
+  // patients.edit / patients.delete are hospital-wide. The registered branch is metadata.
+  const canWrite = has('patients.edit') && !deleted
+  const canDelete = has('patients.delete') && !deleted
+  const deskBranchId = activeBranchId ?? defaultBranchId(me.data)
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -108,7 +111,93 @@ export function PatientDetailPage() {
           )}
         </Card>
       )}
+      {!deleted && <VisitHistory patient={p} deskBranchId={deskBranchId} canBookFollowUp={has('appointments.bookFollowUp')} />}
     </div>
+  )
+}
+
+function VisitHistory({ patient, deskBranchId, canBookFollowUp }: { patient: PatientDetail; deskBranchId: string | null; canBookFollowUp: boolean }) {
+  const visits = usePatientVisits(patient.id)
+  const hospitalBranches = useBranches()
+  const { branches: accessible } = useCurrentContext()
+  const practitioners = usePractitioners()
+  const branchName = (id: string) =>
+    hospitalBranches.data?.find((b) => b.id === id)?.name ?? accessible.find((b) => b.id === id)?.name ?? 'Another branch'
+  const zoneFor = (id: string) => hospitalBranches.data?.find((b) => b.id === id)?.timezone
+  const doctorName = (id: string) => practitioners.data?.find((p) => p.id === id)?.displayName ?? 'Practitioner'
+  const rows = [...(visits.data ?? [])].sort((a, b) => b.startsAt.localeCompare(a.startsAt))
+
+  return (
+    <Card title="Visits">
+      <div data-testid="visit-history">
+        {visits.isPending && <p role="status">Loading visits…</p>}
+        {visits.isError && <Alert tone="warning">Visit history is unavailable.</Alert>}
+        {visits.data && rows.length === 0 && <p className="text-sm text-gray-600 dark:text-dark-200">No visits yet.</p>}
+        {rows.length > 0 && (
+          <ul className="divide-y divide-gray-200 dark:divide-dark-500">
+            {rows.map((visit) => (
+              <VisitRow
+                key={visit.id}
+                visit={visit}
+                patient={patient}
+                branchName={branchName(visit.branchId)}
+                timeZone={zoneFor(visit.branchId)}
+                doctorName={doctorName(visit.practitionerId)}
+                deskBranchId={deskBranchId}
+                canBookFollowUp={canBookFollowUp}
+              />
+            ))}
+          </ul>
+        )}
+      </div>
+    </Card>
+  )
+}
+
+function VisitRow({
+  visit,
+  patient,
+  branchName,
+  timeZone,
+  doctorName,
+  deskBranchId,
+  canBookFollowUp,
+}: {
+  visit: Appointment
+  patient: PatientDetail
+  branchName: string
+  timeZone: string | undefined
+  doctorName: string
+  deskBranchId: string | null
+  canBookFollowUp: boolean
+}) {
+  const when = `${formatDayLabel(dateInZone(visit.startsAt, timeZone))} ${formatTime(visit.startsAt, timeZone)}`
+  return (
+    <li className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm" data-testid="visit-row">
+      <div>
+        <div className="font-medium text-gray-800 dark:text-dark-100">{when}</div>
+        <div className="text-gray-600 dark:text-dark-200">
+          <span data-testid="visit-branch">{branchName}</span>
+          {' · '}
+          {doctorName}
+          {' · '}
+          {visit.status.replaceAll('_', ' ')}
+        </div>
+      </div>
+      {canBookFollowUp && deskBranchId && FOLLOW_UP_STATUSES.includes(visit.status) && (
+        <Link
+          to={`/appointments?branch=${deskBranchId}`}
+          state={followUpRouteState(
+            { id: patient.id, mrn: patient.mrn, firstName: patient.firstName, lastName: patient.lastName },
+            visit.practitionerId,
+            visit.id,
+          )}
+          className="font-medium text-primary-600 hover:underline dark:text-primary-400"
+        >
+          Book follow-up
+        </Link>
+      )}
+    </li>
   )
 }
 
@@ -165,6 +254,9 @@ function EditPatientForm({
 }) {
   const update = useUpdatePatient(patient.id)
   const [formError, setFormError] = useState<string | null>(null)
+  const [duplicates, setDuplicates] = useState<DuplicateCandidate[] | null>(null)
+  const [duplicateReason, setDuplicateReason] = useState('')
+  const [pending, setPending] = useState<PatientEditValues | null>(null)
   const resolver = useBranchZonedResolver<PatientEditValues>(createPatientEditSchema)
   const {
     register,
@@ -194,8 +286,36 @@ function EditPatientForm({
 
   const onSubmit = async (values: PatientEditValues) => {
     setFormError(null)
+    setDuplicates(null)
+    setDuplicateReason('')
+    const request = toUpdatePatientRequest(values)
+    let matches: DuplicateCandidate[] = []
     try {
-      await update.mutateAsync(toUpdatePatientRequest(values))
+      matches = await apiClient.patients.duplicates({
+        firstName: request.firstName,
+        lastName: request.lastName,
+        dateOfBirth: request.dateOfBirth,
+        phone: request.phone,
+        email: request.email,
+        abhaNumber: request.abhaNumber,
+        excludePatientId: patient.id,
+      })
+    } catch {
+      setFormError('Could not check for existing patients. Changes were not saved.')
+      return
+    }
+    if (duplicateMode(matches)) {
+      setPending(values)
+      setDuplicates(matches)
+      return
+    }
+    await save(values)
+  }
+
+  const save = async (values: PatientEditValues, reason?: string) => {
+    setFormError(null)
+    try {
+      await update.mutateAsync(toUpdatePatientRequest(values, reason))
       onSaved()
     } catch (error) {
       const fields = fieldErrors(error)
@@ -205,9 +325,13 @@ function EditPatientForm({
       }
       setFormError(
         error instanceof ApiError && error.status === 403
-          ? 'You are not allowed to edit patients at this branch.'
+          ? 'Your role in this hospital does not include editing patients.'
           : error instanceof ApiError && error.status === 404
             ? 'This patient no longer exists (it may have been deleted).'
+            : error instanceof ApiError && (error.problem?.code === 'duplicate_patient' || error.problem?.code === 'duplicate_abha')
+              ? 'Another patient in this hospital already has this email, phone number, or ABHA number.'
+              : error instanceof ApiError && error.problem?.code === 'duplicate_name_confirmation'
+                ? 'A patient with this name already exists. Record why this is a different person.'
             : error instanceof ApiError && error.status === 409
               ? 'Someone else changed this patient. Reload and try again.'
               : Object.keys(fields).length
@@ -222,6 +346,19 @@ function EditPatientForm({
       {formError && (
         <div className="mb-4">
           <Alert tone="error">{formError}</Alert>
+        </div>
+      )}
+      {duplicates && pending && (
+        <div className="mb-4">
+          <DuplicateWarning
+            matches={duplicates}
+            busy={isSubmitting}
+            reason={duplicateReason}
+            onReasonChange={setDuplicateReason}
+            proceedLabel="Save anyway"
+            onProceed={() => void save(pending, duplicateReason)}
+            onDismiss={() => setDuplicates(null)}
+          />
         </div>
       )}
       <form noValidate aria-label="Edit patient" onSubmit={handleSubmit(onSubmit)} className="grid gap-4 sm:grid-cols-2">
@@ -299,7 +436,7 @@ function DeletePatientButton({ patient }: { patient: PatientDetail }) {
             setOpen(false)
             setError(
               e instanceof ApiError && e.status === 403
-                ? 'You are not allowed to delete patients registered at this branch.'
+                ? 'Your role in this hospital does not include deleting patients.'
                 : e instanceof ApiError && e.status === 404
                   ? 'This patient no longer exists (it may already have been deleted).'
                   : e instanceof ApiError && e.status === 409

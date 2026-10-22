@@ -127,9 +127,11 @@ adds a cross-schema reference must carry the header line `-- cross-schema: appro
   row with both flags; a different WhatsApp number is a second row. RLS mirrors `patients` (read roles,
   deleted rows admin-only, the parent patient must be visible); clients only get `SELECT`.
   Writes go through `patient.set_patient_phones(patient, phone, whatsapp_same, whatsapp)` (definer:
-  P0002 foreign/deleted patient, 42501 no writer role at the branch, 22023 bad input), which soft-deletes
-  rows whose flags change and inserts the new ones.
+  P0002 foreign/deleted patient, 42501 without `patients.edit` in the hospital, 22023 bad input, 23505 when
+  another live patient already has that number), which soft-deletes rows whose flags change and inserts the new ones.
 - **`patients.phone` is deprecated (expand → contract).** It is kept as a mirror of the primary number,
   written only by `set_patient_phones`; clients can no longer write it. TODO (contract step): drop the
   column once no reader is left. Duplicate detection (`find_duplicate_patients`) and phone search read
-  `patient_phones` (any live number, last 10 digits).
+  `patient_phones` (any live number, last 10 digits). Email, phone and ABHA are unique among live patients
+  of the hospital. An exact name is a warning (`name_dob` when both dates match, `name` when either date is blank).
+  `patient.merge_patients(survivor, duplicate, reason)` is tenant-admin only (P0002 for another hospital or an unknown chart, 42501 otherwise). It soft-deletes the duplicate (`merged_into_patient_id`, `merged_at`, `merged_by`), repoints appointments, follow-ups, queue rows and phone numbers onto the survivor, fills blank survivor fields without overwriting, and writes `audit.audit_log` plus a `patient.merged` outbox event that carries ids only. `patient.merge_duplicate_charts()` keeps the oldest live chart in each same-hospital email, phone or ABHA set and is idempotent. Merged charts stay out of search and out of the live unique indexes. Restoring a merged chart is 55000.

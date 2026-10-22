@@ -56,7 +56,7 @@ export function RegisterHospitalPage() {
 
   if (done) {
     return (
-      <PublicLayout title="Request received" subtitle="Register your hospital">
+      <PublicLayout title="Request received" subtitle="Register your hospital" illustration="tick">
         <Alert tone="info">{done}</Alert>
         <p className="text-sm text-gray-600 dark:text-dark-200">
           Nothing is set up yet. When your request is approved, the contact person receives a one-time link to create the hospital’s first admin
@@ -70,7 +70,7 @@ export function RegisterHospitalPage() {
   }
 
   return (
-    <PublicLayout title="Register your hospital" subtitle="Request access to HMS. Our team reviews every request." wide>
+    <PublicLayout title="Register your hospital" subtitle="Request access to HMS. Our team reviews every request." illustration="lab" wide>
       {error && <Alert tone="error">{error}</Alert>}
       <form noValidate aria-label="Register your hospital" onSubmit={handleSubmit(onSubmit)} className="grid gap-4 sm:grid-cols-2">
         <div className="sm:col-span-2">

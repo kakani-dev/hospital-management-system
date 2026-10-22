@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Local and CI self-check for the skip planner, required-check reporter, and deploy mapping.
+# Local and CI self-check for the skip planner and the required-check reporter.
 set -euo pipefail
 
 root=$(git rev-parse --show-toplevel)
@@ -9,7 +9,6 @@ dir="$root/.github/scripts"
 bash "$dir/ci-plan.test.sh"
 bash "$dir/ci-require-result.test.sh"
 bash "$dir/ci-ok.test.sh"
-bash "$dir/deploy-changed-services.test.sh"
 
 hashes=$(bash "$dir/ci-input-hashes.sh")
 for key in hash_web hash_api hash_database hash_prototype hash_e2e hash_mocked hash_deploy \
@@ -48,10 +47,13 @@ grep -q 'cron: "17 4 \* \* \*"' "$ci"
 grep -q 'ci-require-result.sh' "$ci"
 grep -q 'ci-ok.sh' "$ci"
 
-# Deploy rollouts must keep waiting; a newer push must not cancel one in progress.
-n=$(grep -c 'cancel-in-progress: false' "$deploy")
-if [ "$n" -ne 2 ]; then
-  echo "FAIL deploy-aca cancel-in-progress: false count is $n (want 2)" >&2
+# deploy-aca.yml is main's pipeline (service_changes.py). A newer push may cancel
+# a deploy that has not finished. workflow_dispatch must not be cancelled.
+grep -q 'workflow_run:' "$deploy"
+grep -q 'service_changes.py' "$deploy"
+grep -Fq "cancel-in-progress: \${{ github.event_name != 'workflow_dispatch' }}" "$deploy"
+if grep -q 'cancel-in-progress: false' "$deploy"; then
+  echo "FAIL deploy-aca.yml must keep main's cancel-in-progress expression" >&2
   exit 1
 fi
 

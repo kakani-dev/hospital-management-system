@@ -156,7 +156,7 @@ export function useTenantCountryCode(): string | null {
 }
 
 export function usePatient(id: string) {
-  return useQuery({ queryKey: queryKeys.patient(id), queryFn: () => apiClient.patients.get(id), retry: false })
+  return useQuery({ queryKey: queryKeys.patient(id), queryFn: () => apiClient.patients.get(id), enabled: id.length > 0, retry: false })
 }
 
 export function useUpdatePatient(id: string) {
@@ -388,6 +388,34 @@ export function useAppointments(query: AppointmentQuery | null, options: { refet
     refetchInterval: options.refetchInterval,
     // Day/week steps and practitioner filters keep the old list (dimmed) until the new one lands.
     placeholderData: keepPreviousIf<Appointment[]>((prev) => (prev[1] as AppointmentQuery | undefined)?.branchId === query?.branchId),
+  })
+}
+
+/** Visits for one patient across every branch of the hospital. */
+export function usePatientVisits(patientId: string | null) {
+  return useQuery({
+    queryKey: queryKeys.appointments({ patientId: patientId ?? '' }),
+    queryFn: async () => {
+      const items: Appointment[] = []
+      for (let page = 1; page <= MAX_PAGES; page++) {
+        const result = await apiClient.appointments.list({ patientId: patientId!, page, pageSize: MAX_PAGE_SIZE })
+        items.push(...result.items)
+        if (items.length >= result.totalCount || result.items.length === 0) break
+      }
+      return items
+    },
+    enabled: !!patientId,
+    retry: false,
+  })
+}
+
+/** Free slots across a branch-local date range (inclusive). Used to offer the next open day. */
+export function useSlotsInRange(branchId: string | null, practitionerId: string, from: string, to: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['appointments', 'slots', branchId ?? '', practitionerId, from, to] as const,
+    queryFn: () => apiClient.slots({ branchId: branchId!, practitionerId, from, to }),
+    enabled: enabled && !!branchId && !!practitionerId && !!from && !!to,
+    retry: false,
   })
 }
 

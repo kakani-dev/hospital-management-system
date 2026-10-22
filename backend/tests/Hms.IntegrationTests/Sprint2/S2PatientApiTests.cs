@@ -43,21 +43,25 @@ public sealed class S2PatientApiTests(HmsApiFactory factory) : IClassFixture<Hms
     }
 
     [Fact]
-    public async Task Patch_at_the_wrong_branch_is_403_and_does_not_change_the_row()
+    public async Task Patch_is_tenant_wide_for_a_writer_and_a_foreign_branch_is_404()
     {
-        var nurseEast = await CreateUserAsync("s2-nurse-east-only", (Alpha, AlphaEast, "receptionist") /* RBAC */);
-        using var nurse = factory.ClientAs(nurseEast, Alpha);
+        var receptionEast = await CreateUserAsync("s2-reception-east-only", (Alpha, AlphaEast, "receptionist"));
+        using var reception = factory.ClientAs(receptionEast, Alpha);
         using var admin = factory.ClientAs(AlphaAdmin, Alpha);
         var atMain = await S2.CreatePatientAsync(admin, AlphaMain);
         var atEast = await S2.CreatePatientAsync(admin, AlphaEast);
+        var renamed = S2.Unique("Wide");
 
-        Assert.Equal(HttpStatusCode.Forbidden, (await nurse.PatchAsJsonAsync($"/api/v1/patients/{atMain.Id}", new { lastName = "Hacked" })).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await nurse.PatchAsJsonAsync($"/api/v1/patients/{atEast.Id}", new { registeredBranchId = AlphaMain })).StatusCode);
-        Assert.Equal(atMain.LastName, (await admin.GetFromJsonAsync<S2Patient>($"/api/v1/patients/{atMain.Id}"))!.LastName);
-        Assert.Equal(AlphaEast, (await admin.GetFromJsonAsync<S2Patient>($"/api/v1/patients/{atEast.Id}"))!.RegisteredBranchId);
+        Assert.Equal(HttpStatusCode.OK, (await reception.PatchAsJsonAsync($"/api/v1/patients/{atMain.Id}", new { lastName = renamed })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await reception.PatchAsJsonAsync($"/api/v1/patients/{atEast.Id}", new { registeredBranchId = AlphaMain })).StatusCode);
+        Assert.Equal(renamed, (await admin.GetFromJsonAsync<S2Patient>($"/api/v1/patients/{atMain.Id}"))!.LastName);
+        Assert.Equal(AlphaMain, (await admin.GetFromJsonAsync<S2Patient>($"/api/v1/patients/{atEast.Id}"))!.RegisteredBranchId);
+        Assert.Equal(HttpStatusCode.NotFound, (await reception.PatchAsJsonAsync($"/api/v1/patients/{atMain.Id}", new { registeredBranchId = BetaMain })).StatusCode);
 
-        // Reads stay tenant-wide.
-        Assert.Equal(HttpStatusCode.OK, (await nurse.GetAsync($"/api/v1/patients/{atMain.Id}")).StatusCode);
+        var billing = await CreateUserAsync("s2-billing-view", (Alpha, AlphaMain, "billing"));
+        using var view = factory.ClientAs(billing, Alpha);
+        Assert.Equal(HttpStatusCode.Forbidden, (await view.PatchAsJsonAsync($"/api/v1/patients/{atMain.Id}", new { firstName = "Nope" })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await reception.GetAsync($"/api/v1/patients/{atMain.Id}")).StatusCode);
     }
 
     [Fact]
@@ -89,13 +93,11 @@ public sealed class S2PatientApiTests(HmsApiFactory factory) : IClassFixture<Hms
         var last = S2.Unique("Del");
         var patient = await S2.CreatePatientAsync(reception, AlphaEast, lastName: last, dob: "1977-07-07", phone: "080 4000 7777");
 
-        Assert.Equal(HttpStatusCode.Forbidden, (await mainReception.DeleteAsync($"/api/v1/patients/{patient.Id}")).StatusCode);
-
         using var delete = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/patients/{patient.Id}") { Content = JsonContent.Create(new { reason = "Duplicate registration" }) };
-        Assert.Equal(HttpStatusCode.NoContent, (await reception.SendAsync(delete)).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await mainReception.SendAsync(delete)).StatusCode);
         var audit = await AuditAsync(patient.Id);
         Assert.Equal("Duplicate registration", audit.DeletionReason);
-        Assert.Equal(receptionEast, audit.DeletedBy);
+        Assert.Equal(AlphaReception, audit.DeletedBy);
 
         Assert.Equal(HttpStatusCode.NotFound, (await reception.GetAsync($"/api/v1/patients/{patient.Id}")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await reception.PatchAsJsonAsync($"/api/v1/patients/{patient.Id}", new { lastName = "X" })).StatusCode);
@@ -145,27 +147,32 @@ public sealed class S2PatientApiTests(HmsApiFactory factory) : IClassFixture<Hms
         var first = await S2.CreatePatientAsync(admin, AlphaMain, lastName: last, dob: "1955-05-15", phone: $"+91 {digits[..5]} {digits[5..]}");
         Assert.Empty(first.DuplicateWarnings!);
 
-        var second = await admin.PostAsJsonAsync("/api/v1/patients", new
+        var sharedPhone = await admin.PostAsJsonAsync("/api/v1/patients", new
         {
-            mrn = S2.Unique("S2-"), firstName = " synth ", lastName = last.ToLowerInvariant(), dateOfBirth = "1955-05-15", registeredBranchId = AlphaEast, phone = $"0{digits}",
+            firstName = "Other", lastName = S2.Unique("Ph"), registeredBranchId = AlphaEast, phone = $"0{digits}",
         });
-        Assert.Equal(HttpStatusCode.Created, second.StatusCode);
-        var created = (await second.Content.ReadFromJsonAsync<S2Patient>())!;
-        var warning = Assert.Single(created.DuplicateWarnings!);
-        Assert.Equal(first.Id, warning.Id);
-        Assert.Contains("name_dob", warning.MatchReasons);
-        Assert.Contains("phone", warning.MatchReasons);
+        Assert.Equal(HttpStatusCode.Conflict, sharedPhone.StatusCode);
+        Assert.Equal("duplicate_patient", await S2.CodeAsync(sharedPhone));
+
+        var sameName = await admin.PostAsJsonAsync("/api/v1/patients", new
+        {
+            firstName = " synth ", lastName = last.ToLowerInvariant(), dateOfBirth = "1955-05-15", registeredBranchId = AlphaEast,
+            duplicateOverrideReason = "Different person, confirmed",
+        });
+        Assert.Equal(HttpStatusCode.Created, sameName.StatusCode);
+        var created = (await sameName.Content.ReadFromJsonAsync<S2Patient>())!;
+        Assert.Contains("name_dob", Assert.Single(created.DuplicateWarnings!).MatchReasons);
 
         var byPhone = await (await admin.PostAsJsonAsync("/api/v1/patients/search", new { phone = digits })).Content.ReadFromJsonAsync<S2Page<S2Patient>>();
-        Assert.Equal(new[] { first.Id, created.Id }.Order(), byPhone!.Items.Select(p => p.Id).Order());
+        Assert.Equal(first.Id, Assert.Single(byPhone!.Items).Id);
         var byPhoneDob = await (await admin.PostAsJsonAsync("/api/v1/patients/search", new { phone = digits, dateOfBirth = "1955-05-15", search = last }))
             .Content.ReadFromJsonAsync<S2Page<S2Patient>>();
-        Assert.Equal(2, byPhoneDob!.TotalCount);
+        Assert.Equal(1, byPhoneDob!.TotalCount);
         var noMatch = await (await admin.PostAsJsonAsync("/api/v1/patients/search", new { phone = digits, dateOfBirth = "1955-05-16" }))
             .Content.ReadFromJsonAsync<S2Page<S2Patient>>();
         Assert.Empty(noMatch!.Items);
 
-        var excl = await (await admin.PostAsJsonAsync("/api/v1/patients/duplicates", new { phone = digits, excludePatientId = first.Id }))
+        var excl = await (await admin.PostAsJsonAsync("/api/v1/patients/duplicates", new { firstName = "Synth", lastName = last, dateOfBirth = "1955-05-15", excludePatientId = first.Id }))
             .Content.ReadAsStringAsync();
         Assert.Contains(created.Id.ToString(), excl, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(first.Id.ToString(), excl, StringComparison.OrdinalIgnoreCase);

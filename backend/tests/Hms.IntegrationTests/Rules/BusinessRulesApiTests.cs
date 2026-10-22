@@ -77,6 +77,30 @@ public sealed class BusinessRulesApiTests(HmsApiFactory factory) : IClassFixture
     }
 
     [Fact]
+    public async Task A_doctor_can_book_a_follow_up_of_another_clinicians_visit_at_their_own_branch()
+    {
+        var consultant = Guid.Parse("0d000000-0000-4000-8000-000000000001");
+        var parent = Guid.Parse("e1111111-0000-4000-8000-000000000001");
+        using var doctor = factory.ClientAs(consultant, Alpha, AlphaEast);
+        using var admin = factory.ClientAs(AlphaAdmin, Alpha);
+        var other = await Qa.CreatePractitionerAsync(admin);
+        var when = Monday(4, 9);
+        await TestSchedules.OpenDayAsync(AlphaEast, other.Id, when);
+
+        var fresh = await doctor.PostAsJsonAsync("/api/v1/appointments", Booking(AlphaEast, other.Id, AlphaPatientId, when));
+        Assert.Equal(HttpStatusCode.Forbidden, fresh.StatusCode);
+
+        var atMain = await doctor.PostAsJsonAsync("/api/v1/appointments", Booking(AlphaMain, AlphaGeneral, AlphaPatientId, Monday(4, 10), parent: parent));
+        Assert.Equal(HttpStatusCode.Forbidden, atMain.StatusCode);
+
+        var followUp = await doctor.PostAsJsonAsync("/api/v1/appointments", Booking(AlphaEast, other.Id, AlphaPatientId, when, parent: parent));
+        Assert.Equal(HttpStatusCode.Created, followUp.StatusCode);
+        Assert.Equal(parent, (await JsonAsync(followUp)).GetProperty("parentAppointmentId").GetGuid());
+        Assert.NotEqual(consultant, await Qa.ScalarAsync<Guid?>(
+            "select user_id from appointment.practitioners where id = @id", ("id", other.Id)));
+    }
+
+    [Fact]
     public async Task Nurses_can_book()
     {
         var nurse = await CreateUserAsync("rules-nurse", (Alpha, AlphaMain, "nurse"));

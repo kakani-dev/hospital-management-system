@@ -82,7 +82,7 @@ select tests.ok(
 select tests.ok(
   not has_function_privilege('anon', 'patient.soft_delete_patient(uuid, text)', 'execute')
   and not has_function_privilege('anon', 'patient.restore_patient(uuid)', 'execute')
-  and not has_function_privilege('anon', 'patient.find_duplicate_patients(uuid, text, text, date, text, uuid)', 'execute'),
+  and not has_function_privilege('anon', 'patient.find_duplicate_patients(uuid, text, text, date, text, uuid, text, text)', 'execute'),
   'anon cannot execute the patient RPCs');
 select tests.authenticate_as('reception@alpha.example');
 select tests.throws_ok(
@@ -93,9 +93,12 @@ select tests.throws_ok(
 select tests.throws_ok(
   $$select patient.soft_delete_patient('aa000000-0000-4000-8000-000000000002', repeat('x', 501))$$,
   '22023', 'deletion reason over 500 chars -> 22023');
-select tests.throws_ok(
-  $$select patient.soft_delete_patient('aa000000-0000-4000-8000-000000000003', 'dup')$$,
-  '42501', 'reception (Main only) cannot delete an East-registered patient -> 42501');
+savepoint meera_alive;
+select patient.soft_delete_patient('aa000000-0000-4000-8000-000000000003', 'dup');
+select tests.ok(
+  not exists (select 1 from patient.patients where id = 'aa000000-0000-4000-8000-000000000003'),
+  'reception (Main) can delete an East-registered patient');
+rollback to savepoint meera_alive;
 select tests.throws_ok(
   $$select patient.soft_delete_patient('bb000000-0000-4000-8000-000000000001', 'dup')$$,
   'P0002', 'cross-tenant: Alpha reception deleting a Beta patient -> P0002 (no existence leak)');

@@ -77,23 +77,24 @@ test.describe('2.1 patients', () => {
     await expect(page.getByRole('heading', { name: /Synthetic-Alpha, Asha/ })).toBeVisible()
   })
 
-  test('duplicate warning on register: open the existing record or register anyway', async ({ page }) => {
+  test('duplicate warning on register: a shared name needs a reason, a shared phone does not continue', async ({ page }) => {
     await signIn(page, 'reception@alpha.example')
     await page.goto('/patients/new')
     await page.getByLabel('First name').fill('Ravi')
     await page.getByLabel('Last name').fill('Synthetic-Alpha')
-    await page.getByLabel('Date of birth').fill('1985-05-05')
-    await page.getByLabel('Phone (optional)').fill('+91 98450 00002')
     await page.getByRole('button', { name: 'Register patient' }).click()
 
     const warning = page.getByTestId('duplicate-warning')
     await expect(warning).toContainText('ALP-0002')
-    await expect(warning).toContainText('same name and date of birth and same phone number')
+    await expect(warning).toContainText('same name')
     expect(backend.calls.some((c) => c.method === 'POST' && c.path === '/api/v1/patients')).toBe(false)
     await expect(warning.getByRole('link', { name: 'Open existing record ALP-0002' })).toHaveAttribute('href', `/patients/${patientIds.ravi}`)
-
+    await warning.getByLabel('Why this is a different person').fill('Different person, confirmed at the desk')
     await warning.getByRole('button', { name: 'Register anyway' }).click()
     await expect(page.getByText('Patient ALPHA-000001 registered.')).toBeVisible()
+    expect(backend.calls.find((c) => c.method === 'POST' && c.path === '/api/v1/patients')!.body).toMatchObject({
+      duplicateOverrideReason: 'Different person, confirmed at the desk',
+    })
   })
 
   test.describe('workstation and branch in different time zones', () => {

@@ -1,14 +1,19 @@
 import { useEffect, useRef } from 'react'
 import { Link } from 'react-router'
 import { Button } from '../../components/ui/Button'
+import { FormField } from '../../components/ui/FormField'
 import type { DuplicateMatchReason, DuplicateCandidate } from '../../lib/api/types'
+import { duplicateMode } from './duplicateCheck'
 
 const REASON_LABEL: Record<DuplicateMatchReason, string> = {
   name_dob: 'same name and date of birth',
+  name: 'same name',
   phone: 'same phone number',
+  email: 'same email',
+  abha: 'same ABHA number',
 }
 
-/** Possible existing records for the patient being registered: open one, or register anyway. */
+/** Existing charts for the person being registered. A hard match cannot continue; a name match needs a reason. */
 export function DuplicateWarning({
   matches,
   busy,
@@ -16,6 +21,9 @@ export function DuplicateWarning({
   onDismiss,
   onUseExisting,
   proceedLabel = 'Register anyway',
+  reason,
+  onReasonChange,
+  focusOnShow = true,
 }: {
   matches: DuplicateCandidate[]
   busy: boolean
@@ -24,9 +32,16 @@ export function DuplicateWarning({
   /** Embedded (booking drawer): pick the existing record in place instead of opening it. */
   onUseExisting?: (match: DuplicateCandidate) => void
   proceedLabel?: string
+  reason: string
+  onReasonChange: (value: string) => void
+  /** Live warnings in a form the user is still typing into must not steal focus. */
+  focusOnShow?: boolean
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null)
-  useEffect(() => headingRef.current?.focus(), [])
+  useEffect(() => {
+    if (focusOnShow) headingRef.current?.focus()
+  }, [focusOnShow])
+  const hard = duplicateMode(matches) === 'hard'
 
   return (
     <section
@@ -35,11 +50,12 @@ export function DuplicateWarning({
       className="this:warning space-y-3 rounded-lg border border-this/30 bg-this-darker/10 p-4 text-sm text-this-darker dark:border-this-lighter/30 dark:bg-this-lighter/10 dark:text-this-lighter"
     >
       <h2 id="duplicate-warning-title" ref={headingRef} tabIndex={-1} className="text-base font-semibold">
-        Possible duplicate patient
+        {hard ? 'This patient already has a chart' : 'Possible duplicate patient'}
       </h2>
       <p>
-        {matches.length === 1 ? 'A patient' : `${matches.length} patients`} in this hospital may already be this person. Open the existing
-        record instead of registering a duplicate, or register anyway if this is a different person.
+        {hard
+          ? 'Another patient in this hospital already has this email, phone number, or ABHA number. Open the existing record. A second chart cannot be registered.'
+          : `${matches.length === 1 ? 'A patient' : `${matches.length} patients`} with this name already exists. Open the existing record, or record why this is a different person.`}
       </p>
       <ul className="divide-y divide-gray-200 rounded-lg border border-gray-200 bg-white text-gray-800 dark:divide-dark-500 dark:border-dark-500 dark:bg-dark-750 dark:text-dark-100">
         {matches.map((m) => (
@@ -66,10 +82,20 @@ export function DuplicateWarning({
           </li>
         ))}
       </ul>
+      {!hard && (
+        <FormField
+          label="Why this is a different person"
+          value={reason}
+          maxLength={500}
+          onChange={(e) => onReasonChange(e.target.value)}
+        />
+      )}
       <div className="flex flex-wrap gap-2">
-        <Button onClick={onProceed} disabled={busy}>
-          {busy ? 'Registering…' : proceedLabel}
-        </Button>
+        {!hard && (
+          <Button onClick={onProceed} disabled={busy || reason.trim().length === 0}>
+            {busy ? 'Registering…' : proceedLabel}
+          </Button>
+        )}
         <Button variant="secondary" onClick={onDismiss} disabled={busy}>
           Review details
         </Button>

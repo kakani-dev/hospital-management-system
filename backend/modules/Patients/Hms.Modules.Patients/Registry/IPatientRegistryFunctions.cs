@@ -10,15 +10,25 @@ namespace Hms.Modules.Patients.Registry;
 /// </summary>
 public interface IPatientRegistryFunctions
 {
-    /// <summary><c>patient.find_duplicate_patients</c>: advisory, RLS-scoped, max 20 rows, both-reasons first.</summary>
+    /// <summary>
+    /// <c>patient.find_duplicate_patients</c>: live patients in this hospital. Email, phone and ABHA are hard
+    /// matches; exact name is a warning (<c>name_dob</c> when both dates match, <c>name</c> when either date is blank).
+    /// </summary>
     Task<IReadOnlyList<DuplicateCandidateDto>> FindDuplicatesAsync(
-        Guid tenantId, string? firstName, string? lastName, DateOnly? dateOfBirth, string? phone, Guid? excludePatientId, CancellationToken ct);
+        Guid tenantId, string? firstName, string? lastName, DateOnly? dateOfBirth, string? phone, Guid? excludePatientId,
+        string? email, string? abha, CancellationToken ct);
 
     /// <summary><c>patient.soft_delete_patient</c>: P0002 not found/deleted, 42501, 55000 open appointments/queue, 22023 reason too long.</summary>
     Task SoftDeleteAsync(Guid patientId, string? reason, CancellationToken ct);
 
-    /// <summary><c>patient.restore_patient</c>: tenant_admin only; P0002 when not found / not deleted.</summary>
+    /// <summary><c>patient.restore_patient</c>: tenant_admin only; P0002 when not found / not deleted; 55000 when the chart was merged.</summary>
     Task RestoreAsync(Guid patientId, CancellationToken ct);
+
+    /// <summary>
+    /// <c>patient.merge_patients</c>: tenant_admin only. P0002 unknown or another hospital, 42501, 22023 bad reason
+    /// or a chart that cannot be merged. A second call for the same pair succeeds and changes nothing.
+    /// </summary>
+    Task MergeAsync(Guid survivorId, Guid duplicateId, string reason, CancellationToken ct);
 
     /// <summary><c>identity.tenant_default_country_code_v1</c>: the caller's own tenant calling code (e.g. +91); null if not a member.</summary>
     Task<string?> DefaultCountryCodeAsync(Guid tenantId, CancellationToken ct);
@@ -29,7 +39,7 @@ public interface IPatientRegistryFunctions
     /// <summary>
     /// <c>patient.set_patient_phones</c>: sets the DESIRED numbers (E.164 or null). whatsappSameAsPhone
     /// flags the phone row; otherwise whatsapp is a separate number (equal to phone = same row).
-    /// 22023 invalid, P0002 not found, 42501 no writer role at the patient's branch.
+    /// 22023 invalid, P0002 not found, 42501 no patients.edit in the hospital, 23505 duplicate phone.
     /// </summary>
     Task SetPhonesAsync(Guid patientId, string? phone, bool whatsappSameAsPhone, string? whatsapp, CancellationToken ct);
 }

@@ -8,6 +8,8 @@ export interface NavItem {
   Icon?: ComponentType<SVGProps<SVGSVGElement>>
   /** aria-keyshortcuts for the link (reception shortcuts). */
   keys?: string
+  /** Warm the route chunk on hover or keyboard focus. */
+  onPrefetch?: () => void
 }
 
 export interface NavGroup {

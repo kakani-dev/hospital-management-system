@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Checkbox } from '@tailux/components/ui'
 import { Link, useLocation } from 'react-router'
 import { RetryAlert } from '../../components/ui/RetryAlert'
@@ -7,16 +8,21 @@ import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
 import { SelectField } from '../../components/ui/SelectField'
 import { FormField } from '../../components/ui/FormField'
-import { useCreateAppointment, useSlots, useTenantCountryCode } from '../../lib/api/hooks'
-import { apiClient } from '../../lib/api/client'
-import { ApiError, fieldErrors, problemCode } from '../../lib/api/client'
-import { formatDayLabel, formatTime, zonedTimeToInstant } from '../../lib/dates'
+import { useCreateAppointment, useSchedules, useSlots, useSlotsInRange, useTenantCountryCode } from '../../lib/api/hooks'
+import { ApiError, apiClient, fieldErrors, problemCode } from '../../lib/api/client'
+import { addDays, formatDayLabel, formatTime, zonedTimeToInstant } from '../../lib/dates'
 import type { Appointment, PatientSummary, Practitioner, Slot } from '../../lib/api/types'
 import { PatientPicker } from '../patients/PatientPicker'
 import { RegisterPatientPage } from '../patients/RegisterPatientPage'
 import { prefillFromTerm, type RegisterPatientState } from '../patients/registerReturn'
 import { SlotPicker } from './SlotPicker'
+import { nextFreeSlot } from './nextFreeSlot'
 import { joinMissing, type BookableStatus } from './useBookablePractitioners'
+import { emptyDayText, explainEmptyDay, nextFreeDate } from './scheduleUtils'
+
+function isAppointmentList(list: unknown): list is Appointment[] {
+  return Array.isArray(list) && list.every((a) => a && typeof a === 'object' && typeof (a as Appointment).id === 'string' && 'status' in (a as Appointment))
+}
 
 /** Booking panel fields that survive a round trip through "Register new patient" (router state). */
 export interface BookingDraft {
@@ -64,11 +70,17 @@ export function BookingPanel({
   const [practitionerId, setPractitionerId] = useState(initial?.practitionerId ?? '')
   const [date, setDate] = useState(initial?.date ?? initialDate)
   const [slot, setSlot] = useState<Slot | null>(initial?.slot ?? null)
+  // A follow-up can name a doctor who is not bookable at this desk. Leave them unset once the list is known.
+  const selectedPractitionerId =
+    practitionersStatus === 'ready' && practitionerId && !practitioners.some((p) => p.id === practitionerId) ? '' : practitionerId
+  const selectedSlot = selectedPractitionerId ? slot : null
   const [patient, setPatient] = useState<PatientSummary | null>(initial?.patient ?? null)
   const [reason, setReason] = useState('')
   const [parentAppointmentId, setParentAppointmentId] = useState(initial?.parentAppointmentId)
   const [overrideHours, setOverrideHours] = useState(false)
   const [overrideTime, setOverrideTime] = useState('')
+  // After a conflict the chosen slot is cleared and not put back; changing the doctor or the date arms it again.
+  const [reselectSlot, setReselectSlot] = useState(!initial?.slot)
   const [error, setError] = useState<string | null>(null)
   const [retryable, setRetryable] = useState(false)
   const confirmRef = useRef<HTMLButtonElement>(null)
@@ -83,18 +95,33 @@ export function BookingPanel({
   useEffect(() => {
     if (initial?.patient) confirmRef.current?.focus()
   }, [initial?.patient])
-  const slots = useSlots(branchId, practitionerId, date)
+  const slots = useSlots(branchId, selectedPractitionerId, date)
+  const dayEmpty = !!selectedPractitionerId && slots.data?.length === 0 && !slots.isPending && !slots.isFetching && !slots.isPlaceholderData && !overrideHours
+  const schedules = useSchedules(dayEmpty ? branchId : null)
+  const lookAheadFrom = dayEmpty ? addDays(date, 1) : ''
+  const lookAheadTo = dayEmpty ? addDays(date, 31) : ''
+  const ahead = useSlotsInRange(branchId, selectedPractitionerId, lookAheadFrom, lookAheadTo, dayEmpty)
+  const emptyReason = !dayEmpty
+    ? undefined
+    : !schedules.data
+      ? 'Checking the schedule…'
+      : emptyDayText(explainEmptyDay(schedules.data, date, selectedPractitionerId, new Date(), timeZone))
+  const nextDate = !dayEmpty || ahead.isPending || ahead.isFetching ? undefined : nextFreeDate(ahead.data ?? [], timeZone)
   const create = useCreateAppointment()
+  const qc = useQueryClient()
+  // Next free slot, once the list for this doctor and date is the live one (not a previous day's placeholder).
+  const slotsReady = !slots.isPending && !slots.isPlaceholderData && !slots.isFetching && !slots.isError && !!slots.data?.length
+  const suggested = !overrideHours && reselectSlot && !slot && !!practitionerId && slotsReady ? nextFreeSlot(slots.data ?? []) : null
   // Admin override: a free time instead of a slot from the working hours.
   const overrideSlot: Slot | null =
-    overrideHours && overrideTime && practitionerId
+    overrideHours && overrideTime && selectedPractitionerId
       ? (() => {
           const startsAt = zonedTimeToInstant(date, overrideTime, timeZone)
-          return { practitionerId, branchId, startsAt, endsAt: new Date(Date.parse(startsAt) + OVERRIDE_MINUTES * 60_000).toISOString() }
+          return { practitionerId: selectedPractitionerId, branchId, startsAt, endsAt: new Date(Date.parse(startsAt) + OVERRIDE_MINUTES * 60_000).toISOString() }
         })()
       : null
-  const chosen = overrideHours ? overrideSlot : slot
-  const missing = [!practitionerId && 'a practitioner', !chosen && (overrideHours ? 'a time' : 'a free slot'), !patient && 'a patient'].filter((m): m is string => !!m)
+  const chosen = overrideHours ? overrideSlot : (selectedSlot ?? suggested)
+  const missing = [!selectedPractitionerId && 'a practitioner', !chosen && (overrideHours ? 'a time' : 'a free slot'), !patient && 'a patient'].filter((m): m is string => !!m)
   const missingMessage = missing.length ? `Choose ${joinMissing(missing)}.` : null
   const noPractitioners = practitionersStatus === 'ready' && practitioners.length === 0
 
@@ -103,14 +130,40 @@ export function BookingPanel({
     setError(null)
     setRetryable(false)
     const slot = chosen
-    if (!practitionerId || !slot || !patient) {
+    if (!selectedPractitionerId || !slot || !patient) {
       setError(missingMessage)
       return
+    }
+    const optimisticId = `pending:${patient.id}:${slot.startsAt}`
+    const optimistic: Appointment = {
+      id: optimisticId,
+      branchId,
+      practitionerId,
+      patientId: patient.id,
+      patient: { id: patient.id, mrn: patient.mrn, firstName: patient.firstName, lastName: patient.lastName },
+      startsAt: slot.startsAt,
+      endsAt: slot.endsAt,
+      status: 'booked',
+      reason: reason.trim() || null,
+      ...(parentAppointmentId ? { parentAppointmentId } : {}),
+    }
+    // Show the visit on the calendar immediately; a failure removes it. Slot caches share the
+    // 'appointments' key prefix and are left alone.
+    const snapshot = qc.getQueriesData<unknown>({ queryKey: ['appointments'] })
+    for (const [key, list] of snapshot) {
+      if (key[1] === 'slots' || !isAppointmentList(list)) continue
+      qc.setQueryData<Appointment[]>(key, [...list.filter((a) => a.id !== optimisticId), optimistic])
+    }
+    const dropOptimistic = () => {
+      for (const [key, list] of qc.getQueriesData<unknown>({ queryKey: ['appointments'] })) {
+        if (key[1] === 'slots' || !isAppointmentList(list)) continue
+        qc.setQueryData<Appointment[]>(key, list.filter((a) => a.id !== optimisticId))
+      }
     }
     try {
       const appointment = await create.mutateAsync({
         branchId,
-        practitionerId,
+        practitionerId: selectedPractitionerId,
         patientId: patient.id,
         startsAt: slot.startsAt,
         endsAt: slot.endsAt,
@@ -118,12 +171,13 @@ export function BookingPanel({
         ...(parentAppointmentId ? { parentAppointmentId } : {}),
         ...(overrideHours ? { overrideWorkingHours: true } : {}),
       })
-      const doctor = practitioners.find((p) => p.id === practitionerId)?.displayName ?? 'the practitioner'
+      const doctor = practitioners.find((p) => p.id === selectedPractitionerId)?.displayName ?? 'the practitioner'
       onBooked(
         appointment,
         `Booked ${patient.firstName} ${patient.lastName} with ${doctor} on ${formatDayLabel(date)} at ${formatTime(slot.startsAt, timeZone)}.`,
       )
     } catch (e) {
+      dropOptimistic()
       // Cold server / timeout: keep the form as it is and offer Retry (writes are never auto-retried).
       const transient = transientWriteMessage(e, 'book the appointment')
       if (transient) {
@@ -132,6 +186,7 @@ export function BookingPanel({
         return
       }
       setSlot(null)
+      setReselectSlot(false)
       const code = problemCode(e)
       const status = e instanceof ApiError ? e.status : 0
       const detail = e instanceof ApiError ? (e.problem?.detail ?? '') : ''
@@ -146,9 +201,9 @@ export function BookingPanel({
           ? 'That slot was just booked for this practitioner. Pick another slot.'
           : code === 'invalid_reference' || status === 404
             ? 'The patient or practitioner can no longer be booked (deleted or inactive).'
-            : status === 403
+              : status === 403
               ? parentAppointmentId
-                ? 'You can only book follow-ups for your own patients.'
+                ? 'Doctors can only book a follow-up of an earlier visit, at a branch they can access.'
                 : 'You are not allowed to book appointments at this branch.'
               : (Object.values(fieldErrors(e))[0] ?? 'Could not book the appointment. Try again.'),
       )
@@ -168,11 +223,12 @@ export function BookingPanel({
       <div className="space-y-4">
         <SelectField
           label="Practitioner"
-          value={practitionerId}
+          value={selectedPractitionerId}
           disabled={noPractitioners || practitionersStatus !== 'ready'}
           onChange={(e) => {
             setPractitionerId(e.target.value)
             setSlot(null)
+            setReselectSlot(true)
           }}
         >
           <option value="">
@@ -215,6 +271,7 @@ export function BookingPanel({
           onChange={(e) => {
             if (e.target.value) setDate(e.target.value)
             setSlot(null)
+            setReselectSlot(true)
           }}
         />
         {canOverrideHours && (
@@ -223,8 +280,9 @@ export function BookingPanel({
             classNames={{ labelText: 'text-sm' }}
             checked={overrideHours}
             onChange={(e) => {
-              setOverrideHours(e.target.checked)
-              setSlot(null)
+            setOverrideHours(e.target.checked)
+            setSlot(null)
+            setReselectSlot(true)
             }}
           />
         )}
@@ -239,18 +297,22 @@ export function BookingPanel({
         ) : (
         <SlotPicker
           timeZone={timeZone}
-          practitionerId={practitionerId}
+          practitionerId={selectedPractitionerId}
           slots={slots}
-          value={slot}
+          value={chosen}
           onChange={setSlot}
+          emptyReason={emptyReason}
+          nextDate={nextDate}
+          onNextDate={(next) => {
+            setDate(next)
+            setSlot(null)
+          }}
           emptyHint={
             canManageSetup ? (
               <>
-                Try another date, or{' '}
                 <Link className="font-medium underline" to="/admin/working-hours">
                   check working hours
                 </Link>
-                .
               </>
             ) : (
               'Try another date or practitioner.'
@@ -270,7 +332,7 @@ export function BookingPanel({
             embedded={{
               prefill: quick.prefill,
               branchId,
-              canBook: !!practitionerId && !!slot,
+              canBook: !!selectedPractitionerId && !!chosen,
               onCancel: () => setQuick(null),
               onCreated: (created, action) => {
                 setPatient(created)
@@ -301,7 +363,7 @@ export function BookingPanel({
             }}
             showRecent
             onCreateNew={(term) => setQuick({ prefill: prefillFromTerm(term, countryCode) })}
-            registerReturn={{ to: `${location.pathname}${location.search}`, state: { booking: { practitionerId, date, slot } satisfies BookingDraft } }}
+            registerReturn={{ to: `${location.pathname}${location.search}`, state: { booking: { practitionerId: selectedPractitionerId, date, slot: chosen } satisfies BookingDraft } }}
           />
         )}
         <FormField label="Reason (optional)" maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />

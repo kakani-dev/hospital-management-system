@@ -75,8 +75,21 @@ hash_of hash_mocked \
 hash_of hash_deploy \
   infra/aca \
   .github/workflows/deploy-aca.yml \
+  .github/workflows/cleanup.yml \
+  .github/scripts/aca-rollout.sh \
+  .github/scripts/aca-cleanup-azure.sh \
+  .github/scripts/cleanup-github.sh \
+  .github/scripts/service_changes.py \
+  .github/scripts/retention.py \
+  .github/scripts/test-deploy-plan.sh \
   scripts/smoke \
-  .github/scripts/deploy-changed-services.sh
+  scripts/azure-oidc-setup.sh \
+  scripts/verify.sh \
+  lefthook.yml \
+  CONTRIBUTING.md \
+  AGENTS.md \
+  .cursor/rules/verify-before-commit.mdc \
+  docs/deploy.md
 
 hash_of hash_image_api \
   infra/docker \

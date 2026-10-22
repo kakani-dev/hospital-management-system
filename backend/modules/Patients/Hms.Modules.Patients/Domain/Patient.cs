@@ -20,6 +20,12 @@ public sealed class Patient : AuditableEntity, ITenantOwned
     public string? Email { get; set; }
     /// <summary>Optional ABHA number (Ayushman Bharat Health Account), stored as XX-XXXX-XXXX-XXXX.</summary>
     public string? AbhaNumber { get; set; }
+    /// <summary>Why a same-name chart was kept. Null when the name did not match another live patient.</summary>
+    public string? DuplicateOverrideReason { get; set; }
+    /// <summary>Set when this chart was merged into another. The row stays soft-deleted.</summary>
+    public Guid? MergedIntoPatientId { get; set; }
+    public DateTimeOffset? MergedAt { get; set; }
+    public Guid? MergedBy { get; set; }
     public DateTimeOffset? DeletedAt { get; set; }
 }
 

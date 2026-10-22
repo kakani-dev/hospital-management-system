@@ -457,7 +457,7 @@ export class ApiClient {
     restore: (id: string) => this.request<void>(`/api/v1/patients/${encodeURIComponent(id)}/restore`, { method: 'POST' }),
     /** Counts only (no PHI); omit branchId for the whole hospital. */
     stats: (params: { branchId?: string } = {}) => this.request<PatientStats>(`/api/v1/patients/stats${qs(params)}`),
-    /** Possible duplicates (≤ 20, advisory). Identifiers are PHI: body, never URL. */
+    /** Possible duplicates (≤ 20). Identifiers are PHI: body, never URL. Email, phone and ABHA block registration. */
     duplicates: async (body: DuplicateCheckRequest) => {
       const result = await this.request<{ candidates?: DuplicateCandidate[] } | DuplicateCandidate[] | undefined>('/api/v1/patients/duplicates', {
         method: 'POST',
@@ -499,6 +499,9 @@ export class ApiClient {
 
   appointments = {
     list: (params: AppointmentQuery) => this.request<PagedResult<Appointment>>(`/api/v1/appointments${qs(params)}`),
+    /** Tenant-wide visits for one patient (no branchId). Same list endpoint, filtered by patientId. */
+    visits: (params: { patientId: string; from: string; to: string; page?: number; pageSize?: number }) =>
+      this.request<PagedResult<Appointment>>(`/api/v1/appointments${qs(params)}`),
     /** 201 `booked`; 409 appointment_overlap when the practitioner is already booked then. */
     create: (body: CreateAppointmentRequest) =>
       this.request<Appointment>('/api/v1/appointments', { method: 'POST', body: JSON.stringify(body) }),

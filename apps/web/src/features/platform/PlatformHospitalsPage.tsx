@@ -1,7 +1,8 @@
-import { useDeferredValue, useState } from 'react'
-import { Link } from 'react-router'
+import { useDeferredValue, useEffect, useState } from 'react'
+import { Link, useLocation, useNavigate } from 'react-router'
 import { Badge } from '@tailux/components/ui'
 import { Drawer } from '@tailux/components/shared/Drawer'
+import { Illustration } from '../../components/ui/Illustration'
 import { Card } from '../../components/ui/Card'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
@@ -21,7 +22,15 @@ export function PlatformHospitalsPage() {
   const deferredSearch = useDeferredValue(search.trim())
   const tenants = usePlatformTenants({ search: deferredSearch || undefined, status: status || undefined })
   const pending = useHospitalRequests('pending')
-  const [creating, setCreating] = useState(false)
+  const location = useLocation()
+  const navigate = useNavigate()
+  const openFromSearch = Boolean((location.state as { openCreate?: boolean } | null)?.openCreate)
+  const [creating, setCreating] = useState(openFromSearch)
+  if (openFromSearch && !creating) setCreating(true)
+  useEffect(() => {
+    if (!openFromSearch) return
+    navigate(`${location.pathname}${location.search}`, { replace: true, state: null })
+  }, [openFromSearch, location.pathname, location.search, navigate])
   const [created, setCreated] = useState<{ result: HospitalApproved; name: string; email: string } | null>(null)
 
   const columns: ColumnDef<PlatformTenant, unknown>[] = [
@@ -114,7 +123,16 @@ export function PlatformHospitalsPage() {
           caption="Hospitals on the platform"
           isLoading={tenants.isPending}
           isStale={tenants.isPlaceholderData}
-          empty={search || status ? 'No hospitals match.' : 'No hospitals yet.'}
+          empty={
+            search || status ? (
+              'No hospitals match.'
+            ) : (
+              <span className="inline-flex flex-col items-center gap-2">
+                <Illustration name="lab" size={72} />
+                No hospitals yet.
+              </span>
+            )
+          }
           getRowId={(t) => t.id}
           getRowProps={(row) => ({ 'data-testid': 'platform-tenant-row', 'data-status': row.original.status })}
         />

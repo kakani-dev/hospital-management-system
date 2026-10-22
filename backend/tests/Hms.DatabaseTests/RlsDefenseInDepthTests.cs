@@ -161,10 +161,8 @@ public sealed class RlsDefenseInDepthTests
     }
 
     [Fact]
-    public async Task Branch_scoped_writer_cannot_edit_or_move_another_branchs_patient_even_bypassing_the_api()
+    public async Task Branch_scoped_writer_can_edit_another_branchs_patient_but_not_another_hospitals()
     {
-        // PR #2 review MIN-3 (PoC D4): receptionist@Main, raw UPDATE of an Alpha East patient as hms_api_login.
-        // The patients UPDATE policy's row filter requires access to the CURRENT branch, so 0 rows change.
         var (db, _) = PatientsAs(AlphaReceptionMain, Alpha, Alpha);
         await using var _db = db;
         await using var tx = await db.Database.BeginTransactionAsync();
@@ -172,9 +170,12 @@ public sealed class RlsDefenseInDepthTests
         var edited = await db.Database.ExecuteSqlRawAsync(
             "update patient.patients set first_name = 'Edited' where id = {0}", AlphaEastPatient);
         var moved = await db.Database.ExecuteSqlRawAsync(
-            "update patient.patients set registered_branch_id = {0}, first_name = 'Moved' where id = {1}", AlphaMain, AlphaEastPatient);
-        Assert.Equal(0, edited);
-        Assert.Equal(0, moved);
+            "update patient.patients set registered_branch_id = {0} where id = {1}", AlphaMain, AlphaEastPatient);
+        var foreign = await db.Database.ExecuteSqlRawAsync(
+            "update patient.patients set first_name = 'Nope' where id = {0}", BetaPatient);
+        Assert.Equal(1, edited);
+        Assert.Equal(1, moved);
+        Assert.Equal(0, foreign);
         await tx.RollbackAsync();
     }
 }

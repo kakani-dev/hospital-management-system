@@ -102,7 +102,8 @@ to the owning service.
   - **Service images** build and boot only the images whose Docker inputs changed.
   - `schedule` (04:17 UTC nightly on main) and `workflow_dispatch` ignore the pass cache and run
     every heavy job. Push to main still deploys only the services whose image inputs changed
-    (`deploy-aca.yml`, `cancel-in-progress: false`).
+    (`deploy-aca.yml` via `service_changes.py`). A newer push may cancel a deploy that has not
+    finished; `workflow_dispatch` does not.
   - The four required check names are reporter jobs. They **succeed** when the heavy job was
     skipped, and **fail** when that job or `changes` failed or was cancelled. `ci-ok` is the
     aggregate: `needs` every job, `if: always()`, and it fails only when a needed job failed or

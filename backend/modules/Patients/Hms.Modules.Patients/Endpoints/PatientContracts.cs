@@ -72,7 +72,9 @@ public sealed record CreatePatientRequest(
     string? Phone,
     string? Email,
     WhatsappInput? Whatsapp = null,
-    string? AbhaNumber = null);
+    string? AbhaNumber = null,
+    /// <summary>Required when the name matches a live patient (date of birth may be blank). Ignored unless there is a name match. Does not override email, phone or ABHA.</summary>
+    string? DuplicateOverrideReason = null);
 
 /// <summary>
 /// Body of POST /api/v1/patients/search. The terms travel in the body (not the URL) so names, MRNs,
@@ -84,6 +86,11 @@ public sealed record PatientSearchRequest(
 /// <summary>GET /patients/stats: counts for the dashboard (soft-deleted patients excluded).</summary>
 public sealed record PatientStatsDto(long Total, long RegisteredToday);
 
-public sealed record DuplicateCheckRequest(string? FirstName, string? LastName, DateOnly? DateOfBirth, string? Phone, Guid? ExcludePatientId);
+public sealed record DuplicateCheckRequest(
+    string? FirstName, string? LastName, DateOnly? DateOfBirth, string? Phone, Guid? ExcludePatientId,
+    string? Email = null, string? AbhaNumber = null);
 
 public sealed record DeletePatientRequest(string? Reason);
+
+/// <summary>Body of POST /patients/{survivorId}/merge. Tenant admin only. The duplicate chart is soft-deleted.</summary>
+public sealed record MergePatientRequest(Guid? DuplicatePatientId, string? Reason);

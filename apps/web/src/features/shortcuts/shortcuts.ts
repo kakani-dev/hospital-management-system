@@ -5,7 +5,7 @@ import type { Capability } from '../../lib/permissions'
  * macOS-Option-proof) and work even while typing in a field; "/" and "?" only outside fields.
  */
 export interface Shortcut {
-  id: 'search' | 'register' | 'check-in' | 'walk-in' | 'queue' | 'book' | 'help'
+  id: 'search' | 'register' | 'check-in' | 'walk-in' | 'queue' | 'book' | 'palette' | 'desk' | 'help'
   /** Human label, also used for aria-keyshortcuts. */
   keys: string
   description: string
@@ -14,12 +14,14 @@ export interface Shortcut {
 }
 
 export const SHORTCUTS: Shortcut[] = [
+  { id: 'palette', keys: 'Ctrl+K', description: 'Search patients and actions (opens on the current page)' },
   { id: 'search', keys: '/', description: 'Find a patient (focus the patient search)' },
   { id: 'register', keys: 'Alt+N', description: 'Register a new patient (from a patient picker: pre-filled with what you typed)', capability: 'patients.write' },
   { id: 'check-in', keys: 'Alt+C', description: 'Reception check-in', capability: 'queue.checkIn' },
   { id: 'walk-in', keys: 'Alt+W', description: 'Walk-in: focus the walk-in patient search', capability: 'queue.checkIn' },
   { id: 'queue', keys: 'Alt+Q', description: 'OPD queue board', capability: 'queue.view' },
   { id: 'book', keys: 'Alt+K', description: 'Book an appointment', capability: 'appointments.book' },
+  { id: 'desk', keys: 'Alt+D', description: 'Hospital desk: invite staff and manage branches', capability: 'admin.members' },
   { id: 'help', keys: '?', description: 'Show this list' },
 ]
 
@@ -29,6 +31,7 @@ export const ALT_CODES: Record<string, Shortcut['id']> = {
   KeyW: 'walk-in',
   KeyQ: 'queue',
   KeyK: 'book',
+  KeyD: 'desk',
 }
 
 /** True when the key press is text entry (inputs, textareas, selects, contenteditable). */
