@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { Button } from '../../components/ui/Button'
 import { Alert } from '../../components/ui/Alert'
@@ -24,17 +24,44 @@ export function InvitePage() {
   const switchContext = useSwitchContext({ refresh, resetCache, expectTenant })
   const [error, setError] = useState<string | null>(null)
   const [codeSent, setCodeSent] = useState(() => readCodeFromHash().length === 6)
-  const submitRef = useRef<(value: string) => Promise<void>>(async () => {})
-  useEffect(() => {
-    const fromHash = readCodeFromHash()
-    if (!fromHash || session || !preview.data) return
-    window.history.replaceState(null, '', window.location.pathname + window.location.search)
-    void submitRef.current(fromHash)
-  }, [session, preview.data])
   const [code, setCode] = useState(() => readCodeFromHash())
   const [password, setPasswordValue] = useState('')
   const [sending, setSending] = useState(false)
   const [signingIn, setSigningIn] = useState(false)
+
+  const submitCode = useCallback(
+    async (value: string) => {
+      setError(null)
+      setSigningIn(true)
+      try {
+        const proof = await apiClient.publicApi.exchangeInviteSignInCode(token, value)
+        const result = await signInWithTokenHash(proof.tokenHash)
+        if (result.error) setError(result.error)
+        if (window.location.hash) window.history.replaceState(null, '', window.location.pathname + window.location.search)
+      } catch (e) {
+        setError(
+          e instanceof ApiError && (e.status === 401 || e.status === 404)
+            ? 'That code is not valid. Request a new one.'
+            : 'Could not sign in with that code. Try again.',
+        )
+      } finally {
+        setSigningIn(false)
+      }
+    },
+    [signInWithTokenHash, token],
+  )
+
+  useEffect(() => {
+    const fromHash = readCodeFromHash()
+    if (!fromHash || session || !preview.data) return
+    // Defer past this effect so sign-in state updates are not synchronous setState,
+    // and so Strict Mode's setup/cleanup/setup cycle still submits once.
+    const handle = window.setTimeout(() => {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search)
+      void submitCode(fromHash)
+    }, 0)
+    return () => window.clearTimeout(handle)
+  }, [session, preview.data, submitCode])
 
   const accept = () => {
     setError(null)
@@ -100,26 +127,6 @@ export function InvitePage() {
       setSending(false)
     }
   }
-
-  const submitCode = async (value: string) => {
-    setError(null)
-    setSigningIn(true)
-    try {
-      const proof = await apiClient.publicApi.exchangeInviteSignInCode(token, value)
-      const result = await signInWithTokenHash(proof.tokenHash)
-      if (result.error) setError(result.error)
-      if (window.location.hash) window.history.replaceState(null, '', window.location.pathname + window.location.search)
-    } catch (e) {
-      setError(
-        e instanceof ApiError && (e.status === 401 || e.status === 404)
-          ? 'That code is not valid. Request a new one.'
-          : 'Could not sign in with that code. Try again.',
-      )
-    } finally {
-      setSigningIn(false)
-    }
-  }
-  submitRef.current = submitCode
 
   const savePassword = async () => {
     setError(null)
