@@ -33,6 +33,15 @@ select tests.ok(
      '11111111-1111-4111-8111-111111111111', 'e1111111-0000-4000-8000-000000000001')) = 1,
   'appointment_billing_ref_v1 returns ids for a seeded appointment');
 
+select tests.ok(
+  (select prosecdef and proconfig @> array['search_path=""']
+     and has_function_privilege('hms_svc_billing', oid, 'execute')
+     and not has_function_privilege('anon', oid, 'execute')
+   from pg_proc where oid = 'audit.session_actor_id()'::regprocedure)
+  and has_schema_privilege('hms_svc_billing', 'audit', 'USAGE')
+  and not has_table_privilege('hms_svc_billing', 'audit.audit_log', 'select'),
+  'the session actor is a security-definer function the billing role can call without reading the audit log');
+
 -- --------------------------------------------------------------------- admin desk ----
 do $$
 declare

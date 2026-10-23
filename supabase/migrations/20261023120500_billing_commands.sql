@@ -857,7 +857,7 @@ begin
   v_doc := billing.assign_number(p_tenant_id, v_branch,
     case when v_bill.bill_kind = 'credit_note' then 'credit_note' else 'bill' end);
   update billing.bill
-  set status = 'finalized', bill_no = v_doc, finalized_at = pg_catalog.now(), finalized_by = auth.uid()
+  set status = 'finalized', bill_no = v_doc, finalized_at = pg_catalog.now(), finalized_by = audit.session_actor_id()
   where id = p_bill_id;
   return billing.bill_json(p_bill_id);
 end;
@@ -1118,7 +1118,7 @@ begin
     insert into billing.approval_request (
       tenant_id, action, subject_type, subject_id, amount_paise, percent_bp, requested_by, approver_id, status, decided_at, payload)
     values (
-      p_tenant_id, 'refund', 'payment', p_payment_id, v_amount, v_percent, auth.uid(), auth.uid(), 'approved', pg_catalog.now(),
+      p_tenant_id, 'refund', 'payment', p_payment_id, v_amount, v_percent, audit.session_actor_id(), audit.session_actor_id(), 'approved', pg_catalog.now(),
       jsonb_build_object('paymentId', p_payment_id, 'amountPaise', v_amount, 'mode', v_mode, 'reference', p_body ->> 'reference'))
     returning id into v_approval;
     v_id := billing.insert_refund(p_tenant_id, p_payment_id, v_amount, v_mode, nullif(p_body ->> 'reference', ''), v_approval, gen_random_uuid());
@@ -1127,7 +1127,7 @@ begin
   insert into billing.approval_request (
     tenant_id, action, subject_type, subject_id, amount_paise, percent_bp, requested_by, status, payload)
   values (
-    p_tenant_id, 'refund', 'payment', p_payment_id, v_amount, v_percent, auth.uid(), 'pending',
+    p_tenant_id, 'refund', 'payment', p_payment_id, v_amount, v_percent, audit.session_actor_id(), 'pending',
     jsonb_build_object('paymentId', p_payment_id, 'amountPaise', v_amount, 'mode', v_mode, 'reference', p_body ->> 'reference'))
   returning id into v_approval;
   return jsonb_build_object('approvalId', v_approval, 'status', 'pending');
@@ -1185,7 +1185,7 @@ begin
     insert into billing.approval_request (
       tenant_id, action, subject_type, subject_id, amount_paise, percent_bp, requested_by, approver_id, status, decided_at, payload)
     values (
-      p_tenant_id, 'discount', 'bill', p_bill_id, v_amount, v_percent, auth.uid(), auth.uid(), 'approved', pg_catalog.now(),
+      p_tenant_id, 'discount', 'bill', p_bill_id, v_amount, v_percent, audit.session_actor_id(), audit.session_actor_id(), 'approved', pg_catalog.now(),
       jsonb_build_object('billId', p_bill_id, 'billLineId', v_line, 'kind', v_kind, 'value', v_value, 'reasonCode', v_reason))
     returning id into v_approval;
     insert into billing.discount (tenant_id, bill_id, bill_line_id, kind, value, reason_code, approval_id)
@@ -1195,7 +1195,7 @@ begin
   insert into billing.approval_request (
     tenant_id, action, subject_type, subject_id, amount_paise, percent_bp, requested_by, status, payload)
   values (
-    p_tenant_id, 'discount', 'bill', p_bill_id, v_amount, v_percent, auth.uid(), 'pending',
+    p_tenant_id, 'discount', 'bill', p_bill_id, v_amount, v_percent, audit.session_actor_id(), 'pending',
     jsonb_build_object('billId', p_bill_id, 'billLineId', v_line, 'kind', v_kind, 'value', v_value, 'reasonCode', v_reason))
   returning id into v_approval;
   return jsonb_build_object('approvalId', v_approval, 'status', 'pending', 'amountPaise', v_amount, 'percentBp', v_percent);
@@ -1228,7 +1228,7 @@ begin
     raise exception 'outside your approval limit' using errcode = '42501';
   end if;
   update billing.approval_request
-  set status = v_status, approver_id = auth.uid(), decided_at = pg_catalog.now(), note = nullif(p_body ->> 'note', '')
+  set status = v_status, approver_id = audit.session_actor_id(), decided_at = pg_catalog.now(), note = nullif(p_body ->> 'note', '')
   where id = p_approval_id;
   if v_status = 'approved' and v_req.action = 'discount' then
     insert into billing.discount (tenant_id, bill_id, bill_line_id, kind, value, reason_code, approval_id)
@@ -1243,7 +1243,7 @@ begin
       v_req.payload ->> 'mode', nullif(v_req.payload ->> 'reference', ''), p_approval_id, gen_random_uuid());
     return billing.receipt_json(v_refund);
   end if;
-  return jsonb_build_object('approvalId', p_approval_id, 'status', v_status, 'approverId', auth.uid());
+  return jsonb_build_object('approvalId', p_approval_id, 'status', v_status, 'approverId', audit.session_actor_id());
 end;
 $$;
 
@@ -1306,7 +1306,7 @@ begin
   perform billing.assert_branch(p_tenant_id, v_counter.branch_id);
   v_day := identity.branch_local_date_v1(v_counter.branch_id, pg_catalog.now());
   insert into billing.counter_session (tenant_id, counter_id, cashier_id, business_date, opening_float_paise)
-  values (p_tenant_id, v_counter.id, auth.uid(), v_day, coalesce((p_body ->> 'openingFloatPaise')::bigint, 0))
+  values (p_tenant_id, v_counter.id, audit.session_actor_id(), v_day, coalesce((p_body ->> 'openingFloatPaise')::bigint, 0))
   returning id into v_id;
   return jsonb_build_object('id', v_id, 'businessDate', v_day);
 end;
@@ -1350,7 +1350,7 @@ begin
     raise exception 'a cash variance needs an approved override' using errcode = '42501';
   end if;
   insert into billing.counter_close (tenant_id, counter_session_id, mode, counted_paise, variance_approval_id, closed_by)
-  values (p_tenant_id, p_session_id, 'cash', coalesce(v_counted, 0), v_approval, auth.uid());
+  values (p_tenant_id, p_session_id, 'cash', coalesce(v_counted, 0), v_approval, audit.session_actor_id());
   update billing.counter_session set status = 'closed', closed_at = pg_catalog.now() where id = p_session_id;
   return jsonb_build_object('id', p_session_id, 'expectedCashPaise', v_expected, 'countedCashPaise', v_counted, 'variancePaise', v_variance, 'status', 'closed');
 end;
@@ -1630,6 +1630,7 @@ $$;
 grant usage on schema identity, patient, appointment, auth to hms_svc_billing;
 grant execute on function auth.uid() to hms_svc_billing;
 grant execute on function auth.jwt() to hms_svc_billing;
+grant execute on function audit.session_actor_id() to hms_svc_billing;
 grant execute on function identity.current_tenant_ids() to hms_svc_billing;
 grant execute on function identity.current_branch_ids(uuid) to hms_svc_billing;
 grant execute on function identity.has_tenant_permission(uuid, text) to hms_svc_billing;
