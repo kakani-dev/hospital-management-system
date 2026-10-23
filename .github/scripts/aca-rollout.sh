@@ -20,6 +20,15 @@
 # Does not write the identity app's hms-db secret (that value is hms_identity_login).
 # Passes the current min/max replicas through. Identity must already be minReplicas 1.
 #
+# A service the live edge does not list yet is not proved through that edge. The edge
+# would report it as missing until this same rollout publishes an edge revision that
+# knows the cluster. The new container is proved on its own revision first (ingress
+# target port 8080, HTTP probes on /health/live and /health/ready, same as the other
+# services). The edge revision then sets every cluster address, including
+# ReverseProxy__Clusters__billing__Destinations__primary__Address=http://ca-hms-billing/,
+# and only after that revision has traffic does /health/ready have to list the new
+# service. A later deploy of a service the edge already lists is unchanged.
+#
 #   IMAGE_TAG=sha-<hex> .github/scripts/aca-rollout.sh identity patients
 #   .github/scripts/aca-rollout.sh --rollback-only
 #
@@ -38,6 +47,9 @@ LEGACY_APP="medicore-hms-api"
 STATE="${ROLLBACK_STATE:-${RUNNER_TEMP:-/tmp}/aca-rollback.tsv}"
 IMAGE_TAG="${IMAGE_TAG:-}"
 rolling=0
+# "*" means the live edge's service list could not be read. Every service is then
+# proved through the edge, which is the behaviour of a deploy that adds nothing.
+EDGE_KNOWN="*"
 
 if [[ "$RG" != "rg-medicore-hms-dev" ]]; then
   echo "::error::refusing resource group $RG (this pipeline only deploys rg-medicore-hms-dev)" >&2
@@ -127,6 +139,112 @@ record() {
   printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" >>"$STATE"
 }
 
+# Names the public edge currently returns from /health/ready. A brand-new cluster is
+# absent here until the edge revision in this rollout is the one serving traffic.
+edge_snapshot() {
+  local body code names
+  body="$(mktemp)"
+  code="$(curl -sS --max-time "${CURL_MAX_TIME:-20}" -o "$body" -w '%{http_code}' "$GATEWAY_URL/health/ready" 2>/dev/null || true)"
+  if [[ "$code" != "200" && "$code" != "503" ]]; then
+    rm -f "$body"
+    EDGE_KNOWN="*"
+    echo "live edge readiness was HTTP ${code:-000}; checking every service through the edge"
+    return 0
+  fi
+  if ! names="$(python3 - "$body" <<'PY'
+import json, sys
+try:
+    document = json.load(open(sys.argv[1], encoding="utf-8"))
+except (OSError, json.JSONDecodeError):
+    sys.exit(1)
+services = document.get("services")
+if not isinstance(services, list):
+    sys.exit(1)
+print(" ".join(str(item.get("name")) for item in services if isinstance(item, dict) and item.get("name")))
+PY
+)"; then
+    rm -f "$body"
+    EDGE_KNOWN="*"
+    echo "live edge readiness had no service list; checking every service through the edge"
+    return 0
+  fi
+  rm -f "$body"
+  EDGE_KNOWN="$names"
+  echo "live edge reports: ${EDGE_KNOWN:-none}"
+}
+
+# A non-edge service the live edge does not list. The edge itself is never "fresh":
+# its own update is what publishes the cluster addresses.
+is_fresh() {
+  [[ "$1" == "edge" ]] && return 1
+  [[ "$EDGE_KNOWN" == "*" ]] && return 1
+  [[ " $EDGE_KNOWN " == *" $1 "* ]] && return 1
+  return 0
+}
+
+# Placeholder apps (the quickstart image) listen on 80 while ingress and the other
+# services use 8080. One revision carries the image, the suffix, and the same HTTP
+# probes deploy-aca.sh gives every service. Startup and liveness are /health/live
+# (process only). Readiness is /health/ready.
+ensure_listen() {
+  local app="$1" image="$2" suffix="$3" id shown body
+  az containerapp ingress enable -g "$RG" -n "$app" --type internal --target-port 8080 \
+    --transport auto --allow-insecure -o none
+  id="$(az containerapp show -g "$RG" -n "$app" --query id -o tsv)"
+  [[ -n "$id" ]] || die "$app has no resource id"
+  shown="$(mktemp)"
+  body="$(mktemp)"
+  az containerapp show -g "$RG" -n "$app" -o json >"$shown"
+  python3 - "$shown" "$body" "$image" "$suffix" "$SCALE_MIN" "$SCALE_MAX" <<'PY'
+import json, sys
+src, dest, image, suffix, scale_min, scale_max = sys.argv[1:]
+app = json.load(open(src, encoding="utf-8"))
+template = app["properties"]["template"]
+container = template["containers"][0]
+container["image"] = image
+container["probes"] = [
+    {"type": "Startup", "httpGet": {"path": "/health/live", "port": 8080, "scheme": "HTTP"},
+     "initialDelaySeconds": 1, "periodSeconds": 2, "failureThreshold": 30, "timeoutSeconds": 5},
+    {"type": "Liveness", "httpGet": {"path": "/health/live", "port": 8080, "scheme": "HTTP"},
+     "periodSeconds": 30, "failureThreshold": 3, "timeoutSeconds": 5},
+    {"type": "Readiness", "httpGet": {"path": "/health/ready", "port": 8080, "scheme": "HTTP"},
+     "periodSeconds": 30, "failureThreshold": 3, "timeoutSeconds": 5},
+]
+scale = template.setdefault("scale", {})
+scale["minReplicas"] = int(scale_min)
+scale["maxReplicas"] = int(scale_max)
+template["revisionSuffix"] = suffix
+json.dump({"properties": {"template": template}}, open(dest, "w", encoding="utf-8"))
+PY
+  az rest --method patch --url "https://management.azure.com${id}?api-version=2025-01-01" \
+    --body @"$body" -o none
+  rm -f "$shown" "$body"
+}
+
+wait_revision() {
+  local app="$1" rev="$2" state="" interval="${SMOKE_INTERVAL_SECONDS:-5}"
+  local timeout="${HEALTH_TIMEOUT_SECONDS:-150}"
+  local deadline=$((SECONDS + timeout))
+  while (( SECONDS <= deadline )); do
+    state="$(az containerapp revision show -g "$RG" -n "$app" --revision "$rev" \
+      --query properties.runningState -o tsv 2>/dev/null || true)"
+    case "$state" in
+      Running)
+        echo "   ok $app revision $rev is running (port 8080)"
+        return 0
+        ;;
+      ActivationFailed|Failed)
+        die "$app revision $rev is $state. Ingress target port is 8080 and probes are /health/live and /health/ready."
+        ;;
+    esac
+    if (( SECONDS >= deadline )); then
+      break
+    fi
+    sleep "$interval"
+  done
+  die "$app revision $rev did not start within ${timeout}s (last state ${state:-unknown})"
+}
+
 # Read scale and pass it back on update so a new revision cannot fall back to 0.
 # Identity is warm (minReplicas 1). Any other value means stop, not "fix" it.
 read_scale() {
@@ -209,6 +327,18 @@ print(rows[0].get("revisionName", "") if rows else "")
         "Smtp__Password=secretref:smtp-password" \
         "Auth__Supabase__ServiceRoleKey=secretref:supabase-service-role" \
         "Email__Dispatcher__Enabled=true"
+    elif [[ "$service" == "edge" ]]; then
+      # appsettings.json keeps localhost for dev. Every edge revision stamps the
+      # in-environment addresses, including a service that was not on the previous edge.
+      az containerapp update -g "$RG" -n "$app" --image "$image" --revision-suffix "$suffix" \
+        --min-replicas "$SCALE_MIN" --max-replicas "$SCALE_MAX" -o none \
+        --set-env-vars \
+        "ReverseProxy__Clusters__identity__Destinations__primary__Address=http://ca-hms-identity/" \
+        "ReverseProxy__Clusters__patients__Destinations__primary__Address=http://ca-hms-patients/" \
+        "ReverseProxy__Clusters__scheduling__Destinations__primary__Address=http://ca-hms-scheduling/" \
+        "ReverseProxy__Clusters__billing__Destinations__primary__Address=http://ca-hms-billing/"
+    elif is_fresh "$service"; then
+      ensure_listen "$app" "$image" "$suffix"
     else
       az containerapp update -g "$RG" -n "$app" --image "$image" --revision-suffix "$suffix" \
         --min-replicas "$SCALE_MIN" --max-replicas "$SCALE_MAX" -o none
@@ -224,6 +354,15 @@ print(rows[0].get("revisionName", "") if rows else "")
   if [[ "$new" != "$prev" ]]; then
     echo "shifting $app traffic to $new (previous $prev)"
     az containerapp ingress traffic set -g "$RG" -n "$app" --revision-weight "${new}=100" -o none
+  fi
+
+  # The live edge cannot see a cluster it was not built or configured with.
+  # Prove the container itself, then let the edge revision in this rollout
+  # (and the final smoke) require it on /health/ready.
+  if is_fresh "$service"; then
+    echo "$service is new to the live edge; not checking it through the edge until the edge revision is serving"
+    wait_revision "$app" "$new"
+    return 0
   fi
 
   local smoke_service="all"
@@ -260,6 +399,22 @@ main() {
   fqdn="$(az containerapp show -g "$RG" -n ca-hms-edge --query properties.configuration.ingress.fqdn -o tsv)"
   [[ -n "$fqdn" ]] || die "ca-hms-edge has no public fqdn"
   GATEWAY_URL="https://${fqdn}"
+  edge_snapshot
+
+  local -a fresh=()
+  local has_edge=0
+  for service in "${ordered[@]}"; do
+    [[ "$service" == "edge" ]] && has_edge=1
+    if is_fresh "$service"; then
+      fresh+=("$service")
+    fi
+  done
+  if [[ "${#fresh[@]}" -gt 0 && "$has_edge" != 1 ]]; then
+    die "${fresh[*]} is not on the live edge yet. This rollout must include the edge so the cluster address is set before health is checked through it."
+  fi
+  if [[ "${#fresh[@]}" -gt 0 ]]; then
+    echo "new to the live edge: ${fresh[*]}"
+  fi
 
   for service in "${ordered[@]}"; do
     preflight_app "$service"
