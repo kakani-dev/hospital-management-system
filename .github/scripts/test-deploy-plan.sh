@@ -379,6 +379,8 @@ if [[ "$all" == *"revision deactivate"* ]]; then exit 0; fi
 if [[ "$all" == *"properties.runningState"* ]]; then
   if [[ -n "${ACTIVATION_FAIL:-}" && "$app" == "ca-hms-billing" ]]; then
     echo ActivationFailed
+  elif [[ -n "${AT_MAX_SCALE:-}" ]]; then
+    echo RunningAtMaxScale
   else
     echo Running
   fi
@@ -708,6 +710,13 @@ edge_at="$(grep -n 'ReverseProxy__Clusters__billing__Destinations__primary__Addr
   || fail "billing port was not set before the edge learned the cluster (billing line $billing_at, edge line $edge_at)"
 grep -q 'revision deactivate' "$ROLLOUT_LOG" && fail "new service success deactivated a revision" || true
 unset EDGE_OMITS SMTP_PASSWORD SUPABASE_SERVICE_ROLE_KEY
+
+# max replicas 1: Azure reports RunningAtMaxScale for a started revision. That is running.
+SMTP_PASSWORD='smtp-test-value' SUPABASE_SERVICE_ROLE_KEY='role-test-value' \
+  EDGE_OMITS=billing AT_MAX_SCALE=1 run_rollout pass identity patients scheduling billing edge
+grep -q 'billing--s-[0-9a-f]* is RunningAtMaxScale' "$ROLLOUT_OUT" || fail "RunningAtMaxScale was not accepted"
+unset EDGE_OMITS AT_MAX_SCALE SMTP_PASSWORD SUPABASE_SERVICE_ROLE_KEY
+echo "rollout at-max-scale ok"
 echo "rollout new service added ok"
 
 EDGE_OMITS=billing run_rollout fail billing

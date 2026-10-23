@@ -142,8 +142,11 @@ public static partial class EdgeHost
         app.Use(ReferenceETag.InvokeAsync);
 
         app.MapGet("/health/live", () => Results.Json(new { status = "Healthy" })).AllowAnonymous();
+        // Scale-to-zero services cold-start in roughly 3-12s; 15s keeps a cold upstream from
+        // reading as Unhealthy while staying under the smoke check's 20s curl limit.
+        var readyTimeout = TimeSpan.FromSeconds(app.Configuration.GetValue("Health:ReadyTimeoutSeconds", 15));
         app.MapGet("/health/ready", async (UpstreamProbe probe, HttpContext ctx) =>
-            await probe.WriteAsync(ctx, TimeSpan.FromSeconds(10))).AllowAnonymous();
+            await probe.WriteAsync(ctx, readyTimeout)).AllowAnonymous();
         app.MapGet("/api/v1/warmup", async (UpstreamProbe probe, HttpContext ctx) =>
             await probe.WriteAsync(ctx, TimeSpan.FromSeconds(25)))
             .AllowAnonymous().RequireRateLimiting(WarmupPolicy);

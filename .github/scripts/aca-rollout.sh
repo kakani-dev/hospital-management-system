@@ -286,8 +286,9 @@ wait_revision() {
     state="$(az containerapp revision show -g "$RG" -n "$app" --revision "$rev" \
       --query properties.runningState -o tsv 2>/dev/null || true)"
     case "$state" in
-      Running)
-        echo "   ok $app revision $rev is running (port 8080)"
+      # Azure reports RunningAtMaxScale once replicas reach maxReplicas (1 here).
+      Running|RunningAtMaxScale)
+        echo "   ok $app revision $rev is ${state} (port 8080)"
         return 0
         ;;
       ActivationFailed|Failed)
