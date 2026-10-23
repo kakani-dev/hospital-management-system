@@ -24,37 +24,17 @@ public sealed record L1Me(Guid? ActiveTenantId, List<string> Roles, bool IsPlatf
 public sealed record L1Link(Guid Id, string Email, string Role, Guid? BranchId, string Status);
 
 /// <summary>
-/// Level 1 platform console + approval-based onboarding (identity service only; the monolith has none,
-/// code review MIN-5). The synthetic operator comes from supabase/scripts/local-platform-operator-seed.sql.
+/// Level 1 platform console + approval-based onboarding (identity service). The synthetic operator
+/// comes from supabase/scripts/local-platform-operator-seed.sql.
 /// </summary>
 [Trait("Category", "Database")]
 public sealed class PlatformConsoleApiTests(HmsApiFactory factory) : IClassFixture<HmsApiFactory>
 {
     public static readonly Guid Operator = Guid.Parse("0e900000-0000-4000-8000-000000000001");
 
-    private static bool Skip => Target == SystemTarget.Monolith;
-
-    [Fact]
-    public async Task The_monolith_serves_no_platform_or_public_endpoints()
-    {
-        if (!Skip)
-        {
-            return;
-        }
-
-        using var op = factory.ClientAs(Operator);
-        Assert.Equal(HttpStatusCode.NotFound, (await op.GetAsync("/api/v1/platform/tenants")).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await factory.CreateClient().PostAsJsonAsync("/api/v1/public/hospital-signups", new { })).StatusCode);
-    }
-
     [Fact]
     public async Task Platform_endpoints_need_a_platform_admin()
     {
-        if (Skip)
-        {
-            return;
-        }
-
         Assert.Equal(HttpStatusCode.Unauthorized, (await factory.CreateClient().GetAsync("/api/v1/platform/tenants")).StatusCode);
         foreach (var (user, tenant) in new[] { (AlphaAdmin, (Guid?)Alpha), (BetaDoctor, Beta), (AlphaReception, Alpha) })
         {
@@ -73,11 +53,6 @@ public sealed class PlatformConsoleApiTests(HmsApiFactory factory) : IClassFixtu
     [Fact]
     public async Task A_platform_admin_has_no_implicit_tenant_access()
     {
-        if (Skip)
-        {
-            return;
-        }
-
         using var op = factory.ClientAs(Operator);
         var me = (await op.GetFromJsonAsync<L1Me>("/api/v1/me"))!;
         Assert.True(me.IsPlatformAdmin);
@@ -98,11 +73,6 @@ public sealed class PlatformConsoleApiTests(HmsApiFactory factory) : IClassFixtu
     [Fact]
     public async Task Public_signup_is_pending_only_then_approval_issues_a_claimable_admin_invite()
     {
-        if (Skip)
-        {
-            return;
-        }
-
         var anon = factory.CreateClient();
         var applicantId = await CreateUserAsync("l1-applicant");
         var email = await EmailOfAsync(applicantId);
@@ -177,11 +147,6 @@ public sealed class PlatformConsoleApiTests(HmsApiFactory factory) : IClassFixtu
     [Fact]
     public async Task Operator_creates_a_tenant_directly_and_rejects_requests_with_a_reason()
     {
-        if (Skip)
-        {
-            return;
-        }
-
         using var op = factory.ClientAs(Operator);
         var bad = await op.PostAsJsonAsync("/api/v1/platform/tenants", new { code = "x", name = "", timeZone = "Mars/Base", adminEmail = "nope" });
         Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);

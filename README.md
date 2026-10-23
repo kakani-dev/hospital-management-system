@@ -1,8 +1,8 @@
 # Hospital Management System (HMS)
 
-A multi-tenant Hospital Management System, built as a **modular monolith**: one ASP.NET Core API, a React SPA, and Supabase PostgreSQL with Row Level Security. It is designed so that one platform can serve many hospitals (tenants) and their branches securely.
+A multi-tenant Hospital Management System: a React SPA, a YARP edge in front of identity, patients and scheduling services, and Supabase PostgreSQL with Row Level Security. It is designed so that one platform can serve many hospitals (tenants) and their branches securely.
 
-> **Status: Sprint 1 (tenant & identity).** Demonstration only, **synthetic data only**, not for clinical use. The database schema lives on a Supabase project. The API and web app are not deployed.
+> **Status.** Demonstration only, **synthetic data only**, not for clinical use. The database schema lives on a Supabase project. The web app on Vercel uses the Azure Container Apps edge. The App Service `medicore-hms-api` is stopped and its project is removed from the repository. The cutover is done ([record](docs/runbooks/monolith-cutover.md)).
 
 ## Stack
 
@@ -13,7 +13,7 @@ A multi-tenant Hospital Management System, built as a **modular monolith**: one 
 | Database | Supabase PostgreSQL: SQL migrations, a schema per service, RLS keyed on memberships, audit log |
 | Tests | Vitest (unit), xUnit (unit, API integration with signed JWTs on real Postgres, RLS defense in depth), SQL tests, full-stack Playwright + axe (mock Supabase Auth) |
 | CI | GitHub Actions (`ci.yml` required gate; skips unchanged jobs, nightly full run), `cleanup.yml` weekly artifact/cache cleanup, optional Jenkins mirror |
-| Hosting (planned, not deployed) | Vercel (web), Render Docker (API), Supabase Free (DB) |
+| Hosting | Vercel (web, production on the edge), Azure Container Apps (edge + three services), Supabase (DB). The App Service is stopped. |
 
 ## Repository layout
 
@@ -22,13 +22,12 @@ apps/web/                 React SPA (Supabase Auth sign-in, tenant/branch switch
 backend/
   edge/Hms.Edge           YARP edge: the single public base URL (/api/v1/*), CORS, JWT, rate limits, 503 contract
   services/*/Hms.*.Api    Microservices: identity, patients, scheduling (docs/architecture/microservices.md)
-  gateway/Hms.Gateway     Legacy modular-monolith host (on hold; still the live Azure API until the Phase 1 cutover)
   platform/Hms.Platform   Shared host plumbing: JWT auth, tenant resolution, problem mapping, Npgsql setup, health, outbox
   modules/Identity        Identity & Tenant module (/me, context switch, branches, members)
   modules/Patients        Patient module (patient registry, /api/v1/patients)
   modules/Appointments    Scheduling module (practitioners, appointments, queue)
   shared/Hms.SharedKernel Tenant context, DB session (RLS role + claims per transaction), EF interceptors
-  tests/                  Hms.UnitTests, Hms.IntegrationTests (real Postgres + signed JWTs), Hms.DatabaseTests (RLS)
+  tests/                  Hms.UnitTests, Hms.IntegrationTests (real Postgres + signed JWTs), Hms.DatabaseTests (RLS), Hms.TestHost (in-process unit host, not deployed)
 supabase/
   migrations/             SQL migrations (source of truth for the schema)
   tests/                  SQL RLS / tenant-isolation tests (two synthetic tenants)
@@ -40,7 +39,7 @@ scripts/clean.sh          Removes build/test artifacts (npm run clean)
 Jenkinsfile               Optional Jenkins mirror of CI (infra/jenkins/README.md)
 infra/docker|render|vercel|jenkins  Dockerfiles, Render blueprint, Vercel config, Jenkins notes
 docs/                     Architecture, security, auth flow, ERD, API, local dev, sprint reports, team tracker
-docker-compose.yml        postgres + api + web (local)
+docker-compose.yml        postgres + edge + identity + patients + scheduling + web (local)
 ```
 
 ## Quick start
@@ -66,7 +65,7 @@ npm ci && npx playwright install chromium && npm run e2e:db && npm run e2e
 npm run clean
 ```
 
-Or run everything in containers with `docker compose up --build`. (The compose stack has not been run yet, because Docker was not available in the build environment.)
+Or run everything in containers with `docker compose up --build` (edge on :8080, web on :8081).
 
 ## Documentation
 

@@ -49,11 +49,6 @@ public sealed class MultiBranchPractitionerApiTests(HmsApiFactory factory) : ICl
         Assert.Equal(HttpStatusCode.Conflict, duringMain.StatusCode);
         Assert.Equal("appointment_overlap", await S2.CodeAsync(duringMain));
 
-        if (Target == SystemTarget.Monolith)
-        {
-            return;
-        }
-
         var memberships = await admin.GetFromJsonAsync<List<BranchMembership>>($"/api/v1/practitioner-branches?practitionerId={pr.Id}");
         var east = memberships!.Single(m => m.BranchId == AlphaEast);
         Assert.Equal(HttpStatusCode.OK, (await admin.PatchAsJsonAsync($"/api/v1/practitioner-branches/{east.Id}", new { isActive = false })).StatusCode);
@@ -63,28 +58,8 @@ public sealed class MultiBranchPractitionerApiTests(HmsApiFactory factory) : ICl
     }
 
     [Fact]
-    public async Task The_monolith_does_not_serve_branch_membership_or_my_day()
-    {
-        if (Target != SystemTarget.Monolith)
-        {
-            return;
-        }
-
-        using var admin = factory.ClientAs(AlphaAdmin, Alpha);
-        Assert.Equal(HttpStatusCode.NotFound, (await admin.GetAsync("/api/v1/practitioner-branches")).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await admin.GetAsync("/api/v1/schedule-overrides")).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await admin.GetAsync("/api/v1/scheduling-settings")).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await admin.GetAsync("/api/v1/practitioners/me/day")).StatusCode);
-    }
-
-    [Fact]
     public async Task My_day_lists_every_branch_for_the_linked_doctor()
     {
-        if (Target == SystemTarget.Monolith)
-        {
-            return;
-        }
-
         using var doctor = factory.ClientAs(BetaDoctor, Beta);
         var day = await doctor.GetFromJsonAsync<MyDay>("/api/v1/practitioners/me/day?date=2030-01-07");
         Assert.Equal(Guid.Parse("c2222222-0000-4000-8000-000000000001"), day!.PractitionerId);

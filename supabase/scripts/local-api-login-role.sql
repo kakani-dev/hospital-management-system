@@ -3,7 +3,7 @@
 -- out-of-band with real secrets (see migrations 20261007090000 and 20261011090100; group roles hms_svc_*).
 do $$
 begin
-  -- Legacy all-in-one host (Hms.Gateway; still the live API until the Container Apps cutover).
+  -- App Service medicore-hms-api still logs in as this role until the cutover runbook.
   if not exists (select 1 from pg_roles where rolname = 'hms_api_login') then
     create role hms_api_login login noinherit password 'hms_api_local_only';
   end if;

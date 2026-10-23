@@ -11,6 +11,8 @@
 #   HMS_MS_EDGE_KEY     shared edge->service key (default: random per run)
 #   HMS_MS_NO_BUILD=1   skip `dotnet build` (CI builds once beforehand)
 #   HMS_MS_CONFIGURATION Debug|Release (default Debug)
+#   HMS_MS_PUBLISH      directory of self-contained publishes named identity, patients,
+#                       scheduling and edge (Jenkins E2E). Skips dotnet build and `dotnet`.
 # Everything else (Auth__Supabase__ProjectUrl, Auth__Supabase__AllowInsecureHttp,
 # ASPNETCORE_ENVIRONMENT, RateLimiting__*, Serilog__*) is inherited by every process.
 # Each service logs in with its own local-only role (supabase/scripts/local-api-login-role.sql).
@@ -28,7 +30,7 @@ EDGE_KEY="${HMS_MS_EDGE_KEY:-$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \
 # The edge owns the public URL; never let a parent's ASPNETCORE_URLS leak into the services.
 unset ASPNETCORE_URLS ConnectionStrings__HmsDatabase
 
-if [ "${HMS_MS_NO_BUILD:-0}" != "1" ]; then
+if [ -z "${HMS_MS_PUBLISH:-}" ] && [ "${HMS_MS_NO_BUILD:-0}" != "1" ]; then
   dotnet build "$BACKEND/Hms.slnx" -c "$CONFIG" -v quiet -nologo
 fi
 
@@ -40,10 +42,19 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 start() { # name project-dir port [extra env...]
-  local name="$1" dir="$BACKEND/$2" port="$3"; shift 3
-  local dll; dll="$dir/bin/$CONFIG/net10.0/$(basename "$dir").dll"
-  # exec so $! is the dotnet process itself (clean shutdown); cwd = content root for appsettings.
-  ( cd "$dir" && exec env "$@" ASPNETCORE_URLS="http://localhost:$port" Edge__Key="$EDGE_KEY" dotnet "$dll" ) \
+  local name="$1" proj="$2" port="$3" dir cmd
+  shift 3
+  if [ -n "${HMS_MS_PUBLISH:-}" ]; then
+    dir="$HMS_MS_PUBLISH/$name"
+    # Self-contained apphost (Jenkins). The Playwright image has no dotnet.
+    cmd="$(find "$dir" -maxdepth 1 -type f -name 'Hms.*' ! -name '*.dll' ! -name '*.pdb' ! -name '*.json' -print -quit)"
+    [ -n "$cmd" ] || { echo "no apphost in $dir" >&2; exit 1; }
+  else
+    dir="$BACKEND/$proj"
+    cmd="dotnet $dir/bin/$CONFIG/net10.0/$(basename "$dir").dll"
+  fi
+  # exec so $! is the server process itself (clean shutdown); cwd = content root for appsettings.
+  ( cd "$dir" && exec env "$@" ASPNETCORE_URLS="http://localhost:$port" Edge__Key="$EDGE_KEY" $cmd ) \
     > >(sed -u "s/^/[$name] /") 2>&1 &
   pids+=("$!")
 }

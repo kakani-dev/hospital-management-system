@@ -8,10 +8,10 @@ fail=0
 
 flags=(
   FULL SHARED FRONTEND BACKEND MIGRATIONS SQL PLAYWRIGHT DEPLOY
-  IMAGE_API IMAGE_EDGE IMAGE_IDENTITY IMAGE_PATIENTS IMAGE_SCHEDULING
+  IMAGE_EDGE IMAGE_IDENTITY IMAGE_PATIENTS IMAGE_SCHEDULING
   CACHED_WEB CACHED_API CACHED_DATABASE CACHED_PROTOTYPE CACHED_E2E CACHED_MOCKED CACHED_DEPLOY
-  CACHED_IMAGE_API CACHED_IMAGE_EDGE CACHED_IMAGE_IDENTITY CACHED_IMAGE_PATIENTS CACHED_IMAGE_SCHEDULING
-  HASH_IMAGE_API HASH_IMAGE_EDGE HASH_IMAGE_IDENTITY HASH_IMAGE_PATIENTS HASH_IMAGE_SCHEDULING
+  CACHED_IMAGE_EDGE CACHED_IMAGE_IDENTITY CACHED_IMAGE_PATIENTS CACHED_IMAGE_SCHEDULING
+  HASH_IMAGE_EDGE HASH_IMAGE_IDENTITY HASH_IMAGE_PATIENTS HASH_IMAGE_SCHEDULING
 )
 
 clear_flags() {
@@ -25,12 +25,12 @@ run_plan() {
   clear_flags
   export FULL=false SHARED=false FRONTEND=false BACKEND=false MIGRATIONS=false SQL=false
   export PLAYWRIGHT=false DEPLOY=false
-  export IMAGE_API=false IMAGE_EDGE=false IMAGE_IDENTITY=false IMAGE_PATIENTS=false IMAGE_SCHEDULING=false
+  export IMAGE_EDGE=false IMAGE_IDENTITY=false IMAGE_PATIENTS=false IMAGE_SCHEDULING=false
   export CACHED_WEB=false CACHED_API=false CACHED_DATABASE=false CACHED_PROTOTYPE=false
   export CACHED_E2E=false CACHED_MOCKED=false CACHED_DEPLOY=false
-  export CACHED_IMAGE_API=false CACHED_IMAGE_EDGE=false CACHED_IMAGE_IDENTITY=false
+  export CACHED_IMAGE_EDGE=false CACHED_IMAGE_IDENTITY=false
   export CACHED_IMAGE_PATIENTS=false CACHED_IMAGE_SCHEDULING=false
-  export HASH_IMAGE_API=aaa HASH_IMAGE_EDGE=bbb HASH_IMAGE_IDENTITY=ccc
+  export HASH_IMAGE_EDGE=bbb HASH_IMAGE_IDENTITY=ccc
   export HASH_IMAGE_PATIENTS=ddd HASH_IMAGE_SCHEDULING=eee
   # shellcheck disable=SC1090
   eval "$1"
@@ -90,21 +90,24 @@ identity_out=$(run_plan "export BACKEND=true IMAGE_IDENTITY=true")
 identity_matrix=$(value images_matrix "$identity_out")
 printf '%s' "$identity_matrix" | grep -q '"name":"identity"' || { echo "FAIL identity matrix missing identity" >&2; fail=1; }
 printf '%s' "$identity_matrix" | grep -q '"name":"api"' && { echo "FAIL identity matrix included api" >&2; fail=1; }
+empty_matrix=$(value images_matrix "$(run_plan "")")
+printf '%s' "$empty_matrix" | grep -q '"name":"edge"' || { echo "FAIL empty image matrix fallback is not edge" >&2; fail=1; }
+printf '%s' "$empty_matrix" | grep -q '"name":"api"' && { echo "FAIL empty image matrix fallback included api" >&2; fail=1; }
 python3 -c 'import json,sys; json.loads(sys.argv[1])' "$identity_matrix"
 
 check "passed-web-skipped" "export FRONTEND=true CACHED_WEB=true" run_web false
 check "passed-web-skipped" "export FRONTEND=true CACHED_WEB=true" run_e2e true
 check "failed-api-reruns" "export BACKEND=true CACHED_API=false CACHED_WEB=true" run_api true
 
-check "shared-all-cached" "export SHARED=true CACHED_WEB=true CACHED_API=true CACHED_DATABASE=true CACHED_PROTOTYPE=true CACHED_E2E=true CACHED_MOCKED=true CACHED_DEPLOY=true CACHED_IMAGE_API=true CACHED_IMAGE_EDGE=true CACHED_IMAGE_IDENTITY=true CACHED_IMAGE_PATIENTS=true CACHED_IMAGE_SCHEDULING=true" run_web false
-check "shared-all-cached" "export SHARED=true CACHED_WEB=true CACHED_API=true CACHED_DATABASE=true CACHED_PROTOTYPE=true CACHED_E2E=true CACHED_MOCKED=true CACHED_DEPLOY=true CACHED_IMAGE_API=true CACHED_IMAGE_EDGE=true CACHED_IMAGE_IDENTITY=true CACHED_IMAGE_PATIENTS=true CACHED_IMAGE_SCHEDULING=true" run_api false
-check "shared-all-cached" "export SHARED=true CACHED_WEB=true CACHED_API=true CACHED_DATABASE=true CACHED_PROTOTYPE=true CACHED_E2E=true CACHED_MOCKED=true CACHED_DEPLOY=true CACHED_IMAGE_API=true CACHED_IMAGE_EDGE=true CACHED_IMAGE_IDENTITY=true CACHED_IMAGE_PATIENTS=true CACHED_IMAGE_SCHEDULING=true" images_any false
+check "shared-all-cached" "export SHARED=true CACHED_WEB=true CACHED_API=true CACHED_DATABASE=true CACHED_PROTOTYPE=true CACHED_E2E=true CACHED_MOCKED=true CACHED_DEPLOY=true CACHED_IMAGE_EDGE=true CACHED_IMAGE_IDENTITY=true CACHED_IMAGE_PATIENTS=true CACHED_IMAGE_SCHEDULING=true" run_web false
+check "shared-all-cached" "export SHARED=true CACHED_WEB=true CACHED_API=true CACHED_DATABASE=true CACHED_PROTOTYPE=true CACHED_E2E=true CACHED_MOCKED=true CACHED_DEPLOY=true CACHED_IMAGE_EDGE=true CACHED_IMAGE_IDENTITY=true CACHED_IMAGE_PATIENTS=true CACHED_IMAGE_SCHEDULING=true" run_api false
+check "shared-all-cached" "export SHARED=true CACHED_WEB=true CACHED_API=true CACHED_DATABASE=true CACHED_PROTOTYPE=true CACHED_E2E=true CACHED_MOCKED=true CACHED_DEPLOY=true CACHED_IMAGE_EDGE=true CACHED_IMAGE_IDENTITY=true CACHED_IMAGE_PATIENTS=true CACHED_IMAGE_SCHEDULING=true" images_any false
 
-check "full-ignores-cache" "export FULL=true CACHED_WEB=true CACHED_API=true CACHED_DATABASE=true CACHED_PROTOTYPE=true CACHED_E2E=true CACHED_MOCKED=true CACHED_DEPLOY=true CACHED_IMAGE_API=true" run_web true
+check "full-ignores-cache" "export FULL=true CACHED_WEB=true CACHED_API=true CACHED_DATABASE=true CACHED_PROTOTYPE=true CACHED_E2E=true CACHED_MOCKED=true CACHED_DEPLOY=true CACHED_IMAGE_EDGE=true" run_web true
 check "full-ignores-cache" "export FULL=true CACHED_WEB=true CACHED_API=true" run_api true
 check "full-ignores-cache" "export FULL=true CACHED_WEB=true" run_database true
 check "full-ignores-cache" "export FULL=true CACHED_WEB=true" run_e2e true
-check "full-ignores-cache" "export FULL=true CACHED_IMAGE_API=true" images_any true
+check "full-ignores-cache" "export FULL=true CACHED_IMAGE_EDGE=true" images_any true
 
 check "docs-only" "" run_web false
 check "docs-only" "" run_api false

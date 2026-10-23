@@ -19,7 +19,7 @@ namespace Hms.Modules.Identity.Endpoints;
 
 /// <summary>
 /// Platform console (operators in identity.platform_admins) and the public hospital registration.
-/// Mapped by the IDENTITY SERVICE only (not the legacy monolith, code review MIN-5).
+/// Mapped by the identity service only (code review MIN-5).
 /// <list type="bullet">
 /// <item><c>/api/v1/platform/**</c>: authenticated, NO tenant needed, and identity.is_platform_admin()
 /// server-side (403 otherwise; every SQL function re-checks). Platform admins get no tenant access:

@@ -15,8 +15,8 @@ namespace Hms.IntegrationTests.Pr1Regression;
 /// the same (tenant, user, branch) is a no-op. Both answer the uniform 202.
 ///
 /// The DB team's supabase/tests/09_membership_invite_per_branch_test.sql covers add_member at the
-/// SQL level (dedupe key, tenant-wide NULL branch, concurrency). These tests go through the API
-/// (hms_api_login + RLS) and add what SQL cannot show: HTTP uniformity, no branch write access
+/// SQL level (dedupe key, tenant-wide NULL branch, concurrency). These tests go through the edge
+/// and add what SQL cannot show: HTTP uniformity, no branch write access
 /// before acceptance, and write access after it.
 /// </summary>
 [Trait("Category", "Database")]

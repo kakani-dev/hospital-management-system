@@ -11,7 +11,7 @@ public class AuthenticationSetupTests
     private sealed class Env(string name) : IHostEnvironment
     {
         public string EnvironmentName { get; set; } = name;
-        public string ApplicationName { get; set; } = "Hms.Gateway";
+        public string ApplicationName { get; set; } = "hms-identity";
         public string ContentRootPath { get; set; } = AppContext.BaseDirectory;
         public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
     }

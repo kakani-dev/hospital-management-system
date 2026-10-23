@@ -5,7 +5,7 @@ using static Hms.IntegrationTests.HmsApiFactory;
 
 namespace Hms.IntegrationTests.Sprint2;
 
-/// <summary>Sprint 2.1 against real PostgreSQL (RLS + patient.* RPCs), as hms_api_login.</summary>
+/// <summary>Sprint 2.1 against real PostgreSQL (RLS + patient.* RPCs), through the edge.</summary>
 [Trait("Category", "Database")]
 public sealed class S2PatientApiTests(HmsApiFactory factory) : IClassFixture<HmsApiFactory>
 {

@@ -8,8 +8,8 @@ namespace Hms.IntegrationTests.Level1;
 public sealed record RbacMe(Guid? ActiveTenantId, List<string> Roles, List<string>? Permissions);
 
 /// <summary>
-/// RBAC (ADR 0001): per-role authorization matrix through the YARP edge + 3 services (or the
-/// monolith), real JWT, real Postgres + RLS. Allowed = anything but 403; denied = 403.
+/// RBAC (ADR 0001): per-role authorization matrix through the YARP edge and the three services,
+/// real JWT, real Postgres + RLS. Allowed = anything but 403; denied = 403.
 /// Every request is shaped to stop at validation / not-found so nothing is written.
 /// </summary>
 [Trait("Category", "Database")]

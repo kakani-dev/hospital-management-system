@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
   <PropertyGroup>
-    <UserSecretsId>hms-gateway-dev</UserSecretsId>
+    <IsPackable>false</IsPackable>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../platform/Hms.Platform/Hms.Platform.csproj" />

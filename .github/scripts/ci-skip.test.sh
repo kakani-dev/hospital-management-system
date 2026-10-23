@@ -12,7 +12,7 @@ bash "$dir/ci-ok.test.sh"
 
 hashes=$(bash "$dir/ci-input-hashes.sh")
 for key in hash_web hash_api hash_database hash_prototype hash_e2e hash_mocked hash_deploy \
-  hash_image_api hash_image_edge hash_image_identity hash_image_patients hash_image_scheduling; do
+  hash_image_edge hash_image_identity hash_image_patients hash_image_scheduling; do
   if ! printf '%s\n' "$hashes" | grep -Eq "^${key}=[0-9a-f]{64}$"; then
     echo "FAIL missing or bad $key" >&2
     printf '%s\n' "$hashes" >&2

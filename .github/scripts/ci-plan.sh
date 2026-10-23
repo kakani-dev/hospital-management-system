@@ -37,7 +37,6 @@ prototype_affected=$(or_flag "${SHARED:-}" "${SQL:-}" "${MIGRATIONS:-}")
 e2e_affected=$(or_flag "${SHARED:-}" "${FRONTEND:-}" "${BACKEND:-}" "${PLAYWRIGHT:-}")
 mocked_affected=$(or_flag "${SHARED:-}" "${FRONTEND:-}" "${BACKEND:-}" "${PLAYWRIGHT:-}")
 deploy_affected=$(or_flag "${SHARED:-}" "${DEPLOY:-}")
-image_api_affected=$(or_flag "${SHARED:-}" "${IMAGE_API:-}")
 image_edge_affected=$(or_flag "${SHARED:-}" "${IMAGE_EDGE:-}")
 image_identity_affected=$(or_flag "${SHARED:-}" "${IMAGE_IDENTITY:-}")
 image_patients_affected=$(or_flag "${SHARED:-}" "${IMAGE_PATIENTS:-}")
@@ -50,7 +49,6 @@ run_prototype=$(decide "$prototype_affected" "${CACHED_PROTOTYPE:-}")
 run_e2e=$(decide "$e2e_affected" "${CACHED_E2E:-}")
 run_mocked=$(decide "$mocked_affected" "${CACHED_MOCKED:-}")
 run_deploy=$(decide "$deploy_affected" "${CACHED_DEPLOY:-}")
-run_image_api=$(decide "$image_api_affected" "${CACHED_IMAGE_API:-}")
 run_image_edge=$(decide "$image_edge_affected" "${CACHED_IMAGE_EDGE:-}")
 run_image_identity=$(decide "$image_identity_affected" "${CACHED_IMAGE_IDENTITY:-}")
 run_image_patients=$(decide "$image_patients_affected" "${CACHED_IMAGE_PATIENTS:-}")
@@ -66,7 +64,6 @@ append_image() {
   images_sep=','
   images_count=$((images_count + 1))
 }
-append_image "$run_image_api" api infra/docker/api.Dockerfile "${HASH_IMAGE_API:-}" images-api
 append_image "$run_image_edge" edge backend/edge/Dockerfile "${HASH_IMAGE_EDGE:-}" images-edge
 append_image "$run_image_identity" identity backend/services/identity/Dockerfile "${HASH_IMAGE_IDENTITY:-}" images-identity
 append_image "$run_image_patients" patients backend/services/patients/Dockerfile "${HASH_IMAGE_PATIENTS:-}" images-patients
@@ -76,7 +73,7 @@ images_json+=']}'
 if [ "$images_count" -eq 0 ]; then
   # Non-empty so a skipped images job still has a parseable matrix.
   images_any=false
-  images_json='{"include":[{"name":"api","dockerfile":"infra/docker/api.Dockerfile","input_hash":"skipped","cache_job":"images-api"}]}'
+  images_json='{"include":[{"name":"edge","dockerfile":"backend/edge/Dockerfile","input_hash":"skipped","cache_job":"images-edge"}]}'
 else
   images_any=true
 fi
@@ -102,7 +99,7 @@ fi
   echo "  e2e        affected=${e2e_affected} cached=${CACHED_E2E:-false} run=${run_e2e}"
   echo "  mocked     affected=${mocked_affected} cached=${CACHED_MOCKED:-false} run=${run_mocked}"
   echo "  deploy     affected=${deploy_affected} cached=${CACHED_DEPLOY:-false} run=${run_deploy}"
-  echo "  image api=${run_image_api} edge=${run_image_edge} identity=${run_image_identity} patients=${run_image_patients} scheduling=${run_image_scheduling}"
+  echo "  image edge=${run_image_edge} identity=${run_image_identity} patients=${run_image_patients} scheduling=${run_image_scheduling}"
 } >&2
 
 if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then

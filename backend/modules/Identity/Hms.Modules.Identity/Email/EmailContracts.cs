@@ -64,7 +64,7 @@ public sealed class SmtpOptions
 
 public sealed class EmailDispatcherOptions
 {
-    /// <summary>Off until the identity container is given <c>Smtp__Password</c>. The legacy host never turns this on.</summary>
+    /// <summary>Off until the identity container is given <c>Smtp__Password</c>. Only the identity service turns this on.</summary>
     public bool Enabled { get; set; }
 
     public int BatchSize { get; set; } = 20;

@@ -23,9 +23,6 @@ public enum SystemTarget
     /// <summary>Default (CI): the YARP edge in front of identity / patients / scheduling, all in-process.</summary>
     Edge,
 
-    /// <summary>The legacy all-in-one host (Hms.Gateway), until the monolith is retired (Phase 6).</summary>
-    Monolith,
-
     /// <summary>A running edge (docker compose / deployed dev) at HMS_SYSTEM_BASE_URL; tokens from mock-auth.</summary>
     EdgeUrl,
 }
@@ -37,7 +34,6 @@ public enum SystemTarget
 /// <list type="bullet">
 /// <item><c>edge</c> (default): Hms.Edge (YARP) -> Hms.Identity.Api / Hms.Patients.Api / Hms.Scheduling.Api,
 /// each a separate in-process host with its OWN login role (hms_&lt;svc&gt;_login) and the edge key.</item>
-/// <item><c>monolith</c>: the legacy Hms.Gateway host as hms_api_login.</item>
 /// <item><c>edge-url</c>: HMS_SYSTEM_BASE_URL (e.g. the compose edge); tokens come from mock-auth
 /// (HMS_SYSTEM_AUTH_URL, password E2E_PASSWORD), so tests that mint custom JWTs do not apply there.</item>
 /// </list>
@@ -97,7 +93,7 @@ public class HmsApiFactory : IDisposable
     protected virtual string? LegacySecret => null;
 
     /// <summary>
-    /// Extra host configuration applied to EVERY in-process host (monolith, each service, the edge),
+    /// Extra host configuration applied to EVERY in-process host (each service and the edge),
     /// e.g. a fixed TimeProvider. Not applied in edge-url mode (nothing runs in-process there).
     /// </summary>
     protected virtual void ConfigureHost(IWebHostBuilder builder)
@@ -152,14 +148,12 @@ public class HmsApiFactory : IDisposable
     private static SystemTarget ParseTarget(string? value) => value?.Trim().ToLowerInvariant() switch
     {
         null or "" or "edge" or "edge-inprocess" => SystemTarget.Edge,
-        "monolith" => SystemTarget.Monolith,
         "edge-url" => SystemTarget.EdgeUrl,
-        _ => throw new InvalidOperationException($"HMS_SYSTEM_TARGET must be edge, monolith or edge-url (got '{value}')."),
+        _ => throw new InvalidOperationException($"HMS_SYSTEM_TARGET must be edge or edge-url (got '{value}')."),
     };
 
     private IHost Build() => Target switch
     {
-        SystemTarget.Monolith => new MonolithSystem(this),
         SystemTarget.EdgeUrl => new UrlSystem(),
         _ => new EdgeSystem(this),
     };
@@ -206,17 +200,6 @@ public class HmsApiFactory : IDisposable
     private interface IHost : IDisposable
     {
         HttpClient CreateClient();
-    }
-
-    private sealed class MonolithSystem(HmsApiFactory owner) : WebApplicationFactory<Hms.Gateway.MonolithMarker>, IHost
-    {
-        private readonly StubJwksHandler _jwks = owner.NewJwks();
-
-        protected override void ConfigureWebHost(IWebHostBuilder builder)
-        {
-            owner.ConfigureCommon(builder, _jwks);
-            builder.UseSetting("ConnectionStrings:HmsDatabase", ApiConnection);
-        }
     }
 
     private sealed class UrlSystem : IHost
