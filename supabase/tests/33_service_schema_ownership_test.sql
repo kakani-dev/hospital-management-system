@@ -5,13 +5,15 @@ begin;
 select tests.ok(
   not pg_has_role('hms_identity_login', 'authenticated', 'member')
   and not pg_has_role('hms_patients_login', 'authenticated', 'member')
-  and not pg_has_role('hms_scheduling_login', 'authenticated', 'member'),
+  and not pg_has_role('hms_scheduling_login', 'authenticated', 'member')
+  and not pg_has_role('hms_billing_login', 'authenticated', 'member'),
   'service logins are not members of authenticated');
 
 select tests.ok(
   pg_has_role('hms_identity_login', 'hms_svc_identity', 'member')
   and pg_has_role('hms_patients_login', 'hms_svc_patients', 'member')
-  and pg_has_role('hms_scheduling_login', 'hms_svc_scheduling', 'member'),
+  and pg_has_role('hms_scheduling_login', 'hms_svc_scheduling', 'member')
+  and pg_has_role('hms_billing_login', 'hms_svc_billing', 'member'),
   'each login is a member of its own service role');
 
 select tests.ok(pg_has_role('hms_api_login', 'authenticated', 'member'),
@@ -47,7 +49,12 @@ select tests.ok(
   has_function_privilege('hms_svc_scheduling', 'patient.patient_summary_v1(uuid, uuid[])', 'execute')
   and has_function_privilege('hms_svc_scheduling', 'identity.my_tenant_grant_v1(uuid)', 'execute')
   and has_function_privilege('hms_svc_identity', 'identity.my_active_context()', 'execute')
-  and has_function_privilege('hms_svc_patients', 'auth.uid()', 'execute'),
+  and has_function_privilege('hms_svc_patients', 'auth.uid()', 'execute')
+  and has_function_privilege('hms_svc_billing', 'appointment.appointment_billing_ref_v1(uuid, uuid)', 'execute')
+  and has_function_privilege('hms_svc_billing', 'identity.caller_roles_v1(uuid)', 'execute')
+  and has_function_privilege('hms_svc_billing', 'identity.my_tenant_grant_v1(uuid)', 'execute')
+  and has_function_privilege('hms_svc_billing', 'identity.my_active_context()', 'execute')
+  and not has_function_privilege('hms_svc_scheduling', 'billing.finalize_bill(uuid, uuid)', 'execute'),
   'published identity/patient functions and auth.uid() are executable by the service roles');
 
 -- Live session: receptionist as the patients login, then the patients session role.

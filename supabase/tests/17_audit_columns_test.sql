@@ -3,13 +3,13 @@
 begin;
 
 -- =====================================================================  CI GUARD ==
--- Every base table in identity / patient / appointment must have the five columns, NOT NULL,
+-- Every base table in identity / patient / appointment / billing must have the five columns, NOT NULL,
 -- with the right types and defaults, the shared stamping trigger, and no client write privilege
 -- on them. audit.audit_log and messaging.outbox are exempt (decision E2: other schemas).
 create temporary table t_guard_tables on commit drop as
   select t.table_schema, t.table_name
   from information_schema.tables t
-  where t.table_schema in ('identity', 'patient', 'appointment') and t.table_type = 'BASE TABLE';
+  where t.table_schema in ('identity', 'patient', 'appointment', 'billing') and t.table_type = 'BASE TABLE';
 
 select tests.ok((select count(*) from t_guard_tables) >= 11, 'guard covers every business table (>= 11 found)');
 

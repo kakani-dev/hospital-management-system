@@ -18,6 +18,7 @@
     <ProjectReference Include="../../modules/Identity/Hms.Modules.Identity/Hms.Modules.Identity.csproj" />
     <ProjectReference Include="../../modules/Patients/Hms.Modules.Patients/Hms.Modules.Patients.csproj" />
     <ProjectReference Include="../../modules/Appointments/Hms.Modules.Appointments/Hms.Modules.Appointments.csproj" />
+    <ProjectReference Include="../../modules/Billing/Hms.Modules.Billing/Hms.Modules.Billing.csproj" />
     <ProjectReference Include="../Hms.TestHost/Hms.TestHost.csproj" />
   </ItemGroup>
   <ItemGroup>

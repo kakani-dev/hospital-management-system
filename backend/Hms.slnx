@@ -6,6 +6,9 @@
   <Folder Name="/modules/Appointments/">
     <Project Path="modules/Appointments/Hms.Modules.Appointments/Hms.Modules.Appointments.csproj" />
   </Folder>
+  <Folder Name="/modules/Billing/">
+    <Project Path="modules/Billing/Hms.Modules.Billing/Hms.Modules.Billing.csproj" />
+  </Folder>
   <Folder Name="/modules/Identity/">
     <Project Path="modules/Identity/Hms.Modules.Identity/Hms.Modules.Identity.csproj" />
   </Folder>
@@ -21,6 +24,9 @@
   </Folder>
   <Folder Name="/services/patients/">
     <Project Path="services/patients/Hms.Patients.Api/Hms.Patients.Api.csproj" />
+  </Folder>
+  <Folder Name="/services/billing/">
+    <Project Path="services/billing/Hms.Billing.Api/Hms.Billing.Api.csproj" />
   </Folder>
   <Folder Name="/services/scheduling/">
     <Project Path="services/scheduling/Hms.Scheduling.Api/Hms.Scheduling.Api.csproj" />

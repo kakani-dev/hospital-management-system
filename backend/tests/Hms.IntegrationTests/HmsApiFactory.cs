@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
+using Hms.Billing.Api;
 using Hms.Edge;
 using Hms.Identity.Api;
 using Hms.Patients.Api;
@@ -20,7 +21,7 @@ namespace Hms.IntegrationTests;
 /// <summary>Which system the API tests drive (QA-MICROSERVICES-TEST-PLAN.md §1.2). Env HMS_SYSTEM_TARGET.</summary>
 public enum SystemTarget
 {
-    /// <summary>Default (CI): the YARP edge in front of identity / patients / scheduling, all in-process.</summary>
+    /// <summary>Default (CI): the YARP edge in front of identity / patients / scheduling / billing, all in-process.</summary>
     Edge,
 
     /// <summary>A running edge (docker compose / deployed dev) at HMS_SYSTEM_BASE_URL; tokens from mock-auth.</summary>
@@ -32,7 +33,7 @@ public enum SystemTarget
 /// (migrations + synthetic seed), with real JWT bearer validation against a fake JWKS endpoint. Every
 /// test talks HTTP to <see cref="CreateClient"/>; what answers depends on <see cref="Target"/>:
 /// <list type="bullet">
-/// <item><c>edge</c> (default): Hms.Edge (YARP) -> Hms.Identity.Api / Hms.Patients.Api / Hms.Scheduling.Api,
+/// <item><c>edge</c> (default): Hms.Edge (YARP) -> Hms.Identity.Api / Hms.Patients.Api / Hms.Scheduling.Api / Hms.Billing.Api,
 /// each a separate in-process host with its OWN login role (hms_&lt;svc&gt;_login) and the edge key.</item>
 /// <item><c>edge-url</c>: HMS_SYSTEM_BASE_URL (e.g. the compose edge); tokens come from mock-auth
 /// (HMS_SYSTEM_AUTH_URL, password E2E_PASSWORD), so tests that mint custom JWTs do not apply there.</item>
@@ -236,6 +237,7 @@ public class HmsApiFactory : IDisposable
         private readonly ServiceSystem<IdentityServiceMarker> _identity;
         private readonly ServiceSystem<PatientsServiceMarker> _patients;
         private readonly ServiceSystem<SchedulingServiceMarker> _scheduling;
+        private readonly ServiceSystem<BillingServiceMarker> _billing;
         private readonly UpstreamRouter _router;
 
         public EdgeSystem(HmsApiFactory owner)
@@ -245,11 +247,13 @@ public class HmsApiFactory : IDisposable
             _identity = new ServiceSystem<IdentityServiceMarker>(owner, "identity");
             _patients = new ServiceSystem<PatientsServiceMarker>(owner, "patients");
             _scheduling = new ServiceSystem<SchedulingServiceMarker>(owner, "scheduling");
+            _billing = new ServiceSystem<BillingServiceMarker>(owner, "billing");
             _router = new UpstreamRouter(new Dictionary<string, Func<HttpMessageHandler>>(StringComparer.OrdinalIgnoreCase)
             {
                 ["identity.hms.test"] = () => _identity.Server.CreateHandler(),
                 ["patients.hms.test"] = () => _patients.Server.CreateHandler(),
                 ["scheduling.hms.test"] = () => _scheduling.Server.CreateHandler(),
+                ["billing.hms.test"] = () => _billing.Server.CreateHandler(),
             });
         }
 
@@ -258,6 +262,7 @@ public class HmsApiFactory : IDisposable
             "identity" => _identity.CreateClient(),
             "patients" => _patients.CreateClient(),
             "scheduling" => _scheduling.CreateClient(),
+            "billing" => _billing.CreateClient(),
             _ => throw new ArgumentOutOfRangeException(nameof(service)),
         };
 
@@ -266,7 +271,7 @@ public class HmsApiFactory : IDisposable
             _owner.ConfigureCommon(builder, _jwks);
             builder.UseSetting("Edge:Key", EdgeKey);
             builder.UseSetting("RateLimiting:WarmupPerMinute", "100000");
-            foreach (var svc in new[] { "identity", "patients", "scheduling" })
+            foreach (var svc in new[] { "identity", "patients", "scheduling", "billing" })
             {
                 builder.UseSetting($"ReverseProxy:Clusters:{svc}:Destinations:primary:Address", $"http://{svc}.hms.test/");
             }
@@ -287,6 +292,7 @@ public class HmsApiFactory : IDisposable
                 _identity.Dispose();
                 _patients.Dispose();
                 _scheduling.Dispose();
+                _billing.Dispose();
             }
         }
     }

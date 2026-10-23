@@ -8,7 +8,7 @@
 #   - (LOGS=la, default) Log Analytics workspace log-medicore-hms-dev, PerGB2018, 30-day retention,
 #     daily cap 0.15 GB (stays inside the 5 GB/month free ingestion per billing account)
 #   - Container Apps environment cae-medicore-hms-dev (Consumption-only, no workload profiles)
-#   - ca-hms-edge (external ingress) + ca-hms-identity / ca-hms-patients / ca-hms-scheduling (internal)
+#   - ca-hms-edge (external ingress) + ca-hms-identity / ca-hms-patients / ca-hms-scheduling / ca-hms-billing (internal)
 #     0.25 vCPU / 0.5 GiB, min 0 / max 1 replicas, port 8080, startup/liveness/readiness probes,
 #     PRIVATE GHCR images ghcr.io/kakani-dev/hms-<svc>:sha-<IMAGE_SHA>, pulled with a registry
 #     credential (kakani-dev token with read:packages, stored as a Container Apps secret)
@@ -26,7 +26,7 @@ if [[ "${APPROVED:-}" != "1" ]]; then
 #####################################################################################
 #  REFUSING TO RUN: APPROVED=1 is not set.                                          #
 #  This script creates billable-capable Azure resources (Container Apps environment, #
-#  4 container apps, optionally a Log Analytics workspace) in rg-medicore-hms-dev.   #
+#  5 container apps, optionally a Log Analytics workspace) in rg-medicore-hms-dev.   #
 #  The subscription is Pay-As-You-Go with NO spending limit.                         #
 #  Run it only after Mohith has approved the items in the plan's "Deploy day"        #
 #  checklist, then:  APPROVED=1 IMAGE_SHA=<sha> bash infra/aca/deploy-aca.sh         #
@@ -53,7 +53,7 @@ CORS_0="${CORS_0:-https://medicore-hms-three.vercel.app}"
 CORS_1="${CORS_1:-https://medicore-hms-kakani-devs-projects.vercel.app}"
 CONNSTR_FILE="${CONNSTR_FILE:-/home/box/.secrets/medicore-hms-connstr}"
 EDGE_KEY_FILE="${EDGE_KEY_FILE:-/home/box/.secrets/medicore-hms-edge-key}"
-SERVICES=(identity patients scheduling)
+SERVICES=(identity patients scheduling billing)
 TAGS=(project=medicore-hms env=dev cost=free-grant)
 
 log()  { printf '%s %s\n' "$(date +%H:%M:%S)" "$*"; }
@@ -285,7 +285,8 @@ deploy_app edge external /health/live hms-edge-key "${COMMON[@]}" \
   "Cors__AllowedOrigins__0=$CORS_0" "Cors__AllowedOrigins__1=$CORS_1" "Cors__AllowedOrigins__2=$CORS_0" \
   ReverseProxy__Clusters__identity__Destinations__primary__Address=http://ca-hms-identity/ \
   ReverseProxy__Clusters__patients__Destinations__primary__Address=http://ca-hms-patients/ \
-  ReverseProxy__Clusters__scheduling__Destinations__primary__Address=http://ca-hms-scheduling/
+  ReverseProxy__Clusters__scheduling__Destinations__primary__Address=http://ca-hms-scheduling/ \
+  ReverseProxy__Clusters__billing__Destinations__primary__Address=http://ca-hms-billing/
 
 # ---------------------------------------------------------------------------------------------------
 log "7. post-checks"

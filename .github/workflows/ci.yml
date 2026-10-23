@@ -64,6 +64,7 @@ jobs:
       hash_image_identity: ${{ steps.hash.outputs.hash_image_identity }}
       hash_image_patients: ${{ steps.hash.outputs.hash_image_patients }}
       hash_image_scheduling: ${{ steps.hash.outputs.hash_image_scheduling }}
+      hash_image_billing: ${{ steps.hash.outputs.hash_image_billing }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -167,6 +168,15 @@ jobs:
               - 'backend/Directory.Build.props'
               - 'backend/Directory.Packages.props'
               - '.dockerignore'
+            image_billing:
+              - 'backend/services/billing/**'
+              - 'backend/modules/Billing/**'
+              - 'backend/platform/**'
+              - 'backend/shared/**'
+              - 'backend/global.json'
+              - 'backend/Directory.Build.props'
+              - 'backend/Directory.Packages.props'
+              - '.dockerignore'
       - id: hash
         run: bash .github/scripts/ci-input-hashes.sh >> "$GITHUB_OUTPUT"
       - id: cache_web
@@ -246,6 +256,13 @@ jobs:
         with:
           job: images-scheduling
           hash: ${{ steps.hash.outputs.hash_image_scheduling }}
+      - id: cache_image_billing
+        if: steps.mode.outputs.full != 'true'
+        continue-on-error: true
+        uses: ./.github/actions/lookup-pass-marker
+        with:
+          job: images-billing
+          hash: ${{ steps.hash.outputs.hash_image_billing }}
       - id: plan
         env:
           FULL: ${{ steps.mode.outputs.full }}
@@ -260,6 +277,7 @@ jobs:
           IMAGE_IDENTITY: ${{ steps.filter.outputs.image_identity }}
           IMAGE_PATIENTS: ${{ steps.filter.outputs.image_patients }}
           IMAGE_SCHEDULING: ${{ steps.filter.outputs.image_scheduling }}
+          IMAGE_BILLING: ${{ steps.filter.outputs.image_billing }}
           CACHED_WEB: ${{ steps.cache_web.outputs.hit }}
           CACHED_API: ${{ steps.cache_api.outputs.hit }}
           CACHED_DATABASE: ${{ steps.cache_database.outputs.hit }}
@@ -271,10 +289,12 @@ jobs:
           CACHED_IMAGE_IDENTITY: ${{ steps.cache_image_identity.outputs.hit }}
           CACHED_IMAGE_PATIENTS: ${{ steps.cache_image_patients.outputs.hit }}
           CACHED_IMAGE_SCHEDULING: ${{ steps.cache_image_scheduling.outputs.hit }}
+          CACHED_IMAGE_BILLING: ${{ steps.cache_image_billing.outputs.hit }}
           HASH_IMAGE_EDGE: ${{ steps.hash.outputs.hash_image_edge }}
           HASH_IMAGE_IDENTITY: ${{ steps.hash.outputs.hash_image_identity }}
           HASH_IMAGE_PATIENTS: ${{ steps.hash.outputs.hash_image_patients }}
           HASH_IMAGE_SCHEDULING: ${{ steps.hash.outputs.hash_image_scheduling }}
+          HASH_IMAGE_BILLING: ${{ steps.hash.outputs.hash_image_billing }}
         run: bash .github/scripts/ci-plan.sh >> "$GITHUB_OUTPUT"
 
   web-run:
@@ -507,9 +527,9 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Prepare E2E database (migrations + synthetic seed)
         run: npm run e2e:db
-      - name: Build API (edge + identity / patients / scheduling)
+      - name: Build API (edge + identity / patients / scheduling / billing)
         run: dotnet build backend/Hms.slnx
-      # Playwright starts scripts/dev/run-microservices.sh (edge on :8080, services on :8101-8103,
+      # Playwright starts scripts/dev/run-microservices.sh (edge on :8080, services on :8101-8104,
       # one login role each) and waits on the edge's /health/ready.
       - run: npm run e2e
         env:
