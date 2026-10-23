@@ -38,6 +38,8 @@ for script in \
   .github/scripts/cleanup-github.sh \
   scripts/azure-oidc-setup.sh \
   scripts/smoke/post-deploy.sh \
+  scripts/smoke/vercel-web-smoke.sh \
+  .github/scripts/web-deploy-plan.sh \
   scripts/verify.sh
 do
   bash -n "$script"
@@ -779,5 +781,146 @@ grep -q 'scripts/verify.sh' lefthook.yml
 grep -q 'pre-push:' lefthook.yml
 grep -q 'scripts/verify.sh' CONTRIBUTING.md AGENTS.md .cursor/rules/verify-before-commit.mdc
 echo "verify plan ok"
+
+# --- Vercel web production deploy ---------------------------------------------------------------
+web_workflow=.github/workflows/deploy-web.yml
+[[ -f "$web_workflow" ]] || fail "missing $web_workflow"
+grep -q 'name: Deploy web to Vercel' "$web_workflow"
+grep -q 'workflow_run:' "$web_workflow"
+grep -q 'workflows: \["CI"\]' "$web_workflow"
+grep -q "head_branch == 'main'" "$web_workflow"
+grep -q "conclusion == 'success'" "$web_workflow"
+grep -q "workflow_run.event == 'push'" "$web_workflow"
+grep -q 'workflow_dispatch:' "$web_workflow"
+grep -q 'group: deploy-web' "$web_workflow"
+grep -q 'cancel-in-progress: true' "$web_workflow"
+grep -q 'vercel pull --yes --environment=production' "$web_workflow"
+grep -q 'vercel build --prod' "$web_workflow"
+grep -q 'vercel deploy --prebuilt --prod' "$web_workflow"
+grep -q 'vercel rollback --yes' "$web_workflow"
+grep -q 'secrets.VERCEL_TOKEN' "$web_workflow"
+grep -q 'secrets.VERCEL_ORG_ID' "$web_workflow"
+grep -q 'secrets.VERCEL_PROJECT_ID' "$web_workflow"
+grep -q 'https://medicore-hms-three.vercel.app' "$web_workflow"
+grep -q 'scripts/smoke/vercel-web-smoke.sh' "$web_workflow"
+grep -q 'web-deploy-plan.sh' "$web_workflow"
+if grep -n -- '--token' "$web_workflow"; then
+  fail "VERCEL_TOKEN must come from the environment, not --token"
+fi
+if grep -nE '^[[:space:]]*environment:' "$web_workflow"; then
+  fail "web deploy must not wait on a GitHub environment"
+fi
+if grep -nE '^[[:space:]]*paths:' "$web_workflow"; then
+  fail "path filters belong in web-deploy-plan.sh; workflow_run has no paths filter"
+fi
+# Concurrency is on the deploy job only, so a non-web main push does not cancel it.
+if [[ "$(grep -c 'cancel-in-progress:' "$web_workflow")" -ne 1 ]]; then
+  fail "expected one cancel-in-progress group on the web deploy"
+fi
+if grep -nE 'team_[A-Za-z0-9]+|prj_[A-Za-z0-9]+' "$web_workflow" docs/runbooks/deploy-web.md; then
+  fail "do not commit a Vercel team id or project id"
+fi
+
+plan_web() {
+  local files
+  files="$(mktemp)"
+  printf '%s\n' "$@" >"$files"
+  bash .github/scripts/web-deploy-plan.sh "$files"
+}
+[[ "$(plan_web apps/web/src/App.tsx)" == "deploy=true" ]] || fail "apps/web did not deploy"
+[[ "$(plan_web apps/web/vercel.json)" == "deploy=true" ]] || fail "apps/web vercel.json did not deploy"
+[[ "$(plan_web infra/vercel/vercel.json)" == "deploy=true" ]] || fail "infra/vercel did not deploy"
+[[ "$(plan_web .github/workflows/deploy-web.yml)" == "deploy=true" ]] || fail "deploy-web.yml did not deploy"
+[[ "$(plan_web backend/services/identity/Hms.Identity.Api/Program.cs)" == "deploy=false" ]] || fail "api path deployed web"
+[[ "$(plan_web .github/workflows/ci.yml .github/workflows/deploy-aca.yml)" == "deploy=false" ]] || fail "other workflows deployed web"
+[[ "$(plan_web docs/runbooks/deploy-web.md package.json)" == "deploy=false" ]] || fail "docs or root package.json deployed web"
+[[ "$(plan_web backend/edge/Hms.Edge/Program.cs apps/web/src/main.tsx)" == "deploy=true" ]] || fail "mixed commit skipped web"
+[[ "$(bash .github/scripts/web-deploy-plan.sh --force)" == "deploy=true" ]] || fail "--force did not deploy"
+empty_files="$(mktemp)"
+: >"$empty_files"
+[[ "$(bash .github/scripts/web-deploy-plan.sh "$empty_files")" == "deploy=false" ]] || fail "empty diff deployed web"
+
+python3 - <<'PY'
+import json
+from pathlib import Path
+files = [Path("apps/web/vercel.json"), Path("infra/vercel/vercel.json")]
+texts = [p.read_text() for p in files]
+if texts[0] != texts[1]:
+    raise SystemExit("apps/web/vercel.json and infra/vercel/vercel.json differ")
+for path, text in zip(files, texts):
+    data = json.loads(text)
+    enabled = data["git"]["deploymentEnabled"]
+    if not isinstance(enabled, dict):
+        raise SystemExit(f"{path} deploymentEnabled must keep preview branches on")
+    if enabled.get("main") is not False:
+        raise SystemExit(f"{path} still auto-deploys main")
+    extra = [key for key, value in enabled.items() if key != "main" and value is False]
+    if extra:
+        raise SystemExit(f"{path} disables preview branches: {extra}")
+print("vercel.json: main git deploys off, previews on")
+PY
+
+grep -q 'VERCEL_TOKEN' docs/runbooks/deploy-web.md
+grep -q 'VERCEL_ORG_ID' docs/runbooks/deploy-web.md
+grep -q 'VERCEL_PROJECT_ID' docs/runbooks/deploy-web.md
+grep -q 'git.deploymentEnabled.main' docs/runbooks/deploy-web.md
+grep -q '.vercel/' .gitignore
+
+smoke_port=8765
+python3 - <<PY &
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+class H(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Length", "2")
+        self.end_headers()
+        self.wfile.write(b"ok")
+    def log_message(self, fmt, *args):
+        return
+ThreadingHTTPServer(("127.0.0.1", $smoke_port), H).serve_forever()
+PY
+smoke_pid=$!
+cleanup_smoke() { kill "$smoke_pid" 2>/dev/null || true; wait "$smoke_pid" 2>/dev/null || true; }
+trap cleanup_smoke EXIT
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  if curl -sf -o /dev/null "http://127.0.0.1:${smoke_port}/"; then
+    break
+  fi
+  sleep 0.1
+done
+SMOKE_ATTEMPTS=2 SMOKE_SLEEP=0 bash scripts/smoke/vercel-web-smoke.sh "http://127.0.0.1:${smoke_port}/" \
+  || fail "vercel web smoke rejected HTTP 200"
+cleanup_smoke
+trap - EXIT
+
+python3 - <<'PY' &
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+class H(BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = b"no"
+        self.send_response(503)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+    def log_message(self, fmt, *args):
+        return
+ThreadingHTTPServer(("127.0.0.1", 8766), H).serve_forever()
+PY
+bad_pid=$!
+cleanup_bad() { kill "$bad_pid" 2>/dev/null || true; wait "$bad_pid" 2>/dev/null || true; }
+trap cleanup_bad EXIT
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8766/ || true)"
+  [[ "$code" == "503" ]] && break
+  sleep 0.1
+done
+if SMOKE_ATTEMPTS=2 SMOKE_SLEEP=0 bash scripts/smoke/vercel-web-smoke.sh http://127.0.0.1:8766/; then
+  cleanup_bad
+  trap - EXIT
+  fail "vercel web smoke accepted HTTP 503"
+fi
+cleanup_bad
+trap - EXIT
+echo "vercel web deploy checks passed"
 
 echo "all deploy-plan checks passed"

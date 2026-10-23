@@ -1,6 +1,6 @@
 # Deploy the API to Azure Container Apps
 
-The web app stays on Vercel. This pipeline only rolls the four API containers.
+The web app stays on Vercel. Production deploys of the web app run from GitHub Actions after CI ([deploy the web app](runbooks/deploy-web.md)). This pipeline rolls the four API containers.
 
 | App | Image | Ingress |
 |---|---|---|
