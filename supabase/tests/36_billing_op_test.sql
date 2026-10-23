@@ -71,7 +71,7 @@ begin
   perform billing.ensure_defaults(v_tenant);
   select id into v_tax from billing.tax_code where tenant_id = v_tenant and code = 'EXEMPT' and not is_deleted;
   v_doc := billing.upsert_service_item(v_tenant, jsonb_build_object(
-    'code', 'ROUND', 'name', 'Round probe', 'category', 'procedure', 'taxCodeId', v_tax));
+    'name', 'Round probe', 'category', 'procedure', 'taxCodeId', v_tax));
   v_item := (v_doc ->> 'id')::uuid;
   select id into v_list from billing.price_list
   where tenant_id = v_tenant and name = 'Standard' and branch_id is null and not is_deleted;
@@ -162,7 +162,7 @@ begin
   select id into v_tax from billing.tax_code where tenant_id = v_tenant and code = 'EXEMPT' and not is_deleted;
   begin
     perform billing.upsert_service_item(v_tenant, jsonb_build_object(
-      'code', 'NOPE', 'name', 'Nope', 'category', 'other', 'taxCodeId', v_tax));
+      'name', 'Nope', 'category', 'other', 'taxCodeId', v_tax));
     perform tests.ok(false, 'a receptionist must not manage prices');
   exception when sqlstate '42501' then
     perform tests.ok(true, 'price-list management is refused for the desk');
@@ -188,7 +188,7 @@ begin
   execute 'set local role hms_svc_billing';
   select id into v_tax from billing.tax_code where tenant_id = v_tenant and code = 'EXEMPT' and not is_deleted;
   v_item := (billing.upsert_service_item(v_tenant, jsonb_build_object(
-    'code', 'BIG', 'name', 'Large procedure', 'category', 'procedure', 'taxCodeId', v_tax)) ->> 'id')::uuid;
+    'name', 'Large procedure', 'category', 'procedure', 'taxCodeId', v_tax)) ->> 'id')::uuid;
   select id into v_list from billing.price_list
   where tenant_id = v_tenant and name = 'Standard' and branch_id is null and not is_deleted;
   perform billing.add_price(v_tenant, jsonb_build_object(

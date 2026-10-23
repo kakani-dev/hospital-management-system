@@ -1,4 +1,4 @@
--- Generated service codes and category tax defaults. Existing codes stay put.
+-- Generated service codes and category tax defaults. A client code is rejected. Existing codes stay put.
 begin;
 
 select tests.ok(
@@ -53,16 +53,22 @@ begin
      where si.id = (v_doc ->> 'id')::uuid),
     'a certificate with no tax uses the 18 percent default');
 
-  v_doc := billing.upsert_service_item(v_tenant, jsonb_build_object(
-    'code', 'LEGACY', 'name', 'Legacy dressing', 'category', 'procedure'));
-  perform tests.ok(v_doc ->> 'code' = 'LEGACY', 'a custom code is stored unchanged');
-
   begin
     perform billing.upsert_service_item(v_tenant, jsonb_build_object(
-      'code', 'PROC-0001', 'name', 'Again', 'category', 'procedure'));
-    perform tests.ok(false, 'a duplicate code must be rejected');
-  exception when unique_violation then
-    perform tests.ok(true, 'a duplicate code is rejected');
+      'code', 'LEGACY', 'name', 'Legacy dressing', 'category', 'procedure'));
+    perform tests.ok(false, 'a supplied code must be rejected');
+  exception when sqlstate '22023' then
+    perform tests.ok(true, 'a supplied code is rejected');
+  end;
+  perform tests.ok(
+    not exists (select 1 from billing.service_item where tenant_id = v_tenant and code = 'LEGACY'),
+    'a rejected code is not stored');
+
+  begin
+    perform billing.allocate_service_code(v_tenant, 'procedure', 'PROC-0009');
+    perform tests.ok(false, 'allocate must not accept a typed code');
+  exception when sqlstate '22023' then
+    perform tests.ok(true, 'allocate rejects a typed code and does not move the counter');
   end;
 
   select id into v_id from billing.service_item
@@ -73,10 +79,20 @@ begin
     (select code from billing.service_item where id = v_id) = 'CONSULT',
     'CONSULT is still the stored code');
 
-  perform billing.upsert_service_item(v_tenant, jsonb_build_object(
-    'code', 'PROC-0009', 'name', 'Numbered custom', 'category', 'procedure'));
-  v_next := billing.upsert_service_item(v_tenant, jsonb_build_object('name', 'After custom', 'category', 'procedure'));
-  perform tests.ok(v_next ->> 'code' = 'PROC-0010', 'a custom prefixed number moves the counter past itself');
+  begin
+    perform billing.upsert_service_item(v_tenant, jsonb_build_object(
+      'id', v_id, 'code', 'RENAME', 'name', 'OP consultation renamed again'));
+    perform tests.ok(false, 'a code on update must be rejected');
+  exception when sqlstate '22023' then
+    perform tests.ok(true, 'a code on update is rejected');
+  end;
+  perform tests.ok(
+    (select code from billing.service_item where id = v_id) = 'CONSULT'
+    and (select name from billing.service_item where id = v_id) = 'OP consultation renamed',
+    'a rejected update leaves CONSULT and the previous name');
+
+  v_next := billing.upsert_service_item(v_tenant, jsonb_build_object('name', 'After rejection', 'category', 'procedure'));
+  perform tests.ok(v_next ->> 'code' = 'PROC-0003', 'a rejected code does not move the counter');
 
   v_doc := billing.import_prices(v_tenant, jsonb_build_object('dryRun', true, 'rows', jsonb_build_array(
     jsonb_build_object('name', 'Suture', 'category', 'procedure', 'unitPricePaise', 25000, 'effectiveFrom', '2026-04-01'),
@@ -109,6 +125,23 @@ begin
   perform tests.ok(
     (select count(*) from billing.service_item where tenant_id = v_tenant and name = 'Suture' and not is_deleted) = 1,
     'one generated item is written for the applied row');
+
+  v_doc := billing.import_prices(v_tenant, jsonb_build_object('dryRun', true, 'rows', jsonb_build_array(
+    jsonb_build_object('code', 'NOT-THE-CODE', 'name', 'Suture', 'category', 'procedure', 'unitPricePaise', 25000, 'effectiveFrom', '2026-04-01'),
+    jsonb_build_object('code', 'CONSULT', 'unitPricePaise', 100, 'effectiveFrom', '2026-04-01'))));
+  perform tests.ok(
+    v_doc -> 'rows' -> 0 ->> 'item' = 'existing'
+    and v_doc -> 'rows' -> 0 ->> 'status' = 'price_overlap'
+    and v_doc -> 'rows' -> 0 ->> 'code' <> 'NOT-THE-CODE'
+    and v_doc -> 'rows' -> 0 ->> 'code' ~ '^[A-Z]+-[0-9]{4}$',
+    'import matches name and category and ignores a code column');
+  perform tests.ok(
+    v_doc -> 'rows' -> 1 ->> 'status' = 'error' and v_doc -> 'rows' -> 1 ->> 'detail' = 'name is required',
+    'import requires a name when the code column is the only identifier');
+
+  v_doc := billing.upsert_service_item(v_tenant, jsonb_build_object(
+    'code', '   ', 'name', 'Blank code', 'category', 'lab'));
+  perform tests.ok(v_doc ->> 'code' ~ '^LAB-', 'a blank code is treated as omitted and allocated');
 end
 $$;
 

@@ -8,7 +8,6 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 export const serviceItemSchema = z.object({
   name: z.string().trim().min(1, { error: 'Name is required' }).max(160, { error: 'Max 160 characters' }),
   category: z.enum(SERVICE_CATEGORIES),
-  customCode: z.string().trim().max(40, { error: 'Max 40 characters' }),
   taxCodeId: z.string().trim(),
 }).refine((v) => v.taxCodeId === '' || UUID.test(v.taxCodeId), { path: ['taxCodeId'], error: 'Choose a tax code' })
 export type ServiceItemValues = z.infer<typeof serviceItemSchema>

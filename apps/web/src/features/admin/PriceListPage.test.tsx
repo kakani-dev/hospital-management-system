@@ -59,7 +59,7 @@ function routes(extra: Parameters<typeof stubFetch>[0] = {}) {
         if (row && body.isActive !== undefined) row.isActive = body.isActive
         return json({ id: body.id })
       }
-      return json({ id: 'new-item', code: body.code || 'PROC-0001' }, 201)
+      return json({ id: 'new-item', code: 'PROC-0001' }, 201)
     },
     'POST /api/v1/price-lists/items': () => json({ id: 'price-1' }, 201),
     ...extra,
@@ -108,11 +108,14 @@ describe('Price list admin', () => {
     await user.type(screen.getByLabelText('Name'), 'Wound dressing')
     await user.click(screen.getByRole('button', { name: 'Add service' }))
     expect(await screen.findByText('Wound dressing added as PROC-0001. Set the rate in the panel.')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Custom code')).not.toBeInTheDocument()
     expect(calls.find((call) => call.method === 'POST' && call.path === '/api/v1/service-items')!.body).toEqual({
       name: 'Wound dressing', category: 'procedure',
     })
 
     const drawer = await screen.findByTestId('price-drawer')
+    expect(within(drawer).getByText('PROC-0001')).toBeInTheDocument()
+    expect(within(drawer).getByText('It cannot be changed.')).toBeInTheDocument()
     await user.type(within(drawer).getByLabelText('Amount (rupees)'), '200')
     await user.click(within(drawer).getByRole('button', { name: 'Save price' }))
     expect(await screen.findByText(new RegExp(`₹200\\.00 saved for Wound dressing at the hospital, from`))).toBeInTheDocument()
@@ -133,6 +136,9 @@ describe('Price list admin', () => {
     await settle()
     await user.click(screen.getByRole('button', { name: 'Edit Wound dressing' }))
     const drawer = await screen.findByTestId('price-drawer')
+    expect(within(drawer).getByText('DRESS')).toBeInTheDocument()
+    expect(within(drawer).getByText('It cannot be changed.')).toBeInTheDocument()
+    expect(within(drawer).queryByLabelText('Custom code')).not.toBeInTheDocument()
     expect(await within(drawer).findByText('₹150.00')).toBeInTheDocument()
     await user.type(within(drawer).getByLabelText('Amount (rupees)'), '180')
     await user.click(within(drawer).getByRole('button', { name: 'Save price' }))
@@ -152,15 +158,15 @@ describe('Price list admin', () => {
     expect(await screen.findByText('Taxable service 18%')).toBeInTheDocument()
     expect(screen.getByText(/A code like CERT-0001 is assigned when you save/)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Advanced' }))
+    expect(screen.queryByLabelText('Custom code')).not.toBeInTheDocument()
     await screen.findByRole('option', { name: 'Taxable service 18% · SAC 9997' })
-    await user.type(screen.getByLabelText('Custom code'), 'LEGACY')
     await user.selectOptions(screen.getByLabelText('Category'), 'procedure')
     await user.selectOptions(screen.getByLabelText('Tax'), 'Taxable service 18% · SAC 9997')
     await user.type(screen.getByLabelText('Name'), 'Special dressing')
     await user.click(screen.getByRole('button', { name: 'Add service' }))
-    expect(await screen.findByText('Special dressing added as LEGACY. Set the rate in the panel.')).toBeInTheDocument()
+    expect(await screen.findByText('Special dressing added as PROC-0001. Set the rate in the panel.')).toBeInTheDocument()
     expect(calls.find((call) => call.method === 'POST' && call.path === '/api/v1/service-items')!.body).toEqual({
-      name: 'Special dressing', category: 'procedure', code: 'LEGACY', taxCodeId: GST,
+      name: 'Special dressing', category: 'procedure', taxCodeId: GST,
     })
   })
 
@@ -177,18 +183,24 @@ describe('Price list admin', () => {
   it('previews a CSV, keeps overlapping rows out, and imports the ready ones in paise', async () => {
     const calls = routes({
       'POST /api/v1/price-lists/import': (_u, init) => {
-        const body = JSON.parse(String(init.body)) as { dryRun: boolean; rows: { clientIndex: number; code: string; unitPricePaise: number }[] }
+        const body = JSON.parse(String(init.body)) as {
+          dryRun: boolean
+          rows: { clientIndex: number; name: string; category: string; code?: string; unitPricePaise: number }[]
+        }
         return json({
           dryRun: body.dryRun,
-          rows: body.rows.map((row) => ({
-            clientIndex: row.clientIndex,
-            code: row.code,
-            name: row.code,
-            status: row.code === 'CONSULT' ? 'price_overlap' : 'ready',
-            detail: row.code === 'CONSULT' ? 'That price overlaps an existing effective period.' : null,
-            item: 'existing',
-            unitPricePaise: row.unitPricePaise,
-          })),
+          rows: body.rows.map((row) => {
+            const existing = row.name === 'OP consultation' && row.category === 'consultation'
+            return {
+              clientIndex: row.clientIndex,
+              code: existing ? 'CONSULT' : null,
+              name: row.name,
+              status: existing ? 'price_overlap' : 'ready',
+              detail: existing ? 'That price overlaps an existing effective period.' : null,
+              item: existing ? 'existing' : 'create',
+              unitPricePaise: row.unitPricePaise,
+            }
+          }),
         })
       },
     })
@@ -196,17 +208,27 @@ describe('Price list admin', () => {
     open()
     await screen.findAllByTestId('service-item-row')
     const file = new File(
-      ['name,category,rupees,effective_from,code,sac\nOP consultation,consultation,600,2026-04-01,CONSULT,9993\nWound dressing,procedure,180,2026-05-01,,\n'],
+      ['name,category,rupees,effective_from,code,sac\nOP consultation,consultation,600,2026-04-01,CONSULT,9993\nWound dressing,procedure,180,2026-05-01,TYPED,\n'],
       'prices.csv',
       { type: 'text/csv' },
     )
     await user.upload(screen.getByLabelText('CSV file'), file)
     expect(await screen.findByText('Some rows overlap an existing effective period and will not be imported.')).toBeInTheDocument()
     expect(screen.getByText('That price overlaps an existing effective period.')).toBeInTheDocument()
+    expect(screen.getByText(/The server assigns each service code/)).toBeInTheDocument()
+    expect(screen.queryByText('TYPED')).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Import 1 ready price' }))
     await screen.findByText('Imported 1 price. 1 overlapping period was left unchanged.')
     const posted = calls.filter((call) => call.path === '/api/v1/price-lists/import')
-    expect(posted[0]!.body).toMatchObject({ dryRun: true })
+    expect(posted[0]!.body).toEqual({
+      dryRun: true,
+      rows: [
+        { clientIndex: 0, name: 'OP consultation', category: 'consultation', sac: '9993', unitPricePaise: 60000, effectiveFrom: '2026-04-01' },
+        { clientIndex: 1, name: 'Wound dressing', category: 'procedure', unitPricePaise: 18000, effectiveFrom: '2026-05-01' },
+      ],
+    })
+    expect(JSON.stringify(posted[0]!.body)).not.toContain('CONSULT')
+    expect(JSON.stringify(posted[0]!.body)).not.toContain('TYPED')
     expect(posted[1]!.body).toEqual({
       dryRun: false,
       rows: [{ clientIndex: 1, name: 'Wound dressing', category: 'procedure', unitPricePaise: 18000, effectiveFrom: '2026-05-01' }],

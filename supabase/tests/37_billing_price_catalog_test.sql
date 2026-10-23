@@ -30,8 +30,12 @@ begin
     'the catalog lists the consultation with SAC 9993');
 
   v_doc := billing.import_prices(v_tenant, jsonb_build_object('dryRun', true, 'rows', jsonb_build_array(
-    jsonb_build_object('clientIndex', 0, 'code', 'CONSULT', 'name', 'OP consultation', 'unitPricePaise', 60000, 'effectiveFrom', '2026-04-01'))));
-  perform tests.ok(v_doc -> 'rows' -> 0 ->> 'status' = 'price_overlap', 'a preview marks an overlapping consultation rate');
+    jsonb_build_object('clientIndex', 0, 'code', 'NOT-CONSULT', 'name', 'OP consultation', 'category', 'consultation', 'unitPricePaise', 60000, 'effectiveFrom', '2026-04-01'))));
+  perform tests.ok(
+    v_doc -> 'rows' -> 0 ->> 'status' = 'price_overlap'
+    and v_doc -> 'rows' -> 0 ->> 'code' = 'CONSULT'
+    and v_doc -> 'rows' -> 0 ->> 'item' = 'existing',
+    'a preview matches the consultation by name and category and ignores a code column');
   perform tests.ok(
     (select count(*) from billing.price_list_item pli
       join billing.service_item si on si.id = pli.service_item_id
@@ -48,11 +52,15 @@ begin
     jsonb_build_object('clientIndex', 0, 'code', 'DRESS', 'name', 'Wound dressing', 'category', 'procedure', 'sac', '9993', 'unitPricePaise', 15000, 'effectiveFrom', '2017-07-01'))));
   perform tests.ok(v_doc -> 'rows' -> 0 ->> 'status' = 'ready', 'applying the preview writes the dressing');
   perform tests.ok(
+    (select code from billing.service_item
+      where tenant_id = v_tenant and name = 'Wound dressing' and not is_deleted) = 'PROC-0001',
+    'the imported code column is ignored and the server assigns PROC-0001');
+  perform tests.ok(
     (billing.list_service_items(v_tenant, 'dress', false) -> 0 ->> 'hospitalPricePaise')::bigint = 15000,
     'the hospital rate is stored in paise and listed with the service');
 
   v_item := (billing.upsert_service_item(v_tenant, jsonb_build_object(
-    'code', 'PREC', 'name', 'Precedence probe', 'category', 'procedure')) ->> 'id')::uuid;
+    'name', 'Precedence probe', 'category', 'procedure')) ->> 'id')::uuid;
   perform billing.add_price(v_tenant, jsonb_build_object(
     'serviceItemId', v_item, 'unitPricePaise', 10000, 'effectiveFrom', '2026-01-01'));
   perform billing.add_price(v_tenant, jsonb_build_object(
@@ -99,7 +107,9 @@ begin
   execute 'set local role hms_svc_billing';
 
   v_doc := billing.list_service_items(v_tenant, 'dress', false);
-  perform tests.ok(v_doc -> 0 ->> 'code' = 'DRESS', 'a receptionist can search the catalog to add a bill line');
+  perform tests.ok(
+    v_doc -> 0 ->> 'code' = 'PROC-0001' and v_doc -> 0 ->> 'name' = 'Wound dressing',
+    'a receptionist can search the catalog to add a bill line');
   perform tests.throws_ok(
     'select billing.list_prices(''11111111-1111-4111-8111-111111111111'', null)',
     '42501',
