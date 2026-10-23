@@ -4,7 +4,7 @@ namespace Hms.Platform.Tenancy;
 /// <param name="AccessibleBranchIds">Active branches of the tenant the user can access.</param>
 /// <param name="RolesByBranch">For each accessible branch, the roles held AT that branch (tenant-wide memberships count everywhere).</param>
 /// <param name="BranchTimeZones">EFFECTIVE IANA zone of each accessible branch (override, else tenant zone).</param>
-/// <param name="TenantTimeZone">The tenant's required IANA zone (identity.tenants.time_zone).</param>
+/// <param name="TenantTimeZone">The tenant's required IANA zone.</param>
 public sealed record MembershipGrant(
     IReadOnlyList<string> Roles,
     IReadOnlyList<Guid> AccessibleBranchIds,

@@ -3,12 +3,10 @@ using Hms.Modules.Appointments.Endpoints;
 using Hms.Platform.Hosting;
 using Hms.Platform.Messaging;
 
-// Scheduling service: /practitioners, /schedules, /slots, /appointments, /queue, and the outbox
-// dispatcher (it owns the appointment/queue events). Branch membership, day overrides, the travel
-// buffer and my-day (/practitioner-branches, /schedule-overrides, /scheduling-settings,
-// /practitioners/me/day) are mapped here only — the legacy monolith calls MapAppointmentsModule
-// and does not serve them. Keep Outbox:Dispatcher:Enabled=false while the monolith still
-// dispatches (SKIP LOCKED makes overlap safe, but one owner is clearer).
+// Scheduling service: /practitioners, /schedules, /slots, /appointments, /queue,
+// /practitioner-branches, /schedule-overrides, /scheduling-settings, /practitioners/me/day,
+// and the outbox dispatcher (it owns the appointment/queue events). The edge routes these
+// prefixes here. Keep Outbox:Dispatcher:Enabled=false (B1). hms_svc_scheduling is not hms_dispatcher.
 var builder = WebApplication.CreateBuilder(args);
 builder.AddHmsServiceDefaults("hms-scheduling");
 builder.Services.AddAppointmentsModule(builder.Configuration);

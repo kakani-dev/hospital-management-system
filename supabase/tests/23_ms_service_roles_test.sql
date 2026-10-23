@@ -10,10 +10,10 @@ select tests.ok(
   'service group roles exist and are NOLOGIN, NOINHERIT, not superuser, no BYPASSRLS');
 
 select tests.ok(
-  pg_has_role('hms_svc_identity', 'authenticated', 'SET')
-  and pg_has_role('hms_svc_patients', 'authenticated', 'SET')
-  and pg_has_role('hms_svc_scheduling', 'authenticated', 'SET'),
-  'every service role can SET ROLE authenticated (RLS path)');
+  not pg_has_role('hms_svc_identity', 'authenticated', 'SET')
+  and not pg_has_role('hms_svc_patients', 'authenticated', 'SET')
+  and not pg_has_role('hms_svc_scheduling', 'authenticated', 'SET'),
+  'service roles cannot SET ROLE authenticated (ADR 0002: the session role is hms_svc_*)');
 
 select tests.ok(
   not pg_has_role('hms_svc_identity', 'authenticated', 'USAGE')
@@ -33,7 +33,7 @@ select tests.ok(
   and not has_table_privilege('hms_svc_identity', 'patient.patients', 'select')
   and not has_table_privilege('hms_svc_patients', 'appointment.appointments', 'select')
   and not has_table_privilege('hms_svc_scheduling', 'identity.memberships', 'select'),
-  'service roles own nothing and hold no direct table privileges');
+  'service roles own nothing and cannot select another service''s tables');
 
 select tests.ok(
   (select bool_and(rolcanlogin and not rolinherit)

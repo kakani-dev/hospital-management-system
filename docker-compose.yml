@@ -5,11 +5,9 @@
 # The edge is the only API port published. identity / patients / scheduling listen on the compose
 # network only and answer 404 to anything without the shared X-Hms-Edge-Key (same as the internal
 # ingress in Azure Container Apps). Each service logs in with its own low-privilege role
-# (supabase/scripts/local-api-login-role.sql); every transaction still switches to `authenticated`
-# + JWT claims, so RLS applies.
+# (supabase/scripts/local-api-login-role.sql) and SET ROLE hms_svc_<service> (Database:SessionRole),
+# which can use only that schema plus approved _v1 functions. RLS still applies.
 #
-# Legacy all-in-one API (monolith, on hold) for comparison, on http://localhost:8090:
-#   docker compose --profile monolith up --build
 # DEV ONLY: the default credentials and edge key below must never be used anywhere else.
 name: hms
 
@@ -113,23 +111,6 @@ services:
       - "127.0.0.1:8081:8080"
     depends_on:
       - edge
-
-  # ------------------------------------------------------ legacy monolith (profile, on hold) ----
-  api:
-    profiles: ["monolith"]
-    build:
-      context: .
-      dockerfile: infra/docker/api.Dockerfile
-    environment:
-      <<: *auth-env
-      ASPNETCORE_ENVIRONMENT: Development
-      ConnectionStrings__HmsDatabase: "Host=postgres;Port=5432;Database=hms;Username=hms_api_login;Password=hms_api_local_only"
-      Cors__AllowedOrigins__0: "http://localhost:8081"
-    ports:
-      - "127.0.0.1:8090:8080"
-    depends_on:
-      postgres:
-        condition: service_healthy
 
 volumes:
   pgdata:

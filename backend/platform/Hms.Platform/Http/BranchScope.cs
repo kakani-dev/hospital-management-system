@@ -5,6 +5,8 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Hms.Platform.Http;
 
+// cross-schema: approved — identity.branch_exists_v1 (docs/contracts/db.md). Callers do not read identity.branches.
+
 /// <summary>
 /// The status for a branch-bound request the caller may not perform (SPRINT2-CONTRACT v4 §0):
 /// a branch of ANOTHER tenant (or unknown) is 404 — indistinguishable from non-existent — while a
@@ -33,10 +35,11 @@ public static class BranchScope
             return false;
         }
 
-        // RLS (branches_select_member) only shows branches of the caller's tenants; the tenant filter pins the resolved one.
+        // Published contract: live branch in the caller's tenant. Soft-deleted branches are absent (404),
+        // which matches "not a bookable branch" for every role.
         var found = await RawSql.ScalarAsync(
-            db, "select exists (select 1 from identity.branches where id = @b::uuid and tenant_id = @t::uuid)", ct,
-            ("b", branchId), ("t", tenant.TenantId));
+            db, "select identity.branch_exists_v1(@t::uuid, @b::uuid)", ct,
+            ("t", tenant.TenantId), ("b", branchId));
         return found is true;
     }
 }

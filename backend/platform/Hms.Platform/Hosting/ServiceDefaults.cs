@@ -16,10 +16,10 @@ using Serilog.Formatting.Compact;
 namespace Hms.Platform.Hosting;
 
 /// <summary>
-/// The standard HMS service host (MICROSERVICES-PLAN.md §7): every service, and the legacy
-/// monolith host, calls <see cref="AddHmsServiceDefaults"/> + <see cref="UseHmsServiceDefaults"/>
-/// and then only adds its own module(s) and endpoints. The middleware ORDER here is the Sprint 1/2
-/// gateway order and is security-relevant; change it only with Code Review.
+/// The standard HMS service host (MICROSERVICES-PLAN.md §7): every service calls
+/// <see cref="AddHmsServiceDefaults"/> + <see cref="UseHmsServiceDefaults"/> and then only adds
+/// its own module and endpoints. The middleware ORDER here is the Sprint 1/2 order and is
+/// security-relevant; change it only with Code Review.
 /// </summary>
 public static class ServiceDefaults
 {

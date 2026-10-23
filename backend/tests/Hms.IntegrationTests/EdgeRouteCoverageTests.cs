@@ -1,4 +1,6 @@
 using System.Text.Json;
+using Hms.Identity.Api;
+using Hms.Patients.Api;
 using Hms.Scheduling.Api;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -23,15 +25,11 @@ public sealed class EdgeRouteCoverageTests
     [Fact]
     public void Every_module_api_prefix_is_routed_by_the_edge_to_its_owning_service()
     {
-        using var monolith = new WebApplicationFactory<Hms.Gateway.MonolithMarker>()
-            .WithWebHostBuilder(b => b.UseEnvironment("Testing").UseSetting("Auth:Supabase:ProjectUrl", TestJwt.ProjectUrl));
-        // Membership, overrides, the travel buffer and my-day are scheduling-service routes. The monolith
-        // does not map them, so coverage has to read that host as well as the legacy all-in-one host.
-        using var scheduling = new WebApplicationFactory<SchedulingServiceMarker>()
-            .WithWebHostBuilder(b => b.UseEnvironment("Testing").UseSetting("Auth:Supabase:ProjectUrl", TestJwt.ProjectUrl));
-        var onMonolith = ServedPrefixes(monolith).ToList();
-        Assert.DoesNotContain(onMonolith, s => s.Prefix is "practitioner-branches" or "schedule-overrides" or "scheduling-settings");
-        var served = onMonolith.Concat(ServedPrefixes(scheduling)).Distinct().ToList();
+        var served = Prefixes<IdentityServiceMarker>()
+            .Concat(Prefixes<PatientsServiceMarker>())
+            .Concat(Prefixes<SchedulingServiceMarker>())
+            .Distinct()
+            .ToList();
         Assert.NotEmpty(served);
         Assert.Contains(served, s => s.Prefix == "practitioner-branches" && s.Module == "Hms.Modules.Appointments");
 
@@ -44,15 +42,19 @@ public sealed class EdgeRouteCoverageTests
         }
     }
 
-    private static IEnumerable<(string Prefix, string? Module)> ServedPrefixes<TEntry>(WebApplicationFactory<TEntry> factory)
-        where TEntry : class =>
-        factory.Services.GetRequiredService<EndpointDataSource>().Endpoints
+    private static IEnumerable<(string Prefix, string? Module)> Prefixes<TMarker>()
+        where TMarker : class
+    {
+        using var host = new WebApplicationFactory<TMarker>()
+            .WithWebHostBuilder(b => b.UseEnvironment("Testing").UseSetting("Auth:Supabase:ProjectUrl", TestJwt.ProjectUrl));
+        return host.Services.GetRequiredService<EndpointDataSource>().Endpoints
             .OfType<RouteEndpoint>()
             .Select(e => (Pattern: e.RoutePattern.RawText ?? string.Empty, Module: e.Metadata.OfType<System.Reflection.MethodInfo>().FirstOrDefault()?.DeclaringType?.Assembly.GetName().Name))
             .Where(e => e.Pattern.TrimStart('/').StartsWith("api/v1/", StringComparison.Ordinal))
             .Select(e => (Prefix: e.Pattern.TrimStart('/').Split('/')[2], e.Module))
             .Where(e => e.Prefix != "warmup")
             .Distinct();
+    }
 
     private static Dictionary<string, string> EdgeRoutes()
     {

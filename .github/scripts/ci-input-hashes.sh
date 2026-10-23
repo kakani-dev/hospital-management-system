@@ -91,19 +91,6 @@ hash_of hash_deploy \
   .cursor/rules/verify-before-commit.mdc \
   docs/deploy.md
 
-hash_of hash_image_api \
-  infra/docker \
-  docker-compose.yml \
-  .dockerignore \
-  backend/gateway \
-  backend/modules \
-  backend/platform \
-  backend/shared \
-  backend/global.json \
-  backend/Directory.Build.props \
-  backend/Directory.Packages.props \
-  backend/Hms.slnx
-
 hash_of hash_image_edge \
   backend/edge \
   backend/platform \

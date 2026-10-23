@@ -60,7 +60,6 @@ jobs:
       hash_e2e: ${{ steps.hash.outputs.hash_e2e }}
       hash_mocked: ${{ steps.hash.outputs.hash_mocked }}
       hash_deploy: ${{ steps.hash.outputs.hash_deploy }}
-      hash_image_api: ${{ steps.hash.outputs.hash_image_api }}
       hash_image_edge: ${{ steps.hash.outputs.hash_image_edge }}
       hash_image_identity: ${{ steps.hash.outputs.hash_image_identity }}
       hash_image_patients: ${{ steps.hash.outputs.hash_image_patients }}
@@ -133,18 +132,6 @@ jobs:
               - 'AGENTS.md'
               - '.cursor/rules/verify-before-commit.mdc'
               - 'docs/deploy.md'
-            image_api:
-              - 'infra/docker/**'
-              - 'docker-compose.yml'
-              - '.dockerignore'
-              - 'backend/gateway/**'
-              - 'backend/modules/**'
-              - 'backend/platform/**'
-              - 'backend/shared/**'
-              - 'backend/global.json'
-              - 'backend/Directory.Build.props'
-              - 'backend/Directory.Packages.props'
-              - 'backend/Hms.slnx'
             image_edge:
               - 'backend/edge/**'
               - 'backend/platform/**'
@@ -231,13 +218,6 @@ jobs:
         with:
           job: deploy-scripts
           hash: ${{ steps.hash.outputs.hash_deploy }}
-      - id: cache_image_api
-        if: steps.mode.outputs.full != 'true'
-        continue-on-error: true
-        uses: ./.github/actions/lookup-pass-marker
-        with:
-          job: images-api
-          hash: ${{ steps.hash.outputs.hash_image_api }}
       - id: cache_image_edge
         if: steps.mode.outputs.full != 'true'
         continue-on-error: true
@@ -276,7 +256,6 @@ jobs:
           SQL: ${{ steps.filter.outputs.sql }}
           PLAYWRIGHT: ${{ steps.filter.outputs.playwright }}
           DEPLOY: ${{ steps.filter.outputs.deploy }}
-          IMAGE_API: ${{ steps.filter.outputs.image_api }}
           IMAGE_EDGE: ${{ steps.filter.outputs.image_edge }}
           IMAGE_IDENTITY: ${{ steps.filter.outputs.image_identity }}
           IMAGE_PATIENTS: ${{ steps.filter.outputs.image_patients }}
@@ -288,12 +267,10 @@ jobs:
           CACHED_E2E: ${{ steps.cache_e2e.outputs.hit }}
           CACHED_MOCKED: ${{ steps.cache_mocked.outputs.hit }}
           CACHED_DEPLOY: ${{ steps.cache_deploy.outputs.hit }}
-          CACHED_IMAGE_API: ${{ steps.cache_image_api.outputs.hit }}
           CACHED_IMAGE_EDGE: ${{ steps.cache_image_edge.outputs.hit }}
           CACHED_IMAGE_IDENTITY: ${{ steps.cache_image_identity.outputs.hit }}
           CACHED_IMAGE_PATIENTS: ${{ steps.cache_image_patients.outputs.hit }}
           CACHED_IMAGE_SCHEDULING: ${{ steps.cache_image_scheduling.outputs.hit }}
-          HASH_IMAGE_API: ${{ steps.hash.outputs.hash_image_api }}
           HASH_IMAGE_EDGE: ${{ steps.hash.outputs.hash_image_edge }}
           HASH_IMAGE_IDENTITY: ${{ steps.hash.outputs.hash_image_identity }}
           HASH_IMAGE_PATIENTS: ${{ steps.hash.outputs.hash_image_patients }}
@@ -410,6 +387,10 @@ jobs:
         env:
           BASE_REF: ${{ github.base_ref }}
         run: bash .github/scripts/check-migration-versions.sh
+      - name: Schema ownership (service code and new migrations stay in their schema)
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: bash .github/scripts/check-schema-ownership.sh
       - name: Install psql client
         run: sudo apt-get update -y && sudo apt-get install -y postgresql-client
       - name: Apply migrations + seed, run SQL tests (hook, API role, RLS)
@@ -421,18 +402,6 @@ jobs:
         run: >-
           dotnet test backend/Hms.slnx -c Release --filter "Category=Database"
           --logger "trx;LogFilePrefix=db" --results-directory test-results
-      # Same API suite against the legacy all-in-one host (on hold, still the live Azure API until the
-      # Phase 1 cutover), on a fresh database so data from the first run cannot leak into it.
-      - name: Fresh database for the monolith run
-        run: SKIP_SQL_TESTS=1 TEST_DB=hms_sql_test_monolith bash supabase/scripts/run-sql-tests.sh
-      - name: Integration tests against the legacy monolith (HMS_SYSTEM_TARGET=monolith)
-        env:
-          HMS_SYSTEM_TARGET: monolith
-          HMS_DB_TEST_CONNECTION: Host=localhost;Port=5432;Database=hms_sql_test_monolith;Username=postgres;Password=postgres
-          HMS_API_TEST_CONNECTION: Host=localhost;Port=5432;Database=hms_sql_test_monolith;Username=hms_api_login;Password=hms_api_local_only
-        run: >-
-          dotnet test backend/tests/Hms.IntegrationTests -c Release --no-build --filter "Category=Database"
-          --logger "trx;LogFilePrefix=db-monolith" --results-directory test-results
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -472,14 +441,12 @@ jobs:
       fail-fast: false
       # Fallback keeps fromJSON valid when `changes` failed and emitted no matrix.
       # The job if still skips unless images_any is true.
-      matrix: ${{ fromJSON(needs.changes.outputs.images_matrix || '{"include":[{"name":"api","dockerfile":"infra/docker/api.Dockerfile","input_hash":"skipped","cache_job":"images-api"}]}') }}
+      matrix: ${{ fromJSON(needs.changes.outputs.images_matrix || '{"include":[{"name":"edge","dockerfile":"backend/edge/Dockerfile","input_hash":"skipped","cache_job":"images-edge"}]}') }}
     steps:
       - uses: actions/checkout@v7
-      - name: Validate docker-compose.yml (default + monolith profile)
-        if: matrix.name == 'api'
-        run: |
-          docker compose -f docker-compose.yml config -q
-          docker compose -f docker-compose.yml --profile monolith config -q
+      - name: Validate docker-compose.yml
+        if: matrix.name == 'edge'
+        run: docker compose -f docker-compose.yml config -q
       - name: docker build ${{ matrix.name }}
         run: docker build -f ${{ matrix.dockerfile }} -t hms-${{ matrix.name }}:ci .
       - name: Boot ${{ matrix.name }} and check /health/live (no database needed)

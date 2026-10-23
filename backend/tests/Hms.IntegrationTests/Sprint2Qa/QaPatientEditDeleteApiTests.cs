@@ -6,7 +6,7 @@ namespace Hms.IntegrationTests.Sprint2Qa;
 
 /// <summary>
 /// Sprint 2.1 patient edit (PATCH, merge-patch) and soft delete / restore (contract §1.2-1.3, §A.3, D1, D2).
-/// Every request goes through the API as hms_api_login; persisted state is read back as the DB owner.
+/// Every request goes through the edge; persisted state is read back as the DB owner.
 /// </summary>
 [Trait("Category", "Database")]
 public sealed class QaPatientEditDeleteApiTests(HmsApiFactory factory) : IClassFixture<HmsApiFactory>

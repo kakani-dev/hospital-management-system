@@ -7,8 +7,7 @@ import { defineConfig, devices } from '@playwright/test'
  * The API is the microservices stack (scripts/dev/run-microservices.sh): identity, patients and
  * scheduling, each logging in as its own low-privilege role (RLS applies to every request), behind
  * the YARP edge on API_PORT. Playwright waits on the edge's /health/ready, which only turns green
- * once every service is ready. Set E2E_API_COMMAND to run something else, e.g. the legacy monolith:
- *   E2E_API_COMMAND="dotnet run --project ../../backend/gateway/Hms.Gateway --no-launch-profile"
+ * once every service is ready. E2E_API_COMMAND overrides the dev script.
  * Never point any of these at a real Supabase project or production.
  */
 const WEB_PORT = Number(process.env.E2E_PORT ?? 4173)
@@ -67,8 +66,7 @@ export default defineConfig({
     },
     {
       name: 'api',
-      // Default: the microservices stack behind the edge. E2E_API_COMMAND overrides it (e.g. the
-      // legacy monolith, or a prebuilt stack in CI).
+      // Default: the microservices stack behind the edge. E2E_API_COMMAND overrides it.
       command: process.env.E2E_API_COMMAND ?? 'bash ../../scripts/dev/run-microservices.sh',
       url: `http://localhost:${API_PORT}/health/ready`,
       reuseExistingServer: reuse,
@@ -79,8 +77,6 @@ export default defineConfig({
         API_PORT: String(API_PORT),
         // Microservices: base connection; each service appends its own hms_<svc>_login.
         HMS_MS_DB: `Host=${PG_HOST};Port=${PG_PORT};Database=${DB_NAME}`,
-        // Legacy monolith (only used when E2E_API_COMMAND runs Hms.Gateway).
-        ConnectionStrings__HmsDatabase: `Host=${PG_HOST};Port=${PG_PORT};Database=${DB_NAME};Username=hms_api_login;Password=hms_api_local_only`,
         Auth__Supabase__ProjectUrl: AUTH_URL,
         Auth__Supabase__AllowInsecureHttp: 'true',
         RateLimiting__PermitPerMinute: '10000',

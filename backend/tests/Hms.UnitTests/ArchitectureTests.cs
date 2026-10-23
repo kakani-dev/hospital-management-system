@@ -62,16 +62,16 @@ public class ArchitectureTests
     public void Only_the_identity_service_registers_the_email_worker()
     {
         var identity = File.ReadAllText(Path.Combine(Backend, "services", "identity", "Hms.Identity.Api", "Program.cs"));
-        var gateway = File.ReadAllText(Path.Combine(Backend, "gateway", "Hms.Gateway", "Program.cs"));
+        var patients = File.ReadAllText(Path.Combine(Backend, "services", "patients", "Hms.Patients.Api", "Program.cs"));
         var scheduling = File.ReadAllText(Path.Combine(Backend, "services", "scheduling", "Hms.Scheduling.Api", "Program.cs"));
         Assert.Contains("AddIdentityEmailDelivery", identity, StringComparison.Ordinal);
-        Assert.DoesNotContain("AddIdentityEmailDelivery", gateway, StringComparison.Ordinal);
+        Assert.DoesNotContain("AddIdentityEmailDelivery", patients, StringComparison.Ordinal);
         Assert.DoesNotContain("AddIdentityEmailDelivery", scheduling, StringComparison.Ordinal);
         Assert.DoesNotContain("AddHmsOutboxDispatcher", identity, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void Only_the_legacy_all_in_one_host_references_several_modules()
+    public void No_production_host_references_more_than_one_module()
     {
         var sep = Path.DirectorySeparatorChar;
         var hosts = Directory.EnumerateFiles(Backend, "*.csproj", SearchOption.AllDirectories)
@@ -81,6 +81,6 @@ public class ArchitectureTests
             .Select(p => Path.GetRelativePath(Backend, p))
             .Where(p => References(p).Count(r => r.StartsWith("Hms.Modules.", StringComparison.Ordinal)) > 1)
             .ToList();
-        Assert.Equal([Path.Combine("gateway", "Hms.Gateway", "Hms.Gateway.csproj")], hosts);
+        Assert.Empty(hosts);
     }
 }
