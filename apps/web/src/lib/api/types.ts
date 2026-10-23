@@ -698,6 +698,8 @@ export interface BillLine {
   netPaise: number
   taxPaise: number
   practitionerId: Guid | null
+  /** True when money already taken covers this line. Derived, not stored. */
+  locked?: boolean
 }
 
 export interface BillDiscount {
@@ -726,7 +728,15 @@ export interface BillDocument {
   exactPaise: number
   roundOffPaise: number
   totalPaise: number
+  allocatedPaise?: number
   duePaise: number
+}
+
+/** GET /accounts/{patientId}/summary. Advance is unallocated receipts, in paise. */
+export interface PatientBillingSummary {
+  patientId: Guid
+  advancePaise: number
+  bills: { id: Guid; accountId: Guid; branchId: Guid; billNo: string | null; status: string; billKind: string; totalPaise: number; duePaise: number }[]
 }
 
 export interface PaymentLink {
@@ -744,8 +754,15 @@ export interface Receipt {
   kind: string
   amountPaise: number
   accountId: Guid
+  counterSessionId?: Guid | null
   tenders: { mode: string; amountPaise: number; reference: string | null }[]
   allocations: { billId: Guid; amountPaise: number }[]
+}
+
+export interface CashierSession {
+  id: Guid | null
+  businessDate?: string
+  opened?: boolean
 }
 
 export interface ApprovalRequest {

@@ -651,6 +651,16 @@ export class MockBackend {
   }
 
   private billingResponse(method: string, path: string, url: URL, body: Record<string, unknown>, idempotencyKey: string | null): { status: number; body: unknown } | null {
+    const summary = /^\/api\/v1\/accounts\/([^/]+)\/summary$/.exec(path)
+    if (method === 'GET' && summary) {
+      return { status: 200, body: { patientId: summary[1], advancePaise: 0, accounts: [], bills: [] } }
+    }
+    if (method === 'POST' && path === '/api/v1/counter-sessions/ensure') {
+      return { status: 200, body: { id: 'c1000000-0000-4000-8000-000000000001', businessDate: '2026-10-23', opened: true } }
+    }
+    if (method === 'GET' && path === '/api/v1/counter-sessions/open') {
+      return { status: 200, body: { id: null } }
+    }
     if (method === 'POST' && path === '/api/v1/accounts') {
       const bill = this.blankBill(String(body.patientId), String(body.branchId))
       this.mockBills.set(bill.id, bill)

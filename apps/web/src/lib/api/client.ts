@@ -49,7 +49,9 @@ import type {
   WalkInRequest,
   ApprovalRequest,
   BillDocument,
+  CashierSession,
   DayEndSession,
+  PatientBillingSummary,
   PaymentLink,
   PublicBill,
   Receipt,
@@ -576,6 +578,8 @@ export class ApiClient {
   billing = {
     openAccount: (body: { patientId: string; branchId: string; accountType?: string }) =>
       this.request<BillDocument>('/api/v1/accounts', { method: 'POST', body: JSON.stringify(body) }),
+    summary: (patientId: string) =>
+      this.request<PatientBillingSummary>(`/api/v1/accounts/${encodeURIComponent(patientId)}/summary`),
     bill: (id: string) => this.request<BillDocument>(`/api/v1/bills/${encodeURIComponent(id)}`),
     addLine: (id: string, body: { code?: string; serviceItemId?: string; quantity?: number; practitionerId?: string }) =>
       this.request<BillDocument>(`/api/v1/bills/${encodeURIComponent(id)}/lines`, { method: 'POST', body: JSON.stringify(body) }),
@@ -598,14 +602,20 @@ export class ApiClient {
     finalize: (id: string) => this.request<BillDocument>(`/api/v1/bills/${encodeURIComponent(id)}/finalize`, { method: 'POST' }),
     discount: (id: string, body: { kind: 'flat_paise' | 'percent_bp'; value: number; reasonCode: string }) =>
       this.request<BillDocument>(`/api/v1/bills/${encodeURIComponent(id)}/discounts`, { method: 'POST', body: JSON.stringify(body) }),
-    paymentLink: (id: string, body: { channel: 'qr' | 'whatsapp' | 'sms' | 'link'; destination?: string }) =>
+    paymentLink: (id: string, body: { channel: 'qr' | 'whatsapp' | 'sms' | 'link'; destination?: string; counterSessionId?: string }) =>
       this.request<PaymentLink>(`/api/v1/bills/${encodeURIComponent(id)}/payment-links`, { method: 'POST', body: JSON.stringify(body) }),
-    pay: (idempotencyKey: string, body: { accountId: string; kind: 'payment'; tenders: { mode: string; amountPaise: number }[]; allocations: { billId: string; amountPaise: number }[] }) =>
+    pay: (idempotencyKey: string, body: { accountId: string; kind: 'payment'; counterSessionId?: string; tenders: { mode: string; amountPaise: number }[]; allocations: { billId: string; amountPaise: number }[] }) =>
       this.request<Receipt>('/api/v1/payments', {
         method: 'POST',
         body: JSON.stringify(body),
         headers: { 'Idempotency-Key': idempotencyKey },
       }),
+    applyAdvance: (id: string, body: { amountPaise: number }) =>
+      this.request<BillDocument>(`/api/v1/bills/${encodeURIComponent(id)}/advances`, { method: 'POST', body: JSON.stringify(body) }),
+    ensureSession: (branchId: string) =>
+      this.request<CashierSession>('/api/v1/counter-sessions/ensure', { method: 'POST', body: JSON.stringify({ branchId }) }),
+    findSession: (branchId: string) =>
+      this.request<CashierSession>(`/api/v1/counter-sessions/open${qs({ branchId })}`),
     receipt: (id: string) => this.request<Receipt>(`/api/v1/receipts/${encodeURIComponent(id)}`),
     approvals: (status?: string) => this.request<ApprovalRequest[]>(`/api/v1/approvals${qs({ status })}`),
     decide: (id: string, body: { status: 'approved' | 'rejected'; note?: string }) =>

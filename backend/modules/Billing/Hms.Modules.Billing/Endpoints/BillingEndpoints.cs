@@ -87,6 +87,8 @@ public static class BillingEndpoints
             Exec(db, tenant, HmsPermissions.BillingBill, "select billing.create_credit_note(@t::uuid, @b::uuid, @j::jsonb)::text", ct, ("b", id), ("j", body.GetRawText())));
         bills.MapPost("/{id:guid}/discounts", (Guid id, JsonElement body, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
             Exec(db, tenant, HmsPermissions.BillingDiscountRequest, "select billing.request_discount(@t::uuid, @b::uuid, @j::jsonb)::text", ct, ("b", id), ("j", body.GetRawText())));
+        bills.MapPost("/{id:guid}/advances", (Guid id, JsonElement body, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
+            Exec(db, tenant, HmsPermissions.BillingCollect, "select billing.apply_advance(@t::uuid, @b::uuid, @j::jsonb)::text", ct, ("b", id), ("j", body.GetRawText())));
         bills.MapPost("/{id:guid}/payment-links", CreateLinkAsync);
 
         api.MapPost("/payments", RecordPaymentAsync).WithTags("Billing").RequireTenant().WithDbTransaction<BillingDbContext>();
@@ -108,6 +110,11 @@ public static class BillingEndpoints
             Write(db, tenant, HmsPermissions.BillingCollect, "select billing.open_counter(@t::uuid, @b::jsonb)::text", body, ct));
 
         var sessions = api.MapGroup("/counter-sessions").WithTags("Billing").RequireTenant().WithDbTransaction<BillingDbContext>();
+        sessions.MapGet("/open", (Guid branchId, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
+            Exec(db, tenant, HmsPermissions.BillingCollect, "select billing.find_cashier_session(@t::uuid, @b::uuid)::text", ct, ("b", branchId)));
+        sessions.MapPost("/ensure", (JsonElement body, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
+            Exec(db, tenant, HmsPermissions.BillingCollect, "select billing.ensure_cashier_session(@t::uuid, @b::uuid)::text", ct,
+                ("b", body.GetProperty("branchId").GetGuid())));
         sessions.MapPost("/", (JsonElement body, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
             Write(db, tenant, HmsPermissions.BillingCollect, "select billing.open_session(@t::uuid, @b::jsonb)::text", body, ct));
         sessions.MapPost("/{id:guid}/close", (Guid id, JsonElement body, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
