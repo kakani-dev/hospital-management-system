@@ -53,6 +53,15 @@ import type {
   PaymentLink,
   PublicBill,
   Receipt,
+  AddPriceRequest,
+  CopyPriceResult,
+  PriceImportResult,
+  PriceImportRow,
+  PriceListSummary,
+  SaveServiceItemRequest,
+  ServiceItem,
+  ServicePrice,
+  TaxCode,
   ClaimedInvite,
   CreateInviteLinkRequest,
   HospitalApproved,
@@ -567,8 +576,23 @@ export class ApiClient {
     openAccount: (body: { patientId: string; branchId: string; accountType?: string }) =>
       this.request<BillDocument>('/api/v1/accounts', { method: 'POST', body: JSON.stringify(body) }),
     bill: (id: string) => this.request<BillDocument>(`/api/v1/bills/${encodeURIComponent(id)}`),
-    addLine: (id: string, body: { code?: string; serviceItemId?: string; quantity?: number }) =>
+    addLine: (id: string, body: { code?: string; serviceItemId?: string; quantity?: number; practitionerId?: string }) =>
       this.request<BillDocument>(`/api/v1/bills/${encodeURIComponent(id)}/lines`, { method: 'POST', body: JSON.stringify(body) }),
+    removeLine: (billId: string, lineId: string) =>
+      this.request<BillDocument>(`/api/v1/bills/${encodeURIComponent(billId)}/lines/${encodeURIComponent(lineId)}`, { method: 'DELETE' }),
+    serviceItems: (params: { q?: string; includeInactive?: boolean } = {}) =>
+      this.request<ServiceItem[]>(`/api/v1/service-items${qs({ q: params.q, includeInactive: params.includeInactive ? 'true' : undefined })}`),
+    taxCodes: () => this.request<TaxCode[]>('/api/v1/service-items/tax-codes'),
+    saveServiceItem: (body: SaveServiceItemRequest) =>
+      this.request<{ id: string }>('/api/v1/service-items', { method: 'POST', body: JSON.stringify(body) }),
+    priceLists: () => this.request<PriceListSummary[]>('/api/v1/price-lists'),
+    prices: (serviceItemId: string) => this.request<ServicePrice[]>(`/api/v1/price-lists/items${qs({ serviceItemId })}`),
+    addPrice: (body: AddPriceRequest) =>
+      this.request<{ id: string }>('/api/v1/price-lists/items', { method: 'POST', body: JSON.stringify(body) }),
+    copyPriceList: (body: { sourcePriceListId: string; branchId: string; effectiveFrom: string; name?: string; dryRun?: boolean }) =>
+      this.request<CopyPriceResult>('/api/v1/price-lists/copy', { method: 'POST', body: JSON.stringify(body) }),
+    importPrices: (body: { dryRun: boolean; rows: PriceImportRow[] }) =>
+      this.request<PriceImportResult>('/api/v1/price-lists/import', { method: 'POST', body: JSON.stringify(body) }),
     finalize: (id: string) => this.request<BillDocument>(`/api/v1/bills/${encodeURIComponent(id)}/finalize`, { method: 'POST' }),
     discount: (id: string, body: { kind: 'flat_paise' | 'percent_bp'; value: number; reasonCode: string }) =>
       this.request<BillDocument>(`/api/v1/bills/${encodeURIComponent(id)}/discounts`, { method: 'POST', body: JSON.stringify(body) }),

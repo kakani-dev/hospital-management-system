@@ -30,6 +30,7 @@ const ACTIONS: Action[] = [
   { id: 'queue', label: 'OPD queue', hint: 'Today’s tokens', capability: 'queue.view', run: 'navigate', path: '/queue' },
   { id: 'patients', label: 'Patients', hint: 'Search the registry', capability: 'patients.view', run: 'navigate', path: '/patients' },
   { id: 'desk', label: 'Invite staff and branches', hint: 'Hospital desk', capability: 'admin.members', run: 'navigate', path: '/admin/desk' },
+  { id: 'price-list', label: 'Price list', hint: 'Services and rates', capability: 'admin.pricelist', run: 'navigate', path: '/admin/price-list' },
   { id: 'create-hospital', label: 'Create hospital', hint: 'Platform: hospital and first admin invite', platform: true, run: 'navigate', path: '/platform', state: { openCreate: true } },
 ]
 

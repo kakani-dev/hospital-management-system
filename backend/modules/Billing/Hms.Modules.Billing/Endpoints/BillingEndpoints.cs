@@ -20,14 +20,30 @@ public static class BillingEndpoints
     public static RouteGroupBuilder MapBillingEndpoints(this RouteGroupBuilder api)
     {
         var items = api.MapGroup("/service-items").WithTags("Billing").RequireTenant().WithDbTransaction<BillingDbContext>();
+        items.MapGet("/", (string? q, bool? includeInactive, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
+            Exec(db, tenant, HmsPermissions.BillingView,
+                "select billing.list_service_items(@t::uuid, @q::text, @i::boolean)::text", ct,
+                ("q", string.IsNullOrWhiteSpace(q) ? null : q.Trim()),
+                ("i", includeInactive ?? false)));
+        items.MapGet("/tax-codes", (BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
+            Exec(db, tenant, HmsPermissions.BillingPricelistManage, "select billing.list_tax_codes(@t::uuid)::text", ct));
         items.MapPost("/", (JsonElement body, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
             Write(db, tenant, HmsPermissions.BillingPricelistManage, "select billing.upsert_service_item(@t::uuid, @b::jsonb)::text", body, ct));
 
         var lists = api.MapGroup("/price-lists").WithTags("Billing").RequireTenant().WithDbTransaction<BillingDbContext>();
+        lists.MapGet("/", (BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
+            Exec(db, tenant, HmsPermissions.BillingPricelistManage, "select billing.list_price_lists(@t::uuid)::text", ct));
         lists.MapPost("/", (JsonElement body, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
             Write(db, tenant, HmsPermissions.BillingPricelistManage, "select billing.upsert_price_list(@t::uuid, @b::jsonb)::text", body, ct));
+        lists.MapGet("/items", (Guid? serviceItemId, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
+            Exec(db, tenant, HmsPermissions.BillingPricelistManage,
+                "select billing.list_prices(@t::uuid, @s::uuid)::text", ct, ("s", serviceItemId)));
         lists.MapPost("/items", (JsonElement body, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
             Write(db, tenant, HmsPermissions.BillingPricelistManage, "select billing.add_price(@t::uuid, @b::jsonb)::text", body, ct));
+        lists.MapPost("/copy", (JsonElement body, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
+            Write(db, tenant, HmsPermissions.BillingPricelistManage, "select billing.copy_price_list(@t::uuid, @b::jsonb)::text", body, ct));
+        lists.MapPost("/import", (JsonElement body, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
+            Write(db, tenant, HmsPermissions.BillingPricelistManage, "select billing.import_prices(@t::uuid, @b::jsonb)::text", body, ct));
         lists.MapPut("/branches/{branchId:guid}/prefix", (Guid branchId, JsonElement body, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
             Exec(db, tenant, HmsPermissions.BillingPricelistManage,
                 "select billing.set_branch_prefix(@t::uuid, @b::uuid, @p::text)::text", ct,

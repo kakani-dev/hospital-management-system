@@ -6,7 +6,8 @@ import { Button } from '../../components/ui/Button'
 import { Illustration } from '../../components/ui/Illustration'
 import { LoadingBlock } from '../../components/ui/LoadingBlock'
 import { ApiError, apiClient } from '../../lib/api/client'
-import type { BillDocument } from '../../lib/api/types'
+import type { BillDocument, ServiceItem } from '../../lib/api/types'
+import { useDebouncedValue } from '../../lib/useDebouncedValue'
 import { formatPaise, rupeesToPaise } from './money'
 
 const UpiQr = lazy(() => import('./UpiQr').then((m) => ({ default: m.UpiQr })))
@@ -54,6 +55,11 @@ export function BillingPanel({ patientId, branchId, onBack }: { patientId: strin
     if (shown?.status !== 'draft') return
     document.querySelector<HTMLButtonElement>('[data-testid="finalize-bill"]')?.focus()
   }, [shown?.id, shown?.status])
+
+  const remove = useMutation({
+    mutationFn: (lineId: string) => apiClient.billing.removeLine(shown!.id, lineId),
+    onSuccess: (next) => setOverride({ generation, bill: next }),
+  })
 
   const run = useMutation({
     mutationFn: async (action: 'finalize' | 'cash' | 'qr' | 'whatsapp' | 'sms' | 'discount') => {
@@ -111,12 +117,28 @@ export function BillingPanel({ patientId, branchId, onBack }: { patientId: strin
       </p>
       <ul className="divide-y divide-gray-200 dark:divide-dark-500">
         {shown.lines.map((line) => (
-          <li key={line.id} className="flex items-baseline justify-between gap-3 py-2 text-sm">
+          <li key={line.id} data-testid="bill-line" className="flex items-baseline justify-between gap-3 py-2 text-sm">
             <span>{line.name}</span>
-            <span className="font-mono">{formatPaise(line.netPaise + line.taxPaise)}</span>
+            <span className="flex items-center gap-3">
+              <span className="font-mono">{formatPaise(line.netPaise + line.taxPaise)}</span>
+              {shown.status === 'draft' && (
+                <Button
+                  variant="ghost"
+                  className="h-11 sm:h-8"
+                  aria-label={`Remove ${line.name}`}
+                  disabled={remove.isPending}
+                  onClick={() => remove.mutate(line.id)}
+                >
+                  Remove
+                </Button>
+              )}
+            </span>
           </li>
         ))}
       </ul>
+      {shown.status === 'draft' && (
+        <ServiceAdder billId={shown.id} onAdded={(next) => setOverride({ generation, bill: next })} />
+      )}
       <p className="flex items-baseline justify-between text-base font-medium">
         <span>Total</span>
         <span className="font-mono" data-testid="bill-total">{formatPaise(shown.totalPaise)}</span>
@@ -124,7 +146,7 @@ export function BillingPanel({ patientId, branchId, onBack }: { patientId: strin
       {shown.roundOffPaise !== 0 && (
         <p className="text-xs text-gray-500">Round-off {formatPaise(shown.roundOffPaise)}</p>
       )}
-      {run.isError && <Alert tone="error">{problemText(run.error)}</Alert>}
+      {(run.isError || remove.isError) && <Alert tone="error">{problemText(run.isError ? run.error : remove.error)}</Alert>}
       {paid && (
         <div className="space-y-2 text-center">
           <Illustration name="tick" size={72} className="mx-auto" />
@@ -205,5 +227,115 @@ export function BillingPanel({ patientId, branchId, onBack }: { patientId: strin
         </Button>
       </div>
     </div>
+  )
+}
+
+/** Search the hospital catalog and add one unit. Enter adds the highlighted service. */
+function ServiceAdder({ billId, onAdded }: { billId: string; onAdded: (bill: BillDocument) => void }) {
+  const [q, setQ] = useState('')
+  const [active, setActive] = useState(0)
+  const [rateFor, setRateFor] = useState('')
+  const [armed, setArmed] = useState(false)
+  const debounced = useDebouncedValue(q, 200)
+  const needle = debounced.trim()
+  const matches = useQuery({
+    queryKey: ['billing', 'service-items', 'search', needle],
+    queryFn: () => apiClient.billing.serviceItems({ q: needle }),
+    enabled: needle.length >= 1,
+  })
+  const practitioners = useQuery({
+    queryKey: ['practitioners', 'bill-rate'],
+    queryFn: () => apiClient.practitioners.list(),
+    enabled: armed,
+  })
+  const add = useMutation({
+    mutationFn: (item: ServiceItem) =>
+      apiClient.billing.addLine(billId, { serviceItemId: item.id, ...(rateFor ? { practitionerId: rateFor } : {}) }),
+    onSuccess: (bill) => {
+      setQ('')
+      setActive(0)
+      onAdded(bill)
+    },
+  })
+  const items = (matches.data ?? []).slice(0, 8)
+  const highlighted = items[Math.min(active, Math.max(items.length - 1, 0))]
+
+  return (
+    <form
+      className="space-y-2"
+      aria-label="Add a service"
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (highlighted) add.mutate(highlighted)
+      }}
+    >
+      <label className="block text-sm">
+        Find a service
+        <input
+          aria-label="Find a service"
+          role="combobox"
+          aria-expanded={items.length > 0}
+          aria-controls="bill-service-options"
+          aria-autocomplete="list"
+          type="search"
+          autoComplete="off"
+          className="mt-1 min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-dark-500 dark:bg-dark-700"
+          placeholder="Dressing, certificate, lab…"
+          value={q}
+          onFocus={() => setArmed(true)}
+          onChange={(event) => {
+            setQ(event.target.value)
+            setActive(0)
+            setArmed(true)
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'ArrowDown') {
+              event.preventDefault()
+              setActive((index) => Math.min(index + 1, Math.max(items.length - 1, 0)))
+            } else if (event.key === 'ArrowUp') {
+              event.preventDefault()
+              setActive((index) => Math.max(index - 1, 0))
+            } else if (event.key === 'Escape') setQ('')
+          }}
+        />
+      </label>
+      {armed && (
+        <label className="block text-sm">
+          Rate for
+          <select
+            aria-label="Rate for"
+            className="mt-1 min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-dark-500 dark:bg-dark-700"
+            value={rateFor}
+            onChange={(event) => setRateFor(event.target.value)}
+          >
+            <option value="">Branch or hospital rate</option>
+            {(practitioners.data ?? []).filter((person) => person.isActive).map((person) => (
+              <option key={person.id} value={person.id}>
+                {person.displayName}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {needle.length >= 1 && !matches.isPending && items.length === 0 && <p className="text-sm text-gray-500">No matching service.</p>}
+      {items.length > 0 && (
+        <ul id="bill-service-options" role="listbox" aria-label="Services" className="overflow-hidden rounded-lg border border-gray-200 dark:border-dark-500">
+          {items.map((item, index) => (
+            <li key={item.id} role="option" aria-selected={item.id === highlighted?.id}>
+              <button
+                type="button"
+                className={`flex min-h-11 w-full items-baseline justify-between gap-3 px-3 py-2 text-left text-sm ${item.id === highlighted?.id ? 'bg-gray-100 dark:bg-dark-600' : ''}`}
+                onMouseEnter={() => setActive(index)}
+                onClick={() => add.mutate(item)}
+              >
+                <span>{item.name}</span>
+                <span className="font-mono text-gray-500">{item.code}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {add.isError && <Alert tone="error">{problemText(add.error)}</Alert>}
+    </form>
   )
 }

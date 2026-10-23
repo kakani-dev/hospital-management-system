@@ -49,6 +49,9 @@ const WorkingHoursPage = lazy(() =>
 const HospitalSettingsPage = lazy(() =>
   import("./features/admin/HospitalSettingsPage").then((m) => ({ default: m.HospitalSettingsPage })),
 );
+const PriceListPage = lazy(() =>
+  import("./features/admin/PriceListPage").then((m) => ({ default: m.PriceListPage })),
+);
 // Platform console (operators only): its own chunk, hospital staff never load it.
 const PlatformHospitalsPage = lazy(() =>
   import("./features/platform/PlatformHospitalsPage").then((m) => ({ default: m.PlatformHospitalsPage })),
@@ -199,6 +202,16 @@ export function App() {
                 <RequireCapability capability="admin.settings">
                   <Lazy>
                     <HospitalSettingsPage />
+                  </Lazy>
+                </RequireCapability>
+              }
+            />
+            <Route
+              path="price-list"
+              element={
+                <RequireCapability capability="admin.pricelist">
+                  <Lazy>
+                    <PriceListPage />
                   </Lazy>
                 </RequireCapability>
               }
