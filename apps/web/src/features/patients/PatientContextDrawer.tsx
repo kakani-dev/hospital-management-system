@@ -96,6 +96,11 @@ export function PatientContextDrawer() {
           OP consult
         </Button>
       )}
+      {canBook && (
+        <Button data-testid="context-book" onClick={() => startBook(false)}>
+          Book appointment
+        </Button>
+      )}
       {canFollowUp && anchor && (
         <Button variant="secondary" data-testid="context-follow-up" onClick={() => startBook(true)}>
           Book follow-up
