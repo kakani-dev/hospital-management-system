@@ -11,6 +11,7 @@ import {
   ClipboardDocumentCheckIcon,
   ClockIcon,
   Cog6ToothIcon,
+  CurrencyRupeeIcon,
   HomeIcon,
   IdentificationIcon,
   QueueListIcon,
@@ -130,6 +131,7 @@ export function AppShell() {
             ]
           : []),
         ...(has('admin.settings') ? [{ id: 'hospital', path: '/admin/hospital', title: 'Hospital settings', Icon: Cog6ToothIcon }] : []),
+        ...(has('admin.pricelist') ? [{ id: 'price-list', path: '/admin/price-list', title: 'Price list', Icon: CurrencyRupeeIcon }] : []),
       ],
     }
     // Server-checked flag (identity.is_platform_admin); every /platform endpoint re-checks it.

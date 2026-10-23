@@ -73,6 +73,7 @@ const CAPABILITIES = {
   'admin.members': ['members.manage'],
   'admin.practitioners': ['practitioners.manage'],
   'admin.settings': ['settings.manage'],
+  'admin.pricelist': ['billing.pricelist_manage'],
 } as const satisfies Record<string, readonly Permission[]>
 
 export type Capability = keyof typeof CAPABILITIES

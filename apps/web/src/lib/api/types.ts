@@ -775,3 +775,110 @@ export interface PublicBill extends BillDocument {
   linkStatus: string
   channel: string
 }
+
+/** GET /service-items. Amounts are integer paise. hospitalPricePaise is the open hospital rate. */
+export interface ServiceItem {
+  id: Guid
+  code: string
+  name: string
+  category: string
+  taxCodeId: Guid
+  sacHsnCode: string
+  taxRateBp: number
+  isExempt: boolean
+  isActive: boolean
+  isStockTracked: boolean
+  hospitalPricePaise: number | null
+}
+
+export interface TaxCode {
+  id: Guid
+  code: string
+  sacHsnCode: string
+  isExempt: boolean
+  rateBp: number
+  effectiveFrom: string
+  effectiveTo: string | null
+}
+
+export interface PriceListSummary {
+  id: Guid
+  name: string
+  branchId: Guid | null
+  isActive: boolean
+  isPublicDisplay: boolean
+  schemeCode: string | null
+}
+
+export interface ServicePrice {
+  id: Guid
+  priceListId: Guid
+  priceListName: string
+  branchId: Guid | null
+  practitionerId: Guid | null
+  unitPricePaise: number
+  effectiveFrom: string
+  effectiveTo: string | null
+}
+
+export interface SaveServiceItemRequest {
+  id?: Guid
+  code?: string
+  name?: string
+  category?: string
+  taxCodeId?: Guid
+  isActive?: boolean
+  isStockTracked?: boolean
+}
+
+export interface AddPriceRequest {
+  serviceItemId: Guid
+  unitPricePaise: number
+  effectiveFrom: string
+  effectiveTo?: string
+  branchId?: Guid
+  practitionerId?: Guid
+  priceListId?: Guid
+}
+
+export interface PriceImportRow {
+  clientIndex: number
+  code: string
+  name?: string
+  category?: string
+  sac?: string
+  unitPricePaise: number
+  effectiveFrom: string
+  effectiveTo?: string
+  branchId?: Guid
+  practitionerId?: Guid
+}
+
+export interface PriceImportRowResult {
+  clientIndex: number
+  code: string | null
+  name: string | null
+  status: 'ready' | 'error' | 'price_overlap' | string
+  detail: string | null
+  item: 'create' | 'existing' | null
+  unitPricePaise: number | null
+}
+
+export interface PriceImportResult {
+  dryRun: boolean
+  rows: PriceImportRowResult[]
+}
+
+export interface CopyPriceConflict {
+  code: string
+  name: string
+  practitionerId: Guid | null
+  reason: string
+}
+
+export interface CopyPriceResult {
+  priceListId: Guid | null
+  copied: number
+  conflicts: CopyPriceConflict[]
+  dryRun: boolean
+}
