@@ -23,7 +23,7 @@ ACR Basic is a paid SKU (about $0.17 per day). Container Apps stay on the consum
 3. `Deploy to Azure Container Apps` starts. A newer push cancels a deploy that has not finished. An emergency dispatch waits, so it does not cut off a rollback.
 4. Path filters pick the images to build. `backend/platform`, `backend/shared`, `Directory.Build.props`, `Directory.Packages.props`, `global.json`, a backend `packages.lock.json`, and `.dockerignore` build all five. So do `.github/scripts/aca-rollout.sh`, `.github/scripts/service_changes.py`, `.github/scripts/aca-live-tags.sh`, and this deploy workflow. Otherwise only the service whose host or module changed is built. An app whose running image tag is not `sha-<this commit>` is included as well, so a container left on an older sha is rebuilt. Web, SQL, and the legacy gateway do not by themselves select an image. A blank `workflow_dispatch` uses that same plan. An explicit service or tag does not.
 5. The image jobs run in parallel, push to ACR, and reuse Docker layer cache (`type=gha`).
-6. Each changed app is switched to multiple revision mode. The new revision is created from the `sha-` tag. Traffic moves to it only after the revision exists. Health is polled through the public edge (`/health/live`, and `/health/ready` for the services behind it).
+6. Each changed app is switched to multiple revision mode. The new revision is created from the `sha-` tag. Traffic moves to it only after the revision exists. A service the live edge already lists is polled through the public edge (`/health/live`, and `/health/ready` for that service). A service the live edge does not list yet is not polled there: the old edge would report it missing until this rollout publishes the edge. That container is proved on its own revision first (ingress target port 8080, HTTP probes on `/health/live` and `/health/ready`). The edge revision in the same rollout sets every cluster address, including `ReverseProxy__Clusters__billing__Destinations__primary__Address=http://ca-hms-billing/`. Those addresses are not left as a hand-edited revision. After that edge revision has traffic, `/health/ready` must list the new service. A deploy that adds a service and does not include the edge is refused.
 7. A smoke check then calls `GET /api/v1/public/invites/<64 zeros>`. That route is anonymous and read-only. Success is **404 from the identity service** (unknown token). The gateway's own "no such route" 404 fails the deploy. Nothing is written.
 8. If health or smoke fails, traffic goes back to the previous revision, the new revision is deactivated, and the job fails. Every app shifted in that run is restored, edge last.
 
@@ -135,7 +135,7 @@ gh workflow run "Deploy to Azure Container Apps" --ref main \
 gh workflow run "Deploy to Azure Container Apps" --ref main -f service=edge
 ```
 
-The same health check, smoke test, and automatic rollback apply. `service` is one of `identity`, `patients`, `scheduling`, `edge`.
+The same health check, smoke test, and automatic rollback apply. `service` is one of `identity`, `patients`, `scheduling`, `billing`, `edge`. Billing on its own is refused while the live edge does not list it; roll the edge in the same deploy.
 
 ## Cleanup
 
