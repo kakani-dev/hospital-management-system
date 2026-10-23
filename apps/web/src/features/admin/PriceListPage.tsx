@@ -28,7 +28,7 @@ import {
 
 type Message = { tone: 'info' | 'error'; text: string }
 
-const EMPTY_ITEM: ServiceItemValues = { name: '', category: 'procedure', customCode: '', taxCodeId: '' }
+const EMPTY_ITEM: ServiceItemValues = { name: '', category: 'procedure', taxCodeId: '' }
 
 function problemText(error: unknown, fallback: string): string {
   if (!(error instanceof ApiError)) return fallback
@@ -175,7 +175,7 @@ export function PriceListPage() {
       <div>
         <h1 className="text-xl font-semibold text-gray-800 dark:text-dark-50">Price list</h1>
         <p className="mt-1 text-sm text-gray-500 dark:text-dark-300">
-          Type the name and choose a category. The code and tax are filled in for you. Practitioner rates override the branch, which overrides the hospital. Amounts are entered in rupees.
+          Type the name and choose a category. A code is assigned when you save and cannot be changed. Tax follows the category unless you override it under Advanced. Practitioner rates override the branch, which overrides the hospital. Amounts are entered in rupees.
         </p>
       </div>
       {message && <Alert tone={message.tone}>{message.text}</Alert>}
@@ -288,18 +288,16 @@ function AddServiceForm({
   const onSubmit = async (values: ServiceItemValues) => {
     onMessage(null)
     const chosen = defaults.find((row) => row.category === values.category)
-    const custom = advanced ? values.customCode.trim() : ''
     const override = Boolean(advanced && values.taxCodeId && chosen && values.taxCodeId !== chosen.taxCodeId)
     try {
       const created = await save.mutateAsync({
         name: values.name.trim(),
         category: values.category,
-        ...(custom ? { code: custom } : {}),
         ...(override ? { taxCodeId: values.taxCodeId } : {}),
       })
       const appliedId = override ? values.taxCodeId : (chosen?.taxCodeId ?? '')
       const applied = taxFacts(appliedId, taxCodes, defaults)
-      const code = created.code ?? custom
+      const code = created.code ?? ''
       form.reset({ ...EMPTY_ITEM, taxCodeId: defaults.find((row) => row.category === 'procedure')?.taxCodeId ?? '' })
       setAdvanced(false)
       onCreated({
@@ -352,27 +350,19 @@ function AddServiceForm({
           variant="secondary"
           className="min-h-11"
           aria-expanded={advanced}
-          onClick={() =>
-            setAdvanced((open) => {
-              if (open) form.setValue('customCode', '')
-              return !open
-            })
-          }
+          onClick={() => setAdvanced((open) => !open)}
         >
           Advanced
         </Button>
       </div>
       {advanced && (
-        <>
-          <FormField label="Custom code" hint="Optional. Leave blank to generate one." error={form.formState.errors.customCode?.message} autoComplete="off" {...form.register('customCode')} />
-          <SelectField label="Tax" error={form.formState.errors.taxCodeId?.message} {...form.register('taxCodeId')}>
-            {taxCodes.map((code) => (
-              <option key={code.id} value={code.id}>
-                {taxOptionLabel(code.rateBp, code.sacHsnCode, code.isExempt)}
-              </option>
-            ))}
-          </SelectField>
-        </>
+        <SelectField label="Tax" error={form.formState.errors.taxCodeId?.message} {...form.register('taxCodeId')}>
+          {taxCodes.map((code) => (
+            <option key={code.id} value={code.id}>
+              {taxOptionLabel(code.rateBp, code.sacHsnCode, code.isExempt)}
+            </option>
+          ))}
+        </SelectField>
       )}
       <div>
         <Button type="submit" className="min-h-11 w-full sm:w-auto" disabled={form.formState.isSubmitting || !defaultsReady}>
@@ -683,6 +673,8 @@ function CopyPriceList({
 interface ImportViewRow extends ParsedPriceRow {
   clientIndex: number
   branchId: string
+  /** Code the server already stored for a matched service. A file column is never copied here. */
+  assignedCode?: string | null
   status?: string
   detail?: string | null
 }
@@ -709,8 +701,7 @@ function ImportPrices({ branches, onMessage }: { branches: Branch[]; onMessage: 
       .filter((row) => !row.error && row.unitPricePaise !== null)
       .map((row) => ({
         clientIndex: row.clientIndex,
-        ...(row.code ? { code: row.code } : {}),
-        ...(row.name ? { name: row.name } : {}),
+        name: row.name,
         category: row.category,
         ...(row.sac ? { sac: row.sac } : {}),
         unitPricePaise: row.unitPricePaise!,
@@ -744,7 +735,7 @@ function ImportPrices({ branches, onMessage }: { branches: Branch[]; onMessage: 
       setRows((current) =>
         (current ?? view).map((row) => {
           const server = result.rows.find((item) => item.clientIndex === row.clientIndex)
-          return server && !row.error ? { ...row, status: server.status, detail: server.detail } : row
+          return server && !row.error ? { ...row, status: server.status, detail: server.detail, assignedCode: server.code } : row
         }),
       )
     } catch (error) {
@@ -784,7 +775,7 @@ function ImportPrices({ branches, onMessage }: { branches: Branch[]; onMessage: 
     <Card title="Import from CSV">
       <div className="space-y-4">
         <p className="text-sm text-gray-500 dark:text-dark-300">
-          Preview the file before anything is saved. Rows that overlap an existing period are marked and are not imported. Leave the code and SAC blank to fill them from the category. A blank branch code is the hospital rate.
+          Preview the file before anything is saved. Rows that overlap an existing period are marked and are not imported. The server assigns each service code from the category, for example PROC-0001. A row updates an existing service when the name and category match; otherwise it creates one. A code column in the file is ignored. Leave SAC blank to use the category tax. A blank branch code is the hospital rate.
         </p>
         <div className="flex flex-wrap gap-2">
           <Button type="button" variant="secondary" className="min-h-11" onClick={downloadTemplate}>
@@ -799,8 +790,8 @@ function ImportPrices({ branches, onMessage }: { branches: Branch[]; onMessage: 
             {rows.map((row) => (
               <li key={row.clientIndex} className="flex flex-wrap items-baseline justify-between gap-2 py-2 text-sm" data-testid="import-row">
                 <span>
-                  <span className="font-mono">{row.code || '—'}</span>
-                  {row.name ? ` · ${row.name}` : ''}
+                  {row.name}
+                  {row.assignedCode ? <span className="ml-2 font-mono text-xs text-gray-500">{row.assignedCode}</span> : null}
                   <span className="mt-0.5 block text-xs text-gray-500">
                     {row.branchCode || 'Hospital'}
                     {row.unitPricePaise !== null ? ` · ${formatPaise(row.unitPricePaise)}` : ''}

@@ -3,16 +3,16 @@ import { parseRupeesToPaise } from '../billing/money'
 export const SERVICE_CATEGORIES = ['consultation', 'procedure', 'lab', 'imaging', 'consumable', 'room', 'package', 'other'] as const
 export type ServiceCategory = (typeof SERVICE_CATEGORIES)[number]
 
-export const PRICE_CSV_TEMPLATE = `name,category,rupees,effective_from,effective_to,branch_code,code,sac
-Wound dressing,procedure,150,2026-04-01,,,,
-"Medical certificate, fitness",other,200,2026-04-01,,main,,
+/** Service codes are not a column. The server assigns them. A leftover `code` column is ignored. */
+export const PRICE_CSV_TEMPLATE = `name,category,rupees,effective_from,effective_to,branch_code,sac
+Wound dressing,procedure,150,2026-04-01,,,
+"Medical certificate, fitness",other,200,2026-04-01,,main,
 `
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
 export interface ParsedPriceRow {
   line: number
-  code: string
   name: string
   category: string
   sac: string
@@ -60,6 +60,8 @@ function isCategory(value: string): value is ServiceCategory {
 /**
  * Hospital CSV → rows the billing import can preview.
  * Amounts become paise here. Branch codes stay text until the screen maps them to ids.
+ * A `code` column is ignored. The server assigns the service code and matches an existing
+ * service by name and category.
  */
 export function parsePriceCsv(text: string): ParsedPriceCsv {
   const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/)
@@ -67,8 +69,8 @@ export function parsePriceCsv(text: string): ParsedPriceCsv {
   if (headerIndex < 0) return { fileError: 'The file is empty.', rows: [] }
   const header = splitCsvLine(lines[headerIndex]!).map((cell) => cell.toLowerCase())
   const col = (name: string) => header.indexOf(name)
-  if (col('rupees') < 0 || col('effective_from') < 0 || (col('name') < 0 && col('code') < 0)) {
-    return { fileError: 'The header must include rupees, effective_from, and a name or a code.', rows: [] }
+  if (col('name') < 0 || col('rupees') < 0 || col('effective_from') < 0) {
+    return { fileError: 'The header must include name, rupees, and effective_from.', rows: [] }
   }
 
   const rows: ParsedPriceRow[] = []
@@ -79,7 +81,6 @@ export function parsePriceCsv(text: string): ParsedPriceCsv {
       const index = col(name)
       return index < 0 ? '' : (cells[index] ?? '')
     }
-    const code = at('code')
     const name = at('name')
     const categoryRaw = at('category').toLowerCase()
     const category = categoryRaw || 'other'
@@ -90,15 +91,14 @@ export function parsePriceCsv(text: string): ParsedPriceCsv {
     const branchCode = at('branch_code')
     const unitPricePaise = parseRupeesToPaise(rupees)
     let error: string | null = null
-    if (!code && !name) error = 'Name is required.'
-    else if (code.length > 40) error = 'Code is longer than 40 characters.'
+    if (!name) error = 'Name is required.'
     else if (!isCategory(category)) error = 'Category is not recognised.'
     else if (unitPricePaise === null) error = 'Amount must be rupees with at most two decimals.'
     else if (!ISO_DATE.test(effectiveFrom)) error = 'Effective from must be YYYY-MM-DD.'
     else if (effectiveTo && !ISO_DATE.test(effectiveTo)) error = 'Effective to must be YYYY-MM-DD.'
     else if (effectiveTo && effectiveTo <= effectiveFrom) error = 'Effective to must be after the start.'
     else if (name.length > 160) error = 'Name is longer than 160 characters.'
-    rows.push({ line: i + 1, code, name, category, sac, rupees, unitPricePaise, effectiveFrom, effectiveTo, branchCode, error })
+    rows.push({ line: i + 1, name, category, sac, rupees, unitPricePaise, effectiveFrom, effectiveTo, branchCode, error })
   }
   if (rows.length === 0) return { fileError: 'The file has no data rows.', rows: [] }
   return { fileError: null, rows }

@@ -30,7 +30,16 @@ public static class BillingEndpoints
         items.MapGet("/category-defaults", (BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
             Exec(db, tenant, HmsPermissions.BillingPricelistManage, "select billing.list_category_defaults(@t::uuid)::text", ct));
         items.MapPost("/", (JsonElement body, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
-            Write(db, tenant, HmsPermissions.BillingPricelistManage, "select billing.upsert_service_item(@t::uuid, @b::jsonb)::text", body, ct));
+        {
+            // Create and update both refuse a typed code. Allocation is billing.allocate_service_code.
+            if (ServiceCodeRules.HasClientSuppliedCode(body))
+            {
+                return Task.FromResult<IResult>(HmsProblems.BadRequest(
+                    HmsProblems.Codes.InvalidParameter, ServiceCodeRules.ClientSuppliedCodeDetail));
+            }
+
+            return Write(db, tenant, HmsPermissions.BillingPricelistManage, "select billing.upsert_service_item(@t::uuid, @b::jsonb)::text", body, ct);
+        });
 
         var lists = api.MapGroup("/price-lists").WithTags("Billing").RequireTenant().WithDbTransaction<BillingDbContext>();
         lists.MapGet("/", (BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
@@ -45,7 +54,8 @@ public static class BillingEndpoints
         lists.MapPost("/copy", (JsonElement body, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
             Write(db, tenant, HmsPermissions.BillingPricelistManage, "select billing.copy_price_list(@t::uuid, @b::jsonb)::text", body, ct));
         lists.MapPost("/import", (JsonElement body, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
-            Write(db, tenant, HmsPermissions.BillingPricelistManage, "select billing.import_prices(@t::uuid, @b::jsonb)::text", body, ct));
+            Exec(db, tenant, HmsPermissions.BillingPricelistManage, "select billing.import_prices(@t::uuid, @b::jsonb)::text", ct,
+                ("b", ServiceCodeRules.WithoutImportCodes(body.GetRawText()))));
         lists.MapPut("/branches/{branchId:guid}/prefix", (Guid branchId, JsonElement body, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
             Exec(db, tenant, HmsPermissions.BillingPricelistManage,
                 "select billing.set_branch_prefix(@t::uuid, @b::uuid, @p::text)::text", ct,

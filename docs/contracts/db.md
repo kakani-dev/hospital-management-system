@@ -148,6 +148,12 @@ adds a cross-schema reference must carry the header line `-- cross-schema: appro
   of the hospital. An exact name is a warning (`name_dob` when both dates match, `name` when either date is blank).
   `patient.merge_patients(survivor, duplicate, reason)` is tenant-admin only (P0002 for another hospital or an unknown chart, 42501 otherwise). It soft-deletes the duplicate (`merged_into_patient_id`, `merged_at`, `merged_by`), repoints appointments, follow-ups, queue rows and phone numbers onto the survivor, fills blank survivor fields without overwriting, and writes `audit.audit_log` plus a `patient.merged` outbox event that carries ids only. `patient.merge_duplicate_charts()` keeps the oldest live chart in each same-hospital email, phone or ABHA set and is idempotent. Merged charts stay out of search and out of the live unique indexes. Restoring a merged chart is 55000.
 
+## Service codes (20261023140000, 20261023150000)
+
+A service code is assigned by `billing.allocate_service_code` from `billing.service_code_seq` (one counter per tenant, shared across categories: `PROC-0001`, then `CERT-0002`). The function keeps the signature `(uuid, text, text)` so its grant is unchanged. A non-blank third argument is rejected (`22023`). `billing.upsert_service_item` rejects a client `code` on create and on update and does not put `code` in the update list, so a stored code is immutable. `billing.import_prices` ignores a `code` field. A row matches the oldest live service with the same name (case-insensitive) and category, or creates one and allocates a code. SAC selection is unchanged.
+
+Migration `20261023150000` only replaces those three functions. It does not add a table or column and does not rewrite `billing.service_item` or `billing.service_code_seq`. Codes already stored, including `CONSULT`, stay.
+
 ## Practitioner branches (20261022150000)
 
 A practitioner is tenant-scoped. `appointment.practitioner_branches` is the membership

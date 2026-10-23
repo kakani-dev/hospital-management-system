@@ -831,9 +831,9 @@ export interface ServicePrice {
   effectiveTo: string | null
 }
 
+/** `code` is not a field. The server allocates it and rejects a client value with 400. */
 export interface SaveServiceItemRequest {
   id?: Guid
-  code?: string
   name?: string
   category?: string
   taxCodeId?: Guid
@@ -851,10 +851,10 @@ export interface AddPriceRequest {
   priceListId?: Guid
 }
 
+/** `code` is not a column. The server ignores one if a client still sends it, and matches name + category. */
 export interface PriceImportRow {
   clientIndex: number
-  code?: string
-  name?: string
+  name: string
   category?: string
   sac?: string
   unitPricePaise: number

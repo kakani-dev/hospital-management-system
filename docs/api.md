@@ -103,6 +103,17 @@ Appointment and queue changes write events (`appointment.*`, `queue.token_issued
 
 Invite links, hospital sign-up decisions and invite sign-in codes write `email.*` events in the same transaction. The payload is `pending_email_id` and `template_key` only. The identity service sends them (`Email:Dispatcher:Enabled`, off by default) and dedupes on `event_id`. Invite sign-in codes are one of those templates. Confirmation, recovery and email-change messages that GoTrue itself sends stay with Supabase Auth. See `docs/runbooks/email-delivery.md`.
 
+## Billing price list
+
+Permission: `billing.pricelist_manage` (tenant admin). Amounts are integer paise. SAC and the GST rate follow the category. A price manager can still pick another tax code; that override is unchanged.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/v1/service-items` | Catalog. Each row includes the stored `code`. |
+| GET | `/api/v1/service-items/category-defaults` | Prefix and default tax per category (`PROC`, `CERT`, and the rest). |
+| POST | `/api/v1/service-items` | Create or update. On create the server calls `billing.allocate_service_code` and returns `{id, code}` (for example `PROC-0001`). A client `code` is **400** `invalid_parameter` (`Service codes are assigned by the server and cannot be supplied.`), on create and on update. The stored code is immutable. Codes already saved, including `CONSULT`, are left as they are. Omit `taxCodeId` to use the category default; send one to override SAC/GST. |
+| POST | `/api/v1/price-lists/import` | `{dryRun, rows}`. A `code` on a row is ignored, including a leftover CSV column. Rows match an existing service by name (case-insensitive) and category, and a new service is created when nothing matches. A code is allocated only when the row is applied. `dryRun` defaults to true and does not take a number. SAC may be omitted and then follows the category. |
+
 ## Errors
 
 Errors use RFC 7807 problem details with an optional machine-readable `code`:
