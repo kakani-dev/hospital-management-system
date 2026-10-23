@@ -69,6 +69,57 @@ fi
 
 die() { echo "::error::$*" >&2; exit 1; }
 
+# Azure rejects a write while another provisioning operation runs on the same app
+# (ContainerAppOperationInProgress). Retry those writes with a wait; fail on anything else.
+az_retry() {
+  local attempt=1 max="${AZ_RETRY_ATTEMPTS:-20}" delay="${AZ_RETRY_DELAY_SECONDS:-15}" err rc
+  err="$(mktemp)"
+  while :; do
+    if az "$@" 2>"$err"; then
+      rm -f "$err"
+      return 0
+    fi
+    rc=$?
+    if grep -q 'ContainerAppOperationInProgress' "$err" && (( attempt < max )); then
+      echo "   az $1 $2: operation in progress, retry ${attempt}/${max} in ${delay}s" >&2
+      attempt=$((attempt + 1))
+      sleep "$delay"
+      continue
+    fi
+    cat "$err" >&2
+    rm -f "$err"
+    return "$rc"
+  done
+}
+
+# After create/update: wait until the app is no longer provisioning and the expected
+# revision is the latest one. Reading latestRevisionName earlier races the update.
+wait_provisioned() {
+  local app="$1" want="$2" state="" latest="" row
+  local timeout="${PROVISION_TIMEOUT_SECONDS:-600}" interval="${PROVISION_INTERVAL_SECONDS:-5}"
+  local deadline=$((SECONDS + timeout))
+  while :; do
+    row="$(az containerapp show -g "$RG" -n "$app" \
+      --query "[properties.provisioningState, properties.latestRevisionName]" -o tsv 2>/dev/null | tr '\n' ' ' || true)"
+    read -r state latest <<<"$row"
+    if [[ "$state" == "Succeeded" && ( -z "$want" || "$latest" == "$want" ) ]]; then
+      return 0
+    fi
+    if [[ "$state" == "Failed" || "$state" == "Canceled" ]]; then
+      die "$app provisioning is $state (latest revision ${latest:-none}, expected ${want:-any})"
+    fi
+    if (( SECONDS >= deadline )); then
+      die "$app did not finish provisioning within ${timeout}s (state ${state:-unknown}, latest ${latest:-none}, expected ${want:-any})"
+    fi
+    sleep "$interval"
+  done
+}
+
+# Rollback must not exit on a timeout; it waits, then tries anyway.
+wait_provisioned_soft() {
+  ( wait_provisioned "$1" "" ) || echo "::warning::$1 still provisioning; attempting rollback step anyway" >&2
+}
+
 rollback_all() {
   [[ "$rolling" == 1 ]] && return 0
   rolling=1
@@ -86,8 +137,14 @@ rollback_all() {
       continue
     fi
     echo "rolling $app back to $prev (deactivating $new)"
-    az containerapp ingress traffic set -g "$RG" -n "$app" --revision-weight "${prev}=100" -o none || rc=1
-    az containerapp revision deactivate -g "$RG" -n "$app" --revision "$new" -o none || rc=1
+    wait_provisioned_soft "$app"
+    az_retry containerapp ingress traffic set -g "$RG" -n "$app" --revision-weight "${prev}=100" -o none || rc=1
+    wait_provisioned_soft "$app"
+    if [[ "$(az containerapp revision show -g "$RG" -n "$app" --revision "$new" --query properties.active -o tsv 2>/dev/null)" == "false" ]]; then
+      echo "   $new is already inactive"
+    else
+      az_retry containerapp revision deactivate -g "$RG" -n "$app" --revision "$new" -o none || rc=1
+    fi
   done
   set -e
   return "$rc"
@@ -188,7 +245,7 @@ is_fresh() {
 # (process only). Readiness is /health/ready.
 ensure_listen() {
   local app="$1" image="$2" suffix="$3" id shown body
-  az containerapp ingress enable -g "$RG" -n "$app" --type internal --target-port 8080 \
+  az_retry containerapp ingress enable -g "$RG" -n "$app" --type internal --target-port 8080 \
     --transport auto --allow-insecure -o none
   id="$(az containerapp show -g "$RG" -n "$app" --query id -o tsv)"
   [[ -n "$id" ]] || die "$app has no resource id"
@@ -216,7 +273,7 @@ scale["maxReplicas"] = int(scale_max)
 template["revisionSuffix"] = suffix
 json.dump({"properties": {"template": template}}, open(dest, "w", encoding="utf-8"))
 PY
-  az rest --method patch --url "https://management.azure.com${id}?api-version=2025-01-01" \
+  az_retry rest --method patch --url "https://management.azure.com${id}?api-version=2025-01-01" \
     --body @"$body" -o none
   rm -f "$shown" "$body"
 }
@@ -282,7 +339,7 @@ rollout_one() {
     die "revision suffix ${suffix} must be lowercase letters, digits, and single hyphens"
   fi
 
-  az containerapp revision set-mode -g "$RG" -n "$app" --mode multiple -o none
+  az_retry containerapp revision set-mode -g "$RG" -n "$app" --mode multiple -o none
   prev="$(az containerapp ingress traffic show -g "$RG" -n "$app" -o json | python3 -c '
 import json, sys
 rows = [r for r in json.load(sys.stdin) if (r.get("weight") or 0) > 0]
@@ -307,7 +364,7 @@ print(rows[0].get("revisionName", "") if rows else "")
       assert_hms_db "$app" "$before"
       err="$(mktemp)"
       # Only the two mail secrets. hms-db is not in this list, so its value is not replaced.
-      if ! az containerapp secret set -g "$RG" -n "$app" --secrets \
+      if ! az_retry containerapp secret set -g "$RG" -n "$app" --secrets \
           "smtp-password=${SMTP_PASSWORD}" "supabase-service-role=${SUPABASE_SERVICE_ROLE_KEY}" \
           -o none >"$err" 2>&1; then
         rm -f "$err"
@@ -321,7 +378,7 @@ print(rows[0].get("revisionName", "") if rows else "")
       done <<<"$before"
       assert_hms_db "$app" "$after"
       # --set-env-vars adds these three. It does not replace ConnectionStrings__HmsDatabase.
-      az containerapp update -g "$RG" -n "$app" --image "$image" --revision-suffix "$suffix" \
+      az_retry containerapp update -g "$RG" -n "$app" --image "$image" --revision-suffix "$suffix" \
         --min-replicas "$SCALE_MIN" --max-replicas "$SCALE_MAX" -o none \
         --set-env-vars \
         "Smtp__Password=secretref:smtp-password" \
@@ -330,7 +387,7 @@ print(rows[0].get("revisionName", "") if rows else "")
     elif [[ "$service" == "edge" ]]; then
       # appsettings.json keeps localhost for dev. Every edge revision stamps the
       # in-environment addresses, including a service that was not on the previous edge.
-      az containerapp update -g "$RG" -n "$app" --image "$image" --revision-suffix "$suffix" \
+      az_retry containerapp update -g "$RG" -n "$app" --image "$image" --revision-suffix "$suffix" \
         --min-replicas "$SCALE_MIN" --max-replicas "$SCALE_MAX" -o none \
         --set-env-vars \
         "ReverseProxy__Clusters__identity__Destinations__primary__Address=http://ca-hms-identity/" \
@@ -340,9 +397,10 @@ print(rows[0].get("revisionName", "") if rows else "")
     elif is_fresh "$service"; then
       ensure_listen "$app" "$image" "$suffix"
     else
-      az containerapp update -g "$RG" -n "$app" --image "$image" --revision-suffix "$suffix" \
+      az_retry containerapp update -g "$RG" -n "$app" --image "$image" --revision-suffix "$suffix" \
         --min-replicas "$SCALE_MIN" --max-replicas "$SCALE_MAX" -o none
     fi
+    wait_provisioned "$app" "$rev_name"
     new="$(az containerapp show -g "$RG" -n "$app" --query properties.latestRevisionName -o tsv)"
   fi
   [[ -n "$new" ]] || die "$app did not produce a revision"
@@ -353,7 +411,8 @@ print(rows[0].get("revisionName", "") if rows else "")
 
   if [[ "$new" != "$prev" ]]; then
     echo "shifting $app traffic to $new (previous $prev)"
-    az containerapp ingress traffic set -g "$RG" -n "$app" --revision-weight "${new}=100" -o none
+    az_retry containerapp ingress traffic set -g "$RG" -n "$app" --revision-weight "${new}=100" -o none
+    wait_provisioned "$app" ""
   fi
 
   # The live edge cannot see a cluster it was not built or configured with.

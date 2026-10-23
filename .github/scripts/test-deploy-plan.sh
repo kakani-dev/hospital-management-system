@@ -428,7 +428,26 @@ fi
 if [[ "$all" == *"secret set"* ]]; then exit 0; fi
 if [[ "$all" == containerapp\ update* ]]; then
   mkdir -p "$AZ_STATE"
+  if [[ -n "${IN_PROGRESS_ONCE:-}" && ! -f "$AZ_STATE/$app.busy" ]]; then
+    : >"$AZ_STATE/$app.busy"
+    echo "ERROR: (ContainerAppOperationInProgress) Cannot modify a container app '$app'" >&2
+    exit 1
+  fi
   : >"$AZ_STATE/$app.updated"
+  exit 0
+fi
+if [[ "$all" == *"provisioningState"* ]]; then
+  suffix="$(python3 "$ROOT/.github/scripts/service_changes.py" suffix --app "$app" --tag "$IMAGE_TAG")"
+  n=0
+  [[ -f "$AZ_STATE/$app.prov" ]] && n="$(cat "$AZ_STATE/$app.prov")"
+  n=$((n + 1))
+  mkdir -p "$AZ_STATE"
+  echo "$n" >"$AZ_STATE/$app.prov"
+  if [[ -n "${PROVISION_LAG:-}" && "$n" -le "$PROVISION_LAG" ]]; then
+    printf 'InProgress\n%s--sha-prevprevprev\n' "$app"
+  else
+    printf 'Succeeded\n%s--%s\n' "$app" "$suffix"
+  fi
   exit 0
 fi
 if [[ "$all" == *"latestRevisionName"* ]]; then
@@ -518,6 +537,7 @@ EOS
   PATH="$bin:$PATH" AZ_LOG="$log" AZ_STATE="$state" CURL_STATE="$state" ROOT="$ROOT" \
     IMAGE_TAG="${IMAGE_TAG:-sha-0123456789ab}" ROLLBACK_STATE="$state/rollback.tsv" \
     HEALTH_TIMEOUT_SECONDS="${HEALTH_TIMEOUT_SECONDS:-2}" SMOKE_INTERVAL_SECONDS=0 \
+    PROVISION_INTERVAL_SECONDS=0 AZ_RETRY_DELAY_SECONDS=0 PROVISION_TIMEOUT_SECONDS="${PROVISION_TIMEOUT_SECONDS:-5}" \
     bash .github/scripts/aca-rollout.sh "$@" >"$out" 2>"$err"
   status=$?
   set -e
@@ -549,6 +569,17 @@ grep -q 'sha-prevprevprev=100' "$ROLLOUT_LOG" && fail "success run rolled traffi
 grep -q 'ReverseProxy__Clusters__billing' "$ROLLOUT_LOG" && fail "a known service stamped edge cluster addresses" || true
 grep -q 'ingress enable' "$ROLLOUT_LOG" && fail "a known service rewrote ingress" || true
 echo "rollout success ok"
+
+# The update returns before Azure finishes provisioning: wait for the expected revision.
+PROVISION_LAG=3 run_rollout pass patients
+grep -q -- "--revision-weight ca-hms-patients--s-0123456789ab=100" "$ROLLOUT_LOG" || fail "lagging provisioning did not shift traffic"
+# A concurrent operation on the app is retried, not treated as a failure.
+IN_PROGRESS_ONCE=1 run_rollout pass patients
+[[ "$(grep -c 'containerapp update' "$ROLLOUT_LOG")" -ge 2 ]] || fail "operation in progress was not retried"
+# A revision that never becomes latest fails the rollout instead of shifting traffic.
+PROVISION_LAG=1000 PROVISION_TIMEOUT_SECONDS=1 run_rollout fail patients
+grep -q -- "--revision-weight ca-hms-patients--s-0123456789ab=100" "$ROLLOUT_LOG" && fail "traffic moved before provisioning finished" || true
+echo "rollout provisioning wait ok"
 
 run_rollout fail identity
 grep -q 'containerapp update' "$ROLLOUT_LOG" && fail "identity rolled without mail secrets" || true
