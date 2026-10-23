@@ -53,7 +53,7 @@ DEFAULT_OWNER_ID=249468300
 DEFAULT_REPO_ID=1407449638
 FED_NAME="github-actions-main"
 ACR_LOGIN_SERVER="${ACR_NAME}.azurecr.io"
-APPS=(ca-hms-edge ca-hms-identity ca-hms-patients ca-hms-scheduling ca-hms-billing)
+APPS=(ca-hms-edge ca-hms-identity ca-hms-patients ca-hms-scheduling ca-hms-billing ca-hms-inventory)
 
 die() { echo "STOP: $*" >&2; exit 1; }
 command -v az >/dev/null || die "az CLI not found"

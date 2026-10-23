@@ -31,6 +31,7 @@ const ACTIONS: Action[] = [
   { id: 'patients', label: 'Patients', hint: 'Search the registry', capability: 'patients.view', run: 'navigate', path: '/patients' },
   { id: 'desk', label: 'Invite staff and branches', hint: 'Hospital desk', capability: 'admin.members', run: 'navigate', path: '/admin/desk' },
   { id: 'price-list', label: 'Price list', hint: 'Services and rates', capability: 'admin.pricelist', run: 'navigate', path: '/admin/price-list' },
+  { id: 'stock', label: 'Stock', hint: 'Items, stores, and quantities on hand', capability: 'stock.view', run: 'navigate', path: '/stock' },
   { id: 'create-hospital', label: 'Create hospital', hint: 'Platform: hospital and first admin invite', platform: true, run: 'navigate', path: '/platform', state: { openCreate: true } },
 ]
 

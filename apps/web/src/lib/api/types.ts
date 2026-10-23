@@ -909,3 +909,116 @@ export interface CopyPriceResult {
   conflicts: CopyPriceConflict[]
   dryRun: boolean
 }
+
+export interface StockUom {
+  code: string
+  name: string
+}
+
+export interface StockPack {
+  uomCode: string
+  unitsPerPack: number
+  isPurchase: boolean
+  isSale: boolean
+}
+
+export interface StockItem {
+  id: Guid
+  code: string
+  itemKind: string
+  brandName: string
+  genericName: string | null
+  strength: string | null
+  dosageForm: string | null
+  route: string | null
+  manufacturerName: string
+  scheduleCode: string | null
+  hsnCode: string
+  gstRateBp: number
+  baseUomCode: string
+  isColdChain: boolean
+  isHighAlert: boolean
+  isLasa: boolean
+  isActive: boolean
+  packs: StockPack[]
+}
+
+export interface StockCatalog {
+  items: StockItem[]
+  uoms: StockUom[]
+}
+
+export interface CreateStockItemRequest {
+  itemKind: string
+  brandName: string
+  genericName?: string
+  strength?: string
+  dosageForm?: string
+  route?: string
+  manufacturerName: string
+  scheduleCode?: string
+  hsnCode: string
+  gstRateBp: number
+  baseUomCode: string
+  packs?: { uomCode: string; unitsPerPack: number; isPurchase: boolean; isSale: boolean }[]
+  isColdChain?: boolean
+  isHighAlert?: boolean
+  isLasa?: boolean
+  storeId?: Guid
+  reorderLevel?: number
+}
+
+export interface StockStore {
+  id: Guid
+  code: string
+  branchId: Guid
+  name: string
+  storeKind: string
+  drugLicenceNo: string | null
+  licenceValidTo: string | null
+  isActive: boolean
+}
+
+export interface CreateStockStoreRequest {
+  branchId: Guid
+  name: string
+  storeKind: string
+  drugLicenceNo?: string
+  licenceValidTo?: string
+}
+
+export interface OpeningStockLine {
+  itemId: Guid
+  batchNo: string
+  expiryDate: string
+  mfgDate?: string
+  mrpPaise: number
+  purchaseRatePaise: number
+  qtyBase: number
+}
+
+export interface OpeningStockDocument {
+  id: Guid
+  docNo: string
+  storeId: Guid
+  approvalRequestId: Guid
+  approverId: Guid
+  lines: { id: Guid; batchId: Guid; itemId: Guid; batchNo: string; expiryDate: string; mrpPaise: number; qtyBase: number }[]
+}
+
+export interface StockOnHandRow {
+  storeId: Guid
+  storeCode: string
+  storeName: string
+  itemId: Guid
+  itemCode: string
+  brandName: string
+  batchId: Guid
+  batchNo: string
+  expiryDate: string
+  mrpPaise: number
+  purchaseRatePaise: number
+  onHandBase: number
+  baseUomCode: string
+  expiryState: 'expired' | 'soon' | 'ok'
+}

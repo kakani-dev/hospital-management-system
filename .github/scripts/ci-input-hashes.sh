@@ -139,3 +139,13 @@ hash_of hash_image_billing \
   backend/Directory.Build.props \
   backend/Directory.Packages.props \
   .dockerignore
+
+hash_of hash_image_inventory \
+  backend/services/inventory \
+  backend/modules/Inventory \
+  backend/platform \
+  backend/shared \
+  backend/global.json \
+  backend/Directory.Build.props \
+  backend/Directory.Packages.props \
+  .dockerignore

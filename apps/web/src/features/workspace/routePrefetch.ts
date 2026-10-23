@@ -13,6 +13,7 @@ const loaders: Record<string, () => Promise<unknown>> = {
   '/queue': () => import('../opd/QueueBoardPage'),
   '/billing/approvals': () => import('../billing/ApprovalsPage'),
   '/billing/day-end': () => import('../billing/DayEndPage'),
+  '/stock': () => import('../stock/StockPage'),
   '/admin/desk': () => import('../admin/AdminDeskPage'),
   '/admin/branches': () => import('../admin/BranchesPage'),
   '/admin/members': () => import('../admin/MembersPage'),

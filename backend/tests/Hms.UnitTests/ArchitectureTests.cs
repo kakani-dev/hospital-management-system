@@ -45,6 +45,7 @@ public class ArchitectureTests
     [InlineData("modules/Patients/Hms.Modules.Patients/Hms.Modules.Patients.csproj")]
     [InlineData("modules/Appointments/Hms.Modules.Appointments/Hms.Modules.Appointments.csproj")]
     [InlineData("modules/Billing/Hms.Modules.Billing/Hms.Modules.Billing.csproj")]
+    [InlineData("modules/Inventory/Hms.Modules.Inventory/Hms.Modules.Inventory.csproj")]
     public void Modules_never_reference_another_module(string csproj) =>
         Assert.Equal(["Hms.Platform", "Hms.SharedKernel"], References(csproj));
 
@@ -53,6 +54,7 @@ public class ArchitectureTests
     [InlineData("services/patients/Hms.Patients.Api/Hms.Patients.Api.csproj", "Hms.Modules.Patients")]
     [InlineData("services/scheduling/Hms.Scheduling.Api/Hms.Scheduling.Api.csproj", "Hms.Modules.Appointments")]
     [InlineData("services/billing/Hms.Billing.Api/Hms.Billing.Api.csproj", "Hms.Modules.Billing")]
+    [InlineData("services/inventory/Hms.Inventory.Api/Hms.Inventory.Api.csproj", "Hms.Modules.Inventory")]
     public void Each_service_hosts_exactly_its_own_module(string csproj, string module) =>
         Assert.Equal(new[] { module, "Hms.Platform" }.Order(StringComparer.Ordinal), References(csproj));
 
@@ -67,11 +69,14 @@ public class ArchitectureTests
         var patients = File.ReadAllText(Path.Combine(Backend, "services", "patients", "Hms.Patients.Api", "Program.cs"));
         var scheduling = File.ReadAllText(Path.Combine(Backend, "services", "scheduling", "Hms.Scheduling.Api", "Program.cs"));
         var billing = File.ReadAllText(Path.Combine(Backend, "services", "billing", "Hms.Billing.Api", "Program.cs"));
+        var inventory = File.ReadAllText(Path.Combine(Backend, "services", "inventory", "Hms.Inventory.Api", "Program.cs"));
         Assert.Contains("AddIdentityEmailDelivery", identity, StringComparison.Ordinal);
         Assert.DoesNotContain("AddIdentityEmailDelivery", patients, StringComparison.Ordinal);
         Assert.DoesNotContain("AddIdentityEmailDelivery", scheduling, StringComparison.Ordinal);
         Assert.DoesNotContain("AddIdentityEmailDelivery", billing, StringComparison.Ordinal);
+        Assert.DoesNotContain("AddIdentityEmailDelivery", inventory, StringComparison.Ordinal);
         Assert.DoesNotContain("AddHmsOutboxDispatcher", billing, StringComparison.Ordinal);
+        Assert.DoesNotContain("AddHmsOutboxDispatcher", inventory, StringComparison.Ordinal);
         Assert.DoesNotContain("AddHmsOutboxDispatcher", identity, StringComparison.Ordinal);
     }
 

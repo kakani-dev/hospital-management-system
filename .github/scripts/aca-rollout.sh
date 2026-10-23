@@ -26,6 +26,7 @@
 # target port 8080, HTTP probes on /health/live and /health/ready, same as the other
 # services). The edge revision then sets every cluster address, including
 # ReverseProxy__Clusters__billing__Destinations__primary__Address=http://ca-hms-billing/,
+# ReverseProxy__Clusters__inventory__Destinations__primary__Address=http://ca-hms-inventory/,
 # and only after that revision has traffic does /health/ready have to list the new
 # service. A later deploy of a service the edge already lists is unchanged.
 #
@@ -394,7 +395,8 @@ print(rows[0].get("revisionName", "") if rows else "")
         "ReverseProxy__Clusters__identity__Destinations__primary__Address=http://ca-hms-identity/" \
         "ReverseProxy__Clusters__patients__Destinations__primary__Address=http://ca-hms-patients/" \
         "ReverseProxy__Clusters__scheduling__Destinations__primary__Address=http://ca-hms-scheduling/" \
-        "ReverseProxy__Clusters__billing__Destinations__primary__Address=http://ca-hms-billing/"
+        "ReverseProxy__Clusters__billing__Destinations__primary__Address=http://ca-hms-billing/" \
+        "ReverseProxy__Clusters__inventory__Destinations__primary__Address=http://ca-hms-inventory/"
     elif is_fresh "$service"; then
       ensure_listen "$app" "$image" "$suffix"
     else

@@ -23,6 +23,7 @@ import {
   MagnifyingGlassIcon,
   RectangleGroupIcon,
   ArrowLeftStartOnRectangleIcon,
+  ArchiveBoxIcon,
   CommandLineIcon,
 } from '@heroicons/react/24/outline'
 import { ShortcutHelp } from '../../features/shortcuts/ShortcutHelp'
@@ -115,6 +116,15 @@ export function AppShell() {
             ...(has('billing.view') ? [{ id: 'day-end', path: '/billing/day-end', title: 'Day end', Icon: BanknotesIcon }] : []),
           ],
     }
+    const stock: NavGroup = {
+      id: 'stock',
+      title: 'Pharmacy',
+      childs: operatorOnly
+        ? []
+        : [
+            ...(has('stock.view') ? [{ id: 'stock', path: '/stock', title: 'Stock', Icon: ArchiveBoxIcon }] : []),
+          ],
+    }
     const admin: NavGroup = {
       id: 'admin',
       title: 'Administration',
@@ -145,7 +155,7 @@ export function AppShell() {
           ]
         : [],
     }
-    return [clinical, reception, billing, admin, platform]
+    return [clinical, reception, billing, stock, admin, platform]
       .filter((g) => g.childs.length > 0)
       .map((g) => ({ ...g, childs: g.childs.map((item) => ({ ...item, onPrefetch: () => prefetchRoute(item.path) })) }))
   // eslint-disable-next-line react-hooks/exhaustive-deps -- `has` derives from me.data (roles/permissions)

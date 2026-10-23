@@ -53,6 +53,9 @@ CORS_0="${CORS_0:-https://medicore-hms-three.vercel.app}"
 CORS_1="${CORS_1:-https://medicore-hms-kakani-devs-projects.vercel.app}"
 CONNSTR_FILE="${CONNSTR_FILE:-/home/box/.secrets/medicore-hms-connstr}"
 EDGE_KEY_FILE="${EDGE_KEY_FILE:-/home/box/.secrets/medicore-hms-edge-key}"
+# inventory is not in this loop. The script writes one shared hms-db secret, and the
+# inventory login must not receive the identity connection string. Create ca-hms-inventory
+# out of band and set its own hms-db secret before the first rollout.
 SERVICES=(identity patients scheduling billing)
 TAGS=(project=medicore-hms env=dev cost=free-grant)
 
@@ -286,7 +289,8 @@ deploy_app edge external /health/live hms-edge-key "${COMMON[@]}" \
   ReverseProxy__Clusters__identity__Destinations__primary__Address=http://ca-hms-identity/ \
   ReverseProxy__Clusters__patients__Destinations__primary__Address=http://ca-hms-patients/ \
   ReverseProxy__Clusters__scheduling__Destinations__primary__Address=http://ca-hms-scheduling/ \
-  ReverseProxy__Clusters__billing__Destinations__primary__Address=http://ca-hms-billing/
+  ReverseProxy__Clusters__billing__Destinations__primary__Address=http://ca-hms-billing/ \
+  ReverseProxy__Clusters__inventory__Destinations__primary__Address=http://ca-hms-inventory/
 
 # ---------------------------------------------------------------------------------------------------
 log "7. post-checks"

@@ -65,6 +65,14 @@ import type {
   ServiceItem,
   ServicePrice,
   TaxCode,
+  CreateStockItemRequest,
+  CreateStockStoreRequest,
+  OpeningStockDocument,
+  OpeningStockLine,
+  StockCatalog,
+  StockItem,
+  StockOnHandRow,
+  StockStore,
   ClaimedInvite,
   CreateInviteLinkRequest,
   HospitalApproved,
@@ -625,6 +633,23 @@ export class ApiClient {
       this.request<{ id: string; status: string }>(`/api/v1/counter-sessions/${encodeURIComponent(sessionId)}/reconcile`, { method: 'POST' }),
     publicLink: (token: string) =>
       this.request<PublicBill>(`/api/v1/billing-public/links/${encodeURIComponent(token)}`, { auth: false, retry: false }),
+  }
+
+  inventory = {
+    items: () => this.request<StockCatalog>('/api/v1/inventory/items'),
+    createItem: (body: CreateStockItemRequest) =>
+      this.request<StockItem>('/api/v1/inventory/items', { method: 'POST', body: JSON.stringify(body) }),
+    stores: () => this.request<StockStore[]>('/api/v1/inventory/stores'),
+    createStore: (body: CreateStockStoreRequest) =>
+      this.request<StockStore>('/api/v1/inventory/stores', { method: 'POST', body: JSON.stringify(body) }),
+    opening: (idempotencyKey: string, body: { storeId: string; lines: OpeningStockLine[] }) =>
+      this.request<OpeningStockDocument>('/api/v1/inventory/opening-stock', {
+        method: 'POST',
+        body: JSON.stringify(body),
+        headers: { 'Idempotency-Key': idempotencyKey },
+      }),
+    stock: (params: { storeId?: string; itemId?: string } = {}) =>
+      this.request<StockOnHandRow[]>(`/api/v1/inventory/stock${qs(params)}`),
   }
 }
 

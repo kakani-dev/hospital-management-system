@@ -38,6 +38,13 @@ describe('can (RBAC matrix, ADR 0001)', () => {
     expect(can(['receptionist'], 'admin.pricelist')).toBe(false)
     expect(can(['billing'], 'admin.pricelist')).toBe(false)
     expect(can(['receptionist'], 'admin.members')).toBe(false)
+    expect(can(['tenant_admin'], 'stock.edit')).toBe(true)
+    expect(can(['tenant_admin'], 'stock.open')).toBe(true)
+    expect(can(['tenant_admin'], 'stock.approve')).toBe(true)
+    expect(can(['pharmacist'], 'stock.view')).toBe(true)
+    expect(can(['pharmacist'], 'stock.edit')).toBe(false)
+    expect(can(['pharmacist'], 'stock.open')).toBe(false)
+    expect(can(['receptionist'], 'stock.view')).toBe(false)
     expect(can([], 'schedules.view')).toBe(false)
   })
 

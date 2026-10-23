@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <!-- Inventory service host. Service boundary: Hms.Platform + the Inventory module only. -->
+  <PropertyGroup>
+    <UserSecretsId>hms-inventory-dev</UserSecretsId>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../platform/Hms.Platform/Hms.Platform.csproj" />
+    <ProjectReference Include="../../../modules/Inventory/Hms.Modules.Inventory/Hms.Modules.Inventory.csproj" />
+  </ItemGroup>
+</Project>

@@ -19,7 +19,7 @@ DATABASE_URL=postgresql://postgres:postgres@localhost:5432/postgres npm run sql:
 ```
 
 - `supabase/scripts/local-supabase-shim.sql` creates the `anon`, `authenticated`, `service_role` and `supabase_auth_admin` roles, plus `auth.users`, `auth.uid()` and `auth.jwt()`, **only when they don't already exist**. Never run it against a hosted Supabase project.
-- `supabase/scripts/local-api-login-role.sql` creates the local login roles (**local/CI throwaway databases only**): `hms_identity_login`, `hms_patients_login`, `hms_scheduling_login` (passwords `hms_<svc>_local_only`, members of `hms_svc_<svc>`), and `hms_api_login` (password `hms_api_local_only`, member of `hms_api`, still used by the App Service). On a hosted project, create the login roles out-of-band with generated passwords (`docs/runbooks/monolith-cutover.md`).
+- `supabase/scripts/local-api-login-role.sql` creates the local login roles (**local/CI throwaway databases only**): `hms_identity_login`, `hms_patients_login`, `hms_scheduling_login`, `hms_billing_login`, `hms_inventory_login` (passwords `hms_<svc>_local_only`, members of `hms_svc_<svc>`), and `hms_api_login` (password `hms_api_local_only`, member of `hms_api`, still used by the App Service). On a hosted project, create the login roles out-of-band with generated passwords (`docs/runbooks/monolith-cutover.md`). Inventory's hosted password is the ACA secret `hms-db` on `ca-hms-inventory` (`docs/deploy.md`).
 - `SKIP_SQL_TESTS=1 TEST_DB=hms_e2e bash supabase/scripts/run-sql-tests.sh` (or `npm run e2e:db`) prepares a database without running the SQL tests.
 - On a real Supabase project, apply `supabase/migrations` with `supabase db push`, or let the Supabase GitHub integration do it. Expose the `identity` and `patient` schemas in API settings only if PostgREST access is wanted. The migrations themselves contain no `auth` stand-ins; Supabase already provides `auth.users`, `auth.uid()`, `auth.jwt()` and the roles.
 - Seeding a hosted project (synthetic data only): run `supabase/scripts/hosted-auth-users.sql` first (it creates the 7 demo users with the extra columns GoTrue needs, **without passwords**, so nobody can sign in as them), then `supabase/seed.sql`.
@@ -89,7 +89,7 @@ npm run e2e:db                                # throwaway hms_e2e DB: migrations
 npm run e2e                                   # starts mock auth (:54321), the API (:8080) and the web preview (:4173)
 ```
 
-The suite is full-stack: the mock GoTrue server issues ES256 tokens using the real access token hook, the edge validates them through the mock's JWKS, and each service queries Postgres as its own `hms_<svc>_login`. The web preview proxies `/api` to the edge. Locally, already-running servers are reused. Run `npm run e2e:db` again for a clean database. `E2E_API_COMMAND` overrides the dev script. Jenkins sets `HMS_MS_PUBLISH` to self-contained publishes of the four hosts.
+The suite is full-stack: the mock GoTrue server issues ES256 tokens using the real access token hook, the edge validates them through the mock's JWKS, and each service queries Postgres as its own `hms_<svc>_login`. The web preview proxies `/api` to the edge. Locally, already-running servers are reused. Run `npm run e2e:db` again for a clean database. `E2E_API_COMMAND` overrides the dev script. Jenkins sets `HMS_MS_PUBLISH` to self-contained publishes of identity, patients, scheduling, billing, inventory, and the edge.
 
 ## 5. Docker Compose
 
@@ -102,7 +102,7 @@ docker compose down -v   # also drops the DB volume, so the seed runs again next
 Set `HMS_AUTH_URL` (and `HMS_AUTH_ALLOW_HTTP=true` for the mock), plus `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`, before `docker compose up` to enable sign-in. Each service connects as `hms_<svc>_login`, which the DB init script creates.
 
 `docker compose up --build` runs the YARP edge on http://localhost:8080 (the only published API port)
-in front of identity, patients and scheduling. Each service answers 404 to anything that does
+in front of identity, patients, scheduling, billing, and inventory. Each service answers 404 to anything that does
 not come through the edge (`X-Hms-Edge-Key`).
 
 Without Docker:
@@ -111,13 +111,13 @@ Without Docker:
 HMS_MS_DB="Host=localhost;Port=5432;Database=hms" \
 ASPNETCORE_ENVIRONMENT=Development \
 Auth__Supabase__ProjectUrl=http://localhost:54321 Auth__Supabase__AllowInsecureHttp=true \
-  bash scripts/dev/run-microservices.sh      # edge :8080 (API_PORT), services :8101-8103
-curl localhost:8080/health/ready             # 200 once all three services are ready
+  bash scripts/dev/run-microservices.sh      # edge :8080 (API_PORT), services :8101-8105
+curl localhost:8080/health/ready             # 200 once identity, patients, scheduling, billing, and inventory are ready
 ```
 
 Playwright (`npm run e2e`) starts the same script and waits on the edge's `/health/ready`;
 `E2E_API_COMMAND` overrides it. API integration tests pick the system under test
-with `HMS_SYSTEM_TARGET=edge` (default: in-process edge + 3 services) or `edge-url`
+with `HMS_SYSTEM_TARGET=edge` (default: in-process edge plus the service hosts) or `edge-url`
 (+ `HMS_SYSTEM_BASE_URL`). See `docs/architecture/microservices.md`.
 
 ## 6. Cleaning build artifacts

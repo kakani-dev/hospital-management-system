@@ -2,10 +2,14 @@
 begin;
 select tests.as_superuser();
 
-select tests.ok((select count(*) from identity.role_permissions where role = 'tenant_admin') = 29, 'tenant_admin holds all 29 tenant permissions (billing adds eight)');
-select tests.ok(not exists (select 1 from identity.role_permissions where role in ('viewer', 'pharmacist', 'lab_technician')
+select tests.ok((select count(*) from identity.role_permissions where role = 'tenant_admin') = 33, 'tenant_admin holds all 33 tenant permissions (inventory adds four)');
+select tests.ok(not exists (select 1 from identity.role_permissions where role in ('viewer', 'lab_technician')
                             and permission not in ('settings.view', 'branches.view', 'practitioners.view')),
-  'viewer / pharmacist / lab_technician are read-only and see no patient data');
+  'viewer / lab_technician are read-only and see no patient data');
+select tests.ok(not exists (select 1 from identity.role_permissions where role = 'pharmacist'
+                            and permission not in ('settings.view', 'branches.view', 'practitioners.view', 'inventory.view'))
+                and exists (select 1 from identity.role_permissions where role = 'pharmacist' and permission = 'inventory.view'),
+  'pharmacist can look at stock and holds no other extra permission');
 select tests.ok(not exists (select 1 from identity.role_permissions where role in ('doctor', 'nurse', 'billing')
                             and permission in ('patients.create', 'patients.edit', 'patients.delete')),
   'doctor / nurse / billing cannot create or edit patients');

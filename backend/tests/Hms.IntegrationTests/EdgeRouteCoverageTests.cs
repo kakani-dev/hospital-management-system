@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Hms.Billing.Api;
 using Hms.Identity.Api;
+using Hms.Inventory.Api;
 using Hms.Patients.Api;
 using Hms.Scheduling.Api;
 using Microsoft.AspNetCore.Hosting;
@@ -22,6 +23,7 @@ public sealed class EdgeRouteCoverageTests
         ["Hms.Modules.Patients"] = "patients",
         ["Hms.Modules.Appointments"] = "scheduling",
         ["Hms.Modules.Billing"] = "billing",
+        ["Hms.Modules.Inventory"] = "inventory",
     };
 
     [Fact]
@@ -31,6 +33,7 @@ public sealed class EdgeRouteCoverageTests
             .Concat(Prefixes<PatientsServiceMarker>())
             .Concat(Prefixes<SchedulingServiceMarker>())
             .Concat(Prefixes<BillingServiceMarker>())
+            .Concat(Prefixes<InventoryServiceMarker>())
             .Distinct()
             .ToList();
         Assert.NotEmpty(served);

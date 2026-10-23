@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Which container images a commit needs to build and deploy.
 
-Path rules (deploy order is always identity, patients, scheduling, billing, then edge):
+Path rules (deploy order is always identity, patients, scheduling, billing, inventory, then edge):
 
 - backend/platform, backend/shared, Directory.Build.props, Directory.Packages.props,
   global.json, a backend packages.lock.json (the NuGet lock), or .dockerignore
@@ -29,13 +29,14 @@ import re
 import sys
 from pathlib import Path
 
-ORDER = ("identity", "patients", "scheduling", "billing", "edge")
+ORDER = ("identity", "patients", "scheduling", "billing", "inventory", "edge")
 
 DOCKERFILES = {
     "identity": "backend/services/identity/Dockerfile",
     "patients": "backend/services/patients/Dockerfile",
     "scheduling": "backend/services/scheduling/Dockerfile",
     "billing": "backend/services/billing/Dockerfile",
+    "inventory": "backend/services/inventory/Dockerfile",
     "edge": "backend/edge/Dockerfile",
 }
 
@@ -51,6 +52,7 @@ SERVICE_PREFIXES = {
     "patients": ("backend/services/patients/", "backend/modules/Patients/"),
     "scheduling": ("backend/services/scheduling/", "backend/modules/Appointments/"),
     "billing": ("backend/services/billing/", "backend/modules/Billing/"),
+    "inventory": ("backend/services/inventory/", "backend/modules/Inventory/"),
     "edge": ("backend/edge/",),
 }
 # Rollout and plan changes are not inside a service directory. They still have to
@@ -288,7 +290,8 @@ def self_test() -> None:
     rejected = "b896ba108cf95c3193dbf7598d2882659a8c0da9"
     full_tag = image_tag(rejected)
     assert full_tag == "sha-" + rejected and len(full_tag) == 44
-    assert APPS == ("ca-hms-identity", "ca-hms-patients", "ca-hms-scheduling", "ca-hms-billing", "ca-hms-edge")
+    assert ORDER == ("identity", "patients", "scheduling", "billing", "inventory", "edge")
+    assert APPS == tuple(f"ca-hms-{service}" for service in ORDER)
     for app in APPS:
         suffix = revision_suffix(app, full_tag)
         name = f"{app}--{suffix}"
@@ -320,7 +323,7 @@ def self_test() -> None:
     assert json.loads(emergency["matrix"]) == {"include": []}
 
     all_tags = plan(sha, "", "sha-" + "d" * 7, [])
-    assert all_tags["services"] == "identity,patients,scheduling,billing,edge"
+    assert all_tags["services"] == ",".join(ORDER)
     assert all_tags["build"] == "false"
 
     old = "sha-" + "ca54690f712413349eebc2f105812223d16702d0"
@@ -344,7 +347,7 @@ def self_test() -> None:
 
     behind = plan(sha, "", "", web_only, stale)
     assert behind["deploy"] == "true" and behind["build"] == "true"
-    assert behind["services"] == "identity,patients,scheduling,billing,edge"
+    assert behind["services"] == ",".join(ORDER)
     assert behind["tag"] == desired
 
     one = dict(current)
@@ -357,10 +360,10 @@ def self_test() -> None:
     pinned = plan(sha, "edge", "", web_only, stale)
     assert pinned["services"] == "edge" and pinned["build"] == "true"
     rolled = plan(sha, "", old, web_only, stale)
-    assert rolled["services"] == "identity,patients,scheduling,billing,edge" and rolled["build"] == "false"
+    assert rolled["services"] == ",".join(ORDER) and rolled["build"] == "false"
     assert rolled["tag"] == old
 
-    # A merge that only touches the rollout/plan scripts still builds all four.
+    # A merge that only touches the rollout/plan scripts still builds every image.
     scripted = plan(
         sha,
         "",
@@ -372,7 +375,7 @@ def self_test() -> None:
         ],
         current,
     )
-    assert scripted["services"] == "identity,patients,scheduling,billing,edge"
+    assert scripted["services"] == ",".join(ORDER)
     assert scripted["build"] == "true" and scripted["tag"] == desired
 
     root = Path(__file__).resolve().parents[2]
