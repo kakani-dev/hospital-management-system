@@ -18,8 +18,8 @@ function problemText(error: unknown): string {
 }
 
 /**
- * OP consult bill beside the open patient. Alt+B (or Ctrl+K, ↓, Enter) opens this panel,
- * which raises the consultation line. Finalize, then cash, a UPI QR, or a share link.
+ * OP consult bill beside the open patient. Alt+B opens this panel. The consultation is
+ * collected on the open bill, later items share that bill, and Close bill numbers it.
  */
 export function BillingPanel({ patientId, branchId, onBack }: { patientId: string; branchId: string; onBack: () => void }) {
   const qc = useQueryClient()
@@ -31,18 +31,35 @@ export function BillingPanel({ patientId, branchId, onBack }: { patientId: strin
   const [discountRupees, setDiscountRupees] = useState('')
   const [receiptId, setReceiptId] = useState<string | null>(null)
 
+  const summary = useQuery({
+    queryKey: ['billing', 'summary', patientId, branchId],
+    retry: false,
+    queryFn: () => apiClient.billing.summary(patientId),
+  })
+
   const consult = useQuery({
     queryKey: ['billing', 'consult', patientId, branchId, generation],
     retry: false,
     staleTime: Infinity,
+    enabled: summary.isFetched,
     queryFn: async () => {
+      if (generation === 0 && summary.data) {
+        const draft = summary.data.bills.find(
+          (item) => item.status === 'draft' && item.billKind === 'final' && item.branchId === branchId,
+        )
+        if (draft) {
+          const existing = await apiClient.billing.bill(draft.id)
+          if (existing.lines.length === 0) return apiClient.billing.addLine(existing.id, { code: 'CONSULT' })
+          return existing
+        }
+      }
       const opened = await apiClient.billing.openAccount({ patientId, branchId, accountType: 'op_visit' })
       return apiClient.billing.addLine(opened.id, { code: 'CONSULT' })
     },
   })
 
   const bill = override?.generation === generation ? override.bill : consult.data
-  const watching = !!qr && !!bill && bill.duePaise > 0 && bill.status === 'finalized'
+  const watching = !!qr && !!bill && bill.duePaise > 0
   const polled = useQuery({
     queryKey: ['billing', 'bill', bill?.id],
     queryFn: () => apiClient.billing.bill(bill!.id),
@@ -53,8 +70,9 @@ export function BillingPanel({ patientId, branchId, onBack }: { patientId: strin
 
   useEffect(() => {
     if (shown?.status !== 'draft') return
-    document.querySelector<HTMLButtonElement>('[data-testid="finalize-bill"]')?.focus()
-  }, [shown?.id, shown?.status])
+    const target = shown.duePaise > 0 ? 'collect-cash' : 'finalize-bill'
+    document.querySelector<HTMLButtonElement>(`[data-testid="${target}"]`)?.focus()
+  }, [shown?.id, shown?.status, shown?.duePaise])
 
   const remove = useMutation({
     mutationFn: (lineId: string) => apiClient.billing.removeLine(shown!.id, lineId),
@@ -75,18 +93,23 @@ export function BillingPanel({ patientId, branchId, onBack }: { patientId: strin
         }
       }
       if (action === 'cash') {
+        const session = await apiClient.billing.ensureSession(branchId)
+        if (!session.id) throw new Error('Open a counter session before taking cash.')
         const receipt = await apiClient.billing.pay(crypto.randomUUID(), {
           accountId: shown.accountId,
           kind: 'payment',
+          counterSessionId: session.id,
           tenders: [{ mode: 'cash', amountPaise: shown.duePaise }],
           allocations: [{ billId: shown.id, amountPaise: shown.duePaise }],
         })
         setReceiptId(receipt.id)
         return { bill: await apiClient.billing.bill(shown.id) }
       }
+      const session = await apiClient.billing.findSession(branchId).catch(() => null)
       const link = await apiClient.billing.paymentLink(shown.id, {
         channel: action,
         destination: action === 'qr' ? undefined : phone,
+        ...(session?.id ? { counterSessionId: session.id } : {}),
       })
       if (action === 'qr') setQr(link.upiUri ?? null)
       else setShare(link.shareStatus ?? 'queued')
@@ -95,6 +118,17 @@ export function BillingPanel({ patientId, branchId, onBack }: { patientId: strin
     onSuccess: (result) => {
       setOverride({ generation, bill: result.bill })
       void qc.invalidateQueries({ queryKey: ['billing', 'bill', result.bill.id] })
+      void qc.invalidateQueries({ queryKey: ['billing', 'summary', patientId, branchId] })
+    },
+  })
+
+  const applicable = Math.min(summary.data?.advancePaise ?? 0, shown?.duePaise ?? 0)
+  const apply = useMutation({
+    mutationFn: (amountPaise: number) => apiClient.billing.applyAdvance(shown!.id, { amountPaise }),
+    onSuccess: (next) => {
+      setOverride({ generation, bill: next })
+      void qc.invalidateQueries({ queryKey: ['billing', 'summary', patientId, branchId] })
+      void qc.invalidateQueries({ queryKey: ['billing', 'bill', next.id] })
     },
   })
 
@@ -121,7 +155,8 @@ export function BillingPanel({ patientId, branchId, onBack }: { patientId: strin
             <span>{line.name}</span>
             <span className="flex items-center gap-3">
               <span className="font-mono">{formatPaise(line.netPaise + line.taxPaise)}</span>
-              {shown.status === 'draft' && (
+              {line.locked && <span className="text-xs text-gray-500">Paid</span>}
+              {shown.status === 'draft' && !line.locked && (
                 <Button
                   variant="ghost"
                   className="h-11 sm:h-8"
@@ -146,7 +181,9 @@ export function BillingPanel({ patientId, branchId, onBack }: { patientId: strin
       {shown.roundOffPaise !== 0 && (
         <p className="text-xs text-gray-500">Round-off {formatPaise(shown.roundOffPaise)}</p>
       )}
-      {(run.isError || remove.isError) && <Alert tone="error">{problemText(run.isError ? run.error : remove.error)}</Alert>}
+      {(run.isError || remove.isError || apply.isError) && (
+        <Alert tone="error">{problemText(run.isError ? run.error : apply.isError ? apply.error : remove.error)}</Alert>
+      )}
       {paid && (
         <div className="space-y-2 text-center">
           <Illustration name="tick" size={72} className="mx-auto" />
@@ -158,10 +195,13 @@ export function BillingPanel({ patientId, branchId, onBack }: { patientId: strin
           )}
         </div>
       )}
+      {shown.status === 'draft' && shown.duePaise === 0 && (
+        <p className="text-sm text-gray-500">Collected. Add anything else, then close the bill.</p>
+      )}
       {shown.status === 'draft' && (
         <div className="flex flex-wrap gap-2">
           <Button data-testid="finalize-bill" onClick={() => run.mutate('finalize')} disabled={run.isPending}>
-            Finalize
+            Close bill
           </Button>
           <label className="flex items-center gap-2 text-sm">
             <span className="sr-only">Discount rupees</span>
@@ -178,11 +218,21 @@ export function BillingPanel({ patientId, branchId, onBack }: { patientId: strin
           </Button>
         </div>
       )}
-      {shown.status === 'finalized' && shown.duePaise > 0 && (
+      {shown.duePaise > 0 && (
         <div className="space-y-3">
-          <p className="text-sm">Due <span className="font-mono">{formatPaise(shown.duePaise)}</span></p>
+          <p className="text-sm" data-testid="bill-due">
+            Due <span className="font-mono">{formatPaise(shown.duePaise)}</span>
+          </p>
+          {(shown.allocatedPaise ?? 0) > 0 && (
+            <p className="text-xs text-gray-500">Received {formatPaise(shown.allocatedPaise ?? 0)}</p>
+          )}
+          {applicable > 0 && (
+            <Button data-testid="apply-advance" onClick={() => apply.mutate(applicable)} disabled={apply.isPending || run.isPending}>
+              Apply advance {formatPaise(applicable)}
+            </Button>
+          )}
           <div className="flex flex-wrap gap-2">
-            <Button onClick={() => run.mutate('cash')} disabled={run.isPending}>Cash</Button>
+            <Button data-testid="collect-cash" onClick={() => run.mutate('cash')} disabled={run.isPending}>Cash</Button>
             <Button variant="secondary" onClick={() => run.mutate('qr')} disabled={run.isPending}>Show UPI QR</Button>
             <Button variant="secondary" onClick={() => setShare(share === null ? '' : null)}>Share payment link</Button>
           </div>
