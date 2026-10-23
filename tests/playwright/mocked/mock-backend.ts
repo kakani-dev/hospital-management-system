@@ -296,6 +296,52 @@ const uuid = (prefix: string) => `${prefix}${String(++seq).padStart(12, '0')}`.r
 
 const b64url = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url')
 
+interface MockBill {
+  id: string
+  accountId: string
+  patientId: string
+  branchId: string
+  status: 'draft' | 'finalized'
+  billNo: string | null
+  lines: { id: string; lineNo: number; serviceItemId: string; code: string; name: string; quantity: number; unitPricePaise: number; taxRateBp: number; netPaise: number; taxPaise: number; practitionerId: null }[]
+  totalPaise: number
+  duePaise: number
+}
+
+interface MockReceipt {
+  id: string
+  receiptNo: string
+  kind: string
+  amountPaise: number
+  accountId: string
+  tenders: { mode: string; amountPaise: number; reference: string | null }[]
+  allocations: { billId: string; amountPaise: number }[]
+}
+
+interface MockApproval {
+  id: string
+  action: string
+  status: string
+  amountPaise: number
+  percentBp: number
+  requestedBy: string | null
+  approverId: string | null
+  subjectType: string
+  subjectId: string
+  note: string | null
+}
+
+interface MockSession {
+  sessionId: string
+  counterId: string
+  cashierId: string
+  status: string
+  openingFloatPaise: number
+  countedCashPaise: number | null
+  businessDate: string
+  branchId: string
+}
+
 export class MockBackend {
   readonly calls: RecordedCall[] = []
   /** Pending injected faults, consumed in order (see Fault). */
@@ -325,6 +371,36 @@ export class MockBackend {
     // Today's booked appointment for Asha with Dr. Rao (check-in flow).
     const today = branchToday()
     this.appointments.push({ id: 'a0000000-0000-4000-8000-000000000001', tenantId: ids.alpha, branchId: ids.alphaMain, practitionerId: practitionerIds.rao, patientId: patientIds.asha, startsAt: branchInstant(today, '09:30'), endsAt: branchInstant(today, '09:45'), status: 'booked', reason: null, cancelReason: null })
+    const shared = this.blankBill(patientIds.asha, ids.alphaMain)
+    shared.status = 'finalized'
+    shared.billNo = 'OPBDEMO000000001'
+    shared.lines.push(this.consultLine())
+    shared.totalPaise = 50000
+    shared.duePaise = 50000
+    this.mockBills.set(shared.id, shared)
+    this.mockLinks.set('demo-token', { status: 'pending', channel: 'link', billId: shared.id, polls: 0 })
+    this.mockApprovals.push({
+      id: 'c0000000-0000-4000-8000-000000000001',
+      action: 'discount',
+      status: 'pending',
+      amountPaise: 5000,
+      percentBp: 1000,
+      requestedBy: null,
+      approverId: null,
+      subjectType: 'bill',
+      subjectId: shared.id,
+      note: null,
+    })
+    this.mockSessions.push({
+      sessionId: 'd0000000-0000-4000-8000-000000000001',
+      counterId: 'd1000000-0000-4000-8000-000000000001',
+      cashierId: '0a000000-0000-4000-8000-000000000002',
+      status: 'closed',
+      openingFloatPaise: 0,
+      countedCashPaise: 50000,
+      businessDate: today,
+      branchId: ids.alphaMain,
+    })
   }
 
   /** true = pre-v2 API: no embedded patient summary, `/practitioners?branchId=` → 400. */
@@ -337,6 +413,11 @@ export class MockBackend {
   }
 
   readonly patients: MockPatient[] = seedPatients()
+  readonly mockBills = new Map<string, MockBill>()
+  readonly mockLinks = new Map<string, { status: string; channel: string; billId: string; polls: number }>()
+  readonly mockReceipts = new Map<string, MockReceipt>()
+  readonly mockApprovals: MockApproval[] = []
+  readonly mockSessions: MockSession[] = []
   /** Per instance (admin screens write to them). */
   readonly practitioners: MockPractitioner[] = seedPractitioners()
   readonly schedules: MockSchedule[] = seedSchedules()
@@ -496,6 +577,186 @@ export class MockBackend {
     return json(404, { msg: 'Not found' })
   }
 
+  private blankBill(patientId: string, branchId: string): MockBill {
+    return {
+      id: uuid('c2'),
+      accountId: uuid('c4'),
+      patientId,
+      branchId,
+      status: 'draft',
+      billNo: null,
+      lines: [],
+      totalPaise: 0,
+      duePaise: 0,
+    }
+  }
+
+  private consultLine() {
+    return {
+      id: uuid('c5'),
+      lineNo: 1,
+      serviceItemId: 'c6000000-0000-4000-8000-000000000001',
+      code: 'CONSULT',
+      name: 'OP consultation',
+      quantity: 1,
+      unitPricePaise: 50000,
+      taxRateBp: 0,
+      netPaise: 50000,
+      taxPaise: 0,
+      practitionerId: null,
+    }
+  }
+
+  private billJson(bill: MockBill) {
+    return {
+      id: bill.id,
+      billNo: bill.billNo,
+      status: bill.status,
+      billKind: 'final',
+      payerType: 'self',
+      accountId: bill.accountId,
+      patientId: bill.patientId,
+      branchId: bill.branchId,
+      lines: bill.lines,
+      discounts: [],
+      netPaise: bill.totalPaise,
+      taxPaise: 0,
+      discountPaise: 0,
+      exactPaise: bill.totalPaise,
+      roundOffPaise: 0,
+      totalPaise: bill.totalPaise,
+      duePaise: bill.duePaise,
+    }
+  }
+
+  private watchQr(bill: MockBill) {
+    for (const link of this.mockLinks.values()) {
+      if (link.billId === bill.id && link.channel === 'qr' && link.status !== 'paid') {
+        link.polls += 1
+        if (link.polls >= 2) {
+          link.status = 'paid'
+          bill.duePaise = 0
+        }
+      }
+    }
+  }
+
+  private publicBill(token: string) {
+    const link = this.mockLinks.get(token)
+    if (!link) return null
+    const bill = this.mockBills.get(link.billId)
+    if (!bill) return null
+    this.watchQr(bill)
+    return { ...this.billJson(bill), linkStatus: link.status, channel: link.channel }
+  }
+
+  private billingResponse(method: string, path: string, url: URL, body: Record<string, unknown>, idempotencyKey: string | null): { status: number; body: unknown } | null {
+    if (method === 'POST' && path === '/api/v1/accounts') {
+      const bill = this.blankBill(String(body.patientId), String(body.branchId))
+      this.mockBills.set(bill.id, bill)
+      return { status: 200, body: this.billJson(bill) }
+    }
+    const lines = /^\/api\/v1\/bills\/([^/]+)\/lines$/.exec(path)
+    if (method === 'POST' && lines) {
+      const bill = this.mockBills.get(lines[1]!)
+      if (!bill) return { status: 404, body: { title: 'Not found', status: 404 } }
+      bill.lines.push(this.consultLine())
+      bill.totalPaise = 50000
+      bill.duePaise = 50000
+      return { status: 200, body: this.billJson(bill) }
+    }
+    const finalize = /^\/api\/v1\/bills\/([^/]+)\/finalize$/.exec(path)
+    if (method === 'POST' && finalize) {
+      const bill = this.mockBills.get(finalize[1]!)
+      if (!bill) return { status: 404, body: { title: 'Not found', status: 404 } }
+      bill.status = 'finalized'
+      bill.billNo = 'OPB0000000000001'
+      return { status: 200, body: this.billJson(bill) }
+    }
+    const billPath = /^\/api\/v1\/bills\/([^/]+)$/.exec(path)
+    if (method === 'GET' && billPath) {
+      const bill = this.mockBills.get(billPath[1]!)
+      if (!bill) return { status: 404, body: { title: 'Not found', status: 404 } }
+      this.watchQr(bill)
+      return { status: 200, body: this.billJson(bill) }
+    }
+    const link = /^\/api\/v1\/bills\/([^/]+)\/payment-links$/.exec(path)
+    if (method === 'POST' && link) {
+      const bill = this.mockBills.get(link[1]!)
+      if (!bill) return { status: 404, body: { title: 'Not found', status: 404 } }
+      const order = uuid('c7').replace(/-/g, '')
+      const channel = String(body.channel ?? 'link')
+      this.mockLinks.set(order, { status: 'pending', channel, billId: bill.id, polls: 0 })
+      return {
+        status: 200,
+        body: {
+          id: uuid('c8'),
+          providerOrderId: order,
+          channel,
+          path: `/api/v1/billing-public/links/${order}`,
+          upiUri: `upi://pay?pa=stub@medicore&pn=MediCore&am=${(bill.duePaise / 100).toFixed(2)}&tr=${order}&cu=INR`,
+          shareStatus: channel === 'whatsapp' || channel === 'sms' ? 'queued' : undefined,
+        },
+      }
+    }
+    if (method === 'POST' && path === '/api/v1/payments') {
+      if (idempotencyKey && this.mockReceipts.has(idempotencyKey)) return { status: 200, body: this.mockReceipts.get(idempotencyKey) }
+      const allocations = (body.allocations as { billId?: string; amountPaise?: number }[] | undefined) ?? []
+      const bill = allocations[0]?.billId ? this.mockBills.get(allocations[0].billId) : undefined
+      if (bill) bill.duePaise = 0
+      const amount = allocations[0]?.amountPaise ?? bill?.totalPaise ?? 0
+      const receipt: MockReceipt = {
+        id: uuid('c9'),
+        receiptNo: 'RCP000000000001',
+        kind: 'payment',
+        amountPaise: amount,
+        accountId: bill?.accountId ?? String(body.accountId ?? ''),
+        tenders: ((body.tenders as { mode?: string; amountPaise?: number }[] | undefined) ?? []).map((t) => ({
+          mode: String(t.mode),
+          amountPaise: Number(t.amountPaise),
+          reference: null,
+        })),
+        allocations: allocations.map((a) => ({ billId: String(a.billId), amountPaise: Number(a.amountPaise) })),
+      }
+      if (idempotencyKey) this.mockReceipts.set(idempotencyKey, receipt)
+      return { status: 200, body: receipt }
+    }
+    const receipt = /^\/api\/v1\/receipts\/([^/]+)$/.exec(path)
+    if (method === 'GET' && receipt) {
+      const found = [...this.mockReceipts.values()].find((item) => item.id === receipt[1])
+      if (!found) return { status: 404, body: { title: 'Not found', status: 404 } }
+      return { status: 200, body: found }
+    }
+    if (method === 'GET' && path === '/api/v1/approvals') {
+      const status = url.searchParams.get('status')
+      return { status: 200, body: this.mockApprovals.filter((item) => !status || item.status === status) }
+    }
+    const decide = /^\/api\/v1\/approvals\/([^/]+)\/decide$/.exec(path)
+    if (method === 'POST' && decide) {
+      const item = this.mockApprovals.find((row) => row.id === decide[1])
+      if (!item) return { status: 404, body: { title: 'Not found', status: 404 } }
+      item.status = String(body.status)
+      item.note = body.note ? String(body.note) : null
+      return { status: 200, body: { approvalId: item.id, status: item.status } }
+    }
+    if (method === 'GET' && path === '/api/v1/billing-reports/day-end') {
+      const branchId = url.searchParams.get('branchId')
+      const date = url.searchParams.get('date')
+      return {
+        status: 200,
+        body: this.mockSessions.filter((session) => session.branchId === branchId && session.businessDate === date),
+      }
+    }
+    const reconcile = /^\/api\/v1\/counter-sessions\/([^/]+)\/reconcile$/.exec(path)
+    if (method === 'POST' && reconcile) {
+      const session = this.mockSessions.find((row) => row.sessionId === reconcile[1])
+      if (!session || session.status !== 'closed') return { status: 404, body: { title: 'Not found', status: 404 } }
+      session.status = 'reconciled'
+      return { status: 200, body: { id: session.sessionId, status: 'reconciled' } }
+    }
+    return null
+  }
+
   private async handleApi(route: Route) {
     const request = route.request()
     this.record(request)
@@ -526,7 +787,12 @@ export class MockBackend {
       this.warmups += 1
       return reply(204)
     }
-    // Public (anonymous) Level 1 endpoints: they never create a tenant or any access.
+    const publicBill = /^\/api\/v1\/billing-public\/links\/([^/]+)$/.exec(path)
+    if (method === 'GET' && publicBill) {
+      const linked = this.publicBill(publicBill[1]!)
+      if (!linked) return reply(404, { title: 'Not found', status: 404, code: 'not_found' })
+      return reply(200, linked)
+    }
     if (path.startsWith('/api/v1/public/')) {
       let pub: Record<string, unknown> = {}
       try {
@@ -568,6 +834,8 @@ export class MockBackend {
     } catch {
       body = {}
     }
+    const billed = this.billingResponse(method, path, url, body, request.headers()['idempotency-key'] ?? null)
+    if (billed) return reply(billed.status, billed.body, tenant)
 
     // Tenant-independent endpoints (work for a signed-in user with no tenant).
     if (method === 'GET' && path === '/api/v1/me') {

@@ -11,6 +11,8 @@ const loaders: Record<string, () => Promise<unknown>> = {
   '/schedules': () => import('../scheduling/StaffSchedulePage'),
   '/reception/check-in': () => import('../opd/CheckInPage'),
   '/queue': () => import('../opd/QueueBoardPage'),
+  '/billing/approvals': () => import('../billing/ApprovalsPage'),
+  '/billing/day-end': () => import('../billing/DayEndPage'),
   '/admin/desk': () => import('../admin/AdminDeskPage'),
   '/admin/branches': () => import('../admin/BranchesPage'),
   '/admin/members': () => import('../admin/MembersPage'),

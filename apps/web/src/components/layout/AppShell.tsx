@@ -5,7 +5,9 @@ import { prefetchRoute } from '../../features/workspace/routePrefetch'
 import { useWorkspace } from '../../features/workspace/WorkspaceProvider'
 import {
   BuildingOffice2Icon,
+  BanknotesIcon,
   CalendarDaysIcon,
+  CheckBadgeIcon,
   ClipboardDocumentCheckIcon,
   ClockIcon,
   Cog6ToothIcon,
@@ -102,6 +104,16 @@ export function AppShell() {
         ...(has('queue.view') ? [{ id: 'queue', path: '/queue', title: 'OPD queue', Icon: QueueListIcon, keys: 'Alt+Q' }] : []),
       ],
     }
+    const billing: NavGroup = {
+      id: 'billing',
+      title: 'Billing',
+      childs: operatorOnly
+        ? []
+        : [
+            ...(has('billing.approve') ? [{ id: 'approvals', path: '/billing/approvals', title: 'Approvals', Icon: CheckBadgeIcon }] : []),
+            ...(has('billing.view') ? [{ id: 'day-end', path: '/billing/day-end', title: 'Day end', Icon: BanknotesIcon }] : []),
+          ],
+    }
     const admin: NavGroup = {
       id: 'admin',
       title: 'Administration',
@@ -131,7 +143,7 @@ export function AppShell() {
           ]
         : [],
     }
-    return [clinical, reception, admin, platform]
+    return [clinical, reception, billing, admin, platform]
       .filter((g) => g.childs.length > 0)
       .map((g) => ({ ...g, childs: g.childs.map((item) => ({ ...item, onPrefetch: () => prefetchRoute(item.path) })) }))
   // eslint-disable-next-line react-hooks/exhaustive-deps -- `has` derives from me.data (roles/permissions)

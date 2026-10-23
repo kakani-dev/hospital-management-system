@@ -17,7 +17,7 @@ export interface FollowUpIntent {
 }
 
 export interface WorkspaceIntent {
-  mode: 'overview' | 'book'
+  mode: 'overview' | 'book' | 'bill'
   followUp?: FollowUpIntent
 }
 
