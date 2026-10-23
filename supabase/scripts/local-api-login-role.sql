@@ -20,6 +20,9 @@ begin
   if not exists (select 1 from pg_roles where rolname = 'hms_billing_login') then
     create role hms_billing_login login noinherit password 'hms_billing_local_only';
   end if;
+  if not exists (select 1 from pg_roles where rolname = 'hms_inventory_login') then
+    create role hms_inventory_login login noinherit password 'hms_inventory_local_only';
+  end if;
 end
 $$;
 grant hms_api to hms_api_login;
@@ -27,3 +30,4 @@ grant hms_svc_identity to hms_identity_login;
 grant hms_svc_patients to hms_patients_login;
 grant hms_svc_scheduling to hms_scheduling_login;
 grant hms_svc_billing to hms_billing_login;
+grant hms_svc_inventory to hms_inventory_login;

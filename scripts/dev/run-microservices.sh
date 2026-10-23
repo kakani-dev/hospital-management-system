@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# Runs the microservices stack locally WITHOUT Docker: identity, patients, scheduling and billing on
-# internal ports plus the YARP edge (the single public base URL) on API_PORT.
+# Runs the microservices stack locally WITHOUT Docker: identity, patients, scheduling, billing and
+# inventory on internal ports plus the YARP edge (the single public base URL) on API_PORT.
 # Used by Playwright (tests/playwright/playwright.config.ts) and for local development.
 #
 # Env (all optional):
 #   API_PORT            edge port (default 8080)
-#   HMS_MS_PORT_BASE    internal ports are base+1..4 (default 8100)
+#   HMS_MS_PORT_BASE    internal ports are base+1..5 (default 8100)
 #   HMS_MS_DB           base connection string WITHOUT credentials
 #                       (default Host=localhost;Port=5432;Database=hms)
 #   HMS_MS_EDGE_KEY     shared edge->service key (default: random per run)
 #   HMS_MS_NO_BUILD=1   skip `dotnet build` (CI builds once beforehand)
 #   HMS_MS_CONFIGURATION Debug|Release (default Debug)
 #   HMS_MS_PUBLISH      directory of self-contained publishes named identity, patients,
-#                       scheduling, billing and edge (Jenkins E2E). Skips dotnet build and `dotnet`.
+#                       scheduling, billing, inventory and edge (Jenkins E2E). Skips dotnet build and `dotnet`.
 # Everything else (Auth__Supabase__ProjectUrl, Auth__Supabase__AllowInsecureHttp,
 # ASPNETCORE_ENVIRONMENT, RateLimiting__*, Serilog__*) is inherited by every process.
 # Each service logs in with its own local-only role (supabase/scripts/local-api-login-role.sql).
@@ -21,9 +21,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BACKEND="$ROOT/backend"
 API_PORT="${API_PORT:-8080}"
-# Internal service ports (identity, patients, scheduling, billing) = base+1..4; override to run two stacks side by side.
+# Internal service ports (identity, patients, scheduling, billing, inventory) = base+1..5; override to run two stacks side by side.
 PORT_BASE="${HMS_MS_PORT_BASE:-8100}"
-ID_PORT=$((PORT_BASE + 1)) PAT_PORT=$((PORT_BASE + 2)) SCH_PORT=$((PORT_BASE + 3)) BIL_PORT=$((PORT_BASE + 4))
+ID_PORT=$((PORT_BASE + 1)) PAT_PORT=$((PORT_BASE + 2)) SCH_PORT=$((PORT_BASE + 3)) BIL_PORT=$((PORT_BASE + 4)) INV_PORT=$((PORT_BASE + 5))
 DB="${HMS_MS_DB:-Host=localhost;Port=5432;Database=hms}"
 CONFIG="${HMS_MS_CONFIGURATION:-Debug}"
 EDGE_KEY="${HMS_MS_EDGE_KEY:-$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')}"
@@ -67,11 +67,13 @@ start scheduling services/scheduling/Hms.Scheduling.Api "$SCH_PORT" ConnectionSt
   Outbox__Dispatcher__Enabled="${HMS_MS_DISPATCHER:-false}"
 start billing    services/billing/Hms.Billing.Api       "$BIL_PORT" ConnectionStrings__HmsDatabase="$(login billing)" \
   Billing__WebhookSecret="${BILLING_WEBHOOK_SECRET:-local-billing-webhook}"
+start inventory  services/inventory/Hms.Inventory.Api   "$INV_PORT" ConnectionStrings__HmsDatabase="$(login inventory)"
 start edge       edge/Hms.Edge                          "$API_PORT" \
   ReverseProxy__Clusters__identity__Destinations__primary__Address=http://localhost:$ID_PORT/ \
   ReverseProxy__Clusters__patients__Destinations__primary__Address=http://localhost:$PAT_PORT/ \
   ReverseProxy__Clusters__scheduling__Destinations__primary__Address=http://localhost:$SCH_PORT/ \
-  ReverseProxy__Clusters__billing__Destinations__primary__Address=http://localhost:$BIL_PORT/
+  ReverseProxy__Clusters__billing__Destinations__primary__Address=http://localhost:$BIL_PORT/ \
+  ReverseProxy__Clusters__inventory__Destinations__primary__Address=http://localhost:$INV_PORT/
 
 echo "edge: http://localhost:$API_PORT (ready: /health/ready)"
 # Exit (and tear everything down) as soon as any process dies.

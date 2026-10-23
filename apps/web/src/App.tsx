@@ -79,6 +79,9 @@ const ReceiptPage = lazy(() =>
 const AdminDeskPage = lazy(() =>
   import("./features/admin/AdminDeskPage").then((m) => ({ default: m.AdminDeskPage })),
 );
+const StockPage = lazy(() =>
+  import("./features/stock/StockPage").then((m) => ({ default: m.StockPage })),
+);
 
 function Lazy({ children }: { children: ReactNode }) {
   return <Suspense fallback={<LoadingBlock className="p-6" label="Loading page" />}>{children}</Suspense>;
@@ -160,6 +163,9 @@ export function App() {
           <Route element={<RequireCapability capability="billing.view" />}>
             <Route path="billing/day-end" element={<Lazy><DayEndPage /></Lazy>} />
             <Route path="billing/receipts/:receiptId" element={<Lazy><ReceiptPage /></Lazy>} />
+          </Route>
+          <Route element={<RequireCapability capability="stock.view" />}>
+            <Route path="stock" element={<Lazy><StockPage /></Lazy>} />
           </Route>
           <Route path="admin">
             <Route

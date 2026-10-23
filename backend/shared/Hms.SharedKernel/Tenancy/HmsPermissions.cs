@@ -44,6 +44,10 @@ public static class HmsPermissions
     public const string BillingRefund = "billing.refund";
     public const string BillingCounterReconcile = "billing.counter_reconcile";
     public const string BillingPricelistManage = "billing.pricelist_manage";
+    public const string InventoryView = "inventory.view";
+    public const string InventoryCatalog = "inventory.catalog";
+    public const string InventoryOpening = "inventory.opening";
+    public const string InventoryApprove = "inventory.approve";
 
     private static readonly string[] ReadOnlyOps = [SettingsView, BranchesView, PractitionersView];
 
@@ -55,7 +59,8 @@ public static class HmsPermissions
             AppointmentsView, AppointmentsBook, AppointmentsReschedule, AppointmentsCancel, AppointmentsCheckIn, AppointmentsNoShow,
             AppointmentsOverrideHours, QueueView, QueueManage,
             BillingView, BillingBill, BillingCollect, BillingDiscountRequest, BillingApprove, BillingRefund,
-            BillingCounterReconcile, BillingPricelistManage),
+            BillingCounterReconcile, BillingPricelistManage,
+            InventoryView, InventoryCatalog, InventoryOpening, InventoryApprove),
         [HmsRoles.Receptionist] = Set([.. ReadOnlyOps,
             PatientsView, PatientsCreate, PatientsEdit, PatientsDelete,
             AppointmentsView, AppointmentsBook, AppointmentsReschedule, AppointmentsCancel, AppointmentsCheckIn, AppointmentsNoShow,
@@ -65,7 +70,7 @@ public static class HmsPermissions
         [HmsRoles.Doctor] = Set([.. ReadOnlyOps, PatientsView, AppointmentsView, AppointmentsBookFollowUpOwn, AppointmentsNoShowOwn, QueueView, QueueConsultOwn]),
         [HmsRoles.Billing] = Set([.. ReadOnlyOps, PatientsView, AppointmentsView,
             BillingView, BillingBill, BillingCollect, BillingDiscountRequest, BillingRefund]),
-        [HmsRoles.Pharmacist] = Set(ReadOnlyOps),
+        [HmsRoles.Pharmacist] = Set([.. ReadOnlyOps, InventoryView]),
         [HmsRoles.LabTechnician] = Set(ReadOnlyOps),
         [HmsRoles.Viewer] = Set(ReadOnlyOps),
     };
