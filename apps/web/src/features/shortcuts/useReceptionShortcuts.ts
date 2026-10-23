@@ -47,6 +47,8 @@ export function useReceptionShortcuts({ roles, onHelp }: { roles: string[]; onHe
         else if (id === 'desk') {
           if (!can(latest.current.roles, 'admin.branches')) return
           go('/admin/desk', MAIN)
+        } else if (id === 'bill') {
+          document.querySelector<HTMLButtonElement>('[data-shortcut="op-consult"]')?.click()
         } else if (id === 'book') {
           const open = document.querySelector<HTMLButtonElement>('[data-shortcut="open-booking"]')
           if (open && latest.current.pathname === '/appointments') {

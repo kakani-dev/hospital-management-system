@@ -17,6 +17,7 @@ import { RequireCapability } from "./features/auth/RequireCapability";
 import { WakingBanner } from "./components/layout/WakingBanner";
 import { RegisterHospitalPage } from "./features/onboarding/RegisterHospitalPage";
 import { InvitePage } from "./features/invitations/InvitePage";
+import { PublicPaymentPage } from "./features/billing/PublicPaymentPage";
 import { RequirePlatformAdmin } from "./features/platform/RequirePlatformAdmin";
 
 // Scheduling and OPD screens are split into their own chunks: most sessions (billing, patient
@@ -63,6 +64,15 @@ const QueueBoardPage = lazy(() =>
     default: m.QueueBoardPage,
   })),
 );
+const ApprovalsPage = lazy(() =>
+  import("./features/billing/ApprovalsPage").then((m) => ({ default: m.ApprovalsPage })),
+);
+const DayEndPage = lazy(() =>
+  import("./features/billing/DayEndPage").then((m) => ({ default: m.DayEndPage })),
+);
+const ReceiptPage = lazy(() =>
+  import("./features/billing/ReceiptPage").then((m) => ({ default: m.ReceiptPage })),
+);
 const AdminDeskPage = lazy(() =>
   import("./features/admin/AdminDeskPage").then((m) => ({ default: m.AdminDeskPage })),
 );
@@ -82,6 +92,7 @@ export function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register-hospital" element={<RegisterHospitalPage />} />
       <Route path="/invite/:token" element={<InvitePage />} />
+      <Route path="/pay/:token" element={<PublicPaymentPage />} />
       <Route element={<RequireAuth />}>
         <Route element={<AppShell />}>
           <Route index element={<DashboardPage />} />
@@ -139,6 +150,13 @@ export function App() {
                 </Lazy>
               }
             />
+          </Route>
+          <Route element={<RequireCapability capability="billing.approve" />}>
+            <Route path="billing/approvals" element={<Lazy><ApprovalsPage /></Lazy>} />
+          </Route>
+          <Route element={<RequireCapability capability="billing.view" />}>
+            <Route path="billing/day-end" element={<Lazy><DayEndPage /></Lazy>} />
+            <Route path="billing/receipts/:receiptId" element={<Lazy><ReceiptPage /></Lazy>} />
           </Route>
           <Route path="admin">
             <Route

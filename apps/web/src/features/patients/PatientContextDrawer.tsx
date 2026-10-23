@@ -14,6 +14,7 @@ import { can } from '../../lib/permissions'
 import type { Appointment, CheckInResult } from '../../lib/api/types'
 import { checkInErrorMessage } from '../opd/checkInErrors'
 import { BookingPanel } from '../scheduling/BookingPanel'
+import { BillingPanel } from '../billing/BillingPanel'
 import { followUpInitial } from '../scheduling/followUp'
 import { useBookablePractitionersState } from '../scheduling/useBookablePractitioners'
 import { rolesAtBranch, useCurrentContext } from '../tenancy/useCurrentContext'
@@ -54,6 +55,7 @@ export function PatientContextDrawer() {
   const ownPractitioner = bookable.practitioners.find((p) => !!p.userId && p.userId === me.data?.userId)
   const canFollowUp = canBook || (!!ownPractitioner && can(branchRoles, 'appointments.bookFollowUp'))
   const canCheckIn = can(branchRoles, 'queue.checkIn')
+  const canBill = can(branchRoles, 'billing.bill')
   const today = timeZoneReady ? localToday(new Date(), timeZone) : null
   const history = [...(visits.data ?? [])].sort((a, b) => b.startsAt.localeCompare(a.startsAt))
   const todayBooked = today
@@ -65,6 +67,7 @@ export function PatientContextDrawer() {
   const practitionerName = (id: string) => practitioners.data?.find((p) => p.id === id)?.displayName ?? 'Practitioner'
   const fullName = `${patient.firstName} ${patient.lastName}`
   const booking = intent.mode === 'book'
+  const billing = intent.mode === 'bill'
   const followUp: FollowUpIntent | undefined = intent.followUp
 
   const startBook = (asFollowUp: boolean) => {
@@ -86,8 +89,13 @@ export function PatientContextDrawer() {
   }
 
   const p = detail.data
-  const footer = !booking ? (
+  const footer = !booking && !billing ? (
     <div className="flex flex-wrap gap-2">
+      {canBill && branchId && (
+        <Button data-testid="context-op-consult" data-shortcut="op-consult" onClick={() => setIntent({ mode: 'bill' })}>
+          OP consult
+        </Button>
+      )}
       {canBook && (
         <Button data-testid="context-book" onClick={() => startBook(false)}>
           Book appointment
@@ -118,13 +126,15 @@ export function PatientContextDrawer() {
     <Drawer
       open
       onClose={closePatient}
-      title={booking ? (followUp?.parentAppointmentId ? 'Book follow-up' : 'Book appointment') : `${patient.lastName}, ${patient.firstName}`}
+      title={billing ? 'OP consult bill' : booking ? (followUp?.parentAppointmentId ? 'Book follow-up' : 'Book appointment') : `${patient.lastName}, ${patient.firstName}`}
       closeLabel="Close patient"
       testId="patient-context"
-      className={booking ? 'max-w-2xl!' : 'max-w-lg!'}
+      className={booking || billing ? 'max-w-2xl!' : 'max-w-lg!'}
       footer={footer}
     >
-      {booking && branchId ? (
+      {billing && branchId ? (
+        <BillingPanel patientId={patient.id} branchId={branchId} onBack={() => setIntent({ mode: 'overview' })} />
+      ) : booking && branchId ? (
         <BookingPanel
           key={followUp?.parentAppointmentId ? `fu-${patient.id}-${followUp.parentAppointmentId}` : `book-${patient.id}`}
           branchId={branchId}

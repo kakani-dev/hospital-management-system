@@ -684,3 +684,94 @@ export interface WalkInRequest {
 export interface UpdateQueueStatusRequest {
   status: Exclude<QueueStatus, 'waiting'>
 }
+
+/** Bill document from billing.bill_json. Amounts are integer paise. */
+export interface BillLine {
+  id: Guid
+  lineNo: number
+  serviceItemId: Guid
+  code: string
+  name: string
+  quantity: number
+  unitPricePaise: number
+  taxRateBp: number
+  netPaise: number
+  taxPaise: number
+  practitionerId: Guid | null
+}
+
+export interface BillDiscount {
+  id: Guid
+  billLineId: Guid | null
+  kind: string
+  value: number
+  reasonCode: string
+  approvalId: Guid
+}
+
+export interface BillDocument {
+  id: Guid
+  billNo: string | null
+  status: string
+  billKind: string
+  payerType: string
+  accountId: Guid
+  patientId: Guid
+  branchId: Guid
+  lines: BillLine[]
+  discounts: BillDiscount[]
+  netPaise: number
+  taxPaise: number
+  discountPaise: number
+  exactPaise: number
+  roundOffPaise: number
+  totalPaise: number
+  duePaise: number
+}
+
+export interface PaymentLink {
+  id: Guid
+  providerOrderId: string
+  channel: string
+  path: string
+  upiUri?: string
+  shareStatus?: string
+}
+
+export interface Receipt {
+  id: Guid
+  receiptNo: string | null
+  kind: string
+  amountPaise: number
+  accountId: Guid
+  tenders: { mode: string; amountPaise: number; reference: string | null }[]
+  allocations: { billId: Guid; amountPaise: number }[]
+}
+
+export interface ApprovalRequest {
+  id: Guid
+  action: string
+  status: string
+  amountPaise: number | null
+  percentBp: number | null
+  requestedBy: Guid | null
+  approverId: Guid | null
+  subjectType: string
+  subjectId: Guid
+  note: string | null
+}
+
+export interface DayEndSession {
+  sessionId: Guid
+  counterId: Guid
+  cashierId: Guid
+  status: string
+  openingFloatPaise: number
+  countedCashPaise: number | null
+  businessDate: string
+}
+
+export interface PublicBill extends BillDocument {
+  linkStatus: string
+  channel: string
+}

@@ -18,13 +18,14 @@ interface Action {
   capability?: Capability
   /** Platform operators only (no hospital capability). */
   platform?: boolean
-  run: 'book' | 'navigate'
+  run: 'book' | 'navigate' | 'bill'
   path?: string
   state?: object
 }
 
 const ACTIONS: Action[] = [
   { id: 'book', label: 'Book appointment', hint: 'Open the booking drawer', capability: 'appointments.book', run: 'book' },
+  { id: 'op-consult', label: 'OP consult bill', hint: 'Consultation on the open patient', capability: 'billing.bill', run: 'bill' },
   { id: 'check-in', label: 'Reception check-in', hint: 'Today’s appointments', capability: 'queue.checkIn', run: 'navigate', path: '/reception/check-in' },
   { id: 'queue', label: 'OPD queue', hint: 'Today’s tokens', capability: 'queue.view', run: 'navigate', path: '/queue' },
   { id: 'patients', label: 'Patients', hint: 'Search the registry', capability: 'patients.view', run: 'navigate', path: '/patients' },
@@ -41,7 +42,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
   const navigate = useNavigate()
   const qc = useQueryClient()
   const { has, me } = useCurrentContext()
-  const { openPatient, requestBooking } = useWorkspace()
+  const { openPatient, requestBooking, patient, setIntent } = useWorkspace()
   const [term, setTerm] = useState('')
   const [active, setActive] = useState(0)
   const [activeFor, setActiveFor] = useState(term)
@@ -88,7 +89,10 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
     }
     onClose()
     if (option.action.run === 'book') requestBooking()
-    else if (option.action.path) navigate(option.action.path, option.action.state ? { state: option.action.state } : undefined)
+    else if (option.action.run === 'bill') {
+      if (patient) setIntent({ mode: 'bill' })
+      else navigate('/patients')
+    } else if (option.action.path) navigate(option.action.path, option.action.state ? { state: option.action.state } : undefined)
   }
 
   return (

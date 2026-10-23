@@ -47,6 +47,12 @@ import type {
   UpdatePatientRequest,
   UpdateQueueStatusRequest,
   WalkInRequest,
+  ApprovalRequest,
+  BillDocument,
+  DayEndSession,
+  PaymentLink,
+  PublicBill,
+  Receipt,
   ClaimedInvite,
   CreateInviteLinkRequest,
   HospitalApproved,
@@ -555,6 +561,34 @@ export class ApiClient {
     /** waiting → in_consultation | cancelled; in_consultation → done | cancelled. Otherwise 409 invalid_transition. */
     updateStatus: (id: string, body: UpdateQueueStatusRequest) =>
       this.request<QueueEntry>(`/api/v1/queue/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  }
+
+  billing = {
+    openAccount: (body: { patientId: string; branchId: string; accountType?: string }) =>
+      this.request<BillDocument>('/api/v1/accounts', { method: 'POST', body: JSON.stringify(body) }),
+    bill: (id: string) => this.request<BillDocument>(`/api/v1/bills/${encodeURIComponent(id)}`),
+    addLine: (id: string, body: { code?: string; serviceItemId?: string; quantity?: number }) =>
+      this.request<BillDocument>(`/api/v1/bills/${encodeURIComponent(id)}/lines`, { method: 'POST', body: JSON.stringify(body) }),
+    finalize: (id: string) => this.request<BillDocument>(`/api/v1/bills/${encodeURIComponent(id)}/finalize`, { method: 'POST' }),
+    discount: (id: string, body: { kind: 'flat_paise' | 'percent_bp'; value: number; reasonCode: string }) =>
+      this.request<BillDocument>(`/api/v1/bills/${encodeURIComponent(id)}/discounts`, { method: 'POST', body: JSON.stringify(body) }),
+    paymentLink: (id: string, body: { channel: 'qr' | 'whatsapp' | 'sms' | 'link'; destination?: string }) =>
+      this.request<PaymentLink>(`/api/v1/bills/${encodeURIComponent(id)}/payment-links`, { method: 'POST', body: JSON.stringify(body) }),
+    pay: (idempotencyKey: string, body: { accountId: string; kind: 'payment'; tenders: { mode: string; amountPaise: number }[]; allocations: { billId: string; amountPaise: number }[] }) =>
+      this.request<Receipt>('/api/v1/payments', {
+        method: 'POST',
+        body: JSON.stringify(body),
+        headers: { 'Idempotency-Key': idempotencyKey },
+      }),
+    receipt: (id: string) => this.request<Receipt>(`/api/v1/receipts/${encodeURIComponent(id)}`),
+    approvals: (status?: string) => this.request<ApprovalRequest[]>(`/api/v1/approvals${qs({ status })}`),
+    decide: (id: string, body: { status: 'approved' | 'rejected'; note?: string }) =>
+      this.request<BillDocument | Receipt>(`/api/v1/approvals/${encodeURIComponent(id)}/decide`, { method: 'POST', body: JSON.stringify(body) }),
+    dayEnd: (branchId: string, date: string) => this.request<DayEndSession[]>(`/api/v1/billing-reports/day-end${qs({ branchId, date })}`),
+    reconcile: (sessionId: string) =>
+      this.request<{ id: string; status: string }>(`/api/v1/counter-sessions/${encodeURIComponent(sessionId)}/reconcile`, { method: 'POST' }),
+    publicLink: (token: string) =>
+      this.request<PublicBill>(`/api/v1/billing-public/links/${encodeURIComponent(token)}`, { auth: false, retry: false }),
   }
 }
 
