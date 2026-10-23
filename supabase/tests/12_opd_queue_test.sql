@@ -9,6 +9,10 @@ create temporary table t_ctx on commit drop as
   from identity.branches b where b.id = 'a1111111-0000-4000-8000-000000000001';
 grant select on t_ctx to public;
 
+-- The visiting consultant's seeded hours are at East. Queue tests that name them at Main need a membership.
+insert into appointment.practitioner_branches (tenant_id, practitioner_id, branch_id)
+values ('11111111-1111-4111-8111-111111111111', 'c1111111-0000-4000-8000-000000000001', 'a1111111-0000-4000-8000-000000000001');
+
 -- Today's appointment for Kiran (aa..04) at Alpha Main, and one tomorrow for Asha (aa..01).
 insert into appointment.appointments (id, tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at)
 select 'e1111111-0000-4000-8000-0000000000b1', '11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001',

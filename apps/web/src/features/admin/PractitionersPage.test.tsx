@@ -2,8 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { App } from '../../App'
-import { fakeAuthClient, fakeSession, json, meFor, meWithRoles, renderWithProviders, stubFetch } from '../../test/fakes'
-import { DR_IYER, DR_RAO } from '../../test/schedulingFixtures'
+import { ALPHA_MAIN, fakeAuthClient, fakeSession, json, meFor, meWithRoles, renderWithProviders, stubFetch } from '../../test/fakes'
+import { branchesResponse, DR_IYER, DR_RAO } from '../../test/schedulingFixtures'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -21,6 +21,11 @@ function routes(extra: Parameters<typeof stubFetch>[0] = {}) {
     'GET /api/v1/me': () => json(meFor()),
     'GET /api/v1/practitioners': () => json(list),
     'GET /api/v1/members': () => json(members),
+    'GET /api/v1/branches': () => json(branchesResponse),
+    'GET /api/v1/scheduling-settings': () => json({ travelBufferMinutes: 0 }),
+    'GET /api/v1/practitioner-branches': () => json([]),
+    'GET /api/v1/schedules': () => json([]),
+    'GET /api/v1/schedule-overrides': () => json([]),
     'POST /api/v1/practitioners': (_u, init) => json({ id: 'new', userId: null, isActive: true, ...JSON.parse(String(init.body)) }, 201),
     ...extra,
   })
@@ -88,6 +93,43 @@ describe('Practitioners admin', () => {
     await user.click(await screen.findByRole('button', { name: 'Restore Dr. Gone' }))
     await screen.findByText('Dr. Gone was restored as inactive. Activate them to make them bookable again.')
     expect(calls.filter((c) => c.method === 'POST').map((c) => c.path)).toEqual([`/api/v1/practitioners/${DELETED}/restore`])
+  })
+
+  it('adds a branch and Monday hours from the practitioner drawer', async () => {
+    const memberships: { id: string; practitionerId: string; branchId: string; isActive: boolean; consultationRoom: null; consultationFeeCents: null }[] = []
+    const calls = routes({
+      'GET /api/v1/practitioner-branches': () => json(memberships),
+      'POST /api/v1/practitioner-branches': (_u, init) => {
+        const body = JSON.parse(String(init.body)) as { practitionerId: string; branchId: string }
+        const row = { id: 'mb1', isActive: true, consultationRoom: null, consultationFeeCents: null, ...body }
+        memberships.push(row)
+        return json(row, 201)
+      },
+      'POST /api/v1/schedules': (_u, init) => json({ id: 'sch1', isActive: true, isDeleted: false, validTo: null, ...JSON.parse(String(init.body)) }, 201),
+    })
+    const user = userEvent.setup()
+    open()
+    await user.click(await screen.findByRole('button', { name: 'Edit Dr. Iyer' }))
+    const drawer = await screen.findByTestId('practitioner-drawer')
+    await user.selectOptions(within(drawer).getByLabelText('Branch'), ALPHA_MAIN)
+    await user.click(within(drawer).getByRole('button', { name: 'Add branch' }))
+    expect(await screen.findByText('Dr. Iyer now works at Alpha Main.')).toBeInTheDocument()
+    expect(await within(drawer).findByLabelText('Hours at')).toHaveValue(ALPHA_MAIN)
+    for (const day of ['Tue', 'Wed', 'Thu', 'Fri', 'Sat']) {
+      await user.click(within(drawer).getByRole('checkbox', { name: day }))
+    }
+    await user.click(within(drawer).getByRole('button', { name: 'Add hours' }))
+    expect(await screen.findByText('Hours saved at Alpha Main.')).toBeInTheDocument()
+    const hours = calls.filter((c) => c.method === 'POST' && c.path === '/api/v1/schedules')
+    expect(hours).toHaveLength(1)
+    expect(hours[0]!.body).toMatchObject({
+      practitionerId: DR_IYER,
+      branchId: ALPHA_MAIN,
+      weekday: 1,
+      startTime: '09:00',
+      endTime: '13:00',
+      slotMinutes: 15,
+    })
   })
 
   it('is admin-only', async () => {

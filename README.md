@@ -2,7 +2,7 @@
 
 A multi-tenant Hospital Management System: a React SPA, a YARP edge in front of identity, patients and scheduling services, and Supabase PostgreSQL with Row Level Security. It is designed so that one platform can serve many hospitals (tenants) and their branches securely.
 
-> **Status.** Demonstration only, **synthetic data only**, not for clinical use. The database schema lives on a Supabase project. The web app is on Vercel and the API is the Azure Container Apps edge. The old App Service `medicore-hms-api` is still running until [the cutover runbook](docs/runbooks/monolith-cutover.md).
+> **Status.** Demonstration only, **synthetic data only**, not for clinical use. The database schema lives on a Supabase project. The web app on Vercel uses the Azure Container Apps edge. The App Service `medicore-hms-api` is stopped and its project is removed from the repository. The cutover is done ([record](docs/runbooks/monolith-cutover.md)).
 
 ## Stack
 
@@ -12,8 +12,8 @@ A multi-tenant Hospital Management System: a React SPA, a YARP edge in front of 
 | Backend | ASP.NET Core (.NET 10 LTS) minimal APIs, EF Core + Npgsql, OpenAPI + Swagger UI, Serilog JSON logs, health checks |
 | Database | Supabase PostgreSQL: SQL migrations, a schema per service, RLS keyed on memberships, audit log |
 | Tests | Vitest (unit), xUnit (unit, API integration with signed JWTs on real Postgres, RLS defense in depth), SQL tests, full-stack Playwright + axe (mock Supabase Auth) |
-| CI | GitHub Actions (`ci.yml` = required gate, `cleanup.yml` weekly artifact/cache cleanup), optional Jenkins mirror (`Jenkinsfile`) |
-| Hosting | Vercel (web), Azure Container Apps (edge + three services), Supabase (DB). The App Service stays up until the cutover runbook. |
+| CI | GitHub Actions (`ci.yml` required gate; skips unchanged jobs, nightly full run), `cleanup.yml` weekly artifact/cache cleanup, optional Jenkins mirror |
+| Hosting | Vercel (web, production on the edge), Azure Container Apps (edge + three services), Supabase (DB). The App Service is stopped. |
 
 ## Repository layout
 

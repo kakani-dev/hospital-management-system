@@ -74,7 +74,10 @@ public class AuditColumnConventionsTests
 
     [Theory]
     [InlineData(typeof(Practitioner))]
+    [InlineData(typeof(PractitionerBranch))]
     [InlineData(typeof(Schedule))]
+    [InlineData(typeof(ScheduleOverride))]
+    [InlineData(typeof(TenantSchedulingSettings))]
     [InlineData(typeof(Appointment))]
     [InlineData(typeof(QueueEntry))]
     public void Appointment_audit_columns_are_ignored_too(Type entity)

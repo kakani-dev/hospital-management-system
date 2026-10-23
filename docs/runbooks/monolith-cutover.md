@@ -1,13 +1,15 @@
 # Runbook: database-per-service cutover and App Service shutdown
 
-Status: **not done**. This file is the operator procedure. Applying it changes hosted Supabase
-grants and Azure Container Apps traffic. Do not run it until it is approved. The repository
-change does not apply migration `20261022140000`, does not write Container App secrets, and does
-not stop or delete `medicore-hms-api`.
+Status: **done** (2026-10-23). The App Service `medicore-hms-api` is stopped. Its project is
+removed from the repository. Azure Container Apps serves `sha-c1d9516`. Vercel production uses
+the edge. The steps below are the record of that cutover. Do not run them again.
 
-Production web traffic stays on the App Service until the Vercel step at the end. A blip on the
-Container Apps during steps 2–3 does not move that traffic. The App Service uses `hms_api_login`,
-which this migration does not change.
+The app and its plan were not deleted. Starting it again is `az webapp start` on that name, then
+pointing `VITE_API_BASE_URL` back at the App Service and redeploying Vercel. That is a rollback,
+not the current state.
+
+Production web traffic is on the edge. The migration `20261022140000` is applied on the hosted
+database. The App Service login `hms_api_login` was not changed; the stopped app is not serving.
 
 Secrets never go in this file, the repo, chat, or logs. Do not run these commands under `set -x`.
 Pass `-o none` when a command would print a setting value. Where a command prints a username,
@@ -209,7 +211,7 @@ logins as part of that undo. The App Service does not need them.
 ## What this runbook does not do
 
 - It does not delete `medicore-hms-api`, the App Service plan, or the resource group.
-- It does not revoke `authenticated`'s own grants (PostgREST and the App Service still use them
-  until step 5).
+- It does not revoke `authenticated`'s own grants. PostgREST still uses that role. The App
+  Service is stopped and is not serving.
 - It does not split Postgres into physical databases. That decision is ADR 0002.
 - It does not enable the scheduling outbox dispatcher.

@@ -1,10 +1,10 @@
 # Legacy monolith inventory
 
-Audit date: 2026-10-22. The host `backend/gateway/Hms.Gateway` is removed from the repository.
-Azure App Service `medicore-hms-api` still runs the last deployed build of that host. The HTTP
-surface of that host is a subset of the three services behind `Hms.Edge`. Nothing that the monolith
-serves is missing from its owning service. Stopping the App Service is
-`docs/runbooks/monolith-cutover.md`, and this change does not do it.
+Audit date: 2026-10-22. Updated 2026-10-23: the cutover is done. `backend/gateway/Hms.Gateway`
+is removed from the repository. Azure App Service `medicore-hms-api` is stopped. Container Apps
+serves `sha-c1d9516`, and Vercel production uses the edge. The HTTP surface of the removed host
+was a subset of the three services behind `Hms.Edge`. The record is
+`docs/runbooks/monolith-cutover.md`.
 
 Status values:
 
@@ -49,6 +49,9 @@ All paths are under `/api/v1` except the health routes. The edge route is the YA
 | `GET /appointments`, `GET /appointments/{id}`, `POST /appointments` | scheduling | `scheduling-appointments` | yes | in service |
 | `POST /appointments/{id}/reschedule`, `/cancel`, `/no-show`, `/check-in` | scheduling | `scheduling-appointments` | yes | in service |
 | `GET /queue`, `POST /queue/walk-in`, `PATCH /queue/{id}` | scheduling | `scheduling-queue` | yes | in service |
+| `GET/POST /practitioner-branches`, `PATCH /practitioner-branches/{id}` | scheduling | `scheduling-practitioner-branches` | no | service only |
+| `GET/POST /schedule-overrides`, `PATCH /schedule-overrides/{id}` | scheduling | `scheduling-schedule-overrides` | no | service only |
+| `GET/PUT /scheduling-settings`, `GET /practitioners/me/day` | scheduling | `scheduling-settings`, `scheduling-practitioners` | no | service only |
 | `GET /health/live`, `GET /health/ready` | edge (and each service for itself) | edge answers the public pair | yes, for its own process | edge only on the public URL |
 | `GET /api/v1/warmup` | edge | edge probes the three services | no | edge only |
 
@@ -58,7 +61,7 @@ There is no catch-all route to the App Service. A prefix that is not in the tabl
 
 | Worker or job | Where it runs | Monolith | Status |
 |---|---|---|---|
-| `OutboxDispatcher` (`AddHmsOutboxDispatcher`) | scheduling `Program.cs` only (the repo host is gone) | the App Service process still has the last deployed registration | **kept off**. `Outbox:Dispatcher:Enabled` is false on scheduling and must stay false on `medicore-hms-api` (B1). `hms_api` is not a member of `hms_dispatcher`. |
+| `OutboxDispatcher` (`AddHmsOutboxDispatcher`) | scheduling `Program.cs` only | the App Service is stopped | **kept off**. `Outbox:Dispatcher:Enabled` is false on scheduling (B1). `hms_api` is not a member of `hms_dispatcher`. |
 | `EmailOutboxDispatcher` | identity only (`Email:Dispatcher:Enabled`) | not registered | service only. Off until SMTP is configured; the ACA rollout sets it on `ca-hms-identity` only. |
 | pg_cron `hms-close-stale-queues` (`*/15 * * * *`, `select appointment.close_stale_queues()`) | database, migration `20261020150000_scheduling_enable_pg_cron.sql` | not an app worker | in service (scheduling schema). No app change. |
 
@@ -82,12 +85,12 @@ Recorded from the removed `backend/gateway/Hms.Gateway/appsettings.json`:
 
 | Client | What it points at | Action |
 |---|---|---|
-| Vercel project `medicore-hms`, `VITE_API_BASE_URL` production and preview | `https://medicore-hms-api.azurewebsites.net` (set outside the repo) | **Do not change in this change.** Cutover step in `docs/runbooks/monolith-cutover.md`. |
+| Vercel project `medicore-hms`, `VITE_API_BASE_URL` production | the public edge | cutover done. Production uses the edge. |
 | `apps/web` local and Docker | empty `VITE_API_BASE_URL` falls back to same-origin; Docker build arg is `http://localhost:8080` (the edge) | already on the edge |
 | `scripts/dev/run-microservices.sh` | edge on :8080 | already the default dev path |
 | Playwright default | that dev script | already the edge. Jenkins publishes the four hosts and sets `HMS_MS_PUBLISH`. |
 | `scripts/smoke/deploy-smoke-sprint2.sh` | refuses an empty `API_URL` and refuses the App Service hostname | operator sets the public edge URL |
-| `.github/workflows/ci.yml` | integration runs through the edge only; image matrix is edge, identity, patients, scheduling | monolith job and `infra/docker/api.Dockerfile` removed |
+| `.github/workflows/ci.yml` | integration runs through the edge only; image matrix is edge, identity, patients, scheduling | monolith job and `infra/docker/api.Dockerfile` removed. Empty image matrix falls back to edge. |
 | `docker-compose.yml` | edge on :8080, no monolith profile | removed with the host |
 | `infra/render/render.yaml` | retired comment, no image | not deployed |
 | `backend/tests` | `Hms.TestHost` for in-process unit tests; `HmsApiFactory` is `edge` or `edge-url` | gateway project removed. Test host is not deployed. |

@@ -90,6 +90,15 @@ On first check (~21:10 IST) `main` was unprotected (`"protected":false`, require
 - **Candidates to require later (each needs Mohith's approval):**
   - `Web E2E (mocked API, Playwright)`: recommended once fix/pr1-web is on `main` and the job has run green a few times.
   - `DB prototype on Supabase stack (supabase start, non-required)`: only after it has proven stable, and the job would need renaming first (see Minor 9).
+  - `ci-ok`: optional single aggregate. Not required for the four contexts above to keep working.
+
+### Update (CI skip, October 2026)
+
+Required check **names are unchanged** (still the four contexts in the table above). This CI change does not need a branch-protection edit.
+
+Each required name is a reporter job. It exits 0, so the check conclusion is **success**, when the matching heavy job was skipped because its paths did not change or a pass marker already exists for the same inputs. It exits 1 when that heavy job failed or was cancelled, or when the `changes` job did not succeed. Auto-merge still watches the same four contexts, and a skipped heavy job cannot leave one of them pending.
+
+`ci-ok` (`if: always()`, `needs` every job) fails the workflow when any needed job failed or was cancelled. `DB prototype on Supabase stack (supabase start, non-required)` stays `continue-on-error` and is ignored by the aggregate. Adding `ci-ok` to the required list would be a GitHub settings change and needs Mohith's approval. Until then the four existing contexts are the gate, and they go red when their own work fails.
 
 ---
 

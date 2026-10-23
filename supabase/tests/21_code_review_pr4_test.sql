@@ -93,6 +93,8 @@ select tests.ok(identity.has_tenant_role('11111111-1111-4111-8111-111111111111',
 -- ============================================================ MIN-1: DST-safe slots ==
 select tests.as_superuser();
 update identity.branches set timezone_override = 'America/New_York' where id = 'a1111111-0000-4000-8000-000000000002';
+insert into appointment.practitioner_branches (tenant_id, practitioner_id, branch_id)
+values ('11111111-1111-4111-8111-111111111111', 'c1111111-0000-4000-8000-000000000002', 'a1111111-0000-4000-8000-000000000002');
 insert into appointment.schedules (tenant_id, branch_id, practitioner_id, weekday, start_time, end_time, slot_minutes, valid_from)
 values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000002', 'c1111111-0000-4000-8000-000000000002',
         7, '00:00', '04:00', 30, '2026-10-01');

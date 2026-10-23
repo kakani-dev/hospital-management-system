@@ -1,9 +1,9 @@
 # Microservices architecture
 
-Status: **current development model** (decision 9 Oct 2026). The all-in-one host is removed from
-the repository. The App Service `medicore-hms-api` stays up until
-`docs/runbooks/monolith-cutover.md`. The approved plan is in `MICROSERVICES-PLAN.md`; database
-contracts are in `docs/contracts/db.md`; ownership is ADR 0002.
+Status: **current**. The all-in-one host is removed from the repository. The App Service
+`medicore-hms-api` is stopped, and the cutover is done (`docs/runbooks/monolith-cutover.md`).
+The approved plan is in `MICROSERVICES-PLAN.md`; database contracts are in `docs/contracts/db.md`;
+ownership is ADR 0002.
 
 ```text
 browser (Vercel SPA) ──► edge (YARP, public)  /api/v1/*   one base URL, CORS, JWT, rate limits
@@ -11,6 +11,7 @@ browser (Vercel SPA) ──► edge (YARP, public)  /api/v1/*   one base URL, CO
                            ├──► identity    /me /tenants /branches /members /platform
                            ├──► patients    /patients
                            └──► scheduling  /practitioners /schedules /slots /appointments /queue
+                                            /practitioner-branches /schedule-overrides /scheduling-settings
                                    │
                 one Supabase Postgres: schema + group role per service, published *_v1 functions, one outbox
 ```
@@ -79,7 +80,7 @@ to the owning service.
   `Email:Dispatcher:Enabled` on the identity service only (off until `Smtp__Password` is set).
   Invite sign-in codes are one of those emails. Turning a checked code into a session also needs
   `Auth__Supabase__ServiceRoleKey` on identity only.
-  The scheduling dispatcher stays off (B1). The App Service must stay off too until it is stopped.
+  The scheduling dispatcher stays off (B1). The stopped App Service is not a dispatcher.
 
 ## Local development and tests
 
@@ -89,16 +90,31 @@ to the owning service.
   each with its own login role) or `edge-url` (with `HMS_SYSTEM_BASE_URL`). Tests that
   need in-process hosts are tagged `[Trait("Mode","in-process-only")]`.
 - CI (required check names unchanged):
-  - **Backend** builds and unit-tests every project.
+  - A `changes` job maps paths to jobs. Shared files (workflows, lockfiles, root config, CI
+    scripts) select every job. Each heavy job then skips when `actions/cache` already holds a
+    pass marker for that job's input hash (`<job>-<hash>`, git tree ids of its paths plus
+    `ci.yml`). The marker is saved only after success, so a failed job reruns on the next push.
+  - **Frontend** runs for `apps/web/**`.
+  - **Backend** builds and unit-tests every project, and also runs when `supabase/migrations/**` changes.
   - **SQL/RLS + integration** runs the migration chain check, the schema-ownership check, the SQL
-    tests, then the API suite through the edge.
-  - **Playwright E2E** runs through the edge.
-  - **Service images** builds and boots the four images (edge, identity, patients, scheduling),
-    only when Docker-relevant files change.
+    tests, then the API suite through the edge. It runs for migrations, other SQL inputs, and
+    backend changes. The Supabase-stack prototype follows the SQL and migration paths and stays
+    `continue-on-error`.
+  - **Playwright E2E** (full stack and mocked web) runs when web or API/service paths, or their
+    test files, change. A migration-only change does not select them.
+  - **Service images** build and boot only the images whose Docker inputs changed: edge, identity,
+    patients, and scheduling. The empty-matrix fallback is the edge image.
+  - `schedule` (04:17 UTC nightly on main) and `workflow_dispatch` ignore the pass cache and run
+    every heavy job. Push to main still deploys only the services whose image inputs changed
+    (`deploy-aca.yml` via `service_changes.py`). A newer push may cancel a deploy that has not
+    finished; `workflow_dispatch` does not.
+  - The four required check names are reporter jobs. They **succeed** when the heavy job was
+    skipped, and **fail** when that job or `changes` failed or was cancelled. `ci-ok` is the
+    aggregate: `needs` every job, `if: always()`, and it fails only when a needed job failed or
+    was cancelled (the prototype is ignored). Branch protection does not need a settings change.
 
 ## Deploy
 
-The live path is `docs/deploy.md` (Azure Container Apps). It does not deploy, restart, or
-reconfigure `medicore-hms-api`, and it refuses to deploy if that app's outbox dispatcher is on.
-Pointing the web app at the edge, applying `20261022140000`, and stopping the App Service are
-separate approvals in `docs/runbooks/monolith-cutover.md`. This repository change does none of those.
+The live path is `docs/deploy.md` (Azure Container Apps). Production web traffic uses the edge.
+The App Service is stopped. The pipeline does not start it. The cutover record is
+`docs/runbooks/monolith-cutover.md`.

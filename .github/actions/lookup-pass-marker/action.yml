@@ -1,0 +1,31 @@
+name: Lookup CI pass marker
+description: Check actions/cache for a success marker keyed <job>-<hash>. Does not download the cache.
+inputs:
+  job:
+    description: Job id used as the cache key prefix
+    required: true
+  hash:
+    description: Hash of the job's inputs
+    required: true
+outputs:
+  hit:
+    description: "true when a success marker exists for this job and hash"
+    value: ${{ steps.result.outputs.hit }}
+runs:
+  using: composite
+  steps:
+    - id: lookup
+      uses: actions/cache/restore@v6
+      with:
+        path: .ci-pass
+        key: ${{ inputs.job }}-${{ inputs.hash }}
+        lookup-only: true
+    - id: result
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      run: |
+        if [ "${{ steps.lookup.outputs.cache-hit }}" = "true" ]; then
+          echo "hit=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "hit=false" >> "$GITHUB_OUTPUT"
+        fi

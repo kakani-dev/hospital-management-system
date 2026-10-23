@@ -31,6 +31,7 @@ public sealed class EdgeRouteCoverageTests
             .Distinct()
             .ToList();
         Assert.NotEmpty(served);
+        Assert.Contains(served, s => s.Prefix == "practitioner-branches" && s.Module == "Hms.Modules.Appointments");
 
         var routes = EdgeRoutes();
         foreach (var (prefix, module) in served)
@@ -51,7 +52,8 @@ public sealed class EdgeRouteCoverageTests
             .Select(e => (Pattern: e.RoutePattern.RawText ?? string.Empty, Module: e.Metadata.OfType<System.Reflection.MethodInfo>().FirstOrDefault()?.DeclaringType?.Assembly.GetName().Name))
             .Where(e => e.Pattern.TrimStart('/').StartsWith("api/v1/", StringComparison.Ordinal))
             .Select(e => (Prefix: e.Pattern.TrimStart('/').Split('/')[2], e.Module))
-            .Where(e => e.Prefix != "warmup");
+            .Where(e => e.Prefix != "warmup")
+            .Distinct();
     }
 
     private static Dictionary<string, string> EdgeRoutes()

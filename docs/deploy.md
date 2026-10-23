@@ -11,7 +11,7 @@ The web app stays on Vercel. This pipeline only rolls the four API containers.
 
 Resource group `rg-medicore-hms-dev`, Central India. Registry `acrmedicorehmsdev` (admin user disabled). Every app pulls `acrmedicorehmsdev.azurecr.io/hms-<svc>:sha-<full 40-character commit sha>`, not GHCR. Patients uses its existing identity with AcrPull. Scheduling uses its system-assigned identity with AcrPull. The deploy does not change those bindings.
 
-`medicore-hms-api` (the App Service) stays up as the rollback target for the web app. Its outbox dispatcher stays **off** (`Outbox__Dispatcher__Enabled` unset or false). On the current schema `hms_api` no longer has `hms_dispatcher` (B1); a dispatcher on that app cannot claim rows and must not be turned on. This pipeline only reads that setting and refuses to deploy if it is true. It never restarts, deploys, or reconfigures the App Service. It also never runs a database migration.
+`medicore-hms-api` (the App Service) is stopped. Production web traffic uses the edge. The pipeline still reads that app's `Outbox__Dispatcher__Enabled` and refuses to deploy if it is true. It does not start, deploy, or reconfigure the App Service. On the current schema `hms_api` is not a member of `hms_dispatcher` (B1). This pipeline never runs a database migration.
 
 ACR Basic is a paid SKU (about $0.17 per day). Container Apps stay on the consumption plan the apps were created with.
 
@@ -20,7 +20,7 @@ ACR Basic is a paid SKU (about $0.17 per day). Container Apps stay on the consum
 1. Push to `main`.
 2. The `CI` workflow passes.
 3. `Deploy to Azure Container Apps` starts. A newer push cancels a deploy that has not finished. An emergency dispatch waits, so it does not cut off a rollback.
-4. Path filters pick the images to build. `backend/platform`, `backend/shared`, `Directory.Build.props`, `Directory.Packages.props`, `global.json`, and `.dockerignore` build all four. Otherwise only the service whose host or module changed is built. A change to this deploy workflow also builds the edge: `ca-hms-edge` was still running `sha-eb314ae`, and the enabling commit does not touch `backend/edge`. Web, SQL, and the legacy gateway build nothing.
+4. Path filters pick the images to build. `backend/platform`, `backend/shared`, `Directory.Build.props`, `Directory.Packages.props`, `global.json`, a backend `packages.lock.json`, and `.dockerignore` build all four. So do `.github/scripts/aca-rollout.sh`, `.github/scripts/service_changes.py`, `.github/scripts/aca-live-tags.sh`, and this deploy workflow. Otherwise only the service whose host or module changed is built. An app whose running image tag is not `sha-<this commit>` is included as well, so a container left on an older sha is rebuilt. Web, SQL, and the legacy gateway do not by themselves select an image. A blank `workflow_dispatch` uses that same plan. An explicit service or tag does not.
 5. The image jobs run in parallel, push to ACR, and reuse Docker layer cache (`type=gha`).
 6. Each changed app is switched to multiple revision mode. The new revision is created from the `sha-` tag. Traffic moves to it only after the revision exists. Health is polled through the public edge (`/health/live`, and `/health/ready` for the services behind it).
 7. A smoke check then calls `GET /api/v1/public/invites/<64 zeros>`. That route is anonymous and read-only. Success is **404 from the identity service** (unknown token). The gateway's own "no such route" 404 fails the deploy. Nothing is written.

@@ -1,5 +1,6 @@
 // Jenkins pipeline mirroring .github/workflows/ci.yml.
 // GitHub Actions remains the REQUIRED PR gate; this pipeline is an optional mirror for teams on Jenkins.
+// Path filters and pass-cache skips live in GitHub Actions only. This Jenkins mirror still runs the full suite.
 // Requirements and setup: infra/jenkins/README.md (Docker Pipeline, JUnit, MSTest, Workspace Cleanup plugins).
 // Uses only throwaway containers and synthetic data. No deploy steps, no secrets required.
 

@@ -13,6 +13,41 @@ public sealed class Practitioner : AuditableEntity, ITenantOwned
     public bool IsActive { get; set; } = true;
 }
 
+/// <summary>appointment.practitioner_branches: a branch this practitioner works at.</summary>
+public sealed class PractitionerBranch : AuditableEntity, ITenantOwned
+{
+    public Guid TenantId { get; set; }
+    public Guid PractitionerId { get; set; }
+    public Guid BranchId { get; set; }
+    public bool IsActive { get; set; } = true;
+    public string? ConsultationRoom { get; set; }
+    public int? ConsultationFeeCents { get; set; }
+}
+
+/// <summary>
+/// appointment.schedule_overrides: one branch-local day that replaces the weekly template
+/// (leave, or a replacement window). <c>during</c> is maintained by the database.
+/// </summary>
+public sealed class ScheduleOverride : AuditableEntity, ITenantOwned
+{
+    public Guid TenantId { get; set; }
+    public Guid PractitionerId { get; set; }
+    public Guid BranchId { get; set; }
+    public DateOnly OverrideDate { get; set; }
+    public bool IsLeave { get; set; }
+    public TimeOnly? StartTime { get; set; }
+    public TimeOnly? EndTime { get; set; }
+    public short? SlotMinutes { get; set; }
+    public bool IsActive { get; set; } = true;
+}
+
+/// <summary>appointment.tenant_settings: travel buffer between commitments at different branches. A missing row means 0.</summary>
+public sealed class TenantSchedulingSettings : AuditableEntity, ITenantOwned
+{
+    public Guid TenantId { get; set; }
+    public short TravelBufferMinutes { get; set; }
+}
+
 /// <summary>appointment.schedules: weekly hours in branch-local wall-clock time (ISO weekday 1=Mon..7=Sun).</summary>
 public sealed class Schedule : AuditableEntity, ITenantOwned
 {

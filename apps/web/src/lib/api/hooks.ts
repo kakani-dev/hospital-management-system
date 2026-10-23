@@ -11,6 +11,8 @@ import type {
   CreateBranchRequest,
   CreatePatientRequest,
   CreatePractitionerRequest,
+  CreatePractitionerBranchRequest,
+  CreateScheduleOverrideRequest,
   CreateScheduleRequest,
   PatientDetail,
   PatientRef,
@@ -24,6 +26,7 @@ import type {
   UpdateMemberRequest,
   UpdatePatientRequest,
   UpdatePractitionerRequest,
+  UpdatePractitionerBranchRequest,
   UpdateScheduleRequest,
   UpdateTenantRequest,
   WalkInRequest,
@@ -49,6 +52,10 @@ export const queryKeys = {
   appointmentCount: (q: AppointmentQuery) => ['appointments', 'count', q] as const,
   adminPractitioners: ['practitioners', 'admin'] as const,
   adminSchedules: (branchId: string) => ['schedules', 'admin', branchId] as const,
+  practitionerBranches: (practitionerId: string) => ['practitioner-branches', practitionerId] as const,
+  scheduleOverrides: (practitionerId: string) => ['schedule-overrides', practitionerId] as const,
+  schedulingSettings: ['scheduling-settings'] as const,
+  myDay: (date: string) => ['my-day', date] as const,
   adminBranches: ['branches', 'admin'] as const,
   inviteLinks: ['members', 'invite-links'] as const,
   invitePreview: (token: string) => ['public', 'invite', token] as const,
@@ -591,7 +598,10 @@ const invalidateScheduling = (qc: ReturnType<typeof useQueryClient>) =>
   Promise.all([
     qc.invalidateQueries({ queryKey: ['practitioners'] }),
     qc.invalidateQueries({ queryKey: ['schedules'] }),
+    qc.invalidateQueries({ queryKey: ['practitioner-branches'] }),
+    qc.invalidateQueries({ queryKey: ['schedule-overrides'] }),
     qc.invalidateQueries({ queryKey: ['appointments', 'slots'] }),
+    qc.invalidateQueries({ queryKey: ['my-day'] }),
   ])
 
 export function useCreatePractitioner() {
@@ -648,6 +658,73 @@ export function useDeleteSchedule() {
 export function useRestoreSchedule() {
   const qc = useQueryClient()
   return useMutation({ mutationFn: (id: string) => apiClient.schedules.restore(id), onSuccess: () => invalidateScheduling(qc) })
+}
+
+export function usePractitionerBranches(practitionerId: string | null) {
+  return useQuery({
+    queryKey: queryKeys.practitionerBranches(practitionerId ?? ''),
+    queryFn: () => apiClient.practitionerBranches.list({ practitionerId: practitionerId! }),
+    enabled: !!practitionerId,
+    retry: false,
+  })
+}
+
+export function useCreatePractitionerBranch() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: CreatePractitionerBranchRequest) => apiClient.practitionerBranches.create(body),
+    onSuccess: () => invalidateScheduling(qc),
+  })
+}
+
+export function useUpdatePractitionerBranch() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: UpdatePractitionerBranchRequest }) => apiClient.practitionerBranches.update(id, body),
+    onSuccess: () => invalidateScheduling(qc),
+  })
+}
+
+export function useScheduleOverrides(practitionerId: string | null) {
+  return useQuery({
+    queryKey: queryKeys.scheduleOverrides(practitionerId ?? ''),
+    queryFn: () => apiClient.scheduleOverrides.list({ practitionerId: practitionerId! }),
+    enabled: !!practitionerId,
+    retry: false,
+  })
+}
+
+export function useCreateScheduleOverride() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: CreateScheduleOverrideRequest) => apiClient.scheduleOverrides.create(body),
+    onSuccess: () => invalidateScheduling(qc),
+  })
+}
+
+export function useSchedulingSettings() {
+  return useQuery({ queryKey: queryKeys.schedulingSettings, queryFn: () => apiClient.schedulingSettings.get(), retry: false })
+}
+
+export function useUpdateSchedulingSettings() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (travelBufferMinutes: number) => apiClient.schedulingSettings.update(travelBufferMinutes),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.schedulingSettings }),
+  })
+}
+
+export function usePractitionerSchedules(practitionerId: string | null) {
+  return useQuery({
+    queryKey: ['schedules', 'practitioner', practitionerId ?? ''] as const,
+    queryFn: () => apiClient.schedules.list({ practitionerId: practitionerId! }),
+    enabled: !!practitionerId,
+    retry: false,
+  })
+}
+
+export function useMyDay(date: string) {
+  return useQuery({ queryKey: queryKeys.myDay(date), queryFn: () => apiClient.myDay(date), retry: false })
 }
 
 // ----------------------------------------------------------------- admin: hospital settings

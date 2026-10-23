@@ -59,7 +59,7 @@ describe('Working hours admin', () => {
     await user.clear(screen.getByLabelText('End time'))
     await user.type(screen.getByLabelText('End time'), '12:00')
     await user.click(screen.getByRole('button', { name: 'Add hours' }))
-    expect(await screen.findByText('These hours overlap another active schedule of this practitioner on that weekday.')).toBeInTheDocument()
+    expect(await screen.findByText('These hours overlap another active schedule of this practitioner, including hours at another branch.')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Add hours' }))
     await screen.findByText('Added Dr. Rao (synthetic) on Saturday 09:00–12:00.')
     expect(calls.filter((c) => c.method === 'POST')[1]!.body).toEqual({

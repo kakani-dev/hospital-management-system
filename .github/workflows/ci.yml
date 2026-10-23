@@ -1,17 +1,35 @@
 name: CI
 
+# Path filters decide which heavy jobs are affected. Each affected job also skips when a
+# pass marker for its input hash is already in actions/cache (key <job>-<hash>), saved
+# only after that job succeeds. A failed job has no marker, so the next push reruns it
+# even if the new commit only touches other files. schedule and workflow_dispatch ignore
+# the marker and run every heavy job.
+#
+# The four branch-protection names are reporter jobs. They succeed when the matching
+# heavy job was skipped, and fail when that job or `changes` failed or was cancelled.
+# `ci-ok` fails the workflow if any needed job failed or was cancelled.
+
 on:
   pull_request:
   push:
     branches: [main]
   workflow_dispatch:
+  schedule:
+    # Nightly full run on the default branch (main). Does not share a concurrency
+    # group with push CI, so it cannot cancel a main deploy chain.
+    - cron: "17 4 * * *"
 
 permissions:
   contents: read
+  # paths-filter lists pull-request files with the GitHub API. An explicit
+  # permissions block drops every scope that is not named here.
+  pull-requests: read
+  actions: write
 
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.event_name == 'schedule' && format('ci-nightly-{0}', github.ref) || format('ci-{0}', github.ref) }}
+  cancel-in-progress: ${{ github.event_name != 'schedule' }}
 
 env:
   NODE_VERSION: "24"
@@ -20,16 +38,249 @@ env:
   DOTNET_NOLOGO: "1"
 
 jobs:
-  deploy-scripts:
-    name: Deploy scripts (plan, rollback, cleanup rules)
+  changes:
+    name: Detect changed paths
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      full: ${{ steps.mode.outputs.full }}
+      run_web: ${{ steps.plan.outputs.run_web }}
+      run_api: ${{ steps.plan.outputs.run_api }}
+      run_database: ${{ steps.plan.outputs.run_database }}
+      run_prototype: ${{ steps.plan.outputs.run_prototype }}
+      run_e2e: ${{ steps.plan.outputs.run_e2e }}
+      run_mocked: ${{ steps.plan.outputs.run_mocked }}
+      run_deploy: ${{ steps.plan.outputs.run_deploy }}
+      images_any: ${{ steps.plan.outputs.images_any }}
+      images_matrix: ${{ steps.plan.outputs.images_matrix }}
+      hash_web: ${{ steps.hash.outputs.hash_web }}
+      hash_api: ${{ steps.hash.outputs.hash_api }}
+      hash_database: ${{ steps.hash.outputs.hash_database }}
+      hash_prototype: ${{ steps.hash.outputs.hash_prototype }}
+      hash_e2e: ${{ steps.hash.outputs.hash_e2e }}
+      hash_mocked: ${{ steps.hash.outputs.hash_mocked }}
+      hash_deploy: ${{ steps.hash.outputs.hash_deploy }}
+      hash_image_edge: ${{ steps.hash.outputs.hash_image_edge }}
+      hash_image_identity: ${{ steps.hash.outputs.hash_image_identity }}
+      hash_image_patients: ${{ steps.hash.outputs.hash_image_patients }}
+      hash_image_scheduling: ${{ steps.hash.outputs.hash_image_scheduling }}
     steps:
       - uses: actions/checkout@v7
-      - name: Plan, rollback, retention, and workflow safety checks
-        run: bash .github/scripts/test-deploy-plan.sh
+        with:
+          fetch-depth: 0
+      - name: Self-check skip planner
+        run: bash .github/scripts/ci-skip.test.sh
+      - id: mode
+        run: |
+          case "${{ github.event_name }}" in
+            schedule|workflow_dispatch) echo "full=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "full=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        if: steps.mode.outputs.full != 'true'
+        with:
+          token: ${{ github.token }}
+          filters: |
+            shared:
+              - '.github/workflows/**'
+              - '.github/scripts/**'
+              - '.github/actions/**'
+              - 'package.json'
+              - 'package-lock.json'
+              - 'apps/web/package.json'
+              - 'apps/web/package-lock.json'
+              - 'backend/global.json'
+              - 'backend/Directory.Build.props'
+              - 'backend/Directory.Packages.props'
+              - 'backend/Hms.slnx'
+              - '.editorconfig'
+              - 'docker-compose.yml'
+              - '.dockerignore'
+            frontend:
+              - 'apps/web/**'
+            backend:
+              - 'backend/**'
+            migrations:
+              - 'supabase/migrations/**'
+            sql:
+              - 'supabase/**'
+              - '.github/scripts/check-migration-versions.sh'
+              - '.github/scripts/supabase-ci-sql-tests.sh'
+              - '.github/scripts/supabase-ci-hook-smoke.sh'
+              - '.github/supabase-ci/**'
+            playwright:
+              - 'tests/**'
+              - 'scripts/dev/**'
+              - 'package.json'
+              - 'package-lock.json'
+            deploy:
+              - 'infra/aca/**'
+              - '.github/workflows/deploy-aca.yml'
+              - '.github/workflows/cleanup.yml'
+              - '.github/scripts/aca-rollout.sh'
+              - '.github/scripts/aca-cleanup-azure.sh'
+              - '.github/scripts/cleanup-github.sh'
+              - '.github/scripts/service_changes.py'
+              - '.github/scripts/retention.py'
+              - '.github/scripts/test-deploy-plan.sh'
+              - 'scripts/smoke/**'
+              - 'scripts/azure-oidc-setup.sh'
+              - 'scripts/verify.sh'
+              - 'lefthook.yml'
+              - 'CONTRIBUTING.md'
+              - 'AGENTS.md'
+              - '.cursor/rules/verify-before-commit.mdc'
+              - 'docs/deploy.md'
+            image_edge:
+              - 'backend/edge/**'
+              - 'backend/platform/**'
+              - 'backend/shared/**'
+              - 'backend/global.json'
+              - 'backend/Directory.Build.props'
+              - 'backend/Directory.Packages.props'
+              - '.dockerignore'
+            image_identity:
+              - 'backend/services/identity/**'
+              - 'backend/modules/Identity/**'
+              - 'backend/platform/**'
+              - 'backend/shared/**'
+              - 'backend/global.json'
+              - 'backend/Directory.Build.props'
+              - 'backend/Directory.Packages.props'
+              - '.dockerignore'
+            image_patients:
+              - 'backend/services/patients/**'
+              - 'backend/modules/Patients/**'
+              - 'backend/platform/**'
+              - 'backend/shared/**'
+              - 'backend/global.json'
+              - 'backend/Directory.Build.props'
+              - 'backend/Directory.Packages.props'
+              - '.dockerignore'
+            image_scheduling:
+              - 'backend/services/scheduling/**'
+              - 'backend/modules/Appointments/**'
+              - 'backend/platform/**'
+              - 'backend/shared/**'
+              - 'backend/global.json'
+              - 'backend/Directory.Build.props'
+              - 'backend/Directory.Packages.props'
+              - '.dockerignore'
+      - id: hash
+        run: bash .github/scripts/ci-input-hashes.sh >> "$GITHUB_OUTPUT"
+      - id: cache_web
+        if: steps.mode.outputs.full != 'true'
+        continue-on-error: true
+        uses: ./.github/actions/lookup-pass-marker
+        with:
+          job: web
+          hash: ${{ steps.hash.outputs.hash_web }}
+      - id: cache_api
+        if: steps.mode.outputs.full != 'true'
+        continue-on-error: true
+        uses: ./.github/actions/lookup-pass-marker
+        with:
+          job: api
+          hash: ${{ steps.hash.outputs.hash_api }}
+      - id: cache_database
+        if: steps.mode.outputs.full != 'true'
+        continue-on-error: true
+        uses: ./.github/actions/lookup-pass-marker
+        with:
+          job: database
+          hash: ${{ steps.hash.outputs.hash_database }}
+      - id: cache_prototype
+        if: steps.mode.outputs.full != 'true'
+        continue-on-error: true
+        uses: ./.github/actions/lookup-pass-marker
+        with:
+          job: prototype
+          hash: ${{ steps.hash.outputs.hash_prototype }}
+      - id: cache_e2e
+        if: steps.mode.outputs.full != 'true'
+        continue-on-error: true
+        uses: ./.github/actions/lookup-pass-marker
+        with:
+          job: e2e
+          hash: ${{ steps.hash.outputs.hash_e2e }}
+      - id: cache_mocked
+        if: steps.mode.outputs.full != 'true'
+        continue-on-error: true
+        uses: ./.github/actions/lookup-pass-marker
+        with:
+          job: mocked
+          hash: ${{ steps.hash.outputs.hash_mocked }}
+      - id: cache_deploy
+        if: steps.mode.outputs.full != 'true'
+        continue-on-error: true
+        uses: ./.github/actions/lookup-pass-marker
+        with:
+          job: deploy-scripts
+          hash: ${{ steps.hash.outputs.hash_deploy }}
+      - id: cache_image_edge
+        if: steps.mode.outputs.full != 'true'
+        continue-on-error: true
+        uses: ./.github/actions/lookup-pass-marker
+        with:
+          job: images-edge
+          hash: ${{ steps.hash.outputs.hash_image_edge }}
+      - id: cache_image_identity
+        if: steps.mode.outputs.full != 'true'
+        continue-on-error: true
+        uses: ./.github/actions/lookup-pass-marker
+        with:
+          job: images-identity
+          hash: ${{ steps.hash.outputs.hash_image_identity }}
+      - id: cache_image_patients
+        if: steps.mode.outputs.full != 'true'
+        continue-on-error: true
+        uses: ./.github/actions/lookup-pass-marker
+        with:
+          job: images-patients
+          hash: ${{ steps.hash.outputs.hash_image_patients }}
+      - id: cache_image_scheduling
+        if: steps.mode.outputs.full != 'true'
+        continue-on-error: true
+        uses: ./.github/actions/lookup-pass-marker
+        with:
+          job: images-scheduling
+          hash: ${{ steps.hash.outputs.hash_image_scheduling }}
+      - id: plan
+        env:
+          FULL: ${{ steps.mode.outputs.full }}
+          SHARED: ${{ steps.filter.outputs.shared }}
+          FRONTEND: ${{ steps.filter.outputs.frontend }}
+          BACKEND: ${{ steps.filter.outputs.backend }}
+          MIGRATIONS: ${{ steps.filter.outputs.migrations }}
+          SQL: ${{ steps.filter.outputs.sql }}
+          PLAYWRIGHT: ${{ steps.filter.outputs.playwright }}
+          DEPLOY: ${{ steps.filter.outputs.deploy }}
+          IMAGE_EDGE: ${{ steps.filter.outputs.image_edge }}
+          IMAGE_IDENTITY: ${{ steps.filter.outputs.image_identity }}
+          IMAGE_PATIENTS: ${{ steps.filter.outputs.image_patients }}
+          IMAGE_SCHEDULING: ${{ steps.filter.outputs.image_scheduling }}
+          CACHED_WEB: ${{ steps.cache_web.outputs.hit }}
+          CACHED_API: ${{ steps.cache_api.outputs.hit }}
+          CACHED_DATABASE: ${{ steps.cache_database.outputs.hit }}
+          CACHED_PROTOTYPE: ${{ steps.cache_prototype.outputs.hit }}
+          CACHED_E2E: ${{ steps.cache_e2e.outputs.hit }}
+          CACHED_MOCKED: ${{ steps.cache_mocked.outputs.hit }}
+          CACHED_DEPLOY: ${{ steps.cache_deploy.outputs.hit }}
+          CACHED_IMAGE_EDGE: ${{ steps.cache_image_edge.outputs.hit }}
+          CACHED_IMAGE_IDENTITY: ${{ steps.cache_image_identity.outputs.hit }}
+          CACHED_IMAGE_PATIENTS: ${{ steps.cache_image_patients.outputs.hit }}
+          CACHED_IMAGE_SCHEDULING: ${{ steps.cache_image_scheduling.outputs.hit }}
+          HASH_IMAGE_EDGE: ${{ steps.hash.outputs.hash_image_edge }}
+          HASH_IMAGE_IDENTITY: ${{ steps.hash.outputs.hash_image_identity }}
+          HASH_IMAGE_PATIENTS: ${{ steps.hash.outputs.hash_image_patients }}
+          HASH_IMAGE_SCHEDULING: ${{ steps.hash.outputs.hash_image_scheduling }}
+        run: bash .github/scripts/ci-plan.sh >> "$GITHUB_OUTPUT"
 
-  web:
-    name: Frontend (lint, unit tests, build)
+  web-run:
+    name: Frontend work
+    needs: changes
+    if: needs.changes.outputs.run_web == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -45,9 +296,30 @@ jobs:
       - run: npm run lint
       - run: npm run test
       - run: npm run build
+      - name: Record pass marker
+        if: success()
+        continue-on-error: true
+        uses: ./.github/actions/save-pass-marker
+        with:
+          job: web
+          hash: ${{ needs.changes.outputs.hash_web }}
 
-  api:
-    name: Backend (build + unit tests)
+  web:
+    name: Frontend (lint, unit tests, build)
+    needs: [changes, web-run]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+      - name: Report required check
+        run: bash .github/scripts/ci-require-result.sh "${{ needs.changes.result }}" "${{ needs.web-run.result }}"
+
+  api-run:
+    name: Backend work
+    needs: changes
+    if: needs.changes.outputs.run_api == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -65,9 +337,30 @@ jobs:
           path: test-results
           retention-days: 7
           if-no-files-found: ignore
+      - name: Record pass marker
+        if: success()
+        continue-on-error: true
+        uses: ./.github/actions/save-pass-marker
+        with:
+          job: api
+          hash: ${{ needs.changes.outputs.hash_api }}
 
-  database:
-    name: SQL/RLS tests + API integration tests (real Postgres)
+  api:
+    name: Backend (build + unit tests)
+    needs: [changes, api-run]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+      - name: Report required check
+        run: bash .github/scripts/ci-require-result.sh "${{ needs.changes.result }}" "${{ needs.api-run.result }}"
+
+  database-run:
+    name: Database work
+    needs: changes
+    if: needs.changes.outputs.run_database == 'true'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -116,51 +409,39 @@ jobs:
           path: test-results
           retention-days: 7
           if-no-files-found: ignore
+      - name: Record pass marker
+        if: success()
+        continue-on-error: true
+        uses: ./.github/actions/save-pass-marker
+        with:
+          job: database
+          hash: ${{ needs.changes.outputs.hash_database }}
 
-  # ---------------------------------------------------------------------------
-  # Microservices Phase 0 (MICROSERVICES-PLAN.md §9). NOT a required check yet: the four required
-  # checks above keep their names so branch protection is unchanged. Builds every container image
-  # (legacy all-in-one API + the identity / patients / scheduling service skeletons), boots each one
-  # and checks /health/live, and validates docker-compose.yml (default + "services" profile).
-  # ---------------------------------------------------------------------------
-  # CI minutes are limited: only build images when something that goes into them changed.
-  docker-changes:
-    name: Detect image-relevant changes
+  database:
+    name: SQL/RLS tests + API integration tests (real Postgres)
+    needs: [changes, database-run]
+    if: always()
     runs-on: ubuntu-latest
-    outputs:
-      docker: ${{ steps.diff.outputs.docker }}
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0
-      - id: diff
-        run: |
-          if [ "${{ github.event_name }}" != "pull_request" ]; then echo "docker=true" >> "$GITHUB_OUTPUT"; exit 0; fi
-          changed=$(git diff --name-only "origin/${{ github.base_ref }}...HEAD")
-          if echo "$changed" | grep -qE '(^|/)Dockerfile$|\.Dockerfile$|^docker-compose\.yml$|^backend/(Directory\.|global\.json|.*\.csproj$)|^\.dockerignore$|^\.github/workflows/ci\.yml$'; then
-            echo "docker=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "docker=false" >> "$GITHUB_OUTPUT"
-          fi
+          fetch-depth: 1
+      - name: Report required check
+        run: bash .github/scripts/ci-require-result.sh "${{ needs.changes.result }}" "${{ needs.database-run.result }}"
 
+  # CI minutes are limited: each image leg runs only when its Docker inputs changed
+  # (or a shared file changed and that leg has no pass marker yet).
   images:
     name: Service images (docker build + health smoke, non-required)
-    needs: docker-changes
-    if: needs.docker-changes.outputs.docker == 'true'
+    needs: changes
+    if: needs.changes.outputs.images_any == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - name: edge
-            dockerfile: backend/edge/Dockerfile
-          - name: identity
-            dockerfile: backend/services/identity/Dockerfile
-          - name: patients
-            dockerfile: backend/services/patients/Dockerfile
-          - name: scheduling
-            dockerfile: backend/services/scheduling/Dockerfile
+      # Fallback keeps fromJSON valid when `changes` failed and emitted no matrix.
+      # The job if still skips unless images_any is true.
+      matrix: ${{ fromJSON(needs.changes.outputs.images_matrix || '{"include":[{"name":"edge","dockerfile":"backend/edge/Dockerfile","input_hash":"skipped","cache_job":"images-edge"}]}') }}
     steps:
       - uses: actions/checkout@v7
       - name: Validate docker-compose.yml
@@ -178,9 +459,18 @@ jobs:
           done
           docker logs hms-${{ matrix.name }}
           echo "/health/live never returned 200"; exit 1
+      - name: Record pass marker
+        if: success()
+        continue-on-error: true
+        uses: ./.github/actions/save-pass-marker
+        with:
+          job: ${{ matrix.cache_job }}
+          hash: ${{ matrix.input_hash }}
 
-  e2e:
-    name: Playwright E2E (web + API + mock auth + Postgres)
+  e2e-run:
+    name: Playwright E2E work
+    needs: changes
+    if: needs.changes.outputs.run_e2e == 'true'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -233,6 +523,25 @@ jobs:
             tests/playwright/test-results
           retention-days: 7
           if-no-files-found: ignore
+      - name: Record pass marker
+        if: success()
+        continue-on-error: true
+        uses: ./.github/actions/save-pass-marker
+        with:
+          job: e2e
+          hash: ${{ needs.changes.outputs.hash_e2e }}
+
+  e2e:
+    name: Playwright E2E (web + API + mock auth + Postgres)
+    needs: [changes, e2e-run]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+      - name: Report required check
+        run: bash .github/scripts/ci-require-result.sh "${{ needs.changes.result }}" "${{ needs.e2e-run.result }}"
 
   # ---------------------------------------------------------------------------
   # PROTOTYPE for PR #1 review item Minor 9 (owner: DevOps). NOT a required check.
@@ -245,6 +554,8 @@ jobs:
   # ---------------------------------------------------------------------------
   db-supabase-prototype:
     name: DB prototype on Supabase stack (supabase start, non-required)
+    needs: changes
+    if: needs.changes.outputs.run_prototype == 'true'
     runs-on: ubuntu-latest
     continue-on-error: true
     timeout-minutes: 25
@@ -321,16 +632,26 @@ jobs:
       - name: Stop the stack
         if: always()
         run: supabase stop --workdir "$SB_WORKDIR" --no-backup || true
+      - name: Record pass marker
+        if: success()
+        continue-on-error: true
+        uses: ./.github/actions/save-pass-marker
+        with:
+          job: prototype
+          hash: ${{ needs.changes.outputs.hash_prototype }}
 
   # ---------------------------------------------------------------------------
   # Frontend's mocked browser suite (`npm run e2e:mocked`, root package.json; API and Supabase
   # Auth are answered in the page by tests/playwright/mocked/mock-backend.ts, so no DB, .NET or
-  # mock-auth server). It arrives with fix/pr1-web. Until then the guard step finds no script
-  # and the job skips cleanly with a notice. It is a SEPARATE job so it can never turn the
-  # required "Frontend (lint, unit tests, build)" check red. Not required (yet).
+  # mock-auth server). It is a SEPARATE job so it can never turn the required
+  # "Frontend (lint, unit tests, build)" check red. Not required (yet).
+  # Runs when web or API/service paths change (same inputs as the full Playwright job,
+  # minus the database). Migrations alone do not select it.
   # ---------------------------------------------------------------------------
   web-e2e-mocked:
     name: Web E2E (mocked API, Playwright)
+    needs: changes
+    if: needs.changes.outputs.run_mocked == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -375,6 +696,13 @@ jobs:
           PLAYWRIGHT_HTML_OPEN: never
           PLAYWRIGHT_JUNIT_OUTPUT_FILE: tests/playwright/test-results/junit-mocked.xml
         run: npm run e2e:mocked -- --reporter=list,html,junit
+      - name: Record pass marker
+        if: success()
+        continue-on-error: true
+        uses: ./.github/actions/save-pass-marker
+        with:
+          job: mocked
+          hash: ${{ needs.changes.outputs.hash_mocked }}
       - uses: actions/upload-artifact@v7
         if: failure() && steps.guard.outputs.present == 'true'
         with:
@@ -384,3 +712,48 @@ jobs:
             tests/playwright/test-results
           retention-days: 7
           if-no-files-found: ignore
+
+  deploy-scripts:
+    name: Deploy scripts (plan, rollback, cleanup rules)
+    needs: changes
+    if: needs.changes.outputs.run_deploy == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Plan, rollback, retention, and workflow safety checks
+        run: bash .github/scripts/test-deploy-plan.sh
+      - name: Record pass marker
+        if: success()
+        continue-on-error: true
+        uses: ./.github/actions/save-pass-marker
+        with:
+          job: deploy-scripts
+          hash: ${{ needs.changes.outputs.hash_deploy }}
+
+  ci-ok:
+    name: ci-ok
+    needs:
+      - changes
+      - web
+      - web-run
+      - api
+      - api-run
+      - database
+      - database-run
+      - e2e
+      - e2e-run
+      - images
+      - db-supabase-prototype
+      - web-e2e-mocked
+      - deploy-scripts
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+      - name: Fail only if a needed job failed or was cancelled
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: bash .github/scripts/ci-ok.sh
