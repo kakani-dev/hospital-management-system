@@ -27,6 +27,8 @@ public static class BillingEndpoints
                 ("i", includeInactive ?? false)));
         items.MapGet("/tax-codes", (BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
             Exec(db, tenant, HmsPermissions.BillingPricelistManage, "select billing.list_tax_codes(@t::uuid)::text", ct));
+        items.MapGet("/category-defaults", (BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
+            Exec(db, tenant, HmsPermissions.BillingPricelistManage, "select billing.list_category_defaults(@t::uuid)::text", ct));
         items.MapPost("/", (JsonElement body, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
             Write(db, tenant, HmsPermissions.BillingPricelistManage, "select billing.upsert_service_item(@t::uuid, @b::jsonb)::text", body, ct));
 

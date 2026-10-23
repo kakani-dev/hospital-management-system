@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -11,12 +11,12 @@ import { FormField } from '../../components/ui/FormField'
 import { SelectField } from '../../components/ui/SelectField'
 import { DataTable, type ColumnDef } from '../../components/table/DataTable'
 import { ApiError, apiClient } from '../../lib/api/client'
-import type { Branch, Practitioner, PriceImportRow, PriceListSummary, ServiceItem } from '../../lib/api/types'
+import type { Branch, CategoryDefault, Practitioner, PriceImportRow, PriceListSummary, ServiceItem, TaxCode } from '../../lib/api/types'
 import { useAdminPractitioners, useBranches } from '../../lib/api/hooks'
 import { localToday } from '../../lib/dates'
 import { formatPaise, parseRupeesToPaise } from '../billing/money'
 import { PRICE_CSV_TEMPLATE, SERVICE_CATEGORIES, parsePriceCsv, type ParsedPriceRow } from './priceCsv'
-import { categoryLabel, formatIsoDate, formatPricePeriod, formatServiceTax } from './priceFormat'
+import { categoryLabel, formatIsoDate, formatPricePeriod, taxOptionLabel, taxPlainLabel } from './priceFormat'
 import {
   priceEntrySchema,
   serviceItemEditSchema,
@@ -28,7 +28,7 @@ import {
 
 type Message = { tone: 'info' | 'error'; text: string }
 
-const EMPTY_ITEM: ServiceItemValues = { code: '', name: '', category: 'procedure', taxCodeId: '' }
+const EMPTY_ITEM: ServiceItemValues = { name: '', category: 'procedure', customCode: '', taxCodeId: '' }
 
 function problemText(error: unknown, fallback: string): string {
   if (!(error instanceof ApiError)) return fallback
@@ -58,6 +58,12 @@ export function PriceListPage() {
   const taxCodes = useQuery({
     queryKey: ['billing', 'tax-codes'],
     queryFn: () => apiClient.billing.taxCodes(),
+    enabled: items.isSuccess,
+    staleTime: 60_000,
+  })
+  const categoryDefaults = useQuery({
+    queryKey: ['billing', 'category-defaults'],
+    queryFn: () => apiClient.billing.categoryDefaults(),
     enabled: items.isSuccess,
     staleTime: 60_000,
   })
@@ -114,8 +120,14 @@ export function PriceListPage() {
     { id: 'category', accessorFn: (item) => categoryLabel(item.category), header: 'Category' },
     {
       id: 'tax',
-      accessorFn: (item) => formatServiceTax(item.taxRateBp, item.sacHsnCode, item.isExempt),
-      header: 'SAC / GST',
+      accessorFn: (item) => taxPlainLabel(item.taxRateBp, item.isExempt),
+      header: 'Tax',
+      cell: ({ row: { original: item } }) => (
+        <span>
+          {taxPlainLabel(item.taxRateBp, item.isExempt)}
+          <span className="mt-0.5 block text-xs text-gray-500">SAC {item.sacHsnCode}</span>
+        </span>
+      ),
     },
     {
       id: 'rate',
@@ -163,17 +175,18 @@ export function PriceListPage() {
       <div>
         <h1 className="text-xl font-semibold text-gray-800 dark:text-dark-50">Price list</h1>
         <p className="mt-1 text-sm text-gray-500 dark:text-dark-300">
-          Practitioner rates override the branch, which overrides the hospital. Amounts are entered in rupees.
+          Type the name and choose a category. The code and tax are filled in for you. Practitioner rates override the branch, which overrides the hospital. Amounts are entered in rupees.
         </p>
       </div>
       {message && <Alert tone={message.tone}>{message.text}</Alert>}
       <Card title="Add service">
         <AddServiceForm
           taxCodes={taxCodes.data ?? []}
-          taxLoading={!taxCodes.isSuccess}
+          defaults={categoryDefaults.data ?? []}
+          defaultsReady={categoryDefaults.isSuccess}
           onCreated={(item) => {
             setOpened(item)
-            setMessage({ tone: 'info', text: `${item.name} added. Set the rate in the panel.` })
+            setMessage({ tone: 'info', text: `${item.name} added as ${item.code}. Set the rate in the panel.` })
           }}
           onMessage={setMessage}
         />
@@ -220,6 +233,7 @@ export function PriceListPage() {
             branches={liveBranches}
             practitioners={livePractitioners}
             taxCodes={taxCodes.data ?? []}
+            defaults={categoryDefaults.data ?? []}
             onMessage={setMessage}
             onClose={() => setOpened(null)}
           />
@@ -229,14 +243,24 @@ export function PriceListPage() {
   )
 }
 
+function taxFacts(id: string, taxCodes: TaxCode[], defaults: CategoryDefault[]) {
+  const tax = taxCodes.find((code) => code.id === id)
+  if (tax) return { rateBp: tax.rateBp, sac: tax.sacHsnCode, isExempt: tax.isExempt }
+  const fallback = defaults.find((row) => row.taxCodeId === id)
+  if (!fallback) return null
+  return { rateBp: fallback.rateBp, sac: fallback.sacHsnCode, isExempt: fallback.isExempt }
+}
+
 function AddServiceForm({
   taxCodes,
-  taxLoading,
+  defaults,
+  defaultsReady,
   onCreated,
   onMessage,
 }: {
-  taxCodes: { id: string; code: string; sacHsnCode: string; rateBp: number; isExempt: boolean }[]
-  taxLoading: boolean
+  taxCodes: TaxCode[]
+  defaults: CategoryDefault[]
+  defaultsReady: boolean
   onCreated: (item: ServiceItem) => void
   onMessage: (message: Message | null) => void
 }) {
@@ -246,30 +270,47 @@ function AddServiceForm({
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['billing', 'service-items'] }),
   })
   const form = useForm<ServiceItemValues>({ resolver: zodResolver(serviceItemSchema), defaultValues: EMPTY_ITEM })
+  const [advanced, setAdvanced] = useState(false)
+  const category = useWatch({ control: form.control, name: 'category' })
+  const taxCodeId = useWatch({ control: form.control, name: 'taxCodeId' })
+  const appliedCategory = useRef<string | null>(null)
+  const match = defaults.find((row) => row.category === category)
+  const tax = taxFacts(taxCodeId, taxCodes, defaults)
+
   useEffect(() => {
-    if (taxCodes[0] && !form.getValues('taxCodeId')) form.setValue('taxCodeId', taxCodes[0].id)
-  }, [taxCodes, form])
+    if (!match) return
+    const current = form.getValues('taxCodeId')
+    const categoryChanged = appliedCategory.current !== category
+    appliedCategory.current = category
+    if (categoryChanged || current === '') form.setValue('taxCodeId', match.taxCodeId)
+  }, [category, match, form])
 
   const onSubmit = async (values: ServiceItemValues) => {
     onMessage(null)
+    const chosen = defaults.find((row) => row.category === values.category)
+    const custom = advanced ? values.customCode.trim() : ''
+    const override = Boolean(advanced && values.taxCodeId && chosen && values.taxCodeId !== chosen.taxCodeId)
     try {
       const created = await save.mutateAsync({
-        code: values.code.trim(),
         name: values.name.trim(),
         category: values.category,
-        taxCodeId: values.taxCodeId,
+        ...(custom ? { code: custom } : {}),
+        ...(override ? { taxCodeId: values.taxCodeId } : {}),
       })
-      const tax = taxCodes.find((code) => code.id === values.taxCodeId)
-      form.reset({ ...EMPTY_ITEM, taxCodeId: taxCodes[0]?.id ?? '' })
+      const appliedId = override ? values.taxCodeId : (chosen?.taxCodeId ?? '')
+      const applied = taxFacts(appliedId, taxCodes, defaults)
+      const code = created.code ?? custom
+      form.reset({ ...EMPTY_ITEM, taxCodeId: defaults.find((row) => row.category === 'procedure')?.taxCodeId ?? '' })
+      setAdvanced(false)
       onCreated({
         id: created.id,
-        code: values.code.trim(),
+        code,
         name: values.name.trim(),
         category: values.category,
-        taxCodeId: values.taxCodeId,
-        sacHsnCode: tax?.sacHsnCode ?? '',
-        taxRateBp: tax?.rateBp ?? 0,
-        isExempt: tax?.isExempt ?? false,
+        taxCodeId: appliedId,
+        sacHsnCode: applied?.sac ?? '',
+        taxRateBp: applied?.rateBp ?? 0,
+        isExempt: applied?.isExempt ?? false,
         isActive: true,
         isStockTracked: false,
         hospitalPricePaise: null,
@@ -280,26 +321,61 @@ function AddServiceForm({
   }
 
   return (
-    <form noValidate aria-label="Add service" onSubmit={form.handleSubmit(onSubmit)} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5 lg:items-start">
-      <FormField label="Code" hint="e.g. DRESS. It cannot be changed later." error={form.formState.errors.code?.message} autoComplete="off" {...form.register('code')} />
+    <form noValidate aria-label="Add service" onSubmit={form.handleSubmit(onSubmit)} className="grid gap-4 sm:grid-cols-2 lg:items-start">
       <FormField label="Name" hint="Shown on the bill." error={form.formState.errors.name?.message} {...form.register('name')} />
       <SelectField label="Category" error={form.formState.errors.category?.message} {...form.register('category')}>
-        {SERVICE_CATEGORIES.map((category) => (
-          <option key={category} value={category}>
-            {categoryLabel(category)}
+        {SERVICE_CATEGORIES.map((item) => (
+          <option key={item} value={item}>
+            {categoryLabel(item)}
           </option>
         ))}
       </SelectField>
-      <SelectField label="SAC / GST" error={form.formState.errors.taxCodeId?.message} disabled={taxLoading} {...form.register('taxCodeId')}>
-        {taxCodes.length === 0 && <option value="">{taxLoading ? 'Loading tax codes' : 'No tax code yet'}</option>}
-        {taxCodes.map((code) => (
-          <option key={code.id} value={code.id}>
-            {formatServiceTax(code.rateBp, code.sacHsnCode, code.isExempt)}
-          </option>
-        ))}
-      </SelectField>
-      <div className="sm:pt-7">
-        <Button type="submit" className="min-h-11 w-full sm:w-auto" disabled={form.formState.isSubmitting || taxLoading}>
+      <p className="text-sm text-gray-500 dark:text-dark-300 sm:col-span-2">
+        {match
+          ? `A code like ${match.codePrefix}-0001 is assigned when you save. It cannot be changed later.`
+          : 'A code is assigned when you save. It cannot be changed later.'}
+      </p>
+      <div className="sm:col-span-2" data-testid="service-tax">
+        <p className="text-sm font-medium text-gray-800 dark:text-dark-100">Tax</p>
+        {tax ? (
+          <p className="mt-1 text-sm text-gray-800 dark:text-dark-100">
+            {taxPlainLabel(tax.rateBp, tax.isExempt)}
+            <span className="mt-0.5 block text-xs text-gray-500">SAC {tax.sac}</span>
+          </p>
+        ) : (
+          <p className="mt-1 text-sm text-gray-500">The category sets the tax.</p>
+        )}
+      </div>
+      <div className="sm:col-span-2">
+        <Button
+          type="button"
+          variant="secondary"
+          className="min-h-11"
+          aria-expanded={advanced}
+          onClick={() =>
+            setAdvanced((open) => {
+              if (open) form.setValue('customCode', '')
+              return !open
+            })
+          }
+        >
+          Advanced
+        </Button>
+      </div>
+      {advanced && (
+        <>
+          <FormField label="Custom code" hint="Optional. Leave blank to generate one." error={form.formState.errors.customCode?.message} autoComplete="off" {...form.register('customCode')} />
+          <SelectField label="Tax" error={form.formState.errors.taxCodeId?.message} {...form.register('taxCodeId')}>
+            {taxCodes.map((code) => (
+              <option key={code.id} value={code.id}>
+                {taxOptionLabel(code.rateBp, code.sacHsnCode, code.isExempt)}
+              </option>
+            ))}
+          </SelectField>
+        </>
+      )}
+      <div>
+        <Button type="submit" className="min-h-11 w-full sm:w-auto" disabled={form.formState.isSubmitting || !defaultsReady}>
           Add service
         </Button>
       </div>
@@ -312,13 +388,15 @@ function PriceDrawer({
   branches,
   practitioners,
   taxCodes,
+  defaults,
   onMessage,
   onClose,
 }: {
   item: ServiceItem
   branches: Branch[]
   practitioners: Practitioner[]
-  taxCodes: { id: string; code: string; sacHsnCode: string; rateBp: number; isExempt: boolean }[]
+  taxCodes: TaxCode[]
+  defaults: CategoryDefault[]
   onMessage: (message: Message) => void
   onClose: () => void
 }) {
@@ -349,7 +427,20 @@ function PriceDrawer({
     defaultValues: { scope: 'tenant', branchId: '', practitionerId: '', rupees: '', effectiveFrom: localToday(), effectiveTo: '' },
   })
   const scope = useWatch({ control: price.control, name: 'scope' })
+  const editCategory = useWatch({ control: details.control, name: 'category' })
+  const editTaxId = useWatch({ control: details.control, name: 'taxCodeId' })
+  const [advanced, setAdvanced] = useState(false)
   const [priceError, setPriceError] = useState<string | null>(null)
+  const prevCategory = useRef(item.category)
+  const editTax = taxFacts(editTaxId, taxCodes, defaults)
+
+  useEffect(() => {
+    if (prevCategory.current === editCategory) return
+    const next = defaults.find((row) => row.category === editCategory)
+    if (!next) return
+    prevCategory.current = editCategory
+    details.setValue('taxCodeId', next.taxCodeId)
+  }, [editCategory, defaults, details])
 
   const saveDetails = async (values: ServiceItemEditValues) => {
     try {
@@ -390,7 +481,11 @@ function PriceDrawer({
 
   return (
     <div className="space-y-8">
-      <p className="font-mono text-sm text-gray-500">{item.code}</p>
+      <p>
+        <span className="text-sm font-medium text-gray-800 dark:text-dark-100">Code</span>
+        <span className="mt-1 block font-mono text-sm">{item.code}</span>
+        <span className="mt-1 block text-xs text-gray-500">It cannot be changed.</span>
+      </p>
       <form noValidate aria-label="Edit service" onSubmit={details.handleSubmit(saveDetails)} className="space-y-4">
         <FormField label="Name" error={details.formState.errors.name?.message} {...details.register('name')} />
         <SelectField label="Category" error={details.formState.errors.category?.message} {...details.register('category')}>
@@ -400,13 +495,27 @@ function PriceDrawer({
             </option>
           ))}
         </SelectField>
-        <SelectField label="SAC / GST" error={details.formState.errors.taxCodeId?.message} {...details.register('taxCodeId')}>
-          {taxCodes.map((code) => (
-            <option key={code.id} value={code.id}>
-              {formatServiceTax(code.rateBp, code.sacHsnCode, code.isExempt)}
-            </option>
-          ))}
-        </SelectField>
+        <div>
+          <p className="text-sm font-medium text-gray-800 dark:text-dark-100">Tax</p>
+          {editTax ? (
+            <p className="mt-1 text-sm text-gray-800 dark:text-dark-100">
+              {taxPlainLabel(editTax.rateBp, editTax.isExempt)}
+              <span className="mt-0.5 block text-xs text-gray-500">SAC {editTax.sac}</span>
+            </p>
+          ) : null}
+        </div>
+        <Button type="button" variant="secondary" className="min-h-11" aria-expanded={advanced} onClick={() => setAdvanced((open) => !open)}>
+          Advanced
+        </Button>
+        {advanced && (
+          <SelectField label="Tax" error={details.formState.errors.taxCodeId?.message} {...details.register('taxCodeId')}>
+            {taxCodes.map((code) => (
+              <option key={code.id} value={code.id}>
+                {taxOptionLabel(code.rateBp, code.sacHsnCode, code.isExempt)}
+              </option>
+            ))}
+          </SelectField>
+        )}
         <Button type="submit" variant="secondary" className="min-h-11" disabled={details.formState.isSubmitting}>
           Save service
         </Button>
@@ -600,10 +709,10 @@ function ImportPrices({ branches, onMessage }: { branches: Branch[]; onMessage: 
       .filter((row) => !row.error && row.unitPricePaise !== null)
       .map((row) => ({
         clientIndex: row.clientIndex,
-        code: row.code,
+        ...(row.code ? { code: row.code } : {}),
         ...(row.name ? { name: row.name } : {}),
         category: row.category,
-        sac: row.sac,
+        ...(row.sac ? { sac: row.sac } : {}),
         unitPricePaise: row.unitPricePaise!,
         effectiveFrom: row.effectiveFrom,
         ...(row.effectiveTo ? { effectiveTo: row.effectiveTo } : {}),
@@ -675,7 +784,7 @@ function ImportPrices({ branches, onMessage }: { branches: Branch[]; onMessage: 
     <Card title="Import from CSV">
       <div className="space-y-4">
         <p className="text-sm text-gray-500 dark:text-dark-300">
-          Preview the file before anything is saved. Rows that overlap an existing period are marked and are not imported. A blank branch code is the hospital rate.
+          Preview the file before anything is saved. Rows that overlap an existing period are marked and are not imported. Leave the code and SAC blank to fill them from the category. A blank branch code is the hospital rate.
         </p>
         <div className="flex flex-wrap gap-2">
           <Button type="button" variant="secondary" className="min-h-11" onClick={downloadTemplate}>

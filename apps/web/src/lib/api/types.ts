@@ -801,6 +801,16 @@ export interface TaxCode {
   effectiveTo: string | null
 }
 
+/** GET /service-items/category-defaults. The tax is a reference, not a copied SAC. */
+export interface CategoryDefault {
+  category: string
+  codePrefix: string
+  taxCodeId: Guid
+  sacHsnCode: string
+  rateBp: number
+  isExempt: boolean
+}
+
 export interface PriceListSummary {
   id: Guid
   name: string
@@ -843,7 +853,7 @@ export interface AddPriceRequest {
 
 export interface PriceImportRow {
   clientIndex: number
-  code: string
+  code?: string
   name?: string
   category?: string
   sac?: string
