@@ -38,7 +38,7 @@ Callers without a user (`service_role` jobs, triggers) skip the membership check
 | `appointment.patient_has_active_visits_v1(tenant, patient)` | scheduling | **deprecated alias** of `patient_has_open_visits_v1` | 20261012090000 |
 | `identity.caller_roles_v1(tenant) → text[]` | identity | billing (approval policy) | 20261023120100 |
 | `appointment.appointment_billing_ref_v1(tenant, appointment) → table` | scheduling | billing (draft at check-in) | 20261023120200 |
-| `inventory.fefo_pick_v1(tenant, store, item, qty) → jsonb` | inventory | inventory (lookup only; no other service yet) | 20261023160000 |
+| `inventory.fefo_pick_v1(tenant, store, item, qty) → jsonb` | inventory | inventory (lookup only; no other service yet) | 20261023170000 |
 
 Details:
 
@@ -69,13 +69,13 @@ adds a cross-schema reference must carry the header line `-- cross-schema: appro
 ## Roles
 
 - `hms_svc_identity`, `hms_svc_patients`, `hms_svc_scheduling`, `hms_svc_billing`, `hms_svc_inventory` (migrations 20261013090100,
-  20261022140000, 20261023120000 and 20261023160000): `NOLOGIN NOINHERIT`. Each is a member of `anon` (public routes) and **not** of
+  20261022140000, 20261023120000 and 20261023170000): `NOLOGIN NOINHERIT`. Each is a member of `anon` (public routes) and **not** of
   `authenticated`. Migration 20261022140000 copies `authenticated`'s table, column, sequence and
   function privileges onto the owning role for that schema only, adds the role to that schema's RLS
   policies, grants `USAGE` on `auth` and on the schemas of the functions it may call, and grants `EXECUTE` on the approved cross-schema functions (RLS helpers,
   `my_tenant_grant_v1`, `my_active_context`, `auth.uid()`, and the `_v1` contracts the service calls).
   Billing's grants are in 20261023120500, including `my_tenant_grant_v1` and `my_active_context` for tenant resolution.
-  Inventory's grants are in 20261023160000. `inventory.fefo_pick_v1` is executable by `hms_svc_inventory` and `service_role` only. It looks up batches and does not change stock. Other services are not granted it yet.
+  Inventory's grants are in 20261023170000. `inventory.fefo_pick_v1` is executable by `hms_svc_inventory` and `service_role` only. It looks up batches and does not change stock. Other services are not granted it yet.
   The service sets `Database:SessionRole` to `hms_svc_<service>` and `SET LOCAL ROLE`s that role per
   transaction, with `request.jwt.claims` unchanged (`role` claim stays `authenticated`). A service
   cannot `SET ROLE authenticated` and cannot `SELECT` another schema's tables. ADR 0002.
