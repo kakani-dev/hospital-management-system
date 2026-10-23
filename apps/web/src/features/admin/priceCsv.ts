@@ -3,9 +3,9 @@ import { parseRupeesToPaise } from '../billing/money'
 export const SERVICE_CATEGORIES = ['consultation', 'procedure', 'lab', 'imaging', 'consumable', 'room', 'package', 'other'] as const
 export type ServiceCategory = (typeof SERVICE_CATEGORIES)[number]
 
-export const PRICE_CSV_TEMPLATE = `code,name,category,sac,rupees,effective_from,effective_to,branch_code
-DRESS,Wound dressing,procedure,9993,150,2026-04-01,,
-CERT,"Medical certificate, fitness",other,9993,200,2026-04-01,,main
+export const PRICE_CSV_TEMPLATE = `name,category,rupees,effective_from,effective_to,branch_code,code,sac
+Wound dressing,procedure,150,2026-04-01,,,,
+"Medical certificate, fitness",other,200,2026-04-01,,main,,
 `
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
@@ -67,8 +67,8 @@ export function parsePriceCsv(text: string): ParsedPriceCsv {
   if (headerIndex < 0) return { fileError: 'The file is empty.', rows: [] }
   const header = splitCsvLine(lines[headerIndex]!).map((cell) => cell.toLowerCase())
   const col = (name: string) => header.indexOf(name)
-  if (col('code') < 0 || col('rupees') < 0 || col('effective_from') < 0) {
-    return { fileError: 'The header must include code, rupees and effective_from.', rows: [] }
+  if (col('rupees') < 0 || col('effective_from') < 0 || (col('name') < 0 && col('code') < 0)) {
+    return { fileError: 'The header must include rupees, effective_from, and a name or a code.', rows: [] }
   }
 
   const rows: ParsedPriceRow[] = []
@@ -83,14 +83,14 @@ export function parsePriceCsv(text: string): ParsedPriceCsv {
     const name = at('name')
     const categoryRaw = at('category').toLowerCase()
     const category = categoryRaw || 'other'
-    const sac = at('sac') || '9993'
+    const sac = at('sac')
     const rupees = at('rupees')
     const effectiveFrom = at('effective_from')
     const effectiveTo = at('effective_to')
     const branchCode = at('branch_code')
     const unitPricePaise = parseRupeesToPaise(rupees)
     let error: string | null = null
-    if (!code) error = 'Code is required.'
+    if (!code && !name) error = 'Name is required.'
     else if (code.length > 40) error = 'Code is longer than 40 characters.'
     else if (!isCategory(category)) error = 'Category is not recognised.'
     else if (unitPricePaise === null) error = 'Amount must be rupees with at most two decimals.'

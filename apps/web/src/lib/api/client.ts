@@ -58,6 +58,7 @@ import type {
   PriceImportResult,
   PriceImportRow,
   PriceListSummary,
+  CategoryDefault,
   SaveServiceItemRequest,
   ServiceItem,
   ServicePrice,
@@ -583,8 +584,9 @@ export class ApiClient {
     serviceItems: (params: { q?: string; includeInactive?: boolean } = {}) =>
       this.request<ServiceItem[]>(`/api/v1/service-items${qs({ q: params.q, includeInactive: params.includeInactive ? 'true' : undefined })}`),
     taxCodes: () => this.request<TaxCode[]>('/api/v1/service-items/tax-codes'),
+    categoryDefaults: () => this.request<CategoryDefault[]>('/api/v1/service-items/category-defaults'),
     saveServiceItem: (body: SaveServiceItemRequest) =>
-      this.request<{ id: string }>('/api/v1/service-items', { method: 'POST', body: JSON.stringify(body) }),
+      this.request<{ id: string; code?: string }>('/api/v1/service-items', { method: 'POST', body: JSON.stringify(body) }),
     priceLists: () => this.request<PriceListSummary[]>('/api/v1/price-lists'),
     prices: (serviceItemId: string) => this.request<ServicePrice[]>(`/api/v1/price-lists/items${qs({ serviceItemId })}`),
     addPrice: (body: AddPriceRequest) =>

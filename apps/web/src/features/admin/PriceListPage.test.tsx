@@ -9,12 +9,26 @@ import { localToday } from '../../lib/dates'
 afterEach(() => vi.unstubAllGlobals())
 
 const TAX = '11111111-0000-4000-8000-0000000000aa'
+const GST = '11111111-0000-4000-8000-0000000000ab'
 const DRESS = 'd1111111-0000-4000-8000-000000000001'
 const CONSULT = 'c1111111-0000-4000-8000-000000000001'
 const LIST = '11111111-0000-4000-8000-0000000000bb'
 const DR = '11111111-0000-4000-8000-0000000000cc'
 
-const taxCodes = [{ id: TAX, code: 'EXEMPT', sacHsnCode: '9993', isExempt: true, rateBp: 0, effectiveFrom: '2017-07-01', effectiveTo: null }]
+const taxCodes = [
+  { id: TAX, code: 'EXEMPT', sacHsnCode: '9993', isExempt: true, rateBp: 0, effectiveFrom: '2017-07-01', effectiveTo: null },
+  { id: GST, code: 'GST18', sacHsnCode: '9997', isExempt: false, rateBp: 1800, effectiveFrom: '2017-07-01', effectiveTo: null },
+]
+const categoryDefaults = [
+  { category: 'consultation', codePrefix: 'CONS', taxCodeId: TAX, sacHsnCode: '9993', rateBp: 0, isExempt: true },
+  { category: 'procedure', codePrefix: 'PROC', taxCodeId: TAX, sacHsnCode: '9993', rateBp: 0, isExempt: true },
+  { category: 'lab', codePrefix: 'LAB', taxCodeId: TAX, sacHsnCode: '9993', rateBp: 0, isExempt: true },
+  { category: 'imaging', codePrefix: 'IMG', taxCodeId: TAX, sacHsnCode: '9993', rateBp: 0, isExempt: true },
+  { category: 'consumable', codePrefix: 'MAT', taxCodeId: GST, sacHsnCode: '9997', rateBp: 1800, isExempt: false },
+  { category: 'room', codePrefix: 'ROOM', taxCodeId: TAX, sacHsnCode: '9993', rateBp: 0, isExempt: true },
+  { category: 'package', codePrefix: 'PKG', taxCodeId: TAX, sacHsnCode: '9993', rateBp: 0, isExempt: true },
+  { category: 'other', codePrefix: 'CERT', taxCodeId: GST, sacHsnCode: '9997', rateBp: 1800, isExempt: false },
+]
 const consult = {
   id: CONSULT, code: 'CONSULT', name: 'OP consultation', category: 'consultation', taxCodeId: TAX,
   sacHsnCode: '9993', taxRateBp: 0, isExempt: true, isActive: true, isStockTracked: false, hospitalPricePaise: 50000,
@@ -33,6 +47,7 @@ function routes(extra: Parameters<typeof stubFetch>[0] = {}) {
     'GET /api/v1/practitioners': () => json([{ id: DR, userId: null, displayName: 'Dr. Rao', specialty: null, isActive: true, isDeleted: false }]),
     'GET /api/v1/service-items': () => json(catalog),
     'GET /api/v1/service-items/tax-codes': () => json(taxCodes),
+    'GET /api/v1/service-items/category-defaults': () => json(categoryDefaults),
     'GET /api/v1/price-lists': () => json([{ id: LIST, name: 'Standard', branchId: null, isActive: true, isPublicDisplay: false, schemeCode: null }]),
     'GET /api/v1/price-lists/items': () => json([
       { id: 'pr1', priceListId: LIST, priceListName: 'Standard', branchId: null, practitionerId: null, unitPricePaise: 15000, effectiveFrom: '2017-07-01', effectiveTo: null },
@@ -44,7 +59,7 @@ function routes(extra: Parameters<typeof stubFetch>[0] = {}) {
         if (row && body.isActive !== undefined) row.isActive = body.isActive
         return json({ id: body.id })
       }
-      return json({ id: 'new-item' }, 201)
+      return json({ id: 'new-item', code: body.code || 'PROC-0001' }, 201)
     },
     'POST /api/v1/price-lists/items': () => json({ id: 'price-1' }, 201),
     ...extra,
@@ -55,7 +70,8 @@ const open = () => renderWithProviders(<App />, { path: '/admin/price-list', aut
 
 /** Wait until the catalog, tax codes and price lists have all rendered, so a click is not lost on a row that is still being replaced. */
 async function settle() {
-  await screen.findByRole('option', { name: 'Exempt · SAC 9993' })
+  await screen.findByTestId('service-tax')
+  await screen.findAllByText('Healthcare service, GST exempt')
   await screen.findByRole('option', { name: 'Standard · Hospital' })
   await screen.findAllByTestId('service-item-row')
 }
@@ -68,7 +84,8 @@ describe('Price list admin', () => {
     expect(rows.map((row) => row.getAttribute('data-code'))).toEqual(['CONSULT', 'DRESS'])
     expect(rows[1]).toHaveTextContent('Wound dressing')
     expect(rows[1]).toHaveTextContent('Procedure')
-    expect(rows[1]).toHaveTextContent('Exempt · SAC 9993')
+    expect(rows[1]).toHaveTextContent('Healthcare service, GST exempt')
+    expect(rows[1]).toHaveTextContent('SAC 9993')
     expect(rows[1]).toHaveTextContent('₹150.00')
     expect(screen.getByRole('link', { name: 'Price list' })).toHaveAttribute('href', '/admin/price-list')
   })
@@ -87,20 +104,18 @@ describe('Price list admin', () => {
     const calls = routes()
     const user = userEvent.setup()
     open()
-    await screen.findByRole('option', { name: 'Exempt · SAC 9993' })
-    await user.type(screen.getByLabelText('Code'), 'CERT')
-    await user.type(screen.getByLabelText('Name'), 'Medical certificate')
-    await user.selectOptions(screen.getByLabelText('Category'), 'other')
+    await screen.findByTestId('service-tax')
+    await user.type(screen.getByLabelText('Name'), 'Wound dressing')
     await user.click(screen.getByRole('button', { name: 'Add service' }))
-    expect(await screen.findByText('Medical certificate added. Set the rate in the panel.')).toBeInTheDocument()
+    expect(await screen.findByText('Wound dressing added as PROC-0001. Set the rate in the panel.')).toBeInTheDocument()
     expect(calls.find((call) => call.method === 'POST' && call.path === '/api/v1/service-items')!.body).toEqual({
-      code: 'CERT', name: 'Medical certificate', category: 'other', taxCodeId: TAX,
+      name: 'Wound dressing', category: 'procedure',
     })
 
     const drawer = await screen.findByTestId('price-drawer')
     await user.type(within(drawer).getByLabelText('Amount (rupees)'), '200')
     await user.click(within(drawer).getByRole('button', { name: 'Save price' }))
-    expect(await screen.findByText(new RegExp(`₹200\\.00 saved for Medical certificate at the hospital, from`))).toBeInTheDocument()
+    expect(await screen.findByText(new RegExp(`₹200\\.00 saved for Wound dressing at the hospital, from`))).toBeInTheDocument()
     expect(calls.find((call) => call.method === 'POST' && call.path === '/api/v1/price-lists/items')!.body).toEqual({
       serviceItemId: 'new-item',
       unitPricePaise: 20000,
@@ -125,6 +140,27 @@ describe('Price list admin', () => {
     expect(calls.find((call) => call.method === 'POST' && call.path === '/api/v1/price-lists/items')!.body).toMatchObject({
       serviceItemId: DRESS,
       unitPricePaise: 18000,
+    })
+  })
+
+  it('fills a taxable label for a non-clinical category and posts an advanced override', async () => {
+    const calls = routes()
+    const user = userEvent.setup()
+    open()
+    await screen.findByTestId('service-tax')
+    await user.selectOptions(screen.getByLabelText('Category'), 'other')
+    expect(await screen.findByText('Taxable service 18%')).toBeInTheDocument()
+    expect(screen.getByText(/A code like CERT-0001 is assigned when you save/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Advanced' }))
+    await screen.findByRole('option', { name: 'Taxable service 18% · SAC 9997' })
+    await user.type(screen.getByLabelText('Custom code'), 'LEGACY')
+    await user.selectOptions(screen.getByLabelText('Category'), 'procedure')
+    await user.selectOptions(screen.getByLabelText('Tax'), 'Taxable service 18% · SAC 9997')
+    await user.type(screen.getByLabelText('Name'), 'Special dressing')
+    await user.click(screen.getByRole('button', { name: 'Add service' }))
+    expect(await screen.findByText('Special dressing added as LEGACY. Set the rate in the panel.')).toBeInTheDocument()
+    expect(calls.find((call) => call.method === 'POST' && call.path === '/api/v1/service-items')!.body).toEqual({
+      name: 'Special dressing', category: 'procedure', code: 'LEGACY', taxCodeId: GST,
     })
   })
 
@@ -160,7 +196,7 @@ describe('Price list admin', () => {
     open()
     await screen.findAllByTestId('service-item-row')
     const file = new File(
-      ['code,name,category,sac,rupees,effective_from,effective_to,branch_code\nCONSULT,OP consultation,consultation,9993,600,2026-04-01,,\nDRESS,Wound dressing,procedure,9993,180,2026-05-01,,\n'],
+      ['name,category,rupees,effective_from,code,sac\nOP consultation,consultation,600,2026-04-01,CONSULT,9993\nWound dressing,procedure,180,2026-05-01,,\n'],
       'prices.csv',
       { type: 'text/csv' },
     )
@@ -173,7 +209,7 @@ describe('Price list admin', () => {
     expect(posted[0]!.body).toMatchObject({ dryRun: true })
     expect(posted[1]!.body).toEqual({
       dryRun: false,
-      rows: [{ clientIndex: 1, code: 'DRESS', name: 'Wound dressing', category: 'procedure', sac: '9993', unitPricePaise: 18000, effectiveFrom: '2026-05-01' }],
+      rows: [{ clientIndex: 1, name: 'Wound dressing', category: 'procedure', unitPricePaise: 18000, effectiveFrom: '2026-05-01' }],
     })
   })
 

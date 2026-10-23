@@ -5,9 +5,11 @@ const TAX = '11111111-0000-4000-8000-0000000000aa'
 const BRANCH = 'a1111111-0000-4000-8000-000000000001'
 
 describe('serviceItemSchema', () => {
-  it('requires a code, a name and a tax code', () => {
-    expect(serviceItemSchema.safeParse({ code: 'DRESS', name: 'Dressing', category: 'procedure', taxCodeId: TAX }).success).toBe(true)
-    expect(serviceItemSchema.safeParse({ code: '', name: 'Dressing', category: 'procedure', taxCodeId: TAX }).success).toBe(false)
+  it('accepts a name and category, and an optional custom code', () => {
+    expect(serviceItemSchema.safeParse({ name: 'Dressing', category: 'procedure', customCode: '', taxCodeId: '' }).success).toBe(true)
+    expect(serviceItemSchema.safeParse({ name: 'Dressing', category: 'procedure', customCode: 'LEGACY', taxCodeId: TAX }).success).toBe(true)
+    expect(serviceItemSchema.safeParse({ name: '', category: 'procedure', customCode: '', taxCodeId: '' }).success).toBe(false)
+    expect(serviceItemSchema.safeParse({ name: 'Dressing', category: 'procedure', customCode: 'x'.repeat(41), taxCodeId: '' }).success).toBe(false)
   })
 })
 
