@@ -376,7 +376,36 @@ if [[ "$all" == *"ingress.fqdn"* ]]; then
 fi
 if [[ "$all" == *"revision set-mode"* ]]; then exit 0; fi
 if [[ "$all" == *"revision deactivate"* ]]; then exit 0; fi
+if [[ "$all" == *"properties.runningState"* ]]; then
+  if [[ -n "${ACTIVATION_FAIL:-}" && "$app" == "ca-hms-billing" ]]; then
+    echo ActivationFailed
+  elif [[ -n "${AT_MAX_SCALE:-}" ]]; then
+    echo RunningAtMaxScale
+  else
+    echo Running
+  fi
+  exit 0
+fi
 if [[ "$all" == *"revision show"* ]]; then exit 1; fi
+if [[ "$all" == *"ingress enable"* ]]; then exit 0; fi
+if [[ "$1" == "rest" ]]; then
+  prev=""
+  for arg in "$@"; do
+    if [[ "$prev" == "--body" && "$arg" == @* ]]; then
+      echo "PATCH $(cat "${arg#@}")" >>"$AZ_LOG"
+    fi
+    prev="$arg"
+  done
+  exit 0
+fi
+if [[ "$all" == *"containerapp show"* && "$all" == *"--query id"* ]]; then
+  echo "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-medicore-hms-dev/providers/Microsoft.App/containerApps/${app}"
+  exit 0
+fi
+if [[ "$all" == *"containerapp show"* && "$all" == *"-o json"* ]]; then
+  printf '%s\n' '{"properties":{"template":{"containers":[{"name":"app","image":"old","env":[{"name":"ConnectionStrings__HmsDatabase","secretRef":"hms-db"}]}],"scale":{"minReplicas":0,"maxReplicas":1}}}}'
+  exit 0
+fi
 if [[ "$all" == *"ingress traffic set"* ]]; then exit 0; fi
 if [[ "$all" == *"ingress traffic show"* ]]; then
   printf '[{"revisionName":"%s--sha-prevprevprev","weight":100}]\n' "$app"
@@ -401,7 +430,26 @@ fi
 if [[ "$all" == *"secret set"* ]]; then exit 0; fi
 if [[ "$all" == containerapp\ update* ]]; then
   mkdir -p "$AZ_STATE"
+  if [[ -n "${IN_PROGRESS_ONCE:-}" && ! -f "$AZ_STATE/$app.busy" ]]; then
+    : >"$AZ_STATE/$app.busy"
+    echo "ERROR: (ContainerAppOperationInProgress) Cannot modify a container app '$app'" >&2
+    exit 1
+  fi
   : >"$AZ_STATE/$app.updated"
+  exit 0
+fi
+if [[ "$all" == *"provisioningState"* ]]; then
+  suffix="$(python3 "$ROOT/.github/scripts/service_changes.py" suffix --app "$app" --tag "$IMAGE_TAG")"
+  n=0
+  [[ -f "$AZ_STATE/$app.prov" ]] && n="$(cat "$AZ_STATE/$app.prov")"
+  n=$((n + 1))
+  mkdir -p "$AZ_STATE"
+  echo "$n" >"$AZ_STATE/$app.prov"
+  if [[ -n "${PROVISION_LAG:-}" && "$n" -le "$PROVISION_LAG" ]]; then
+    printf 'InProgress\n%s--sha-prevprevprev\n' "$app"
+  else
+    printf 'Succeeded\n%s--%s\n' "$app" "$suffix"
+  fi
   exit 0
 fi
 if [[ "$all" == *"latestRevisionName"* ]]; then
@@ -453,7 +501,22 @@ case "$url" in
       code=503
       body='{"status":"Unhealthy","services":[{"name":"identity","status":"Unhealthy"},{"name":"patients","status":"Unhealthy"},{"name":"scheduling","status":"Unhealthy"},{"name":"billing","status":"Unhealthy"}]}'
     else
-      body='{"status":"Healthy","services":[{"name":"identity","status":"Healthy"},{"name":"patients","status":"Healthy"},{"name":"scheduling","status":"Healthy"},{"name":"billing","status":"Healthy"}]}'
+      names=(identity patients scheduling billing)
+      if [[ -n "${EDGE_OMITS:-}" && ! -f "$CURL_STATE/ca-hms-edge.updated" ]]; then
+        kept=()
+        for name in "${names[@]}"; do
+          [[ " ${EDGE_OMITS} " == *" ${name} "* ]] && continue
+          kept+=("$name")
+        done
+        names=("${kept[@]}")
+      fi
+      body='{"status":"Healthy","services":['
+      sep=""
+      for name in "${names[@]}"; do
+        body+="${sep}{\"name\":\"${name}\",\"status\":\"Healthy\"}"
+        sep=,
+      done
+      body+=']}'
     fi
     ;;
   */api/v1/public/invites/*)
@@ -476,6 +539,7 @@ EOS
   PATH="$bin:$PATH" AZ_LOG="$log" AZ_STATE="$state" CURL_STATE="$state" ROOT="$ROOT" \
     IMAGE_TAG="${IMAGE_TAG:-sha-0123456789ab}" ROLLBACK_STATE="$state/rollback.tsv" \
     HEALTH_TIMEOUT_SECONDS="${HEALTH_TIMEOUT_SECONDS:-2}" SMOKE_INTERVAL_SECONDS=0 \
+    PROVISION_INTERVAL_SECONDS=0 AZ_RETRY_DELAY_SECONDS=0 PROVISION_TIMEOUT_SECONDS="${PROVISION_TIMEOUT_SECONDS:-5}" \
     bash .github/scripts/aca-rollout.sh "$@" >"$out" 2>"$err"
   status=$?
   set -e
@@ -504,7 +568,20 @@ grep -q -- "--revision-suffix s-0123456789ab" "$ROLLOUT_LOG" || fail "short revi
 grep -q 'hms-patients:sha-0123456789ab' "$ROLLOUT_LOG" || fail "image tag was not kept in full"
 grep -q -- "--revision-weight ${new_rev}=100" "$ROLLOUT_LOG" || fail "traffic did not move to $new_rev"
 grep -q 'sha-prevprevprev=100' "$ROLLOUT_LOG" && fail "success run rolled traffic back" || true
+grep -q 'ReverseProxy__Clusters__billing' "$ROLLOUT_LOG" && fail "a known service stamped edge cluster addresses" || true
+grep -q 'ingress enable' "$ROLLOUT_LOG" && fail "a known service rewrote ingress" || true
 echo "rollout success ok"
+
+# The update returns before Azure finishes provisioning: wait for the expected revision.
+PROVISION_LAG=3 run_rollout pass patients
+grep -q -- "--revision-weight ca-hms-patients--s-0123456789ab=100" "$ROLLOUT_LOG" || fail "lagging provisioning did not shift traffic"
+# A concurrent operation on the app is retried, not treated as a failure.
+IN_PROGRESS_ONCE=1 run_rollout pass patients
+[[ "$(grep -c 'containerapp update' "$ROLLOUT_LOG")" -ge 2 ]] || fail "operation in progress was not retried"
+# A revision that never becomes latest fails the rollout instead of shifting traffic.
+PROVISION_LAG=1000 PROVISION_TIMEOUT_SECONDS=1 run_rollout fail patients
+grep -q -- "--revision-weight ca-hms-patients--s-0123456789ab=100" "$ROLLOUT_LOG" && fail "traffic moved before provisioning finished" || true
+echo "rollout provisioning wait ok"
 
 run_rollout fail identity
 grep -q 'containerapp update' "$ROLLOUT_LOG" && fail "identity rolled without mail secrets" || true
@@ -609,6 +686,59 @@ SMTP_PASSWORD='smtp-test-value' SUPABASE_SERVICE_ROLE_KEY='role-test-value' \
 grep -q 'containerapp update' "$ROLLOUT_LOG" && fail "enabled dispatcher still updated a container app" || true
 unset APP_OUTBOX_TRUE
 echo "rollout preflight guards ok"
+
+# A service the live edge does not list yet must not be judged through that edge.
+# The edge revision in the same rollout stamps the cluster address, then smoke can see it.
+SMTP_PASSWORD='smtp-test-value' SUPABASE_SERVICE_ROLE_KEY='role-test-value' \
+  EDGE_OMITS=billing run_rollout pass identity patients scheduling billing edge
+grep -q 'new to the live edge: billing' "$ROLLOUT_OUT" || fail "billing was not treated as new"
+grep -q 'not checking it through the edge' "$ROLLOUT_OUT" || fail "billing was not deferred"
+grep -q 'smoke health service=billing' "$ROLLOUT_OUT" && fail "billing was checked through the old edge" || true
+grep -q 'smoke health service=all' "$ROLLOUT_OUT" || fail "the new edge did not prove every service"
+grep -q 'SMOKE PASS (health + read-only invite preview)' "$ROLLOUT_OUT" || fail "new service rollout did not finish smoke"
+grep -q -- '--target-port 8080' "$ROLLOUT_LOG" || fail "new service ingress was not moved to 8080"
+grep -q '/health/live' "$ROLLOUT_LOG" || fail "new service is missing the live probe"
+grep -q '/health/ready' "$ROLLOUT_LOG" || fail "new service is missing the ready probe"
+grep -q '"port": 8080' "$ROLLOUT_LOG" || fail "new service probes are not on port 8080"
+grep -q 'ReverseProxy__Clusters__billing__Destinations__primary__Address=http://ca-hms-billing/' "$ROLLOUT_LOG" \
+  || fail "edge revision did not set the billing cluster address"
+grep -q 'ReverseProxy__Clusters__identity__Destinations__primary__Address=http://ca-hms-identity/' "$ROLLOUT_LOG" \
+  || fail "edge revision did not set the identity cluster address"
+billing_at="$(grep -n 'target-port 8080' "$ROLLOUT_LOG" | head -1 | cut -d: -f1)"
+edge_at="$(grep -n 'ReverseProxy__Clusters__billing__Destinations__primary__Address' "$ROLLOUT_LOG" | head -1 | cut -d: -f1)"
+[[ -n "$billing_at" && -n "$edge_at" && "$billing_at" -lt "$edge_at" ]] \
+  || fail "billing port was not set before the edge learned the cluster (billing line $billing_at, edge line $edge_at)"
+grep -q 'revision deactivate' "$ROLLOUT_LOG" && fail "new service success deactivated a revision" || true
+unset EDGE_OMITS SMTP_PASSWORD SUPABASE_SERVICE_ROLE_KEY
+
+# max replicas 1: Azure reports RunningAtMaxScale for a started revision. That is running.
+SMTP_PASSWORD='smtp-test-value' SUPABASE_SERVICE_ROLE_KEY='role-test-value' \
+  EDGE_OMITS=billing AT_MAX_SCALE=1 run_rollout pass identity patients scheduling billing edge
+grep -q 'billing--s-[0-9a-f]* is RunningAtMaxScale' "$ROLLOUT_OUT" || fail "RunningAtMaxScale was not accepted"
+unset EDGE_OMITS AT_MAX_SCALE SMTP_PASSWORD SUPABASE_SERVICE_ROLE_KEY
+echo "rollout at-max-scale ok"
+echo "rollout new service added ok"
+
+EDGE_OMITS=billing run_rollout fail billing
+grep -q 'must include the edge' "$ROLLOUT_ERR" || fail "billing-only deploy was not refused: $(cat "$ROLLOUT_ERR")"
+grep -q 'containerapp update' "$ROLLOUT_LOG" && fail "refused new service still updated a container" || true
+grep -q 'ingress enable' "$ROLLOUT_LOG" && fail "refused new service still changed ingress" || true
+unset EDGE_OMITS
+echo "rollout new service without edge ok"
+
+EDGE_OMITS=billing ACTIVATION_FAIL=1 run_rollout fail billing edge
+grep -q 'ActivationFailed' "$ROLLOUT_ERR" || fail "activation failure was not reported"
+grep -q 'ca-hms-billing--s-0123456789ab' "$ROLLOUT_LOG" || fail "failed billing revision was not named"
+grep -q 'revision deactivate' "$ROLLOUT_LOG" || fail "failed billing revision was not deactivated"
+grep -q 'ReverseProxy__Clusters__billing' "$ROLLOUT_LOG" && fail "edge was updated after billing failed to start" || true
+unset EDGE_OMITS ACTIVATION_FAIL
+echo "rollout new service activation rollback ok"
+
+run_rollout pass edge
+grep -q 'ReverseProxy__Clusters__billing__Destinations__primary__Address=http://ca-hms-billing/' "$ROLLOUT_LOG" \
+  || fail "a later edge deploy did not keep the billing cluster address"
+grep -q 'replace-env-vars' "$ROLLOUT_LOG" && fail "edge deploy replaced env vars" || true
+echo "rollout edge cluster addresses ok"
 
 # --- azure cleanup with fake az -----------------------------------------------------------------
 run_cleanup() {
