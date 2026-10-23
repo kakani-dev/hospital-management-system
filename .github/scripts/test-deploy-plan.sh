@@ -19,7 +19,7 @@ grep -q 'Azure allows at most 54' .github/scripts/aca-rollout.sh \
 failed_sha=b896ba108cf95c3193dbf7598d2882659a8c0da9
 failed_tag="sha-${failed_sha}"
 [[ "${#failed_sha}" -eq 40 && "$failed_tag" == "sha-${failed_sha}" ]] || fail "image tag fixture was shortened"
-for app in ca-hms-edge ca-hms-identity ca-hms-patients ca-hms-scheduling; do
+for app in ca-hms-edge ca-hms-identity ca-hms-patients ca-hms-scheduling ca-hms-billing; do
   suffix="$(python3 .github/scripts/service_changes.py suffix --app "$app" --tag "$failed_tag")"
   name="${app}--${suffix}"
   [[ "$suffix" == "s-${failed_sha:0:12}" ]] || fail "$app suffix is '$suffix', expected s-${failed_sha:0:12}"
@@ -68,7 +68,7 @@ expect_all() {
   local out="$1" why="$2"
   grep -q 'deploy=true' <<<"$out" || fail "$why did not deploy"
   grep -q 'build=true' <<<"$out" || fail "$why did not build"
-  grep -q 'services=identity,patients,scheduling,edge' <<<"$out" || fail "$why services were not all four: $out"
+  grep -q 'services=identity,patients,scheduling,billing,edge' <<<"$out" || fail "$why services were not all four: $out"
   grep -q "tag=sha-${plan_sha}" <<<"$out" || fail "$why shortened the image tag: $out"
 }
 for path in \
@@ -85,14 +85,14 @@ do
 done
 only_patients="$(plan_of backend/services/patients/Dockerfile)"
 grep -q 'services=patients' <<<"$only_patients" || fail "patients path selected '$only_patients'"
-grep -q 'services=identity,patients,scheduling,edge' <<<"$only_patients" && fail "patients path selected every service" || true
+grep -q 'services=identity,patients,scheduling,billing,edge' <<<"$only_patients" && fail "patients path selected every service" || true
 web_only="$(plan_of apps/web/src/App.tsx)"
 grep -q 'deploy=false' <<<"$web_only" || fail "web-only change deployed: $web_only"
 grep -q 'aca-live-tags.sh' .github/workflows/deploy-aca.yml || fail "plan job does not read running image tags"
 grep -q -- '--live' .github/workflows/deploy-aca.yml || fail "plan job does not pass live tags"
 
 stale_live="$(mktemp)"
-for service in identity patients scheduling edge; do
+for service in identity patients scheduling billing edge; do
   printf '%s\t%s\n' "$service" "$old_tag" >>"$stale_live"
 done
 PLAN_LIVE="$stale_live"
@@ -100,7 +100,7 @@ expect_all "$(plan_of docs/deploy.md)" "stale running images"
 unset PLAN_LIVE
 
 current_live="$(mktemp)"
-for service in identity patients scheduling edge; do
+for service in identity patients scheduling billing edge; do
   printf '%s\tsha-%s\n' "$service" "$plan_sha" >>"$current_live"
 done
 PLAN_LIVE="$current_live"
@@ -134,7 +134,7 @@ exit 1
 EOS
 chmod +x "$bin/az"
 live_out="$(PATH="$bin:$PATH" bash .github/scripts/aca-live-tags.sh)"
-for service in identity patients scheduling edge; do
+for service in identity patients scheduling billing edge; do
   grep -qx "${service}"$'\t'"${old_tag}" <<<"$live_out" || fail "live tags missing $service: $live_out"
 done
 printf '%s\n' "$live_out" >"$stale_live"
@@ -251,14 +251,16 @@ class Handler(BaseHTTPRequestHandler):
                 b'{"status":"Healthy","services":['
                 b'{"name":"identity","status":"Healthy"},'
                 b'{"name":"patients","status":"Healthy"},'
-                b'{"name":"scheduling","status":"Healthy"}]}'
+                b'{"name":"scheduling","status":"Healthy"},'
+                b'{"name":"billing","status":"Healthy"}]}'
             )
             if mode == "unhealthy":
                 body = (
                     b'{"status":"Unhealthy","services":['
                     b'{"name":"identity","status":"Unhealthy"},'
                     b'{"name":"patients","status":"Healthy"},'
-                    b'{"name":"scheduling","status":"Healthy"}]}'
+                    b'{"name":"scheduling","status":"Healthy"},'
+                    b'{"name":"billing","status":"Healthy"}]}'
                 )
                 return self._send(503, body)
             if mode == "identity-only":
@@ -266,7 +268,8 @@ class Handler(BaseHTTPRequestHandler):
                     b'{"status":"Unhealthy","services":['
                     b'{"name":"identity","status":"Healthy"},'
                     b'{"name":"patients","status":"Unhealthy"},'
-                    b'{"name":"scheduling","status":"Unhealthy"}]}'
+                    b'{"name":"scheduling","status":"Unhealthy"},'
+                    b'{"name":"billing","status":"Unhealthy"}]}'
                 )
                 return self._send(503, body)
             return self._send(200, healthy)
@@ -448,9 +451,9 @@ case "$url" in
   */health/ready)
     if [[ -n "${FAIL_READY:-}" ]]; then
       code=503
-      body='{"status":"Unhealthy","services":[{"name":"identity","status":"Unhealthy"},{"name":"patients","status":"Unhealthy"},{"name":"scheduling","status":"Unhealthy"}]}'
+      body='{"status":"Unhealthy","services":[{"name":"identity","status":"Unhealthy"},{"name":"patients","status":"Unhealthy"},{"name":"scheduling","status":"Unhealthy"},{"name":"billing","status":"Unhealthy"}]}'
     else
-      body='{"status":"Healthy","services":[{"name":"identity","status":"Healthy"},{"name":"patients","status":"Healthy"},{"name":"scheduling","status":"Healthy"}]}'
+      body='{"status":"Healthy","services":[{"name":"identity","status":"Healthy"},{"name":"patients","status":"Healthy"},{"name":"scheduling","status":"Healthy"},{"name":"billing","status":"Healthy"}]}'
     fi
     ;;
   */api/v1/public/invites/*)

@@ -33,6 +33,14 @@ export type Permission =
   | 'queue.view'
   | 'queue.manage'
   | 'queue.consult_own'
+  | 'billing.view'
+  | 'billing.bill'
+  | 'billing.collect'
+  | 'billing.discount_request'
+  | 'billing.approve'
+  | 'billing.refund'
+  | 'billing.counter_reconcile'
+  | 'billing.pricelist_manage'
 
 /** UI capabilities (kept stable for the screens) -> the server permissions that grant them (any of). */
 const CAPABILITIES = {
@@ -71,15 +79,17 @@ export const ROLE_PERMISSIONS: Record<string, readonly Permission[]> = {
     'patients.view', 'patients.create', 'patients.edit', 'patients.delete', 'patients.restore',
     'appointments.view', 'appointments.book', 'appointments.reschedule', 'appointments.cancel', 'appointments.check_in', 'appointments.no_show',
     'appointments.override_hours', 'queue.view', 'queue.manage',
+    'billing.view', 'billing.bill', 'billing.collect', 'billing.discount_request', 'billing.approve', 'billing.refund', 'billing.counter_reconcile', 'billing.pricelist_manage',
   ],
   receptionist: [
     ...READ_ONLY_OPS, 'patients.view', 'patients.create', 'patients.edit', 'patients.delete',
     'appointments.view', 'appointments.book', 'appointments.reschedule', 'appointments.cancel', 'appointments.check_in', 'appointments.no_show',
     'queue.view', 'queue.manage',
+    'billing.view', 'billing.bill', 'billing.collect', 'billing.discount_request',
   ],
   nurse: [...READ_ONLY_OPS, 'patients.view', 'appointments.view', 'appointments.book', 'appointments.check_in', 'appointments.no_show', 'queue.view', 'queue.manage'],
   doctor: [...READ_ONLY_OPS, 'patients.view', 'appointments.view', 'appointments.book_followup_own', 'appointments.no_show_own', 'queue.view', 'queue.consult_own'],
-  billing: [...READ_ONLY_OPS, 'patients.view', 'appointments.view'],
+  billing: [...READ_ONLY_OPS, 'patients.view', 'appointments.view', 'billing.view', 'billing.bill', 'billing.collect', 'billing.discount_request', 'billing.refund'],
   pharmacist: READ_ONLY_OPS,
   lab_technician: READ_ONLY_OPS,
   viewer: READ_ONLY_OPS,

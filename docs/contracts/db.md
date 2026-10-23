@@ -9,6 +9,7 @@ functions below, never through its tables or views.
 | `identity` | identity | `hms_identity_login` | `hms_svc_identity` |
 | `patient` | patients | `hms_patients_login` | `hms_svc_patients` |
 | `appointment` | scheduling | `hms_scheduling_login` | `hms_svc_scheduling` |
+| `billing` | billing | `hms_billing_login` | `hms_svc_billing` |
 | `messaging` | shared (outbox) | – | `hms_dispatcher` (scheduling only) |
 
 ## Published functions (v1)
@@ -16,7 +17,7 @@ functions below, never through its tables or views.
 Every function is `SECURITY DEFINER`, `set search_path = ''` and does an **explicit tenant check**
 (definer code bypasses RLS): when a signed-in user is behind the call (`auth.uid()` set) the tenant
 must be one of `identity.current_tenant_ids()`, otherwise P0002 (404-not-403) or an empty result.
-Callers without a user (`service_role` jobs, triggers) skip the membership check. `anon` can call none.
+Callers without a user (`service_role` jobs, triggers) skip the membership check. `anon` can call none of these `_v1` functions. The billing service's anonymous receipt and webhook (`billing.public_link`, `billing.apply_webhook`) are separate entry points, not cross-service contracts.
 
 | Function | Owner | Used by | Added in |
 |---|---|---|---|
@@ -34,6 +35,8 @@ Callers without a user (`service_role` jobs, triggers) skip the membership check
 | `appointment.branch_has_open_activity_v1(tenant, branch) → bool` | scheduling | identity (branch soft delete) | 20261012090000 |
 | `appointment.queue_has_entries_v1(tenant, branches[], days[]) → bool` | scheduling | identity (zone change lock) | 20261012090000 |
 | `appointment.patient_has_active_visits_v1(tenant, patient)` | scheduling | **deprecated alias** of `patient_has_open_visits_v1` | 20261012090000 |
+| `identity.caller_roles_v1(tenant) → text[]` | identity | billing (approval policy) | 20261023120100 |
+| `appointment.appointment_billing_ref_v1(tenant, appointment) → table` | scheduling | billing (draft at check-in) | 20261023120200 |
 
 Details:
 
@@ -48,6 +51,8 @@ Details:
   trigger `patient.assign_mrn`). `tenant_default_country_code_v1` returns `tenants.default_country_code`
   (`+NNN`, defaulted from the hospital time zone, `+91` otherwise) after a membership check; executable by
   `authenticated` and `service_role`.
+- `caller_roles_v1` returns the caller's distinct live membership roles in the tenant (empty with no session). Billing maps `tenant_admin` onto the manager approval row; it does not read `identity.memberships`.
+- `appointment_billing_ref_v1` returns `patient_id, branch_id, practitioner_id, status` for one appointment. No names. Empty when the appointment is missing. A caller with a session must belong to the tenant (otherwise P0002).
 - Canonical names are the ones in this file (CTO decision 6). `patient_has_active_visits_v1` (the
   audit-tz name) delegates to `patient_has_open_visits_v1` and is dropped by a later contract migration.
 - Grants (re-review R6): `my_tenant_grant_v1`, `patient_summary_v1` and the two zone reads are executable by
@@ -61,12 +66,13 @@ adds a cross-schema reference must carry the header line `-- cross-schema: appro
 
 ## Roles
 
-- `hms_svc_identity`, `hms_svc_patients`, `hms_svc_scheduling` (migrations 20261013090100 and
-  20261022140000): `NOLOGIN NOINHERIT`. Each is a member of `anon` (public routes) and **not** of
+- `hms_svc_identity`, `hms_svc_patients`, `hms_svc_scheduling`, `hms_svc_billing` (migrations 20261013090100,
+  20261022140000 and 20261023120000): `NOLOGIN NOINHERIT`. Each is a member of `anon` (public routes) and **not** of
   `authenticated`. Migration 20261022140000 copies `authenticated`'s table, column, sequence and
   function privileges onto the owning role for that schema only, adds the role to that schema's RLS
   policies, grants `USAGE` on `auth` and on the schemas of the functions it may call, and grants `EXECUTE` on the approved cross-schema functions (RLS helpers,
   `my_tenant_grant_v1`, `my_active_context`, `auth.uid()`, and the `_v1` contracts the service calls).
+  Billing's grants are in 20261023120500, including `my_tenant_grant_v1` and `my_active_context` for tenant resolution.
   The service sets `Database:SessionRole` to `hms_svc_<service>` and `SET LOCAL ROLE`s that role per
   transaction, with `request.jwt.claims` unchanged (`role` claim stays `authenticated`). A service
   cannot `SET ROLE authenticated` and cannot `SELECT` another schema's tables. ADR 0002.
@@ -86,7 +92,7 @@ adds a cross-schema reference must carry the header line `-- cross-schema: appro
 
 ## Outbox
 
-- One table, `messaging.outbox`. `source_service` (`identity` | `patients` | `scheduling`) is set
+- One table, `messaging.outbox`. `source_service` (`identity` | `patients` | `scheduling` | `billing`) is set
   **by the database** (trigger `messaging.set_outbox_source`, from `aggregate_type`), never by the
   caller; an unknown aggregate type is rejected.
 - `claim_outbox` / `complete_outbox` / `fail_outbox` only touch rows whose `source_service` belongs to

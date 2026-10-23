@@ -41,6 +41,7 @@ image_edge_affected=$(or_flag "${SHARED:-}" "${IMAGE_EDGE:-}")
 image_identity_affected=$(or_flag "${SHARED:-}" "${IMAGE_IDENTITY:-}")
 image_patients_affected=$(or_flag "${SHARED:-}" "${IMAGE_PATIENTS:-}")
 image_scheduling_affected=$(or_flag "${SHARED:-}" "${IMAGE_SCHEDULING:-}")
+image_billing_affected=$(or_flag "${SHARED:-}" "${IMAGE_BILLING:-}")
 
 run_web=$(decide "$web_affected" "${CACHED_WEB:-}")
 run_api=$(decide "$api_affected" "${CACHED_API:-}")
@@ -53,6 +54,7 @@ run_image_edge=$(decide "$image_edge_affected" "${CACHED_IMAGE_EDGE:-}")
 run_image_identity=$(decide "$image_identity_affected" "${CACHED_IMAGE_IDENTITY:-}")
 run_image_patients=$(decide "$image_patients_affected" "${CACHED_IMAGE_PATIENTS:-}")
 run_image_scheduling=$(decide "$image_scheduling_affected" "${CACHED_IMAGE_SCHEDULING:-}")
+run_image_billing=$(decide "$image_billing_affected" "${CACHED_IMAGE_BILLING:-}")
 
 images_json='{"include":['
 images_sep=''
@@ -68,6 +70,7 @@ append_image "$run_image_edge" edge backend/edge/Dockerfile "${HASH_IMAGE_EDGE:-
 append_image "$run_image_identity" identity backend/services/identity/Dockerfile "${HASH_IMAGE_IDENTITY:-}" images-identity
 append_image "$run_image_patients" patients backend/services/patients/Dockerfile "${HASH_IMAGE_PATIENTS:-}" images-patients
 append_image "$run_image_scheduling" scheduling backend/services/scheduling/Dockerfile "${HASH_IMAGE_SCHEDULING:-}" images-scheduling
+append_image "$run_image_billing" billing backend/services/billing/Dockerfile "${HASH_IMAGE_BILLING:-}" images-billing
 images_json+=']}'
 
 if [ "$images_count" -eq 0 ]; then
@@ -99,7 +102,7 @@ fi
   echo "  e2e        affected=${e2e_affected} cached=${CACHED_E2E:-false} run=${run_e2e}"
   echo "  mocked     affected=${mocked_affected} cached=${CACHED_MOCKED:-false} run=${run_mocked}"
   echo "  deploy     affected=${deploy_affected} cached=${CACHED_DEPLOY:-false} run=${run_deploy}"
-  echo "  image edge=${run_image_edge} identity=${run_image_identity} patients=${run_image_patients} scheduling=${run_image_scheduling}"
+  echo "  image edge=${run_image_edge} identity=${run_image_identity} patients=${run_image_patients} scheduling=${run_image_scheduling} billing=${run_image_billing}"
 } >&2
 
 if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then

@@ -129,3 +129,13 @@ hash_of hash_image_scheduling \
   backend/Directory.Build.props \
   backend/Directory.Packages.props \
   .dockerignore
+
+hash_of hash_image_billing \
+  backend/services/billing \
+  backend/modules/Billing \
+  backend/platform \
+  backend/shared \
+  backend/global.json \
+  backend/Directory.Build.props \
+  backend/Directory.Packages.props \
+  .dockerignore

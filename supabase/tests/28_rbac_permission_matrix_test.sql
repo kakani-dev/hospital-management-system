@@ -2,7 +2,7 @@
 begin;
 select tests.as_superuser();
 
-select tests.ok((select count(*) from identity.role_permissions where role = 'tenant_admin') = 21, 'tenant_admin holds all 21 tenant permissions (20261020140000 adds appointments.override_hours)');
+select tests.ok((select count(*) from identity.role_permissions where role = 'tenant_admin') = 29, 'tenant_admin holds all 29 tenant permissions (billing adds eight)');
 select tests.ok(not exists (select 1 from identity.role_permissions where role in ('viewer', 'pharmacist', 'lab_technician')
                             and permission not in ('settings.view', 'branches.view', 'practitioners.view')),
   'viewer / pharmacist / lab_technician are read-only and see no patient data');
@@ -16,6 +16,11 @@ select tests.ok(not exists (select 1 from identity.role_permissions where permis
 -- receptionist (Alpha Main)
 select tests.authenticate_as('reception@alpha.example');
 select tests.ok(identity.has_tenant_permission('11111111-1111-4111-8111-111111111111', 'patients.create'), 'receptionist may create patients');
+select tests.ok(identity.has_tenant_permission('11111111-1111-4111-8111-111111111111', 'billing.bill')
+                and identity.has_tenant_permission('11111111-1111-4111-8111-111111111111', 'billing.discount_request')
+                and not identity.has_tenant_permission('11111111-1111-4111-8111-111111111111', 'billing.approve')
+                and not identity.has_tenant_permission('11111111-1111-4111-8111-111111111111', 'billing.refund'),
+  'receptionist can bill and request a discount, and cannot approve or refund');
 select tests.ok(not identity.has_tenant_permission('11111111-1111-4111-8111-111111111111', 'members.manage'), 'receptionist may not manage members');
 select tests.ok(not identity.has_tenant_permission('22222222-2222-4222-8222-222222222222', 'patients.view'), 'no permission in a tenant without membership');
 select tests.ok(tests.affected_rows($$update patient.patients set first_name = first_name where id = 'aa000000-0000-4000-8000-000000000001'$$) = 1,

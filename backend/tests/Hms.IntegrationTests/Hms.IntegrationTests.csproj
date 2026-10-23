@@ -12,11 +12,12 @@
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
   </ItemGroup>
   <ItemGroup>
-    <!-- edge mode (default): YARP edge in front of the three services, all in-process -->
+    <!-- edge mode (default): YARP edge in front of the four services, all in-process -->
     <ProjectReference Include="../../edge/Hms.Edge/Hms.Edge.csproj" />
     <ProjectReference Include="../../services/identity/Hms.Identity.Api/Hms.Identity.Api.csproj" />
     <ProjectReference Include="../../services/patients/Hms.Patients.Api/Hms.Patients.Api.csproj" />
     <ProjectReference Include="../../services/scheduling/Hms.Scheduling.Api/Hms.Scheduling.Api.csproj" />
+    <ProjectReference Include="../../services/billing/Hms.Billing.Api/Hms.Billing.Api.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />

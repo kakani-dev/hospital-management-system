@@ -36,6 +36,14 @@ public static class HmsPermissions
     public const string QueueManage = "queue.manage";
     /// <summary>Move the caller's own queue entries to in_consultation / done (doctor).</summary>
     public const string QueueConsultOwn = "queue.consult_own";
+    public const string BillingView = "billing.view";
+    public const string BillingBill = "billing.bill";
+    public const string BillingCollect = "billing.collect";
+    public const string BillingDiscountRequest = "billing.discount_request";
+    public const string BillingApprove = "billing.approve";
+    public const string BillingRefund = "billing.refund";
+    public const string BillingCounterReconcile = "billing.counter_reconcile";
+    public const string BillingPricelistManage = "billing.pricelist_manage";
 
     private static readonly string[] ReadOnlyOps = [SettingsView, BranchesView, PractitionersView];
 
@@ -45,14 +53,18 @@ public static class HmsPermissions
             SettingsView, SettingsManage, BranchesView, BranchesManage, MembersManage, PractitionersView, PractitionersManage,
             PatientsView, PatientsCreate, PatientsEdit, PatientsDelete, PatientsRestore,
             AppointmentsView, AppointmentsBook, AppointmentsReschedule, AppointmentsCancel, AppointmentsCheckIn, AppointmentsNoShow,
-            AppointmentsOverrideHours, QueueView, QueueManage),
+            AppointmentsOverrideHours, QueueView, QueueManage,
+            BillingView, BillingBill, BillingCollect, BillingDiscountRequest, BillingApprove, BillingRefund,
+            BillingCounterReconcile, BillingPricelistManage),
         [HmsRoles.Receptionist] = Set([.. ReadOnlyOps,
             PatientsView, PatientsCreate, PatientsEdit, PatientsDelete,
             AppointmentsView, AppointmentsBook, AppointmentsReschedule, AppointmentsCancel, AppointmentsCheckIn, AppointmentsNoShow,
-            QueueView, QueueManage]),
+            QueueView, QueueManage,
+            BillingView, BillingBill, BillingCollect, BillingDiscountRequest]),
         [HmsRoles.Nurse] = Set([.. ReadOnlyOps, PatientsView, AppointmentsView, AppointmentsBook, AppointmentsCheckIn, AppointmentsNoShow, QueueView, QueueManage]),
         [HmsRoles.Doctor] = Set([.. ReadOnlyOps, PatientsView, AppointmentsView, AppointmentsBookFollowUpOwn, AppointmentsNoShowOwn, QueueView, QueueConsultOwn]),
-        [HmsRoles.Billing] = Set([.. ReadOnlyOps, PatientsView, AppointmentsView]),
+        [HmsRoles.Billing] = Set([.. ReadOnlyOps, PatientsView, AppointmentsView,
+            BillingView, BillingBill, BillingCollect, BillingDiscountRequest, BillingRefund]),
         [HmsRoles.Pharmacist] = Set(ReadOnlyOps),
         [HmsRoles.LabTechnician] = Set(ReadOnlyOps),
         [HmsRoles.Viewer] = Set(ReadOnlyOps),

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Hms.Billing.Api;
 using Hms.Identity.Api;
 using Hms.Patients.Api;
 using Hms.Scheduling.Api;
@@ -20,6 +21,7 @@ public sealed class EdgeRouteCoverageTests
         ["Hms.Modules.Identity"] = "identity",
         ["Hms.Modules.Patients"] = "patients",
         ["Hms.Modules.Appointments"] = "scheduling",
+        ["Hms.Modules.Billing"] = "billing",
     };
 
     [Fact]
@@ -28,6 +30,7 @@ public sealed class EdgeRouteCoverageTests
         var served = Prefixes<IdentityServiceMarker>()
             .Concat(Prefixes<PatientsServiceMarker>())
             .Concat(Prefixes<SchedulingServiceMarker>())
+            .Concat(Prefixes<BillingServiceMarker>())
             .Distinct()
             .ToList();
         Assert.NotEmpty(served);
