@@ -39,6 +39,7 @@ export type Permission =
   | 'billing.discount_request'
   | 'billing.approve'
   | 'billing.refund'
+  | 'billing.earnings'
   | 'billing.counter_reconcile'
   | 'billing.pricelist_manage'
   | 'inventory.view'
@@ -74,6 +75,7 @@ const CAPABILITIES = {
   'queue.advance': ['queue.manage', 'queue.consult_own'],
   'queue.cancel': ['queue.manage'],
   'billing.view': ['billing.view'],
+  'billing.earnings': ['billing.earnings'],
   'billing.bill': ['billing.bill'],
   'billing.collect': ['billing.collect'],
   'billing.discount': ['billing.discount_request'],
@@ -107,7 +109,7 @@ export const ROLE_PERMISSIONS: Record<string, readonly Permission[]> = {
     'patients.view', 'patients.create', 'patients.edit', 'patients.delete', 'patients.restore',
     'appointments.view', 'appointments.book', 'appointments.reschedule', 'appointments.cancel', 'appointments.check_in', 'appointments.no_show',
     'appointments.override_hours', 'queue.view', 'queue.manage',
-    'billing.view', 'billing.bill', 'billing.collect', 'billing.discount_request', 'billing.approve', 'billing.refund', 'billing.counter_reconcile', 'billing.pricelist_manage',
+    'billing.view', 'billing.bill', 'billing.collect', 'billing.discount_request', 'billing.approve', 'billing.refund', 'billing.earnings', 'billing.counter_reconcile', 'billing.pricelist_manage',
     'inventory.view', 'inventory.catalog', 'inventory.opening', 'inventory.approve',
     'privacy.view', 'privacy.consent', 'privacy.notice', 'privacy.request', 'privacy.fulfil', 'privacy.erase',
   ],
@@ -120,7 +122,8 @@ export const ROLE_PERMISSIONS: Record<string, readonly Permission[]> = {
   ],
   nurse: [...READ_ONLY_OPS, 'patients.view', 'appointments.view', 'appointments.book', 'appointments.check_in', 'appointments.no_show', 'queue.view', 'queue.manage'],
   doctor: [...READ_ONLY_OPS, 'patients.view', 'appointments.view', 'appointments.book_followup_own', 'appointments.no_show_own', 'queue.view', 'queue.consult_own', 'privacy.view'],
-  billing: [...READ_ONLY_OPS, 'patients.view', 'appointments.view', 'billing.view', 'billing.bill', 'billing.collect', 'billing.discount_request', 'billing.refund'],
+  billing: [...READ_ONLY_OPS, 'patients.view', 'appointments.view', 'billing.view', 'billing.bill', 'billing.collect', 'billing.discount_request', 'billing.refund', 'billing.earnings'],
+  accountant: [...READ_ONLY_OPS, 'billing.earnings'],
   pharmacist: [...READ_ONLY_OPS, 'inventory.view'],
   lab_technician: READ_ONLY_OPS,
   viewer: READ_ONLY_OPS,

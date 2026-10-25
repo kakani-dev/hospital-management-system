@@ -117,7 +117,8 @@ public sealed class RbacMatrixInProcessTests(ApiFactory factory) : IClassFixture
             + File.ReadAllText(Path.Combine(dir, "supabase", "migrations", "20261020140000_business_rules.sql"))
             + File.ReadAllText(Path.Combine(dir, "supabase", "migrations", "20261023120600_identity_billing_permissions.sql"))
             + File.ReadAllText(Path.Combine(dir, "supabase", "migrations", "20261023170100_identity_inventory_permissions.sql"))
-            + File.ReadAllText(Path.Combine(dir, "supabase", "migrations", "20261025220600_identity_privacy_permissions.sql"));
+            + File.ReadAllText(Path.Combine(dir, "supabase", "migrations", "20261025220600_identity_privacy_permissions.sql"))
+            + File.ReadAllText(Path.Combine(dir, "supabase", "migrations", "20261025250000_identity_accountant_role.sql"));
         var db = Regex.Matches(sql, @"\('([a-z_]+)', '([a-z_]+\.[a-z_]+)'\)")
             .Select(m => $"{m.Groups[1].Value}:{m.Groups[2].Value}").Order(StringComparer.Ordinal).ToList();
         var api = HmsPermissions.ByRole.SelectMany(kv => kv.Value.Select(v => $"{kv.Key}:{v}")).Order(StringComparer.Ordinal).ToList();

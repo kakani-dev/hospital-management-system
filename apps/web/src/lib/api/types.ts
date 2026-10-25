@@ -84,6 +84,7 @@ export const ROLES = [
   'pharmacist',
   'lab_technician',
   'viewer',
+  'accountant',
 ] as const
 export type Role = (typeof ROLES)[number]
 
@@ -861,6 +862,92 @@ export interface ApprovalRequest {
   subjectType: string
   subjectId: Guid
   note: string | null
+}
+
+export interface EarningsMove {
+  direction: 'up' | 'down' | 'flat' | 'new'
+  pct: number | null
+}
+
+export interface EarningsCard {
+  grossBilledPaise: number
+  collectedPaise: number
+  refundsPaise: number
+  netEarningsPaise: number
+  outstandingPaise: number
+  discountPaise: number
+  cgstPaise: number
+  sgstPaise: number
+  igstPaise: number
+  billCount: number
+  averageBillPaise: number | null
+  visitCount: number
+  doctorCount: number
+  revenuePerVisitPaise: number | null
+  revenuePerDoctorPaise: number | null
+  collectionEfficiencyPct: number | null
+  refundRatePct: number | null
+  discountRatePct: number | null
+  periodGrowthPct: number | null
+  momGrowthPct: number | null
+  yoyGrowthPct: number | null
+  deltas: {
+    grossBilled: EarningsMove
+    collected: EarningsMove
+    netEarnings: EarningsMove
+    refunds: EarningsMove
+    billCount: EarningsMove
+    averageBill: EarningsMove
+    collectionEfficiency: EarningsMove
+    refundRate: EarningsMove
+    mom: EarningsMove
+    yoy: EarningsMove
+  }
+}
+
+export interface EarningsBranch {
+  branchId: string
+  name: string
+  gstin: string
+  deleted: boolean
+  rank: number
+  sharePct: number
+  grossBilledPaise: number
+  collectedPaise: number
+  netEarningsPaise: number
+  outstandingPaise: number
+  billCount: number
+  periodGrowthPct: number | null
+  direction: EarningsMove['direction']
+}
+
+export interface EarningsReport {
+  from: string
+  to: string
+  grain: 'day' | 'week' | 'month'
+  branchId: string | null
+  financialYear: number | null
+  quarter: number | null
+  level: 'tenant' | 'branch'
+  tenant: EarningsCard
+  focus: EarningsCard
+  branches: EarningsBranch[]
+  trend: { bucket: string; grossBilledPaise: number; collectedPaise: number; netEarningsPaise: number }[]
+  doctors: { practitionerId: string; name: string; rank: number; revenuePaise: number; visits: number }[]
+  services: { serviceItemId: string; name: string; code: string; sac: string; revenuePaise: number; sharePct: number }[]
+  paymentModes: { mode: string; collectedPaise: number; refundsPaise: number; sharePct: number }[]
+  ageing: { b0To30Paise: number; b31To60Paise: number; b61To90Paise: number; b90PlusPaise: number }
+  topBottom: { topBranch: string | null; bottomBranch: string | null; topDoctor: string | null; bottomDoctor: string | null }
+  insights: string[]
+  gstr1: Record<string, string | number>[]
+  gstr3b: Record<string, string | number>[]
+  hsn: Record<string, string | number>[]
+  sales: Record<string, string | number>[]
+  creditNotes: Record<string, string | number>[]
+  refunds: Record<string, string | number>[]
+  receipts: Record<string, string | number>[]
+  dayEndCash: Record<string, string | number>[]
+  truncated: boolean
 }
 
 export interface DayEndSession {
