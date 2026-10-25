@@ -39,7 +39,7 @@ select tests.throws_ok(
 select tests.throws_ok(
   $$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at, parent_appointment_id)
     values ('22222222-2222-4222-8222-222222222222', 'b2222222-0000-4000-8000-000000000001',
-            'c2222222-0000-4000-8000-000000000001', 'bb000000-0000-4000-8000-000000000001',
+            'c2222222-0000-4000-8000-000000000001', 'bb244000-0000-4000-8000-000000000001',
             '2031-04-11 09:00+05:30', '2031-04-11 09:15+05:30', 'e2440000-0000-4000-8000-000000000001')$$,
   '42501', 'a doctor cannot follow up another clinician''s visit');
 

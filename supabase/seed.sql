@@ -108,3 +108,7 @@ insert into appointment.appointments (id, tenant_id, branch_id, practitioner_id,
    'aa000000-0000-4000-8000-000000000003', '2024-01-08 09:00+05:30', '2024-01-08 09:15+05:30', 'Synthetic consultant visit'),
   ('e2222222-0000-4000-8000-000000000002', '22222222-2222-4222-8222-222222222222', 'b2222222-0000-4000-8000-000000000001', 'c2222222-0000-4000-8000-000000000002',
    'bb000000-0000-4000-8000-000000000001', '2024-01-08 11:00+05:30', '2024-01-08 11:15+05:30', 'Synthetic consultant visit');
+-- Cancelled so they are not open visits: a doctor still sees the chart, and branch/patient
+-- delete tests can remove East and Meera.
+update appointment.appointments set status = 'cancelled'
+ where id in ('e1111111-0000-4000-8000-000000000010', 'e2222222-0000-4000-8000-000000000002');
