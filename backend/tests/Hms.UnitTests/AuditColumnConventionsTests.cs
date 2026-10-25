@@ -69,6 +69,18 @@ public class AuditColumnConventionsTests
         Assert.Equal("timezone_override", branchZone.GetColumnName());
     }
 
+    [Fact]
+    public void Setup_columns_are_never_written_by_ef()
+    {
+        var tenant = IdentityModel().FindEntityType(typeof(Tenant))!;
+        foreach (var name in new[] { nameof(Tenant.SetupStep), nameof(Tenant.SetupCompletedOn) })
+        {
+            var property = tenant.FindProperty(name)!;
+            Assert.Equal(PropertySaveBehavior.Ignore, property.GetBeforeSaveBehavior());
+            Assert.Equal(PropertySaveBehavior.Ignore, property.GetAfterSaveBehavior());
+        }
+    }
+
     private static IModel AppointmentsModel() =>
         new AppointmentsDbContext(new DbContextOptionsBuilder<AppointmentsDbContext>().UseNpgsql("Host=unused").UseSnakeCaseNamingConvention().Options, new TenantContext()).Model;
 

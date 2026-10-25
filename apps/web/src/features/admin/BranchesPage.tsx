@@ -17,7 +17,7 @@ import { Drawer } from '@tailux/components/shared/Drawer'
 import { branchEditSchema, branchSchema, type BranchEditValues, type BranchFormValues } from './adminSchemas'
 
 /** A new branch follows the hospital zone; the override starts at the workstation zone or Asia/Kolkata. */
-const empty = (): BranchFormValues => ({ code: '', name: '', useHospitalZone: true, timezone: defaultZone() })
+const empty = (): BranchFormValues => ({ code: '', name: '', useHospitalZone: true, timezone: defaultZone(), address: '' })
 
 /** Branch zone as stored: `null` override = follows the hospital zone (audit/TZ API). */
 function zoneLabel(b: Branch) {
@@ -25,7 +25,20 @@ function zoneLabel(b: Branch) {
   return b.timezoneOverride ?? b.timezone
 }
 
-export function BranchesPage({ embedded = false }: { embedded?: boolean } = {}) {
+export function BranchesPage({
+  embedded = false,
+  wizard = false,
+  documentPrefix = null,
+  preferredBranchId = null,
+  onSaved,
+}: {
+  embedded?: boolean
+  /** Confirm the hospital's first branch instead of the branch directory. */
+  wizard?: boolean
+  documentPrefix?: string | null
+  preferredBranchId?: string | null
+  onSaved?: () => void
+} = {}) {
   const [showDeleted, setShowDeleted] = useState(false)
   const branches = useAdminBranches(showDeleted)
   const deleteBranch = useDeleteBranch()
@@ -52,9 +65,11 @@ export function BranchesPage({ embedded = false }: { embedded?: boolean } = {}) 
   const onSubmit = async (values: BranchFormValues) => {
     setMessage(null)
     // Omitting `timezone` means "inherit the hospital zone" (the older API defaults it server-side).
+    const address = values.address?.trim()
     const body: CreateBranchRequest = values.useHospitalZone
       ? { code: values.code, name: values.name }
       : { code: values.code, name: values.name, timezone: values.timezone }
+    if (address) body.address = address
     try {
       const created = await createBranch.mutateAsync(body)
       reset({ ...empty(), useHospitalZone: values.useHospitalZone, timezone: values.timezone })
@@ -209,6 +224,59 @@ export function BranchesPage({ embedded = false }: { embedded?: boolean } = {}) 
     },
   ]
 
+  const live = (branches.data ?? []).filter((b) => !b.isDeleted && b.isActive)
+  const preferred = live.find((b) => b.id === preferredBranchId) ?? live.find((b) => b.code === 'main') ?? live[0] ?? null
+  if (wizard && branches.isPending) return <p role="status">Loading…</p>
+  if (wizard && !preferred) return <Alert tone="error">This hospital has no branch yet. Add one from Branches, then come back.</Alert>
+  if (wizard && preferred) {
+    return (
+      <div className="space-y-4">
+        {message && <Alert tone={message.tone}>{message.text}</Alert>}
+        <p className="text-sm text-gray-600 dark:text-dark-200">
+          Document prefix <span className="font-mono" data-testid="setup-doc-prefix">{documentPrefix ?? '…'}</span>. Bills and receipts use it. It
+          comes from the hospital code.
+        </p>
+        <EditBranchForm
+          branch={preferred}
+          hospitalZone={hospitalZone}
+          busy={updateBranch.isPending}
+          submitLabel="Save and continue"
+          onCancel={() => undefined}
+          hideCancel
+          onSubmit={async (body) => {
+            if (Object.keys(body).length === 0) {
+              onSaved?.()
+              return
+            }
+            const saved = await patchBranch(preferred, body, `${body.name ?? preferred.name} saved.`)
+            if (saved) onSaved?.()
+          }}
+        />
+        <ConfirmDialog
+          open={!!confirmZone}
+          title="Move future bookings?"
+          confirmLabel="Change time zone"
+          busy={updateBranch.isPending}
+          onCancel={() => setConfirmZone(null)}
+          onConfirm={() =>
+            confirmZone &&
+            void patchBranch(confirmZone.branch, { ...confirmZone.body, confirmFutureBookings: true }, confirmZone.done).then((ok) => {
+              if (ok) onSaved?.()
+            })
+          }
+        >
+          {confirmZone && (
+            <p>
+              {confirmZone.branch.name} has {confirmZone.futureBookings} future booking{confirmZone.futureBookings === 1 ? '' : 's'}. Their local
+              times will follow {confirmZone.body.inheritTimezone ? 'the hospital time zone' : `the new time zone (${confirmZone.body.timezone})`}. Change it
+              anyway?
+            </p>
+          )}
+        </ConfirmDialog>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       {!embedded && <h1 className="text-xl font-semibold text-gray-800 dark:text-dark-50">Branches</h1>}
@@ -217,6 +285,7 @@ export function BranchesPage({ embedded = false }: { embedded?: boolean } = {}) 
         <form noValidate aria-label="Add branch" onSubmit={handleSubmit(onSubmit)} className="grid gap-4 sm:grid-cols-4 sm:items-start">
           <FormField label="Code" hint="e.g. north" error={errors.code?.message} {...register('code')} />
           <FormField label="Branch name" error={errors.name?.message} {...register('name')} />
+          <FormField label="Address" hint="Optional" error={errors.address?.message} {...register('address')} />
           <div className="space-y-3">
             <Checkbox
               label={hospitalZone ? `Use hospital time zone (${hospitalZone})` : 'Use hospital time zone'}
@@ -324,12 +393,16 @@ function EditBranchForm({
   busy,
   onCancel,
   onSubmit,
+  submitLabel = 'Save branch',
+  hideCancel = false,
 }: {
   branch: Branch
   hospitalZone: string | null
   busy: boolean
   onCancel: () => void
   onSubmit: (body: UpdateBranchRequest) => Promise<void>
+  submitLabel?: string
+  hideCancel?: boolean
 }) {
   const hasOverride = typeof branch.timezoneOverride === 'string'
   const {
@@ -339,7 +412,12 @@ function EditBranchForm({
     formState: { errors, isSubmitting },
   } = useForm<BranchEditValues>({
     resolver: zodResolver(branchEditSchema),
-    defaultValues: { name: branch.name, useHospitalZone: !hasOverride, timezone: branch.timezoneOverride ?? (branch.timezone || defaultZone()) },
+    defaultValues: {
+      name: branch.name,
+      useHospitalZone: !hasOverride,
+      timezone: branch.timezoneOverride ?? (branch.timezone || defaultZone()),
+      address: branch.address ?? '',
+    },
   })
   const followHospital = useWatch({ control, name: 'useHospitalZone' })
 
@@ -348,6 +426,8 @@ function EditBranchForm({
     if (v.name !== branch.name) body.name = v.name
     if (v.useHospitalZone && hasOverride) body.inheritTimezone = true
     if (!v.useHospitalZone && v.timezone !== branch.timezoneOverride) body.timezone = v.timezone
+    const address = v.address?.trim()
+    if (address && address !== (branch.address ?? '')) body.address = address
     return onSubmit(body)
   }
 
@@ -357,6 +437,7 @@ function EditBranchForm({
         Code <span className="font-mono">{branch.code}</span> can't be changed.
       </p>
       <FormField label="Branch name" error={errors.name?.message} {...register('name')} />
+      <FormField label="Address" hint="Optional" error={errors.address?.message} {...register('address')} />
       <Checkbox
         label={hospitalZone ? `Use hospital time zone (${hospitalZone})` : 'Use hospital time zone'}
         classNames={{ labelText: 'text-sm' }}
@@ -385,11 +466,13 @@ function EditBranchForm({
       </p>
       <div className="flex gap-2">
         <Button type="submit" disabled={isSubmitting || busy}>
-          Save branch
+          {submitLabel}
         </Button>
-        <Button variant="secondary" onClick={onCancel}>
-          Cancel
-        </Button>
+        {!hideCancel && (
+          <Button variant="secondary" onClick={onCancel}>
+            Cancel
+          </Button>
+        )}
       </div>
     </form>
   )

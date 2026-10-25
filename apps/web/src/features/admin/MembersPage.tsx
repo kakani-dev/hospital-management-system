@@ -18,7 +18,7 @@ import { useMe } from '../../lib/api/hooks'
 
 const roleLabel = (r: string) => r.replace(/_/g, ' ')
 
-export function MembersPage({ embedded = false }: { embedded?: boolean } = {}) {
+export function MembersPage({ embedded = false, hideDirectory = false }: { embedded?: boolean; hideDirectory?: boolean } = {}) {
   const members = useMembers()
   const branches = useBranches()
   const me = useMe()
@@ -229,19 +229,21 @@ export function MembersPage({ embedded = false }: { embedded?: boolean } = {}) {
           </Button>
         </form>
       </Card>
-      <InviteLinksCard branches={branches.data ?? []} />
-      <Card>
-        {members.isError && <Alert tone="error">Could not load members.</Alert>}
-        <DataTable
-          data={members.data ?? []}
-          columns={columns}
-          caption="Members of this hospital"
-          isLoading={members.isPending}
-          empty="No members yet."
-          getRowId={(m) => m.id}
-          getRowProps={() => ({ 'data-testid': 'member-row' })}
-        />
-      </Card>
+      {!hideDirectory && <InviteLinksCard branches={branches.data ?? []} />}
+      {!hideDirectory && (
+        <Card>
+          {members.isError && <Alert tone="error">Could not load members.</Alert>}
+          <DataTable
+            data={members.data ?? []}
+            columns={columns}
+            caption="Members of this hospital"
+            isLoading={members.isPending}
+            empty="No members yet."
+            getRowId={(m) => m.id}
+            getRowProps={() => ({ 'data-testid': 'member-row' })}
+          />
+        </Card>
+      )}
       <ConfirmDialog
         open={removing !== null}
         title={`Remove ${removing?.email ?? 'member'}?`}

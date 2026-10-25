@@ -37,6 +37,7 @@ export const queryKeys = {
   health: ['health'] as const,
   me: ['me'] as const,
   currentTenant: ['tenants', 'current'] as const,
+  setup: ['tenants', 'setup'] as const,
   invitations: ['me', 'invitations'] as const,
   patients: (criteria: PatientSearchCriteria) => ['patients', criteria] as const,
   patient: (id: string) => ['patients', 'detail', id] as const,
@@ -748,6 +749,21 @@ export function useUpdateCurrentTenant() {
     mutationFn: (body: UpdateTenantRequest) => apiClient.updateCurrentTenant(body),
     onSuccess: (tenant) => {
       qc.setQueryData(queryKeys.currentTenant, tenant)
+      return qc.invalidateQueries()
+    },
+  })
+}
+
+export function useSetupState(enabled = true) {
+  return useQuery({ queryKey: queryKeys.setup, queryFn: () => apiClient.setup.get(), retry: false, enabled })
+}
+
+export function useAdvanceSetup() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (step: 'profile' | 'branch' | 'staff' | 'schedule' | 'done') => apiClient.setup.advance(step),
+    onSuccess: (state) => {
+      qc.setQueryData(queryKeys.setup, state)
       return qc.invalidateQueries()
     },
   })

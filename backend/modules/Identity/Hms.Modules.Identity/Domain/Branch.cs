@@ -15,4 +15,7 @@ public sealed class Branch : AuditableEntity, ITenantOwned
     /// </summary>
     public string? Timezone { get; set; }
     public bool IsActive { get; set; } = true;
+
+    /// <summary>Optional street address (identity.branches.address). Null when the hospital has not set one.</summary>
+    public string? Address { get; set; }
 }

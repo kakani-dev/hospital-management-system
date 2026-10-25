@@ -27,6 +27,7 @@ import type {
   PatientSearchRequest,
   PatientStats,
   PatientSummary,
+  SetupState,
   Practitioner,
   PractitionerBranchMembership,
   ProblemDetails,
@@ -372,6 +373,13 @@ export class ApiClient {
   /** tenant_admin: rename the hospital or change its zone (409 asks to confirm future bookings). */
   updateCurrentTenant = (body: UpdateTenantRequest) =>
     this.request<CurrentTenant>('/api/v1/tenants/current', { method: 'PATCH', body: JSON.stringify(body) })
+
+  /** Wizard progress for the JWT tenant. Tenant admins only. */
+  setup = {
+    get: () => this.request<SetupState>('/api/v1/setup'),
+    advance: (step: SetupState['step']) =>
+      this.request<SetupState>('/api/v1/setup/step', { method: 'POST', body: JSON.stringify({ step }) }),
+  }
 
   /** Server validates the requested tenant/branch against memberships (403 otherwise). */
   switchContext = (body: SwitchContextRequest) =>

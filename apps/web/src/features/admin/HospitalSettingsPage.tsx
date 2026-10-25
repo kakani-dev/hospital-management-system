@@ -5,6 +5,7 @@ import { Card } from '../../components/ui/Card'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
 import { FormField } from '../../components/ui/FormField'
+import { SelectField } from '../../components/ui/SelectField'
 import { TimeZoneField } from '../../components/ui/TimeZoneField'
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 import { useBranches, useCurrentTenant, useUpdateCurrentTenant } from '../../lib/api/hooks'
@@ -14,13 +15,30 @@ import { hospitalSchema, type HospitalValues } from './adminSchemas'
 
 type Message = { tone: 'info' | 'error'; text: string }
 
+/** Calling codes identity.country_code_for_zone already knows. */
+const CALLING_CODES = ['+91', '+971', '+65', '+92', '+880', '+977', '+94', '+966', '+974', '+44', '+49', '+33', '+254', '+234', '+61', '+1']
+
+export function HospitalSettingsPage({
+  embedded = false,
+  showCountryCode = false,
+  submitLabel = 'Save settings',
+  allowUnchanged = false,
+  onSaved,
+}: {
+  embedded?: boolean
+  showCountryCode?: boolean
+  submitLabel?: string
+  /** The wizard can confirm the prefilled hospital without editing it. */
+  allowUnchanged?: boolean
+  onSaved?: () => void
+} = {}) {
+
 /**
  * Hospital name and time zone (tenant_admin, PATCH /tenants/current). Branches without an override
  * follow this zone. A change that would move future bookings on the wall clock answers 409
  * time_zone_has_future_bookings: the admin confirms and the request is repeated with
  * confirmFutureBookings; while today's queue has entries the zone is locked (409 time_zone_locked).
  */
-export function HospitalSettingsPage() {
   const tenant = useCurrentTenant()
   const branches = useBranches()
   const save = useUpdateCurrentTenant()
@@ -33,11 +51,11 @@ export function HospitalSettingsPage() {
     setError,
     control,
     formState: { errors, isSubmitting, isDirty },
-  } = useForm<HospitalValues>({ resolver: zodResolver(hospitalSchema), defaultValues: { name: '', timeZone: '' } })
+  } = useForm<HospitalValues>({ resolver: zodResolver(hospitalSchema), defaultValues: { name: '', timeZone: '', defaultCountryCode: '' } })
 
   const current = tenant.data
   useEffect(() => {
-    if (current) reset({ name: current.name, timeZone: current.timeZone ?? '' })
+    if (current) reset({ name: current.name, timeZone: current.timeZone ?? '', defaultCountryCode: current.defaultCountryCode ?? '' })
   }, [current, reset])
 
   const following = (branches.data ?? []).filter((b) => b.timezoneOverride === null)
@@ -48,11 +66,12 @@ export function HospitalSettingsPage() {
     try {
       const saved = await save.mutateAsync(body)
       setConfirm(null)
-      reset({ name: saved.name, timeZone: saved.timeZone ?? '' })
+      reset({ name: saved.name, timeZone: saved.timeZone ?? '', defaultCountryCode: saved.defaultCountryCode ?? '' })
       setMessage({
         tone: 'info',
         text: body.timeZone ? `Saved. The hospital time zone is now ${saved.timeZone ?? body.timeZone}.` : 'Saved.',
       })
+      onSaved?.()
     } catch (error) {
       const problem = error instanceof ApiError ? error.problem : null
       if (error instanceof ApiError && error.status === 409 && problem?.code === 'time_zone_has_future_bookings') {
@@ -80,7 +99,14 @@ export function HospitalSettingsPage() {
     const body: UpdateTenantRequest = {}
     if (values.name !== current.name) body.name = values.name
     if (values.timeZone !== (current.timeZone ?? '')) body.timeZone = values.timeZone
-    if (!body.name && !body.timeZone) {
+    if (showCountryCode && values.defaultCountryCode && values.defaultCountryCode !== (current.defaultCountryCode ?? '')) {
+      body.defaultCountryCode = values.defaultCountryCode
+    }
+    if (!body.name && !body.timeZone && !body.defaultCountryCode) {
+      if (allowUnchanged) {
+        onSaved?.()
+        return
+      }
       setMessage({ tone: 'info', text: 'Nothing to save.' })
       return
     }
@@ -89,13 +115,13 @@ export function HospitalSettingsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold text-gray-800 dark:text-dark-50">Hospital settings</h1>
+      {!embedded && <h1 className="text-xl font-semibold text-gray-800 dark:text-dark-50">Hospital settings</h1>}
       {message && <Alert tone={message.tone}>{message.text}</Alert>}
       {tenant.isError && <Alert tone="error">Could not load the hospital settings.</Alert>}
       {tenant.isPending && <p role="status">Loading…</p>}
       {current && (
-        <div className="grid gap-6 lg:grid-cols-3">
-          <Card title="Hospital" className="lg:col-span-2">
+        <div className={embedded ? undefined : 'grid gap-6 lg:grid-cols-3'}>
+          <Card title="Hospital" className={embedded ? undefined : 'lg:col-span-2'}>
             <form noValidate aria-label="Hospital settings" onSubmit={handleSubmit(onSubmit)} className="space-y-4">
               <FormField label="Hospital name" error={errors.name?.message} {...register('name')} />
               <Controller
@@ -114,16 +140,33 @@ export function HospitalSettingsPage() {
                   />
                 )}
               />
+              {showCountryCode && (
+                <SelectField
+                  label="Default country code"
+                  hint="Applied to phone numbers typed without a country code."
+                  error={errors.defaultCountryCode?.message}
+                  {...register('defaultCountryCode')}
+                >
+                  {(current.defaultCountryCode && !CALLING_CODES.includes(current.defaultCountryCode)
+                    ? [current.defaultCountryCode, ...CALLING_CODES]
+                    : CALLING_CODES
+                  ).map((code) => (
+                    <option key={code} value={code}>
+                      {code}
+                    </option>
+                  ))}
+                </SelectField>
+              )}
               <p className="text-sm text-gray-600 dark:text-dark-200">
                 Changing the zone keeps booked appointments at the same instant, so their local times move. You will be asked to confirm if
                 future bookings are affected.
               </p>
-              <Button type="submit" disabled={isSubmitting || save.isPending || !isDirty}>
-                Save settings
+              <Button type="submit" disabled={isSubmitting || save.isPending || (!allowUnchanged && !isDirty)}>
+                {submitLabel}
               </Button>
             </form>
           </Card>
-          <Card title="Branches">
+          {!embedded && <Card title="Branches">
             {branches.isError && <Alert tone="error">Could not load branches.</Alert>}
             <dl className="space-y-3 text-sm" data-testid="hospital-zone-branches">
               <div>
@@ -137,7 +180,7 @@ export function HospitalSettingsPage() {
                 </dd>
               </div>
             </dl>
-          </Card>
+          </Card>}
         </div>
       )}
       <ConfirmDialog

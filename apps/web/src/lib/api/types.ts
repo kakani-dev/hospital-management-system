@@ -128,6 +128,10 @@ export interface CurrentTenant {
   timeZone?: string | null
   /** E.164 calling code applied to phones typed without one (e.g. "+91"). */
   defaultCountryCode?: string | null
+  /** Wizard step. Absent on an older API, which the dashboard treats as already finished. */
+  setupStep?: string | null
+  /** UTC timestamp when setup finished. Null while the wizard is still open. */
+  setupCompletedOn?: string | null
 }
 
 /** PATCH /api/v1/tenants/current (tenant_admin). 409 time_zone_has_future_bookings / time_zone_locked. */
@@ -135,6 +139,7 @@ export interface UpdateTenantRequest {
   name?: string
   timeZone?: string
   confirmFutureBookings?: boolean
+  defaultCountryCode?: string
 }
 
 export interface SwitchContextRequest {
@@ -152,6 +157,8 @@ export interface Branch {
   /** The branch's own override; null = inherits the tenant zone. Undefined on the older API. */
   timezoneOverride?: string | null
   isDeleted?: boolean
+  /** Street address. Null when the hospital has not set one. */
+  address?: string | null
 }
 
 export interface CreateBranchRequest {
@@ -159,6 +166,8 @@ export interface CreateBranchRequest {
   name: string
   /** Optional override; omit to inherit the hospital (tenant) zone. */
   timezone?: string
+  /** Omitted when blank so an empty address is not stored. */
+  address?: string
 }
 
 export interface UpdateBranchRequest {
@@ -169,6 +178,15 @@ export interface UpdateBranchRequest {
   /** Required (true) to change the zone of a branch that has future bookings; otherwise 409. */
   confirmFutureBookings?: boolean
   isActive?: boolean
+  address?: string
+}
+
+/** GET /api/v1/setup. The server uses the JWT tenant; the client never sends one. */
+export interface SetupState {
+  step: 'profile' | 'branch' | 'staff' | 'schedule' | 'done'
+  completedOn: string | null
+  branchId: string | null
+  documentPrefix: string | null
 }
 
 export interface Member {

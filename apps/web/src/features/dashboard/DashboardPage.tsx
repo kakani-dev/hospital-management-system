@@ -9,16 +9,18 @@ import {
   UserPlusIcon,
 } from '@heroicons/react/24/outline'
 import { Card as TxCard } from '@tailux/components/ui'
+import { Alert } from '../../components/ui/Alert'
 import { Card } from '../../components/ui/Card'
 import { Illustration, type IllustrationName } from '../../components/ui/Illustration'
 import { BranchPicker } from '../../components/scheduling/BranchPicker'
 import { can } from '../../lib/permissions'
-import { useApiHealth, useAppointmentCount, usePatientStats, useQueue } from '../../lib/api/hooks'
+import { useApiHealth, useAppointmentCount, useCurrentTenant, usePatientStats, useQueue } from '../../lib/api/hooks'
 import { isTransientError } from '../../lib/api/client'
 import { addDays, localToday, zonedTimeToInstant } from '../../lib/dates'
 import { useCurrentContext } from '../tenancy/useCurrentContext'
 import { useBranchSelection } from '../tenancy/useBranchSelection'
 import { PendingInvitations } from '../invitations/PendingInvitations'
+import { setupDeferred, setupIsOpen } from '../setup/setupState'
 
 /** Dashboard counts refresh while the page is open (other desks work too). */
 export const DASHBOARD_REFRESH_MS = 30_000
@@ -72,6 +74,8 @@ function StatCard({
 
 export function DashboardPage() {
   const { me, tenants, activeTenant, branches: myBranches, activeBranchId, roles } = useCurrentContext()
+  const adminSettings = can(roles, 'admin.settings')
+  const hospital = useCurrentTenant(adminSettings && !!me.data?.activeTenantId)
   const { branches, branchId, branch, timeZone, timeZoneReady, setBranchId } = useBranchSelection()
   const health = useApiHealth()
   const apiStatus = health.isPending
@@ -114,6 +118,7 @@ export function DashboardPage() {
 
   // A platform operator without any hospital membership has nothing here: the console is home.
   if (me.data?.isPlatformAdmin && tenants.length === 0) return <Navigate to="/platform" replace />
+  if (hospital.data && setupIsOpen(hospital.data) && !setupDeferred(hospital.data.id)) return <Navigate to="/setup" replace />
 
   return (
     <div className="space-y-6">
@@ -122,6 +127,16 @@ export function DashboardPage() {
         {hasStats && branches.length > 1 && <BranchPicker branches={branches} value={branchId} onChange={setBranchId} />}
       </div>
       <PendingInvitations />
+      {adminSettings && setupIsOpen(hospital.data) && (
+        <div data-testid="finish-setup">
+          <Alert tone="warning">
+            Hospital setup is not finished.{' '}
+            <Link to="/setup" className="font-medium underline">
+              Finish setup
+            </Link>
+          </Alert>
+        </div>
+      )}
       {hasStats && (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" data-testid="dashboard-stats" aria-label={`Today at ${branch?.name ?? 'this branch'}`} role="group">
           {showAppointments && (

@@ -31,7 +31,26 @@ public class IdentityValidatorsTests
         Assert.NotEmpty(IdentityValidators.Validate(new UpdateBranchRequest("  ", null, null)));
         Assert.NotEmpty(IdentityValidators.Validate(new UpdateBranchRequest(null, "Not/AZone", null)));
         Assert.NotEmpty(IdentityValidators.Validate(new UpdateBranchRequest(null, "India Standard Time", null)));
+        Assert.Empty(IdentityValidators.Validate(new UpdateBranchRequest(null, null, null, Address: "1 Synthetic Road")));
+        Assert.NotEmpty(IdentityValidators.Validate(new UpdateBranchRequest(null, null, null, Address: " ")));
+        Assert.NotEmpty(IdentityValidators.Validate(new UpdateBranchRequest(null, null, null, Address: new string('a', 301))));
     }
+
+    [Fact]
+    public void Hospital_update_accepts_a_calling_code_and_rejects_a_bare_one()
+    {
+        Assert.Empty(IdentityValidators.Validate(new UpdateTenantRequest(null, null, DefaultCountryCode: "+971")));
+        Assert.NotEmpty(IdentityValidators.Validate(new UpdateTenantRequest(null, null, DefaultCountryCode: "91")));
+        Assert.NotEmpty(IdentityValidators.Validate(new UpdateTenantRequest(null, null)));
+    }
+
+    [Theory]
+    [InlineData("profile", true)]
+    [InlineData("done", true)]
+    [InlineData("billing", false)]
+    [InlineData(null, false)]
+    public void Setup_step_is_one_of_the_wizard_steps(string? step, bool valid) =>
+        Assert.Equal(valid, IdentityValidators.Validate(new AdvanceSetupRequest(step)).Count == 0);
 
     [Theory]
     [InlineData("doc@hospital.example", "doctor", true)]
