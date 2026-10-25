@@ -1,6 +1,25 @@
 -- Visit types, follow-up snapshots and NMC registration. Migration 20261025280000.
 begin;
 
+-- Hosted apply already has tenants, and visit_types_audit_columns is created after
+-- ensure_default_visit_types. CI seeds tenants only after migrations, so that insert
+-- wrote nothing and never hit NOT NULL created_by. Triggers off is the live path.
+select tests.as_superuser();
+alter table appointment.visit_types disable trigger user;
+select tests.throws_ok(
+  $$insert into appointment.visit_types (tenant_id, code, name, default_fee_paise, duration_minutes)
+    values ('11111111-1111-4111-8111-111111111111', 'bare', 'Bare', 100, 15)$$,
+  '23502', 'without the audit trigger, a visit type insert that omits created_by is rejected');
+delete from appointment.visit_types where tenant_id = '11111111-1111-4111-8111-111111111111';
+select appointment.ensure_default_visit_types('11111111-1111-4111-8111-111111111111');
+select tests.ok(
+  (select count(*) = 5
+      and bool_and(created_by = audit.system_actor() and updated_by = audit.system_actor())
+   from appointment.visit_types
+   where tenant_id = '11111111-1111-4111-8111-111111111111' and not is_deleted),
+  'default visit types set created_by to the system actor when the audit trigger is off');
+alter table appointment.visit_types enable trigger user;
+
 select tests.ok(
   (select count(*) from appointment.visit_types where tenant_id = '11111111-1111-4111-8111-111111111111' and not is_deleted) = 5
   and exists (select 1 from appointment.visit_types where tenant_id = '11111111-1111-4111-8111-111111111111' and code = 'new_consult' and follow_up_valid_days = 7 and follow_up_fee_paise = 0),

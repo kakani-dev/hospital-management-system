@@ -149,6 +149,10 @@ language plpgsql
 security definer
 set search_path = ''
 as $$
+declare
+  -- Same actor as other migration backfills. The audit trigger is created later in this
+  -- file, so a hosted apply (tenants already exist) cannot rely on it to fill created_by.
+  v_actor uuid := '00000000-0000-4000-8000-00000000005e';
 begin
   if p_tenant_id is null then
     raise exception 'tenant not found' using errcode = 'P0002';
@@ -159,18 +163,19 @@ begin
   end if;
 
   insert into appointment.visit_types (
-    tenant_id, code, name, default_fee_paise, duration_minutes, follow_up_valid_days, follow_up_fee_paise, sort_order)
+    tenant_id, code, name, default_fee_paise, duration_minutes, follow_up_valid_days, follow_up_fee_paise, sort_order,
+    created_by, updated_by)
   values
-    (p_tenant_id, 'new_consult', 'New consult', 50000, 30, 7, 0, 1),
-    (p_tenant_id, 'follow_up', 'Follow-up', 20000, 15, null, null, 2),
-    (p_tenant_id, 'review', 'Review', 30000, 20, 14, 10000, 3),
-    (p_tenant_id, 'emergency', 'Emergency', 80000, 20, null, null, 4),
-    (p_tenant_id, 'teleconsult', 'Teleconsult', 40000, 15, 3, 0, 5)
+    (p_tenant_id, 'new_consult', 'New consult', 50000, 30, 7, 0, 1, v_actor, v_actor),
+    (p_tenant_id, 'follow_up', 'Follow-up', 20000, 15, null, null, 2, v_actor, v_actor),
+    (p_tenant_id, 'review', 'Review', 30000, 20, 14, 10000, 3, v_actor, v_actor),
+    (p_tenant_id, 'emergency', 'Emergency', 80000, 20, null, null, 4, v_actor, v_actor),
+    (p_tenant_id, 'teleconsult', 'Teleconsult', 40000, 15, 3, 0, 5, v_actor, v_actor)
   on conflict (tenant_id, code) where not is_deleted do nothing;
 end;
 $$;
 comment on function appointment.ensure_default_visit_types(uuid) is
-  'Inserts the five default visit types when the tenant has none. Idempotent. The tenant id must be the caller''s session tenant.';
+  'Inserts the five default visit types when the tenant has none. Idempotent. created_by and updated_by are audit.system_actor(), because this migration inserts before the audit trigger exists. The tenant id must be the caller''s session tenant.';
 revoke all on function appointment.ensure_default_visit_types(uuid) from public, anon;
 grant execute on function appointment.ensure_default_visit_types(uuid) to authenticated, service_role, hms_svc_scheduling;
 

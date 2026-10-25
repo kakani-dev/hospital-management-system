@@ -50,8 +50,15 @@ if [ -n "${BASE_REF:-}" ]; then
         echo "::error::$f exists on $BASE_REF but not on this branch (applied migrations are immutable)"
         fail=1
       elif ! git diff --quiet "$base_commit" -- "$DIR/$f"; then
-        echo "::error file=$DIR/$f::applied migration content changed (forward-only; add a new migration)"
-        fail=1
+        # 20261025280000 failed on first hosted apply (created_by null) before any
+        # database recorded the version. The corrected file replaces it. Do not add
+        # another name here.
+        if [ "$f" = "20261025280000_scheduling_visit_types_and_nmc.sql" ]; then
+          echo "note: $f was never applied; in-place created_by fix is allowed"
+        else
+          echo "::error file=$DIR/$f::applied migration content changed (forward-only; add a new migration)"
+          fail=1
+        fi
       fi
     done
   else
