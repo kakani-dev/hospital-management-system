@@ -152,7 +152,7 @@ describe('check-in: per-row pending and Retry', () => {
     expect(calls.filter((c) => c.method === 'POST')).toHaveLength(1)
     await user.click(within(alert).getByRole('button', { name: 'Retry' }))
     expect(await screen.findByTestId('token-number')).toHaveTextContent('9')
-    expect(calls.filter((c) => c.method === 'POST')).toHaveLength(2)
+    expect(calls.filter((c) => c.method === 'POST' && c.path.endsWith('/check-in'))).toHaveLength(2)
     expect(screen.queryByTestId('retry-alert')).not.toBeInTheDocument()
   })
 })

@@ -781,9 +781,28 @@ export interface BillLine {
   taxRateBp: number
   netPaise: number
   taxPaise: number
+  sacHsnCode?: string | null
+  cgstPaise?: number
+  sgstPaise?: number
+  igstPaise?: number
   practitionerId: Guid | null
   /** True when money already taken covers this line. Derived, not stored. */
   locked?: boolean
+}
+
+export interface BillSupplier {
+  gstin: string | null
+  stateCode: string | null
+  name: string | null
+  address: string | null
+}
+
+export interface BillPayment {
+  id: Guid
+  receiptNo: string | null
+  amountPaise: number
+  refundedPaise: number
+  mode: string | null
 }
 
 export interface BillDiscount {
@@ -806,14 +825,45 @@ export interface BillDocument {
   branchId: Guid
   lines: BillLine[]
   discounts: BillDiscount[]
+  payments?: BillPayment[]
   netPaise: number
   taxPaise: number
   discountPaise: number
   exactPaise: number
   roundOffPaise: number
   totalPaise: number
+  cgstPaise?: number
+  sgstPaise?: number
+  igstPaise?: number
   allocatedPaise?: number
   duePaise: number
+  placeOfSupplyState?: string | null
+  supplier?: BillSupplier
+}
+
+export interface BillListItem {
+  id: Guid
+  billNo: string | null
+  status: string
+  billKind: string
+  patientId: Guid
+  branchId: Guid
+  totalPaise: number | null
+  duePaise: number | null
+  createdOn: string
+}
+
+export interface BranchBillProfile {
+  branchId: Guid
+  docPrefix: string | null
+  gstin: string | null
+  legalName: string | null
+}
+
+export interface ApprovalSettings {
+  makerCheckerThresholdPaise: number
+  cancelRefundPctBp: number
+  noShowRefundPctBp: number
 }
 
 /** GET /accounts/{patientId}/summary. Advance is unallocated receipts, in paise. */
@@ -841,6 +891,8 @@ export interface Receipt {
   counterSessionId?: Guid | null
   tenders: { mode: string; amountPaise: number; reference: string | null }[]
   allocations: { billId: Guid; amountPaise: number }[]
+  creditNoteId?: Guid | null
+  creditNoteNo?: string | null
 }
 
 export interface CashierSession {

@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Controller, useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Card } from '../../components/ui/Card'
@@ -12,12 +13,12 @@ import { Badge, Checkbox } from '@tailux/components/ui'
 import { DataTable, type ColumnDef } from '../../components/table/DataTable'
 import type { Branch, CreateBranchRequest, UpdateBranchRequest } from '../../lib/api/types'
 import { useAdminBranches, useCreateBranch, useCurrentTenant, useDeleteBranch, useRestoreBranch, useUpdateBranch } from '../../lib/api/hooks'
-import { ApiError, fieldErrors } from '../../lib/api/client'
+import { ApiError, apiClient, fieldErrors } from '../../lib/api/client'
 import { Drawer } from '@tailux/components/shared/Drawer'
 import { branchEditSchema, branchSchema, type BranchEditValues, type BranchFormValues } from './adminSchemas'
 
 /** A new branch follows the hospital zone; the override starts at the workstation zone or Asia/Kolkata. */
-const empty = (): BranchFormValues => ({ code: '', name: '', useHospitalZone: true, timezone: defaultZone(), address: '' })
+const empty = (): BranchFormValues => ({ code: '', name: '', useHospitalZone: true, timezone: defaultZone(), address: '', gstin: '', legalName: '' })
 
 /** Branch zone as stored: `null` override = follows the hospital zone (audit/TZ API). */
 function zoneLabel(b: Branch) {
@@ -72,6 +73,14 @@ export function BranchesPage({
     if (address) body.address = address
     try {
       const created = await createBranch.mutateAsync(body)
+      const gstin = values.gstin?.trim()
+      const legalName = values.legalName?.trim()
+      if (gstin || legalName) {
+        await apiClient.billing.setBranchProfile(created.id, {
+          ...(gstin ? { gstin } : {}),
+          ...(legalName ? { legalName } : {}),
+        })
+      }
       reset({ ...empty(), useHospitalZone: values.useHospitalZone, timezone: values.timezone })
       setMessage({ tone: 'info', text: `Branch ${created.name} created.` })
     } catch (error) {
@@ -286,6 +295,8 @@ export function BranchesPage({
           <FormField label="Code" hint="e.g. north" error={errors.code?.message} {...register('code')} />
           <FormField label="Branch name" error={errors.name?.message} {...register('name')} />
           <FormField label="Address" hint="Optional" error={errors.address?.message} {...register('address')} />
+          <FormField label="GSTIN" hint="15-character GSTIN for this branch’s bills" error={errors.gstin?.message} {...register('gstin')} />
+          <FormField label="Legal name" hint="Legal name on bills" error={errors.legalName?.message} {...register('legalName')} />
           <div className="space-y-3">
             <Checkbox
               label={hospitalZone ? `Use hospital time zone (${hospitalZone})` : 'Use hospital time zone'}
@@ -409,6 +420,8 @@ function EditBranchForm({
     register,
     handleSubmit,
     control,
+    setError,
+    reset,
     formState: { errors, isSubmitting },
   } = useForm<BranchEditValues>({
     resolver: zodResolver(branchEditSchema),
@@ -417,11 +430,35 @@ function EditBranchForm({
       useHospitalZone: !hasOverride,
       timezone: branch.timezoneOverride ?? (branch.timezone || defaultZone()),
       address: branch.address ?? '',
+      gstin: '',
+      legalName: '',
     },
   })
+  const profile = useQuery({
+    queryKey: ['billing', 'branch-profile', branch.id],
+    queryFn: () => apiClient.billing.branchProfile(branch.id),
+  })
+  useEffect(() => {
+    if (!profile.data) return
+    reset((current) => ({
+      ...current,
+      gstin: profile.data.gstin ?? '',
+      legalName: profile.data.legalName ?? '',
+    }))
+  }, [profile.data, reset])
   const followHospital = useWatch({ control, name: 'useHospitalZone' })
 
-  const submit = (v: BranchEditValues) => {
+  const submit = async (v: BranchEditValues) => {
+    const gstin = (v.gstin ?? '').trim()
+    const legalName = (v.legalName ?? '').trim()
+    if (gstin !== (profile.data?.gstin ?? '') || legalName !== (profile.data?.legalName ?? '')) {
+      try {
+        await apiClient.billing.setBranchProfile(branch.id, { gstin, legalName })
+      } catch (error) {
+        setError('gstin', { message: error instanceof ApiError ? error.message : 'Could not save the GSTIN' })
+        return
+      }
+    }
     const body: UpdateBranchRequest = {}
     if (v.name !== branch.name) body.name = v.name
     if (v.useHospitalZone && hasOverride) body.inheritTimezone = true
@@ -438,6 +475,8 @@ function EditBranchForm({
       </p>
       <FormField label="Branch name" error={errors.name?.message} {...register('name')} />
       <FormField label="Address" hint="Optional" error={errors.address?.message} {...register('address')} />
+      <FormField label="GSTIN" hint="15-character GSTIN for this branch’s bills" error={errors.gstin?.message} {...register('gstin')} />
+      <FormField label="Legal name" hint="Legal name on bills" error={errors.legalName?.message} {...register('legalName')} />
       <Checkbox
         label={hospitalZone ? `Use hospital time zone (${hospitalZone})` : 'Use hospital time zone'}
         classNames={{ labelText: 'text-sm' }}

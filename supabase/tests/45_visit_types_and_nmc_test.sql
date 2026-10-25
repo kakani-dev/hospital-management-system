@@ -146,4 +146,69 @@ select tests.ok(
   and not has_function_privilege('hms_svc_scheduling', 'appointment.practitioner_credential_v1(uuid, uuid)', 'execute'),
   'credential and fee contracts are billing and service_role only');
 
+-- Check-in copies a non-null snapshot onto the consult draft. 0 is free, not "missing".
+insert into appointment.appointments (
+  id, tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at,
+  visit_type_id, consultation_fee_paise)
+select 'e1111111-0000-4000-8000-0000000000c2', '11111111-1111-4111-8111-111111111111',
+       'a1111111-0000-4000-8000-000000000001', 'c1111111-0000-4000-8000-000000000002',
+       'aa000000-0000-4000-8000-000000000001', '2027-03-01 04:00+00', '2027-03-01 04:15+00',
+       id, 0
+from appointment.visit_types
+where tenant_id = '11111111-1111-4111-8111-111111111111' and code = 'follow_up' and not is_deleted;
+insert into appointment.appointments (
+  id, tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at)
+values (
+  'e1111111-0000-4000-8000-0000000000c3', '11111111-1111-4111-8111-111111111111',
+  'a1111111-0000-4000-8000-000000000001', 'c1111111-0000-4000-8000-000000000002',
+  'aa000000-0000-4000-8000-000000000001', '2027-03-01 05:00+00', '2027-03-01 05:15+00');
+select set_config('appointment.check_in', 'e1111111-0000-4000-8000-0000000000c2', true);
+update appointment.appointments set status = 'checked_in' where id = 'e1111111-0000-4000-8000-0000000000c2';
+select set_config('appointment.check_in', 'e1111111-0000-4000-8000-0000000000c3', true);
+update appointment.appointments set status = 'checked_in' where id = 'e1111111-0000-4000-8000-0000000000c3';
+select set_config('appointment.check_in', '', true);
+select tests.ok(
+  (select l.unit_price_paise = 0
+   from billing.bill_line l
+   join billing.bill b on b.id = l.bill_id
+   join billing.billing_account a on a.id = b.account_id
+   where a.source_ref_id = 'e1111111-0000-4000-8000-0000000000c2' and not l.is_deleted),
+  'a free follow-up snapshot replaces the catalog price on the consult draft');
+update appointment.visit_types set follow_up_fee_paise = 99999
+where tenant_id = '11111111-1111-4111-8111-111111111111' and code = 'follow_up';
+select tests.ok(
+  (select l.unit_price_paise = 0
+   from billing.bill_line l
+   join billing.bill b on b.id = l.bill_id
+   join billing.billing_account a on a.id = b.account_id
+   where a.source_ref_id = 'e1111111-0000-4000-8000-0000000000c2' and not l.is_deleted),
+  'editing the visit type after check-in does not change the draft line');
+select tests.ok(
+  (select l.unit_price_paise = 50000
+   from billing.bill_line l
+   join billing.bill b on b.id = l.bill_id
+   join billing.billing_account a on a.id = b.account_id
+   where a.source_ref_id = 'e1111111-0000-4000-8000-0000000000c3' and not l.is_deleted),
+  'a booking with no visit-type fee keeps the catalog CONSULT price');
+
+select set_config('request.jwt.claims', '{"sub":"0a000000-0000-4000-8000-000000000001","role":"authenticated"}', true);
+select set_config('request.jwt.claim.sub', '0a000000-0000-4000-8000-000000000001', true);
+set local role hms_svc_billing;
+select billing.add_line(
+  '11111111-1111-4111-8111-111111111111',
+  (select b.id from billing.bill b
+   join billing.billing_account a on a.id = b.account_id
+   where a.source_ref_id = 'e1111111-0000-4000-8000-0000000000c3' and not b.is_deleted
+   limit 1),
+  jsonb_build_object('code', 'CONSULT', 'unitPricePaise', 1));
+select tests.ok(
+  (select l.unit_price_paise = 50000
+   from billing.bill_line l
+   join billing.bill b on b.id = l.bill_id
+   join billing.billing_account a on a.id = b.account_id
+   where a.source_ref_id = 'e1111111-0000-4000-8000-0000000000c3' and not l.is_deleted
+   order by l.line_no desc
+   limit 1),
+  'a client unit price on add_line is ignored');
+
 rollback;

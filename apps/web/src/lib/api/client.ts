@@ -53,7 +53,10 @@ import type {
   UpdateQueueStatusRequest,
   WalkInRequest,
   ApprovalRequest,
+  ApprovalSettings,
   BillDocument,
+  BillListItem,
+  BranchBillProfile,
   CashierSession,
   DayEndSession,
   PatientBillingSummary,
@@ -646,9 +649,21 @@ export class ApiClient {
       this.request<CopyPriceResult>('/api/v1/price-lists/copy', { method: 'POST', body: JSON.stringify(body) }),
     importPrices: (body: { dryRun: boolean; rows: PriceImportRow[] }) =>
       this.request<PriceImportResult>('/api/v1/price-lists/import', { method: 'POST', body: JSON.stringify(body) }),
+    ensureDraft: (appointmentId: string) =>
+      this.request<BillDocument>('/api/v1/accounts/from-appointment', { method: 'POST', body: JSON.stringify({ appointmentId }) }),
+    list: (params: { status?: string; branchId?: string; from?: string; to?: string } = {}) =>
+      this.request<BillListItem[]>(`/api/v1/bills${qs(params)}`),
     finalize: (id: string) => this.request<BillDocument>(`/api/v1/bills/${encodeURIComponent(id)}/finalize`, { method: 'POST' }),
+    placeOfSupply: (id: string, stateCode: string) =>
+      this.request<BillDocument>(`/api/v1/bills/${encodeURIComponent(id)}/place-of-supply`, { method: 'PUT', body: JSON.stringify({ stateCode }) }),
     discount: (id: string, body: { kind: 'flat_paise' | 'percent_bp'; value: number; reasonCode: string }) =>
-      this.request<BillDocument>(`/api/v1/bills/${encodeURIComponent(id)}/discounts`, { method: 'POST', body: JSON.stringify(body) }),
+      this.request<BillDocument | { approvalId: string; status: string; amountPaise?: number }>(`/api/v1/bills/${encodeURIComponent(id)}/discounts`, { method: 'POST', body: JSON.stringify(body) }),
+    refund: (paymentId: string, body: { amountPaise: number }) =>
+      this.request<Receipt | { approvalId: string; status: string }>(`/api/v1/payments/${encodeURIComponent(paymentId)}/refunds`, { method: 'POST', body: JSON.stringify(body) }),
+    branchProfile: (branchId: string) =>
+      this.request<BranchBillProfile>(`/api/v1/price-lists/branches/${encodeURIComponent(branchId)}/profile`),
+    setBranchProfile: (branchId: string, body: { gstin?: string; legalName?: string }) =>
+      this.request<BranchBillProfile>(`/api/v1/price-lists/branches/${encodeURIComponent(branchId)}/profile`, { method: 'PUT', body: JSON.stringify(body) }),
     paymentLink: (id: string, body: { channel: 'qr' | 'whatsapp' | 'sms' | 'link'; destination?: string; counterSessionId?: string }) =>
       this.request<PaymentLink>(`/api/v1/bills/${encodeURIComponent(id)}/payment-links`, { method: 'POST', body: JSON.stringify(body) }),
     pay: (idempotencyKey: string, body: { accountId: string; kind: 'payment'; counterSessionId?: string; tenders: { mode: string; amountPaise: number }[]; allocations: { billId: string; amountPaise: number }[] }) =>
@@ -665,6 +680,9 @@ export class ApiClient {
       this.request<CashierSession>(`/api/v1/counter-sessions/open${qs({ branchId })}`),
     receipt: (id: string) => this.request<Receipt>(`/api/v1/receipts/${encodeURIComponent(id)}`),
     approvals: (status?: string) => this.request<ApprovalRequest[]>(`/api/v1/approvals${qs({ status })}`),
+    approvalSettings: () => this.request<ApprovalSettings>('/api/v1/approvals/settings'),
+    saveApprovalSettings: (body: ApprovalSettings) =>
+      this.request<ApprovalSettings>('/api/v1/approvals/settings', { method: 'PUT', body: JSON.stringify(body) }),
     decide: (id: string, body: { status: 'approved' | 'rejected'; note?: string }) =>
       this.request<BillDocument | Receipt>(`/api/v1/approvals/${encodeURIComponent(id)}/decide`, { method: 'POST', body: JSON.stringify(body) }),
     dayEnd: (branchId: string, date: string) => this.request<DayEndSession[]>(`/api/v1/billing-reports/day-end${qs({ branchId, date })}`),

@@ -10,6 +10,14 @@ export const isIanaZone = (tz: string) => {
   }
 }
 
+const gstinField = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .refine((value) => value === '' || /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(value), {
+    error: 'Enter a 15-character GSTIN',
+  })
+
 export const branchSchema = z
   .object({
     code: z
@@ -21,6 +29,8 @@ export const branchSchema = z
     useHospitalZone: z.boolean().optional(),
     timezone: z.string().trim(),
     address: z.string().trim().max(300, { error: 'Max 300 characters' }).optional(),
+    gstin: gstinField.optional(),
+    legalName: z.string().trim().max(200, { error: 'Max 200 characters' }).optional(),
   })
   .refine((v) => v.useHospitalZone === true || isIanaZone(v.timezone), {
     path: ['timezone'],
@@ -47,6 +57,8 @@ export const branchEditSchema = z
     useHospitalZone: z.boolean(),
     timezone: z.string().trim(),
     address: z.string().trim().max(300, { error: 'Max 300 characters' }).optional(),
+    gstin: gstinField.optional(),
+    legalName: z.string().trim().max(200, { error: 'Max 200 characters' }).optional(),
   })
   .refine((v) => v.useHospitalZone || isIanaZone(v.timezone), { path: ['timezone'], error: 'Use an IANA time zone, e.g. Asia/Kolkata' })
 export type BranchEditValues = z.infer<typeof branchEditSchema>

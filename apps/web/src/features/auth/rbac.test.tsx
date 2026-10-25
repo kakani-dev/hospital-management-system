@@ -7,15 +7,15 @@ import { ROLE_PERMISSIONS } from '../../lib/permissions'
 afterEach(() => vi.unstubAllGlobals())
 
 const page = { items: [], page: 1, pageSize: 25, totalCount: 0 }
-const NAV = ['Patients', 'Appointments', 'Schedules', 'Check-in', 'OPD queue', 'Approvals', 'Day end', 'Branches', 'Members', 'Practitioners', 'Working hours', 'Visit types', 'Hospital settings', 'Price list', 'Stock', 'Consent', 'Data requests', 'Privacy notices'] as const
+const NAV = ['Patients', 'Appointments', 'Schedules', 'Check-in', 'OPD queue', 'Approvals', 'Bills', 'Day end', 'Branches', 'Members', 'Practitioners', 'Working hours', 'Visit types', 'Hospital settings', 'Price list', 'Stock', 'Consent', 'Data requests', 'Privacy notices'] as const
 
 // RBAC (ADR 0001): the menu each role sees
 const EXPECTED: Record<string, readonly (typeof NAV)[number][]> = {
   tenant_admin: NAV,
-  receptionist: ['Patients', 'Appointments', 'Schedules', 'Check-in', 'OPD queue', 'Day end', 'Consent', 'Data requests'],
+  receptionist: ['Patients', 'Appointments', 'Schedules', 'Check-in', 'OPD queue', 'Bills', 'Day end', 'Consent', 'Data requests'],
   nurse: ['Patients', 'Appointments', 'Schedules', 'Check-in', 'OPD queue'],
   doctor: ['Patients', 'Appointments', 'Schedules', 'OPD queue', 'Consent'],
-  billing: ['Patients', 'Appointments', 'Schedules', 'Day end'],
+  billing: ['Patients', 'Appointments', 'Schedules', 'Bills', 'Day end'],
   pharmacist: ['Schedules', 'Stock'],
   lab_technician: ['Schedules'],
   viewer: ['Schedules'],
