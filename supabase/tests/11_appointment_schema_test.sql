@@ -190,9 +190,9 @@ select tests.authenticate_as('lab@alpha.example');
 select tests.ok(not exists (select 1 from appointment.appointments), 'lab technician (no registry role) sees no appointments');
 select tests.authenticate_as('consultant@shared.example');
 select tests.ok(
-  exists (select 1 from appointment.appointments where branch_id = 'a1111111-0000-4000-8000-000000000001')
-  and exists (select 1 from appointment.appointments where tenant_id = '22222222-2222-4222-8222-222222222222'),
-  'consultant reads appointments tenant-wide (contract §2.6, same as patients) in both tenants');
+  not exists (select 1 from appointment.appointments where branch_id = 'a1111111-0000-4000-8000-000000000001')
+  and not exists (select 1 from appointment.appointments where tenant_id = '22222222-2222-4222-8222-222222222222'),
+  'a doctor sees no appointments until the visit is their own linked practitioner');
 select tests.ok(
   tests.affected_rows($$update appointment.appointments set reason = 'x' where branch_id = 'a1111111-0000-4000-8000-000000000001'$$) = 0,
   'consultant (doctor @ Alpha East) cannot modify Alpha Main appointments (can_access_branch)');

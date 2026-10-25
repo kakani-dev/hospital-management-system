@@ -47,6 +47,9 @@ public sealed class S2QueueAndOutboxApiTests(HmsApiFactory factory) : IClassFixt
         Assert.Contains(board!, q => q.Id == result.QueueEntryId && q.TokenNo == result.TokenNo);
         Assert.Equal(board!.Select(q => q.TokenNo).Order(), board.Select(q => q.TokenNo));
 
+        // The token belongs to this doctor only after the practitioner is linked to their login.
+        Assert.Equal(HttpStatusCode.OK, (await admin.PatchAsJsonAsync($"/api/v1/practitioners/{pr.Id}", new { userId = doctorEast })).StatusCode);
+
         // Doctor may call in / finish but not cancel; receptionist may do everything.
         Assert.Equal(HttpStatusCode.Forbidden, (await doctor.PatchAsJsonAsync($"/api/v1/queue/{result.QueueEntryId}", new { status = "cancelled" })).StatusCode);
         var call = await doctor.PatchAsJsonAsync($"/api/v1/queue/{result.QueueEntryId}", new { status = "in_consultation" });

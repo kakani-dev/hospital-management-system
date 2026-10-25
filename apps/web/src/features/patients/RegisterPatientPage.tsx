@@ -25,9 +25,9 @@ import { WhatsappFields } from './WhatsappFields'
 
 /**
  * Embedded (compact) mode, used inline by the booking drawer's "+ New patient": the same form,
- * validation, duplicate check and server-generated MRN, but only the essentials (name, phone,
- * WhatsApp; sex "unknown", no DOB), the branch fixed to the booking branch, and callbacks instead of
- * navigation. Not a <form> of its own (it sits inside the booking form): Enter saves via onKeyDown.
+ * validation, duplicate check and server-generated MRN. Sex stays "unknown" and the branch is the
+ * booking branch. Date of birth and ABHA are included so the live duplicate check can match
+ * name+DOB+phone and ABHA. Not a <form> of its own (it sits inside the booking form): Enter saves via onKeyDown.
  */
 export interface EmbeddedRegisterOptions {
   prefill?: RegisterPatientState['prefill']
@@ -92,16 +92,18 @@ export function RegisterPatientPage({ embedded }: { embedded?: EmbeddedRegisterO
   const watchedLast = useWatch({ control, name: 'lastName' }) ?? ''
   const watchedPhone = useWatch({ control, name: 'phone' }) ?? ''
   const watchedDob = useWatch({ control, name: 'dateOfBirth' }) ?? ''
-  const liveKey = [watchedName, watchedLast, watchedPhone, watchedDob].join('\u0001')
+  const watchedAbha = useWatch({ control, name: 'abhaNumber' }) ?? ''
+  const liveKey = [watchedName, watchedLast, watchedPhone, watchedDob, watchedAbha].join('\u0001')
   const debouncedLive = useDebouncedValue(liveKey, PATIENT_SEARCH_DEBOUNCE_MS)
   // Booking drawer only: warn while the name or phone is still being typed. The full page keeps
   // the check at submit so a half-typed form never interrupts registration.
   useEffect(() => {
     if (!isEmbedded || dismissedLive === debouncedLive) return
-    const [firstName = '', lastName = '', phone = '', dateOfBirth = ''] = debouncedLive.split('\u0001')
+    const [firstName = '', lastName = '', phone = '', dateOfBirth = '', abhaNumber = ''] = debouncedLive.split('\u0001')
     const nameReady = firstName.trim().length >= 2 && lastName.trim().length >= 2
     const phoneReady = phone.replace(/\D/g, '').length >= 7
-    if (!nameReady && !phoneReady) return
+    const abhaReady = abhaNumber.replace(/\D/g, '').length === 14
+    if (!nameReady && !phoneReady && !abhaReady) return
     let cancelled = false
     const key = debouncedLive
     void apiClient.patients
@@ -110,6 +112,7 @@ export function RegisterPatientPage({ embedded }: { embedded?: EmbeddedRegisterO
         lastName: lastName.trim(),
         ...(dateOfBirth.trim() ? { dateOfBirth: dateOfBirth.trim() } : {}),
         ...(phone.trim() ? { phone: phone.trim() } : {}),
+        ...(abhaReady ? { abhaNumber: abhaNumber.trim() } : {}),
       })
       .then((matches) => {
         if (!cancelled) setLiveFetched({ key, matches })
@@ -121,11 +124,13 @@ export function RegisterPatientPage({ embedded }: { embedded?: EmbeddedRegisterO
       cancelled = true
     }
   }, [debouncedLive, dismissedLive, isEmbedded])
-  const [liveFirst = '', liveLast = '', livePhone = ''] = debouncedLive.split('\u0001')
+  const [liveFirst = '', liveLast = '', livePhone = '', , liveAbha = ''] = debouncedLive.split('\u0001')
   const liveReady =
     isEmbedded &&
     dismissedLive !== debouncedLive &&
-    ((liveFirst.trim().length >= 2 && liveLast.trim().length >= 2) || livePhone.replace(/\D/g, '').length >= 7)
+    ((liveFirst.trim().length >= 2 && liveLast.trim().length >= 2) ||
+      livePhone.replace(/\D/g, '').length >= 7 ||
+      liveAbha.replace(/\D/g, '').length === 14)
   const liveMatches = liveReady && liveFetched?.key === debouncedLive && liveFetched.matches.length > 0 ? liveFetched.matches : null
 
   // DOB "today" is the selected branch's date — the API validates in the branch's zone.
@@ -281,6 +286,22 @@ export function RegisterPatientPage({ embedded }: { embedded?: EmbeddedRegisterO
             hint={`${countryCode ?? "The hospital's calling code"} is assumed when no country code is typed.`}
             error={errors.phone?.message}
             {...register('phone')}
+          />
+          <FormField
+            label="Date of birth"
+            type="date"
+            min="1900-01-01"
+            max={branchToday}
+            error={errors.dateOfBirth?.message}
+            {...register('dateOfBirth')}
+          />
+          <FormField
+            label="ABHA number (optional)"
+            inputMode="numeric"
+            autoComplete="off"
+            placeholder="XX-XXXX-XXXX-XXXX"
+            error={errors.abhaNumber?.message}
+            {...register('abhaNumber')}
           />
           <WhatsappFields control={control} register={register} errors={errors} />
         </div>

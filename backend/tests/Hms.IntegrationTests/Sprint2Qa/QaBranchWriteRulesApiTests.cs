@@ -111,6 +111,7 @@ public sealed class QaBranchWriteRulesApiTests(HmsApiFactory factory) : IClassFi
         using var nurse = factory.ClientAs(nurseEast, Alpha);
         var checkIn = await Qa.CheckInOkAsync(nurse, eastAppointment.Id);
         using var doctor = factory.ClientAs(doctorEast, Alpha);
+        Assert.Equal(HttpStatusCode.OK, (await admin.PatchAsJsonAsync($"/api/v1/practitioners/{practitioner.Id}", new { userId = doctorEast })).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await receptionMain.PatchAsJsonAsync(QaRoutes.QueueEntry(checkIn.QueueEntryId), new { status = "in_consultation" })).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await doctor.PatchAsJsonAsync(QaRoutes.QueueEntry(checkIn.QueueEntryId), new { status = "cancelled" })).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await doctor.PatchAsJsonAsync(QaRoutes.QueueEntry(checkIn.QueueEntryId), new { status = "in_consultation" })).StatusCode);

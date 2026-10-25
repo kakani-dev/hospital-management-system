@@ -7,6 +7,7 @@ import { addDays, startOfWeek } from '../../lib/dates'
 import {
   DR_RAO,
   PATIENT_ID,
+  practitioners,
   appointment,
   at,
   branchesResponse,
@@ -32,6 +33,22 @@ function routes(roles: string[], extra: Parameters<typeof stubFetch>[0] = {}, br
 }
 
 describe('AppointmentCalendarPage', () => {
+  it('locks a doctor to the practitioner linked to their login', async () => {
+    const calls = routes(['doctor'], {
+      'GET /api/v1/practitioners': () =>
+        json(practitioners.map((p) => (p.id === DR_RAO ? { ...p, userId: '0a000000-0000-4000-8000-000000000001' } : p))),
+    })
+    renderWithProviders(<App />, { path: `/appointments?branch=${ALPHA_MAIN}`, auth: fakeAuthClient({ session: fakeSession() }) })
+    const select = await screen.findByLabelText('Practitioner')
+    expect(select).toBeDisabled()
+    expect(await within(select).findByRole('option', { name: 'Dr. Rao (synthetic)' })).toBeInTheDocument()
+    expect(within(select).queryByRole('option', { name: /Iyer/ })).not.toBeInTheDocument()
+    await waitFor(() => {
+      const url = new URL(calls.find((c) => c.path === '/api/v1/appointments')!.url, 'http://x')
+      expect(url.searchParams.get('practitionerId')).toBe(DR_RAO)
+    })
+  })
+
   it('day view: requests the branch-local day as an instant range and shows names, times and status', async () => {
     const calls = routes(['billing'])
     renderWithProviders(<App />, { path: `/appointments?branch=${ALPHA_MAIN}`, auth: fakeAuthClient({ session: fakeSession() }) })

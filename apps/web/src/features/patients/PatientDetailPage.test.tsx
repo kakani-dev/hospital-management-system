@@ -41,6 +41,7 @@ describe('PatientDetailPage', () => {
     expect(within(details).getByText('+91 98450 00001')).toBeInTheDocument()
     expect(within(details).getByText('Alpha Main')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Delete patient' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Merge patient' })).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Edit patient' }))
     const form = screen.getByRole('form', { name: 'Edit patient' })
@@ -270,5 +271,37 @@ describe('PatientDetailPage', () => {
     await user.click(within(form).getByRole('button', { name: 'Save changes' }))
     expect(await screen.findByText('Changes saved.')).toBeInTheDocument()
     expect(calls.find((c) => c.method === 'PATCH')!.body).toMatchObject({ dateOfBirth: '2026-10-07', registeredBranchId: ALPHA_MAIN })
+  })
+
+  it('lets an admin merge a duplicate chart into this one', async () => {
+    const dup = {
+      id: 'aa000000-0000-4000-8000-000000000099',
+      mrn: 'ALP-0099',
+      firstName: 'Copy',
+      lastName: 'Synthetic-Alpha',
+      dateOfBirth: null,
+      phone: null,
+      registeredBranchId: ALPHA_MAIN,
+    }
+    const calls = stubFetch({
+      'GET /api/v1/me': () => json(meWithRoles(['tenant_admin'])),
+      [`GET /api/v1/patients/${PID}`]: () => json(detail),
+      'POST /api/v1/patients/search': () => json({ items: [dup], page: 1, pageSize: 25, totalCount: 1 }),
+      [`POST /api/v1/patients/${PID}/merge`]: () => json(null, 204),
+      'GET /api/v1/patients': () => json(emptyPage),
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: `/patients/${PID}`, auth: fakeAuthClient({ session: fakeSession() }) })
+    await user.click(await screen.findByRole('button', { name: 'Merge patient' }))
+    const dialog = await screen.findByTestId('confirm-dialog')
+    await user.type(within(dialog).getByLabelText('Duplicate chart'), 'Copy')
+    await user.click(await within(dialog).findByTestId('patient-option'))
+    await user.type(within(dialog).getByLabelText('Reason'), 'Same person')
+    await user.click(within(dialog).getByRole('button', { name: 'Merge patient' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.path === `/api/v1/patients/${PID}/merge`)).toBe(true))
+    expect(calls.find((c) => c.path === `/api/v1/patients/${PID}/merge`)!.body).toEqual({
+      duplicatePatientId: dup.id,
+      reason: 'Same person',
+    })
   })
 })
