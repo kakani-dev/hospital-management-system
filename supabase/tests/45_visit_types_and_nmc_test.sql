@@ -1,4 +1,4 @@
--- Visit types, follow-up snapshots and NMC registration. Migration 20261025260000.
+-- Visit types, follow-up snapshots and NMC registration. Migration 20261025280000.
 begin;
 
 select tests.ok(

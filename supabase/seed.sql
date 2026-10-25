@@ -126,3 +126,8 @@ update appointment.appointments set status = 'cancelled'
  where id in ('e1111111-0000-4000-8000-000000000010', 'e2222222-0000-4000-8000-000000000002');
 delete from messaging.outbox
  where aggregate_id in ('e1111111-0000-4000-8000-000000000010', 'e2222222-0000-4000-8000-000000000002');
+
+-- Migrations run before this seed, so Alpha and Beta do not exist when
+-- 20261025280000 calls ensure_default_visit_types. Idempotent: a tenant that
+-- already has the five codes is left unchanged.
+select appointment.ensure_default_visit_types(id) from identity.tenants;

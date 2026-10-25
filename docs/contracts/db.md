@@ -43,8 +43,8 @@ Callers without a user (`service_role` jobs, triggers) skip the membership check
 | `identity.earnings_branches_v1(tenant) → table(branch_id, name, is_deleted)` | identity | billing (earnings, including deleted branches) | 20261025250000 |
 | `patient.party_label_v1(tenant, patient) → text` | patients | billing (earnings party name, including deleted) | 20261025250100 |
 | `appointment.practitioner_label_v1(tenant, practitioner) → text` | scheduling | billing (earnings doctor name, including deleted) | 20261025250200 |
-| `appointment.practitioner_credential_v1(tenant, practitioner) → table` | scheduling | billing (later prescriptions and bills) | 20261025260000 |
-| `appointment.appointment_consultation_fee_v1(tenant, appointment) → table` | scheduling | billing (check-in consult line) | 20261025260000 |
+| `appointment.practitioner_credential_v1(tenant, practitioner) → table` | scheduling | billing (later prescriptions and bills) | 20261025280000 |
+| `appointment.appointment_consultation_fee_v1(tenant, appointment) → table` | scheduling | billing (check-in consult line) | 20261025280000 |
 | `inventory.fefo_pick_v1(tenant, store, item, qty) → jsonb` | inventory | inventory (lookup only; no other service yet) | 20261023170000 |
 | `privacy.consent_allows_v1(tenant, patient, purpose) → bool` | privacy | privacy (messaging and CRM are not granted it yet) | 20261025220500 |
 | `privacy.note_patient_merge_v1(tenant, from, to)` | privacy | service_role only; patients merge does not call it yet | 20261025220500 |
