@@ -1,5 +1,5 @@
 -- Demo top-up for MediCore Demo Hospital (existing tenant only; never creates a tenant).
--- Synthetic data. Idempotent: GSTINs only fill nulls; the queue top-up skips when today
+-- Synthetic data. Idempotent: GSTINs only fill nulls; payment accounts only fill empty modes; the queue top-up skips when today
 -- (IST) already has >= 15 queue entries. Rows are tagged '[demo-seed]' so remove-demo-data.sql cleans them.
 -- No triggers are disabled. MRNs are not touched (patient.guard_mrn makes them immutable;
 -- the DEMO-HYD prefix is the tenant-wide MRN prefix, not a branch code).
@@ -22,6 +22,26 @@ begin
   update billing.branch_profile bp set gstin = v.g, legal_name = coalesce(bp.legal_name, 'MediCore Demo Hospital Pvt Ltd (synthetic)')
   from identity.branches b, (values ('hyd-main','36ZZZCM9999M1ZN'),('blr-demo','29ZZZCM9999M1ZI'),('chn-demo','33ZZZCM9999M1ZT')) v(code, g)
   where b.id = bp.branch_id and b.tenant_id = T and bp.tenant_id = T and b.code = v.code and bp.gstin is null;
+
+  -- 1b. synthetic payment accounts per branch (#63): bank (last 4 only), UPI VPA, card MID/TID.
+  --     IFSC/VPA/MID values are fake. Skips any account that already exists; first per mode is default.
+  insert into billing.payment_account (tenant_id, branch_id, mode, label, bank_name, account_last4, ifsc,
+                                       vpa, payee_name, mid, tid, is_default, created_by, updated_by)
+  select T, b.id, v.mode, v.label || ' [demo-seed]', v.bank, v.last4, v.ifsc,
+         case when v.mode = 'upi' then 'demo.' || replace(b.code, '-', '') || '@okdemo' end,
+         case when v.mode = 'upi' then 'MediCore Demo Hospital' end,
+         case when v.mode = 'card' then 'DEMOMID' || upper(replace(b.code, '-', '')) end,
+         case when v.mode = 'card' then 'DEMOT001' end,
+         not exists (select 1 from billing.payment_account d where d.tenant_id = T and d.branch_id = b.id
+                       and d.mode = v.mode and d.is_default and not d.is_deleted),
+         ADMIN, ADMIN
+  from identity.branches b
+  cross join (values ('bank', 'Collections a/c', 'Demo Synthetic Bank', '0042', 'DEMO0000042'),
+                     ('upi',  'Front desk UPI',  null, null, null),
+                     ('card', 'Counter POS',     null, null, null)) v(mode, label, bank, last4, ifsc)
+  where b.tenant_id = T and b.code in ('hyd-main', 'blr-demo', 'chn-demo')
+    and not exists (select 1 from billing.payment_account a where a.tenant_id = T and a.branch_id = b.id
+                      and a.mode = v.mode and not a.is_deleted);
 
   select id into VT_NEW  from appointment.visit_types where tenant_id = T and code = 'new_consult';
   select id into VT_FU   from appointment.visit_types where tenant_id = T and code = 'follow_up';

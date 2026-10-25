@@ -15,7 +15,8 @@ public interface IPaymentProvider
 
     bool Serves(string providerName);
 
-    string UpiUri(long amountPaise, string orderId);
+    /// <summary>UPI intent. <paramref name="payeeAddress"/> is the branch VPA; null falls back to the configured sandbox payee.</summary>
+    string UpiUri(long amountPaise, string orderId, string? payeeAddress = null, string? payeeName = null);
 
     bool VerifyWebhook(string providerName, ReadOnlySpan<byte> body, string? signatureHeader, DateTimeOffset now);
 }
@@ -52,11 +53,13 @@ public sealed class StubPaymentProvider(IOptions<BillingPaymentOptions> options)
         providerName.Equals("stub", StringComparison.OrdinalIgnoreCase)
         || providerName.Equals("sandbox", StringComparison.OrdinalIgnoreCase);
 
-    public string UpiUri(long amountPaise, string orderId)
+    public string UpiUri(long amountPaise, string orderId, string? payeeAddress = null, string? payeeName = null)
     {
         var rupees = (amountPaise / 100m).ToString("0.00", CultureInfo.InvariantCulture);
-        var payee = Payee();
-        var name = string.IsNullOrWhiteSpace(options.Value.SandboxPayeeName) ? "MediCore Sandbox" : options.Value.SandboxPayeeName.Trim();
+        var usesBranch = !string.IsNullOrWhiteSpace(payeeAddress) && !payeeAddress.Any(char.IsWhiteSpace);
+        var payee = usesBranch ? payeeAddress!.Trim() : Payee();
+        var name = usesBranch && !string.IsNullOrWhiteSpace(payeeName) ? payeeName.Trim()
+            : string.IsNullOrWhiteSpace(options.Value.SandboxPayeeName) ? "MediCore Sandbox" : options.Value.SandboxPayeeName.Trim();
         return string.Create(
             CultureInfo.InvariantCulture,
             $"upi://pay?pa={Uri.EscapeDataString(payee)}&pn={Uri.EscapeDataString(name)}&am={rupees}&tr={Uri.EscapeDataString(orderId)}&cu=INR");

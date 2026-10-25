@@ -37,6 +37,7 @@ export function BillingPanel({
   const [generation, setGeneration] = useState(0)
   const [override, setOverride] = useState<{ generation: number; bill: BillDocument } | null>(null)
   const [qr, setQr] = useState<string | null>(null)
+  const [noUpi, setNoUpi] = useState(false)
   const [share, setShare] = useState<string | null>(null)
   const [phone, setPhone] = useState('')
   const [discountRupees, setDiscountRupees] = useState('')
@@ -127,7 +128,10 @@ export function BillingPanel({
         destination: action === 'qr' ? undefined : phone,
         ...(session?.id ? { counterSessionId: session.id } : {}),
       })
-      if (action === 'qr') setQr(link.upiUri ?? null)
+      if (action === 'qr') {
+        setQr(link.upiUri ?? null)
+        setNoUpi(!link.upiUri)
+      }
       else setShare(link.shareStatus ?? 'queued')
       return { bill: shown }
     },
@@ -255,6 +259,7 @@ export function BillingPanel({
             <Button variant="secondary" onClick={() => run.mutate('qr')} disabled={run.isPending}>Show UPI QR</Button>
             <Button variant="secondary" onClick={() => setShare(share === null ? '' : null)}>Share payment link</Button>
           </div>
+          {noUpi && <Alert tone="warning">This branch has no UPI ID set up. An admin can add one under Branches.</Alert>}
           {qr && (
             <div className="space-y-2">
               <Suspense fallback={<LoadingBlock label="Preparing the QR" />}>

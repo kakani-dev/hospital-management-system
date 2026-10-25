@@ -62,6 +62,8 @@ import type {
   EarningsReport,
   PatientBillingSummary,
   PaymentLink,
+  PaymentAccount,
+  AddPaymentAccountRequest,
   PublicBill,
   Receipt,
   AddPriceRequest,
@@ -689,6 +691,14 @@ export class ApiClient {
       this.request<BranchBillProfile>(`/api/v1/price-lists/branches/${encodeURIComponent(branchId)}/profile`),
     setBranchProfile: (branchId: string, body: { gstin?: string; legalName?: string }) =>
       this.request<BranchBillProfile>(`/api/v1/price-lists/branches/${encodeURIComponent(branchId)}/profile`, { method: 'PUT', body: JSON.stringify(body) }),
+    paymentAccounts: (branchId: string) =>
+      this.request<PaymentAccount[]>(`/api/v1/payment-accounts?branchId=${encodeURIComponent(branchId)}`),
+    addPaymentAccount: (body: AddPaymentAccountRequest) =>
+      this.request<PaymentAccount>('/api/v1/payment-accounts', { method: 'POST', body: JSON.stringify(body) }),
+    updatePaymentAccount: (id: string, body: { label?: string; isActive?: boolean; isDefault?: boolean }) =>
+      this.request<PaymentAccount>(`/api/v1/payment-accounts/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
+    deletePaymentAccount: (id: string) =>
+      this.request<PaymentAccount>(`/api/v1/payment-accounts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     paymentLink: (id: string, body: { channel: 'qr' | 'whatsapp' | 'sms' | 'link'; destination?: string; counterSessionId?: string }) =>
       this.request<PaymentLink>(`/api/v1/bills/${encodeURIComponent(id)}/payment-links`, { method: 'POST', body: JSON.stringify(body) }),
     pay: (idempotencyKey: string, body: { accountId: string; kind: 'payment'; counterSessionId?: string; tenders: { mode: string; amountPaise: number }[]; allocations: { billId: string; amountPaise: number }[] }) =>

@@ -883,8 +883,43 @@ export interface PaymentLink {
   providerOrderId: string
   channel: string
   path: string
-  upiUri?: string
+  /** Null when the branch has no active UPI account; the QR is never built from a stub payee. */
+  upiUri?: string | null
+  upiConfigured?: boolean
   shareStatus?: string
+}
+
+export type PaymentAccountMode = 'bank' | 'upi' | 'card'
+
+/** A branch's receiving account. Bank numbers are masked; only the last 4 digits are stored. */
+export interface PaymentAccount {
+  id: Guid
+  branchId: Guid
+  mode: PaymentAccountMode
+  label: string
+  bankName?: string | null
+  maskedAccount?: string | null
+  ifsc?: string | null
+  vpa?: string | null
+  payeeName?: string | null
+  mid?: string | null
+  tid?: string | null
+  isDefault: boolean
+  isActive: boolean
+}
+
+export interface AddPaymentAccountRequest {
+  branchId: Guid
+  mode: PaymentAccountMode
+  label: string
+  bankName?: string
+  accountNumber?: string
+  ifsc?: string
+  vpa?: string
+  payeeName?: string
+  mid?: string
+  tid?: string
+  isDefault?: boolean
 }
 
 export interface Receipt {

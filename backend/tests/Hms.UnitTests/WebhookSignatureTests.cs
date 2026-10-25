@@ -89,6 +89,15 @@ public sealed class WebhookSignatureTests
     }
 
     [Fact]
+    public void The_branch_vpa_replaces_the_sandbox_payee()
+    {
+        var provider = new StubPaymentProvider(Options.Create(new BillingPaymentOptions { SandboxPayeeAddress = "sandbox@medicore" }));
+        var uri = provider.UpiUri(12345, "order-3", "alpha.main@okaxis", "Alpha Main & Co");
+        Assert.StartsWith("upi://pay?pa=alpha.main%40okaxis&pn=Alpha%20Main%20%26%20Co&am=123.45&tr=order-3", uri, StringComparison.Ordinal);
+        Assert.DoesNotContain("sandbox", uri, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task The_email_dispatcher_check_stays_healthy_until_three_failures()
     {
         var health = new Hms.Modules.Identity.Email.EmailDispatcherHealth(Options.Create(new Hms.Modules.Identity.Email.EmailDeliveryOptions
