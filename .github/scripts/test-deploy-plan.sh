@@ -945,6 +945,26 @@ grep -q 'secrets.VERCEL_PROJECT_ID' "$web_workflow"
 grep -q 'https://medicore-hms-three.vercel.app' "$web_workflow"
 grep -q 'scripts/smoke/vercel-web-smoke.sh' "$web_workflow"
 grep -q 'web-deploy-plan.sh' "$web_workflow"
+grep -q 'github.event.workflow_run.head_sha' "$web_workflow" || fail "plan lost the triggering sha"
+python3 - "$web_workflow" <<'PY'
+import sys
+lines = open(sys.argv[1]).read().splitlines()
+i = 0
+while i < len(lines):
+    if "uses: actions/checkout@" in lines[i]:
+        block = [lines[i]]
+        i += 1
+        while i < len(lines) and not lines[i].lstrip().startswith("- "):
+            block.append(lines[i])
+            i += 1
+        text = "\n".join(block)
+        if "head_sha" in text or "actions/cache" in text or "cache:" in text:
+            raise SystemExit("checkout must stay on the trusted ref and must not restore a cache:\n" + text)
+        continue
+    i += 1
+if any(line.lstrip().startswith("cache:") or "actions/cache" in line for line in lines):
+    raise SystemExit("deploy-web must not restore an Actions cache")
+PY
 if grep -n -- '--token' "$web_workflow"; then
   fail "VERCEL_TOKEN must come from the environment, not --token"
 fi
