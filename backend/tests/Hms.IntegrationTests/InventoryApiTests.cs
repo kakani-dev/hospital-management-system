@@ -101,6 +101,37 @@ public sealed class InventoryApiTests(HmsApiFactory factory) : IClassFixture<Hms
         Assert.Equal(10, stock.Body[0].GetProperty("onHandBase").GetInt32());
         Assert.Equal(1250, stock.Body[0].GetProperty("purchaseRatePaise").GetInt32());
         Assert.Equal("ok", stock.Body[0].GetProperty("expiryState").GetString());
+        Assert.False(stock.Body[0].GetProperty("lowStock").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, stock.Body[0].GetProperty("minQty").ValueKind);
+
+        var lowItem = await Post(admin, "/api/v1/inventory/items", new
+        {
+            itemKind = "consumable",
+            brandName = "Gauze pad",
+            manufacturerName = "Acme",
+            hsnCode = "300590",
+            gstRateBp = 500,
+            baseUomCode = "PC",
+            storeId,
+            reorderLevel = 25,
+        });
+        Assert.Equal(HttpStatusCode.OK, lowItem.Status);
+        var lowItemId = lowItem.Body.GetProperty("id").GetString();
+        var lowOpened = await Post(admin, "/api/v1/inventory/opening-stock", new
+        {
+            storeId,
+            lines = new[]
+            {
+                new { itemId = lowItemId, batchNo = "G1", expiryDate = "2031-01-01", mrpPaise = 800, purchaseRatePaise = 400, qtyBase = 4 },
+            },
+        }, Guid.NewGuid());
+        Assert.Equal(HttpStatusCode.OK, lowOpened.Status);
+        var flagged = await Get(admin, $"/api/v1/inventory/stock?storeId={storeId}&itemId={lowItemId}");
+        Assert.True(flagged.Body[0].GetProperty("lowStock").GetBoolean());
+        Assert.Equal(25, flagged.Body[0].GetProperty("minQty").GetInt32());
+        var onlyLow = await Get(admin, $"/api/v1/inventory/stock?storeId={storeId}&lowStock=true");
+        Assert.Equal(HttpStatusCode.OK, onlyLow.Status);
+        Assert.Equal(lowItemId, Assert.Single(onlyLow.Body.EnumerateArray()).GetProperty("itemId").GetString());
 
         using var desk = factory.ClientAs(AlphaReception, Alpha, AlphaMain);
         var denied = await Post(desk, "/api/v1/inventory/items", new

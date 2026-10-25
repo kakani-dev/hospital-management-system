@@ -221,8 +221,32 @@ select tests.ok(
   (select jsonb_object_agg(row ->> 'batchNo', row ->> 'expiryState')
    from jsonb_array_elements(inventory.stock_on_hand(
      '11111111-1111-4111-8111-111111111111', null, null)) row)
-  = jsonb_build_object('OLD', 'expired', 'B1', 'soon', 'B2', 'ok'),
-  'stock on hand marks expired, soon, and in-date batches');
+  = jsonb_build_object('OLD', 'expired', 'B1', 'soon', 'B2', 'ok')
+  and (
+    select bool_and((row ->> 'lowStock')::boolean = false and row -> 'minQty' = 'null'::jsonb)
+    from jsonb_array_elements(inventory.stock_on_hand(
+      '11111111-1111-4111-8111-111111111111', null, null)) row
+  ),
+  'stock on hand marks expired, soon, and in-date batches, and is not low without a reorder level');
+
+insert into inventory.store_item_policy (store_id, item_id, tenant_id, min_qty)
+select s.id, i.id, i.tenant_id, 100
+from inventory.store s
+join inventory.item i on i.brand_name = 'Crocin' and i.tenant_id = s.tenant_id
+where s.name = 'Pharmacy';
+select tests.ok(
+  (select count(*) from jsonb_array_elements(inventory.stock_on_hand(
+      '11111111-1111-4111-8111-111111111111',
+      (select id from inventory.store where name = 'Pharmacy'),
+      null, true)) row) = 3
+  and (
+    select bool_and((row ->> 'lowStock')::boolean and (row ->> 'minQty')::bigint = 100)
+    from jsonb_array_elements(inventory.stock_on_hand(
+      '11111111-1111-4111-8111-111111111111',
+      (select id from inventory.store where name = 'Pharmacy'),
+      null, true)) row
+  ),
+  'stock below the store reorder level is flagged and the low-stock filter keeps those rows');
 
 select inventory.rebuild_stock_balance('11111111-1111-4111-8111-111111111111');
 select tests.ok(

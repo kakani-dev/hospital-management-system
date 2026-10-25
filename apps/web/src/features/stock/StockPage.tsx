@@ -644,9 +644,10 @@ function OpeningPanel({ items, stores }: { items: StockItem[]; stores: StockStor
 function OnHandPanel({ items, stores }: { items: StockItem[]; stores: StockStore[] }) {
   const [storeId, setStoreId] = useState('')
   const [itemId, setItemId] = useState('')
+  const [lowOnly, setLowOnly] = useState(false)
   const stock = useQuery({
-    queryKey: ['inventory', 'stock', storeId, itemId],
-    queryFn: () => apiClient.inventory.stock({ storeId: storeId || undefined, itemId: itemId || undefined }),
+    queryKey: ['inventory', 'stock', storeId, itemId, lowOnly],
+    queryFn: () => apiClient.inventory.stock({ storeId: storeId || undefined, itemId: itemId || undefined, lowStock: lowOnly }),
   })
 
   return (
@@ -668,6 +669,10 @@ function OnHandPanel({ items, stores }: { items: StockItem[]; stores: StockStore
             </option>
           ))}
         </SelectField>
+        <label className="flex items-center gap-2 text-sm sm:col-span-2">
+          <input type="checkbox" checked={lowOnly} onChange={(e) => setLowOnly(e.target.checked)} />
+          Below reorder level
+        </label>
       </div>
       {stock.isPending && <LoadingBlock label="Loading stock" />}
       {stock.error && <Alert tone="error">{problemText(stock.error)}</Alert>}
@@ -705,6 +710,11 @@ function StockRow({ row }: { row: StockOnHandRow }) {
       <td className="py-2 pr-3">{row.storeName}</td>
       <td className="py-2 pr-3">
         {row.brandName} ({row.itemCode})
+        {row.lowStock && (
+          <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-900" data-testid="low-stock">
+            Low stock{row.minQty != null ? ` · reorder ${row.minQty}` : ''}
+          </span>
+        )}
       </td>
       <td className="py-2 pr-3">{row.batchNo}</td>
       <td className="py-2 pr-3">{row.expiryDate}</td>
