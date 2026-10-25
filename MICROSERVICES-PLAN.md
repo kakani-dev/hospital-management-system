@@ -1,3 +1,5 @@
+> **Superseded (25 Oct 2026):** historical record. Render and the monolith are retired; current system is microservices on Azure Container Apps. See [docs/architecture/microservices.md](/docs/architecture/microservices.md).
+
 # MediCore HMS: moving from a modular monolith to microservices (plan only)
 
 Author: CTO office, 9 Oct 2026 (IST). Status: **APPROVED by Mohith on 9 Oct 2026 (IST)**, with the shape in

@@ -1,6 +1,8 @@
 # Hospital Management System (HMS)
 
-A multi-tenant Hospital Management System: a React SPA, a YARP edge in front of identity, patients and scheduling services, and Supabase PostgreSQL with Row Level Security. It is designed so that one platform can serve many hospitals (tenants) and their branches securely.
+> New team? Start with [docs/HANDOVER.md](docs/HANDOVER.md).
+
+A multi-tenant Hospital Management System: a React SPA, a YARP edge in front of six services (identity, patients, scheduling, billing, inventory, privacy), and Supabase PostgreSQL with Row Level Security. It is designed so that one platform can serve many hospitals (tenants) and their branches securely.
 
 > **Status.** Demonstration only, **synthetic data only**, not for clinical use. The database schema lives on a Supabase project. The web app on Vercel uses the Azure Container Apps edge. The App Service `medicore-hms-api` is stopped and its project is removed from the repository. The cutover is done ([record](docs/runbooks/monolith-cutover.md)).
 
@@ -13,7 +15,7 @@ A multi-tenant Hospital Management System: a React SPA, a YARP edge in front of 
 | Database | Supabase PostgreSQL: SQL migrations, a schema per service, RLS keyed on memberships, audit log |
 | Tests | Vitest (unit), xUnit (unit, API integration with signed JWTs on real Postgres, RLS defense in depth), SQL tests, full-stack Playwright + axe (mock Supabase Auth) |
 | CI | GitHub Actions (`ci.yml` required gate; skips unchanged jobs, nightly full run), `cleanup.yml` weekly artifact/cache cleanup, optional Jenkins mirror |
-| Hosting | Vercel (web, production on the edge), Azure Container Apps (edge + three services), Supabase (DB). The App Service is stopped. |
+| Hosting | Vercel (web, production on the edge), Azure Container Apps (edge + six services, 7 apps), Supabase (DB). The App Service is stopped. |
 
 ## Repository layout
 
@@ -21,11 +23,12 @@ A multi-tenant Hospital Management System: a React SPA, a YARP edge in front of 
 apps/web/                 React SPA (Supabase Auth sign-in, tenant/branch switcher, dashboard, patients, admin)
 backend/
   edge/Hms.Edge           YARP edge: the single public base URL (/api/v1/*), CORS, JWT, rate limits, 503 contract
-  services/*/Hms.*.Api    Microservices: identity, patients, scheduling (docs/architecture/microservices.md)
+  services/*/Hms.*.Api    Microservices: identity, patients, scheduling, billing, inventory, privacy (docs/architecture/microservices.md)
   platform/Hms.Platform   Shared host plumbing: JWT auth, tenant resolution, problem mapping, Npgsql setup, health, outbox
   modules/Identity        Identity & Tenant module (/me, context switch, branches, members)
   modules/Patients        Patient module (patient registry, /api/v1/patients)
   modules/Appointments    Scheduling module (practitioners, appointments, queue)
+  modules/Billing|Inventory|Privacy  OP billing + GST, stock, DPDP consent/data rights
   shared/Hms.SharedKernel Tenant context, DB session (RLS role + claims per transaction), EF interceptors
   tests/                  Hms.UnitTests, Hms.IntegrationTests (real Postgres + signed JWTs), Hms.DatabaseTests (RLS), Hms.TestHost (in-process unit host, not deployed)
 supabase/
@@ -37,9 +40,9 @@ tests/playwright/         Full-stack E2E + accessibility tests
 tests/mock-auth/          Local GoTrue stand-in for E2E (uses the real access token hook)
 scripts/clean.sh          Removes build/test artifacts (npm run clean)
 Jenkinsfile               Optional Jenkins mirror of CI (infra/jenkins/README.md)
-infra/docker|render|vercel|jenkins  Dockerfiles, Render blueprint, Vercel config, Jenkins notes
+infra/aca|docker|vercel|jenkins  ACA config, Dockerfiles, Vercel config, Jenkins notes (infra/render is superseded, unused)
 docs/                     Architecture, security, auth flow, ERD, API, local dev, sprint reports, team tracker
-docker-compose.yml        postgres + edge + identity + patients + scheduling + web (local)
+docker-compose.yml        local stack (check the file for the current service list)
 ```
 
 ## Quick start

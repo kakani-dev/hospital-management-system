@@ -29,7 +29,7 @@ ACR Basic is a paid SKU (about $0.17 per day). Container Apps stay on the consum
 7. A smoke check then calls `GET /api/v1/public/invites/<64 zeros>`. That route is anonymous and read-only. Success is **404 from the identity service** (unknown token). The gateway's own "no such route" 404 fails the deploy. Nothing is written.
 8. If health or smoke fails, traffic goes back to the previous revision, the new revision is deactivated, and the job fails. Every app shifted in that run is restored, edge last.
 
-`ca-hms-identity` is the only app that receives mail secrets. The deploy stores `SMTP_PASSWORD` as `smtp-password` and sets `Smtp__Password=secretref:smtp-password`. It stores `SUPABASE_SERVICE_ROLE_KEY` as `supabase-service-role` and sets `Auth__Supabase__ServiceRoleKey=secretref:supabase-service-role`. It sets `Email__Dispatcher__Enabled=true` on that app. If either secret is empty, identity is not rolled. Patients, scheduling, and the edge are not given either secret. `Outbox__Dispatcher__Enabled` stays off.
+`ca-hms-identity` is the only app that receives mail secrets. The deploy stores `SMTP_PASSWORD` as `smtp-password` and sets `Smtp__Password=secretref:smtp-password`. It stores `SUPABASE_SERVICE_ROLE_KEY` as `supabase-service-role` and sets `Auth__Supabase__ServiceRoleKey=secretref:supabase-service-role`. It sets `Email__Dispatcher__Enabled=true` on that app. If either secret is empty, identity is not rolled. Patients, scheduling, and the edge are not given either secret. `Outbox__Dispatcher__Enabled` was off until 25 Oct 2026; it is now **ON** (PR #52 made the rollout work with it on).
 
 The identity database login `hms_identity_login` lives in the existing secret `hms-db`. The workflow never writes that secret and does not replace `ConnectionStrings__HmsDatabase`. Identity runs with `minReplicas` 1. A rollout that does not already see 1 stops instead of changing the scale. Other apps keep the replica counts they already have.
 
@@ -141,7 +141,7 @@ gh workflow run "Deploy to Azure Container Apps" --ref main \
 gh workflow run "Deploy to Azure Container Apps" --ref main -f service=edge
 ```
 
-The same health check, smoke test, and automatic rollback apply. `service` is one of `identity`, `patients`, `scheduling`, `billing`, `inventory`, `edge`. A service the live edge does not list yet is refused on its own; roll the edge in the same deploy.
+The same health check, smoke test, and automatic rollback apply. `service` is one of `identity`, `patients`, `scheduling`, `billing`, `inventory`, `privacy`, `edge`. A service the live edge does not list yet is refused on its own; roll the edge in the same deploy.
 
 ## Cleanup
 

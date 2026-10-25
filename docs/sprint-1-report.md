@@ -1,3 +1,5 @@
+> **Superseded (25 Oct 2026):** historical record. Render and the monolith are retired; current system is microservices on Azure Container Apps. See [docs/HANDOVER.md](/docs/HANDOVER.md).
+
 # Sprint 1 report: Tenant & Identity
 
 _Date: 2026-10-06, around 20:40 IST. Branch `feat/sprint-1-identity`. Simulated roles: see [team-tracker.md](team-tracker.md)._

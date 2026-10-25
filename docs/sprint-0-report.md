@@ -1,3 +1,5 @@
+> **Superseded (25 Oct 2026):** historical record. Render and the monolith are retired; current system is microservices on Azure Container Apps. See [docs/HANDOVER.md](/docs/HANDOVER.md).
+
 # Sprint 0 report: Foundation
 
 _Date: 2026-10-06 (IST). Prepared by the simulated CTO / orchestrator role. See [team-tracker.md](team-tracker.md)._

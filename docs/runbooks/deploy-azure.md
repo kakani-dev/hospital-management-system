@@ -1,3 +1,5 @@
+> **Superseded (25 Oct 2026):** Render is retired; the Render rollback steps here no longer apply. Current deploy: [docs/deploy.md](/docs/deploy.md) and [docs/HANDOVER.md](/docs/HANDOVER.md). Web uses the ACA edge URL as `VITE_API_BASE_URL`.
+
 # Runbook: gateway API on Azure App Service (F1 Free, Linux)
 
 Status (2026-10-09 ~17:00 IST): **live**. `main @ 3a81224` is deployed to

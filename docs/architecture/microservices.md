@@ -16,6 +16,12 @@ browser (Vercel SPA) ──► edge (YARP, public)  /api/v1/*   one base URL, CO
                 one Supabase Postgres: schema + group role per service, published *_v1 functions, one outbox
 ```
 
+> **Update 25 Oct 2026:** there are now **six** services behind the edge, 7 ACA apps in total:
+> `ca-hms-edge` (public) and internal `ca-hms-identity`, `ca-hms-patients`, `ca-hms-scheduling`,
+> `ca-hms-billing` (bills, payments, refunds, earnings/CA), `ca-hms-inventory` (stock), `ca-hms-privacy`
+> (DPDP consent, data-principal requests). The diagram below shows the original three. The outbox
+> dispatcher is ON (config `Outbox__Dispatcher__Enabled`). See `docs/HANDOVER.md`.
+
 ## Layout
 
 | Project | Role |

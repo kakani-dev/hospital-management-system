@@ -6,6 +6,8 @@ _Owner (simulated): CTO / Solution Architect. Status: Sprint 0 (historical)._
 > `infra/docker/api.Dockerfile` are removed. The App Service `medicore-hms-api` is stopped.
 > The cutover is done ([monolith-cutover.md](runbooks/monolith-cutover.md)).
 
+> **Superseded:** the Render/monolith sections below are historical. Current deploy: 7 Azure Container Apps (see docs/HANDOVER.md).
+
 ## Shape: a modular monolith with service boundaries
 
 The brief (section 6) lists twelve logical services. For free-tier hosting we run **one** ASP.NET Core process (the gateway) that hosts independent modules. Each module owns:
