@@ -1,3 +1,5 @@
+> **Superseded (25 Oct 2026):** historical record. Render and the monolith are retired; current system is microservices on Azure Container Apps. See [docs/HANDOVER.md](/docs/HANDOVER.md).
+
 # MediCore HMS microservices: CI per service + Azure Container Apps plan (PLAN ONLY)
 
 Status: **PLAN, nothing executed.** Written 9 Oct 2026, ~18:40 IST, from `main @ 1306b8a` (Sprint 2 merged).

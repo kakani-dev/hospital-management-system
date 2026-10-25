@@ -4,6 +4,8 @@
 - Date: 2026-10-22
 - Scope: identity, patients, scheduling, and the YARP edge. The legacy all-in-one host is not a data owner.
 
+> **Update 25 Oct 2026:** the same model now also covers `billing`, `inventory` and `privacy` (7 ACA apps). See docs/HANDOVER.md.
+
 ## Context
 
 MediCore already runs as three services behind one edge, on one Supabase Postgres. Schemas

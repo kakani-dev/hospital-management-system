@@ -1,3 +1,5 @@
+> **Superseded (25 Oct 2026):** Render is retired; the Render rollback steps here no longer apply. Current deploy: [docs/deploy.md](/docs/deploy.md) and [docs/HANDOVER.md](/docs/HANDOVER.md). Web uses the ACA edge URL as `VITE_API_BASE_URL`.
+
 # Vercel — frontend hosting (apps/web)
 
 **Status: not deployed.** Sprint 0 only adds the configuration.

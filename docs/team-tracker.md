@@ -1,3 +1,5 @@
+> **Superseded (25 Oct 2026):** historical record. Render and the monolith are retired; current system is microservices on Azure Container Apps. See [docs/HANDOVER.md](/docs/HANDOVER.md).
+
 # Team & task tracker
 
 > **Simulated roles.** No real multi-agent team was used. One AI agent did all the work in sequence, acting in each role below. Role names show who would own each area in a real team.

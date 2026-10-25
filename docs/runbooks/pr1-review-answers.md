@@ -1,3 +1,5 @@
+> **Superseded (25 Oct 2026):** historical record. Render and the monolith are retired; current system is microservices on Azure Container Apps. See [docs/HANDOVER.md](/docs/HANDOVER.md).
+
 # PR #1 review: DevOps & Release answers (Q3, Q5, Q6, Minor 9)
 
 | | |
