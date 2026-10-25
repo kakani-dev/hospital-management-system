@@ -126,9 +126,9 @@ select appointment.assert_bookable_window_v2(
   '2030-06-03 12:00+05:30', '2030-06-03 12:15+05:30', true);
 select tests.ok(true, 'an hours override waives this branch''s window');
 select tests.throws_ok(
-  $$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at, hours_override)
+  $$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at, hours_override, reason)
     values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000002', 'c1111111-0000-4000-8000-000000000035',
-            'aa000000-0000-4000-8000-000000000001', '2030-06-03 12:00+05:30', '2030-06-03 12:15+05:30', true)$$,
+            'aa000000-0000-4000-8000-000000000001', '2030-06-03 12:00+05:30', '2030-06-03 12:15+05:30', true, 'Covering the other campus (synthetic)')$$,
   '23P01', 'the override still cannot land inside another branch''s hours');
 
 insert into appointment.appointments (id, tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at)

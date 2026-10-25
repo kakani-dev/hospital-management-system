@@ -121,7 +121,12 @@ export function BookingPanel({
         })()
       : null
   const chosen = overrideHours ? overrideSlot : (selectedSlot ?? suggested)
-  const missing = [!selectedPractitionerId && 'a practitioner', !chosen && (overrideHours ? 'a time' : 'a free slot'), !patient && 'a patient'].filter((m): m is string => !!m)
+  const missing = [
+    !selectedPractitionerId && 'a practitioner',
+    !chosen && (overrideHours ? 'a time' : 'a free slot'),
+    !patient && 'a patient',
+    overrideHours && !reason.trim() && 'a reason for booking outside working hours',
+  ].filter((m): m is string => !!m)
   const missingMessage = missing.length ? `Choose ${joinMissing(missing)}.` : null
   const noPractitioners = practitionersStatus === 'ready' && practitioners.length === 0
 
@@ -366,7 +371,13 @@ export function BookingPanel({
             registerReturn={{ to: `${location.pathname}${location.search}`, state: { booking: { practitionerId: selectedPractitionerId, date, slot: chosen } satisfies BookingDraft } }}
           />
         )}
-        <FormField label="Reason (optional)" maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />
+        <FormField
+          label={overrideHours ? 'Reason for booking outside working hours' : 'Reason (optional)'}
+          required={overrideHours}
+          maxLength={500}
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+        />
       </div>
       {error && (
         <div className="md:col-span-2">
