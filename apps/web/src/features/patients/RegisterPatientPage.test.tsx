@@ -2,11 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { App } from '../../App'
+import { RegisterPatientPage } from './RegisterPatientPage'
 import { ALPHA_EAST, ALPHA_MAIN, fakeAuthClient, fakeSession, json, meFor, renderWithProviders, stubFetch } from '../../test/fakes'
 
 import { restoreWorkstation, workstationAt } from '../../test/timeZones'
 import { toast } from 'sonner'
-import { RegisterPatientPage } from './RegisterPatientPage'
 
 // The Toaster lives in main.tsx; here we only check that the success toast is raised with the MRN.
 vi.mock('sonner', async (importOriginal) => ({ ...(await importOriginal<typeof import('sonner')>()), toast: { success: vi.fn() } }))
@@ -314,5 +314,23 @@ describe('RegisterPatientPage duplicate warning', () => {
       expect(await screen.findByText('Date of birth must be between 1900-01-01 and today')).toBeInTheDocument()
       expect(calls.some((c) => c.method === 'POST')).toBe(false)
     })
+  })
+
+  it('live duplicate check sends a 14-digit ABHA from the booking form', async () => {
+    const calls = stubFetch({
+      'GET /api/v1/me': () => json(meFor({ activeBranchId: ALPHA_MAIN })),
+      'POST /api/v1/patients/duplicates': () => json({ candidates: [] }),
+    })
+    const user = userEvent.setup()
+    renderWithProviders(
+      <RegisterPatientPage
+        embedded={{ branchId: ALPHA_MAIN, onCreated: () => {}, onUseExisting: () => {}, onCancel: () => {} }}
+      />,
+      { path: '/appointments', auth: fakeAuthClient({ session: fakeSession() }) },
+    )
+    await user.type(await screen.findByLabelText('ABHA number (optional)'), '91-1111-2222-3333')
+    await waitFor(() =>
+      expect(calls.find((c) => c.path === '/api/v1/patients/duplicates')?.body).toMatchObject({ abhaNumber: '91-1111-2222-3333' }),
+    )
   })
 })

@@ -225,7 +225,13 @@ public sealed class EdgeResilienceTests
     {
         await using var edge = new DownstreamDownEdge(jwksDown: false);
         using var client = edge.CreateClient();
-        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/health/live")).StatusCode);
+        var live = await client.GetAsync("/health/live");
+        Assert.Equal(HttpStatusCode.OK, live.StatusCode);
+        Assert.Equal("nosniff", live.Headers.GetValues("X-Content-Type-Options").Single());
+        Assert.Equal("DENY", live.Headers.GetValues("X-Frame-Options").Single());
+        Assert.Equal("max-age=63072000; includeSubDomains", live.Headers.GetValues("Strict-Transport-Security").Single());
+        Assert.Contains("default-src 'none'", live.Headers.GetValues("Content-Security-Policy").Single(), StringComparison.Ordinal);
+        Assert.False(live.Headers.TryGetValues("Server", out _));
         var ready = await client.GetAsync("/health/ready");
         Assert.Equal(HttpStatusCode.ServiceUnavailable, ready.StatusCode);
         Assert.Equal("5", ready.Headers.GetValues("Retry-After").Single());

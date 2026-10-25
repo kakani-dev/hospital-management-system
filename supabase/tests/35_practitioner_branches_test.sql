@@ -156,7 +156,7 @@ select tests.throws_ok(
   '42501', 'reception cannot add a membership');
 
 select tests.authenticate_as('admin@beta.example');
-select tests.ok((select count(*) from appointment.practitioner_branches) = 1, 'cross-tenant: Beta sees only its own membership');
+select tests.ok((select count(*) from appointment.practitioner_branches) = 2, 'cross-tenant: Beta sees only its own memberships');
 select tests.throws_ok(
   $$insert into appointment.practitioner_branches (tenant_id, practitioner_id, branch_id)
     values ('11111111-1111-4111-8111-111111111111', 'c1111111-0000-4000-8000-000000000035', 'a1111111-0000-4000-8000-000000000001')$$,

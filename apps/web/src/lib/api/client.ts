@@ -506,6 +506,9 @@ export class ApiClient {
       }),
     /** tenant_admin only. */
     restore: (id: string) => this.request<void>(`/api/v1/patients/${encodeURIComponent(id)}/restore`, { method: 'POST' }),
+    /** tenant_admin only. Moves visits and bills onto this chart and soft-deletes the duplicate. */
+    merge: (survivorId: string, body: { duplicatePatientId: string; reason: string }) =>
+      this.request<void>(`/api/v1/patients/${encodeURIComponent(survivorId)}/merge`, { method: 'POST', body: JSON.stringify(body) }),
     /** Counts only (no PHI); omit branchId for the whole hospital. */
     stats: (params: { branchId?: string } = {}) => this.request<PatientStats>(`/api/v1/patients/stats${qs(params)}`),
     /** Possible duplicates (≤ 20). Identifiers are PHI: body, never URL. Email, phone and ABHA block registration. */

@@ -10,9 +10,9 @@ import { Button } from '../../components/ui/Button'
 import { FormField } from '../../components/ui/FormField'
 import { SelectField } from '../../components/ui/SelectField'
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
-import { useBranches, useDeletePatient, usePatient, usePatientVisits, usePractitioners, useUpdatePatient } from '../../lib/api/hooks'
+import { useBranches, useDeletePatient, useMergePatient, usePatient, usePatientVisits, usePractitioners, useUpdatePatient } from '../../lib/api/hooks'
 import { ApiError, apiClient, fieldErrors } from '../../lib/api/client'
-import { SEXES, type Appointment, type DuplicateCandidate, type PatientDetail } from '../../lib/api/types'
+import { SEXES, type Appointment, type DuplicateCandidate, type PatientDetail, type PatientSummary } from '../../lib/api/types'
 import { defaultBranchId, useCurrentContext } from '../tenancy/useCurrentContext'
 import { createPatientEditSchema, toUpdatePatientRequest, type PatientEditValues } from './patientSchema'
 import { DuplicateWarning } from './DuplicateWarning'
@@ -21,6 +21,7 @@ import { FOLLOW_UP_STATUSES, followUpRouteState } from '../scheduling/followUp'
 import { dateInZone, formatDayLabel, formatTime } from '../../lib/dates'
 import { useBranchToday, useBranchZonedResolver } from './useBranchZonedResolver'
 import { WhatsappFields } from './WhatsappFields'
+import { PatientPicker } from './PatientPicker'
 
 export function PatientDetailPage() {
   const { patientId = '' } = useParams()
@@ -55,6 +56,7 @@ export function PatientDetailPage() {
   // patients.edit / patients.delete are hospital-wide. The registered branch is metadata.
   const canWrite = has('patients.edit') && !deleted
   const canDelete = has('patients.delete') && !deleted
+  const canMerge = has('patients.restore') && !deleted
   const deskBranchId = activeBranchId ?? defaultBranchId(me.data)
 
   return (
@@ -94,7 +96,7 @@ export function PatientDetailPage() {
             <Field label="Email" value={p.email ?? '—'} />
             <Field label="ABHA number" value={p.abhaNumber ?? '—'} />
           </dl>
-          {(canWrite || canDelete) && (
+          {(canWrite || canDelete || canMerge) && (
             <div className="mt-4 flex flex-wrap gap-2">
               {canWrite && (
                 <Button
@@ -106,6 +108,7 @@ export function PatientDetailPage() {
                   Edit patient
                 </Button>
               )}
+              {canMerge && <MergePatientButton patient={p} />}
               {canDelete && <DeletePatientButton patient={p} />}
             </div>
           )}
@@ -405,6 +408,62 @@ function EditPatientForm({
         </div>
       </form>
     </Card>
+  )
+}
+
+function MergePatientButton({ patient }: { patient: PatientDetail }) {
+  const [open, setOpen] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [reason, setReason] = useState('')
+  const [duplicate, setDuplicate] = useState<PatientSummary | null>(null)
+  const merge = useMergePatient(patient.id)
+  const navigate = useNavigate()
+
+  return (
+    <>
+      <Button variant="secondary" onClick={() => setOpen(true)}>
+        Merge patient
+      </Button>
+      {error && <Alert tone="error">{error}</Alert>}
+      <ConfirmDialog
+        open={open}
+        title="Merge a duplicate into this chart?"
+        confirmLabel="Merge patient"
+        busy={merge.isPending}
+        onCancel={() => setOpen(false)}
+        onConfirm={async () => {
+          setError(null)
+          if (!duplicate || duplicate.id === patient.id) {
+            setError('Choose the duplicate chart to merge into this one.')
+            return
+          }
+          if (!reason.trim()) {
+            setError('A reason is required.')
+            return
+          }
+          try {
+            await merge.mutateAsync({ duplicatePatientId: duplicate.id, reason: reason.trim() })
+            navigate('/patients', { replace: true, state: { deleted: duplicate.mrn } })
+          } catch (e) {
+            setOpen(false)
+            setError(
+              e instanceof ApiError && e.status === 403
+                ? 'Only a tenant admin can merge patients.'
+                : fieldErrors(e).reason ?? fieldErrors(e).duplicatePatientId ?? 'Could not merge the patient. Try again.',
+            )
+          }
+        }}
+      >
+        <p>
+          Appointments and bills on the duplicate move onto {patient.firstName} {patient.lastName} ({patient.mrn}). The duplicate is
+          then hidden (soft delete) and the merge is written to the audit log.
+        </p>
+        <div className="mt-3 space-y-3">
+          <PatientPicker value={duplicate} onChange={setDuplicate} label="Duplicate chart" />
+          <FormField label="Reason" maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />
+        </div>
+      </ConfirmDialog>
+    </>
   )
 }
 

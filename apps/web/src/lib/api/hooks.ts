@@ -190,6 +190,18 @@ export function useDeletePatient(id: string) {
   })
 }
 
+/** Admin merge: the duplicate chart is soft-deleted and its visits move onto this one. */
+export function useMergePatient(survivorId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: { duplicatePatientId: string; reason: string }) => apiClient.patients.merge(survivorId, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.patient(survivorId) })
+      return qc.invalidateQueries({ queryKey: ['patients'] })
+    },
+  })
+}
+
 export function useRestorePatient() {
   const qc = useQueryClient()
   return useMutation({

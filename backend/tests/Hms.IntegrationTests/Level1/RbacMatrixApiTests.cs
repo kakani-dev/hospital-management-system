@@ -121,7 +121,8 @@ public sealed class RbacMatrixApiTests(HmsApiFactory factory) : IClassFixture<Hm
         var theirs = await Book(other, 20);
 
         using var client = factory.ClientAs(doctor, Alpha);
-        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsync($"/api/v1/appointments/{theirs}/no-show", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync($"/api/v1/appointments/{theirs}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.PostAsync($"/api/v1/appointments/{theirs}/no-show", null)).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await client.PostAsync($"/api/v1/appointments/{mine}/no-show", null)).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync($"/api/v1/appointments/{theirs}/cancel", new { })).StatusCode);
     }

@@ -77,6 +77,13 @@ export function AppointmentCalendarPage() {
   const bookableState = useBookablePractitionersState(branchId)
   const bookable = bookableState.practitioners
   const practitionerName = (id: string) => practitioners.data?.find((p) => p.id === id)?.displayName ?? 'Unknown practitioner'
+  const branchRoles = rolesAtBranch(me.data, branchId)
+  const canBook = can(branchRoles, 'appointments.book')
+  // Follow-up at this desk. A doctor (follow-up, no fresh booking) is locked to their own practitioner.
+  const canFollowUp = can(branchRoles, 'appointments.bookFollowUp')
+  const scopedDoctor = canFollowUp && !canBook
+  const ownPractitioner = scopedDoctor ? (practitioners.data?.find((p) => p.userId === me.data?.userId) ?? null) : null
+  const practitionerFilterId = scopedDoctor ? (ownPractitioner?.id ?? '') : practitionerFilter
 
   const appointments = useAppointments(
     branchId && timeZoneReady
@@ -84,17 +91,13 @@ export function AppointmentCalendarPage() {
           branchId,
           from: zonedTimeToInstant(cal.rangeStart, '00:00', timeZone),
           to: zonedTimeToInstant(cal.rangeEnd, '00:00', timeZone),
-          practitionerId: practitionerFilter || undefined,
+          practitionerId: practitionerFilterId || undefined,
           status: statusFilter || undefined,
         }
       : null,
     { refetchInterval: CALENDAR_REFRESH_MS },
   )
   const patient = usePatientRefs(appointments.data ?? [])
-  const branchRoles = rolesAtBranch(me.data, branchId)
-  const canBook = can(branchRoles, 'appointments.book')
-  // Any clinician who may book follow-ups at this desk, including a doctor for another doctor's visit.
-  const canFollowUp = can(branchRoles, 'appointments.bookFollowUp')
 
   // Patient search narrows the loaded range (name, MRN or visit reason); the server filters status.
   const needle = search.trim().toLowerCase()
@@ -132,17 +135,30 @@ export function AppointmentCalendarPage() {
           </Button>
         )}
       </div>
+      {scopedDoctor && practitioners.isSuccess && !ownPractitioner && (
+        <Alert tone="warning">Your login is not linked to a practitioner, so this calendar stays empty.</Alert>
+      )}
       <div className="flex flex-wrap items-end gap-4">
         <BranchPicker branches={branches} value={branchId} onChange={setBranchId} />
         <div className="w-60">
-          <SelectField label="Practitioner" value={practitionerFilter} onChange={(e) => setPractitionerFilter(e.target.value)}>
-            <option value="">All practitioners</option>
-            {bookable.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.displayName}
-              </option>
-            ))}
-          </SelectField>
+          {scopedDoctor ? (
+            <SelectField label="Practitioner" value={ownPractitioner?.id ?? ''} onChange={() => {}} disabled>
+              {ownPractitioner ? (
+                <option value={ownPractitioner.id}>{ownPractitioner.displayName}</option>
+              ) : (
+                <option value="">Not linked</option>
+              )}
+            </SelectField>
+          ) : (
+            <SelectField label="Practitioner" value={practitionerFilter} onChange={(e) => setPractitionerFilter(e.target.value)}>
+              <option value="">All practitioners</option>
+              {bookable.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.displayName}
+                </option>
+              ))}
+            </SelectField>
+          )}
         </div>
         <div className="w-48">
           <SelectField label="Status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as AppointmentStatus | '')}>

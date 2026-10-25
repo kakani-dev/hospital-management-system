@@ -215,9 +215,10 @@ public sealed class B1MembershipConsentApiTests(HmsApiFactory factory) : IClassF
 
         Assert.Equal(HttpStatusCode.NoContent, (await asVictim.PostAsync(Pr1Contract.Accept(membershipId), content: null)).StatusCode);
 
-        // Access as granted (doctor => tenant-wide registry read, both branches).
+        // Access as granted. A doctor reads the registry, and only charts linked to their own visits.
         using var claimingAlpha = factory.ClientAs(victim, Alpha);
-        Assert.Equal(HttpStatusCode.OK, (await claimingAlpha.GetAsync($"/api/v1/patients/{AlphaEastPatientId}")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await claimingAlpha.GetAsync("/api/v1/patients")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await claimingAlpha.GetAsync($"/api/v1/patients/{AlphaEastPatientId}")).StatusCode);
 
         // Accepting is not a context switch: the persisted default and the next token stay Beta.
         Assert.Equal(Beta, (await asVictim.GetFromJsonAsync<TenantView>("/api/v1/tenants/current"))!.Id);

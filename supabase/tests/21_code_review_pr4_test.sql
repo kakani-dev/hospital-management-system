@@ -54,10 +54,13 @@ insert into identity.memberships (tenant_id, user_id, branch_id, role, status) v
 select tests.authenticate_as('doctor-east@alpha.example');
 select tests.ok(identity.has_tenant_role('11111111-1111-4111-8111-111111111111', array['doctor']),
   'MAJ-2 setup: the East-only doctor has the doctor role in Alpha');
-select tests.ok((select count(*) > 0 from patient.patients), 'MAJ-2 setup: and reads Alpha patients');
+select tests.ok((select count(*) = 0 from patient.patients), 'MAJ-2 setup: an unlinked doctor sees no charts');
 select tests.authenticate_as('consultant@shared.example');
-select tests.ok((select count(*) > 0 from patient.patients where tenant_id = '11111111-1111-4111-8111-111111111111'),
-  'MAJ-2 setup: the consultant (doctor@Alpha East + doctor@Beta) reads Alpha patients');
+select tests.ok(
+  identity.has_tenant_role('11111111-1111-4111-8111-111111111111', array['doctor'])
+  and (select count(*) = 1 and bool_and(id = 'aa000000-0000-4000-8000-000000000003')
+       from patient.patients where tenant_id = '11111111-1111-4111-8111-111111111111'),
+  'MAJ-2 setup: the consultant holds the Alpha doctor role and sees only their own chart');
 
 select tests.authenticate_as('admin@alpha.example');
 select identity.soft_delete_branch('a1111111-0000-4000-8000-000000000002');
@@ -81,7 +84,7 @@ select tests.ok((select count(*) = 0 from patient.patients where tenant_id = '11
   'MAJ-2: the consultant no longer reads Alpha patients');
 select tests.ok(not identity.shares_tenant_with('0a000000-0000-4000-8000-000000000001'),
   'MAJ-2: shares_tenant_with no longer links the consultant to Alpha staff');
-select tests.ok((select count(*) > 0 from patient.patients where tenant_id = '22222222-2222-4222-8222-222222222222'),
+select tests.ok(identity.has_tenant_role('22222222-2222-4222-8222-222222222222', array['doctor']),
   'MAJ-2: the consultant keeps the tenant-wide Beta role');
 
 select tests.authenticate_as('admin@alpha.example');

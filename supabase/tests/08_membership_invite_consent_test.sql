@@ -144,7 +144,10 @@ select tests.throws_ok(format($$select identity.accept_membership(%L)$$, (select
 select tests.ok((select tenant_id from identity.my_active_context()) = '22222222-2222-4222-8222-222222222222',
   'P1 after accepting: the default tenant is still Beta (persisted, and older membership wins)');
 select tests.authenticate_as('doctor@beta.example', '{"tenant_id": "11111111-1111-4111-8111-111111111111"}');
-select tests.ok((select count(*) from patient.patients) = 4, 'after accepting, the doctor can work in Alpha when it is chosen');
+select tests.ok(
+  identity.has_tenant_role('11111111-1111-4111-8111-111111111111', array['doctor'])
+  and (select count(*) from patient.patients) = 0,
+  'after accepting, the doctor is a member of Alpha and sees no charts until a visit is theirs');
 
 select tests.authenticate_as('admin@alpha.example', '{"tenant_id": "11111111-1111-4111-8111-111111111111"}');
 select tests.ok(exists (select 1 from identity.memberships where id = (select id from p1) and status = 'active'),
