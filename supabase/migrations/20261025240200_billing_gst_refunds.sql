@@ -1056,3 +1056,9 @@ revoke all on all functions in schema billing from public, anon, authenticated;
 grant execute on all functions in schema billing to hms_svc_billing;
 grant execute on function billing.public_link(text) to anon;
 grant execute on function billing.apply_webhook(text, jsonb) to service_role;
+
+-- 20261025240100 revokes service_role from the merge mover. This file sorts after it,
+-- and the blanket grant above must not hand that function back to service_role.
+-- Bills, refunds and credit notes have no patient_id; they follow billing_account.
+revoke all on function billing.repoint_patient_for_merge(uuid, uuid, uuid) from public, anon, authenticated, service_role;
+grant execute on function billing.repoint_patient_for_merge(uuid, uuid, uuid) to hms_svc_billing;
