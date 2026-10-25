@@ -7,7 +7,7 @@ import { ROLE_PERMISSIONS } from '../../lib/permissions'
 afterEach(() => vi.unstubAllGlobals())
 
 const page = { items: [], page: 1, pageSize: 25, totalCount: 0 }
-const NAV = ['Patients', 'Appointments', 'Schedules', 'Check-in', 'OPD queue', 'Approvals', 'Bills', 'Day end', 'Branches', 'Members', 'Practitioners', 'Working hours', 'Hospital settings', 'Price list', 'Stock', 'Consent', 'Data requests', 'Privacy notices'] as const
+const NAV = ['Patients', 'Appointments', 'Schedules', 'Check-in', 'OPD queue', 'Approvals', 'Bills', 'Day end', 'Earnings', 'Branches', 'Members', 'Practitioners', 'Working hours', 'Hospital settings', 'Price list', 'Stock', 'Consent', 'Data requests', 'Privacy notices'] as const
 
 // RBAC (ADR 0001): the menu each role sees
 const EXPECTED: Record<string, readonly (typeof NAV)[number][]> = {
@@ -15,7 +15,8 @@ const EXPECTED: Record<string, readonly (typeof NAV)[number][]> = {
   receptionist: ['Patients', 'Appointments', 'Schedules', 'Check-in', 'OPD queue', 'Bills', 'Day end', 'Consent', 'Data requests'],
   nurse: ['Patients', 'Appointments', 'Schedules', 'Check-in', 'OPD queue'],
   doctor: ['Patients', 'Appointments', 'Schedules', 'OPD queue', 'Consent'],
-  billing: ['Patients', 'Appointments', 'Schedules', 'Bills', 'Day end'],
+  billing: ['Patients', 'Appointments', 'Schedules', 'Bills', 'Day end', 'Earnings'],
+  accountant: ['Schedules', 'Earnings'],
   pharmacist: ['Schedules', 'Stock'],
   lab_technician: ['Schedules'],
   viewer: ['Schedules'],
@@ -64,6 +65,7 @@ describe('RBAC route guard', () => {
     ['receptionist', '/admin/members'],
     ['nurse', '/admin/hospital'],
     ['viewer', '/stock'],
+    ['receptionist', '/billing/earnings'],
   ])('%s opening %s gets the friendly no-access page', async (role, path) => {
     stub([role], [...(ROLE_PERMISSIONS[role] ?? [])])
     renderWithProviders(<App />, { path, auth: fakeAuthClient({ session: fakeSession() }) })

@@ -17,6 +17,7 @@ public static class BillingEndpoints
 {
     public static RouteGroupBuilder MapBillingEndpoints(this RouteGroupBuilder api)
     {
+        api.MapEarningsEndpoints();
         var items = api.MapGroup("/service-items").WithTags("Billing").RequireTenant().WithDbTransaction<BillingDbContext>();
         items.MapGet("/", (string? q, bool? includeInactive, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
             Exec(db, tenant, HmsPermissions.BillingView,

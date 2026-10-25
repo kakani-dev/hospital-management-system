@@ -56,6 +56,7 @@ import type {
   BranchBillProfile,
   CashierSession,
   DayEndSession,
+  EarningsReport,
   PatientBillingSummary,
   PaymentLink,
   PublicBill,
@@ -290,6 +291,27 @@ export class ApiClient {
       signal?.addEventListener('abort', onAbort, { once: true })
       pending?.setKick(done)
     })
+  }
+
+  /** File download. Does not parse JSON. The server name comes from Content-Disposition. */
+  async download(path: string): Promise<{ blob: Blob; filename: string }> {
+    const headers = new Headers()
+    const token = await this.getAccessToken?.()
+    if (token) headers.set('Authorization', `Bearer ${token}`)
+    const response = await this.fetchImpl(`${this.baseUrl}${path}`, { method: 'GET', headers })
+    if (!response.ok) {
+      let problem: ProblemDetails | null = null
+      try {
+        problem = (await response.json()) as ProblemDetails
+      } catch {
+        problem = null
+      }
+      throw new ApiError(response.status, problem)
+    }
+    const blob = await response.blob()
+    const disposition = response.headers.get('Content-Disposition') ?? ''
+    const match = /filename="([^"]+)"/.exec(disposition)
+    return { blob, filename: match?.[1] ?? 'earnings.csv' }
   }
 
   private async attempt<T>(path: string, options: RequestOptions, method: string, isRead: boolean): Promise<T> {
@@ -665,6 +687,10 @@ export class ApiClient {
     decide: (id: string, body: { status: 'approved' | 'rejected'; note?: string }) =>
       this.request<BillDocument | Receipt>(`/api/v1/approvals/${encodeURIComponent(id)}/decide`, { method: 'POST', body: JSON.stringify(body) }),
     dayEnd: (branchId: string, date: string) => this.request<DayEndSession[]>(`/api/v1/billing-reports/day-end${qs({ branchId, date })}`),
+    earnings: (query: Record<string, string | undefined>) =>
+      this.request<EarningsReport>(`/api/v1/billing-reports/earnings${qs(query)}`),
+    earningsExport: (query: Record<string, string | undefined>) =>
+      this.download(`/api/v1/billing-reports/earnings/export${qs(query)}`),
     reconcile: (sessionId: string) =>
       this.request<{ id: string; status: string }>(`/api/v1/counter-sessions/${encodeURIComponent(sessionId)}/reconcile`, { method: 'POST' }),
     publicLink: (token: string) =>
