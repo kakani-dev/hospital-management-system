@@ -7,8 +7,9 @@
 # on the previous revision and deactivates the new one.
 #
 # Never updates the legacy App Service medicore-hms-api, and does not read it.
-# Never enables the outbox dispatcher (B1: Outbox__Dispatcher__Enabled stays off on
-# every container app). No database migration. No registry password.
+# Never changes the outbox dispatcher flags. The dispatcher may be on (approved 2026-10-25,
+# ADR-041), but when Outbox__Dispatcher__Enabled is true, Outbox__Dispatcher__DryRun must be
+# set explicitly to true or false, otherwise the rollout refuses (B1). No database migration. No registry password.
 #
 # ca-hms-identity, and only that app, receives SMTP_PASSWORD (secret smtp-password,
 # Smtp__Password=secretref:smtp-password) and SUPABASE_SERVICE_ROLE_KEY (secret
@@ -161,21 +162,40 @@ cleanup() {
 }
 
 # The retired web app is not consulted. Each container app carries its own flag.
+# Reads one dispatcher env value from a container app.
+outbox_env() {
+  az containerapp show -g "$RG" -n "$1" \
+    --query "properties.template.containers[0].env[?name=='$2'].value | [0]" -o tsv
+}
+
+# B1: the dispatcher may be on, but never in an ambiguous state.
+check_outbox_flags() {
+  local app="$1" enabled="$2" dry
+  case "$enabled" in
+    ""|None|false|False|FALSE|0) return 0 ;;
+    true|True|TRUE|1) ;;
+    *) die "B1: $app Outbox__Dispatcher__Enabled has unexpected value '$enabled'. Refusing to deploy." ;;
+  esac
+  if ! dry="$(outbox_env "$app" Outbox__Dispatcher__DryRun)"; then
+    die "B1 guard could not read $app Outbox__Dispatcher__DryRun. No container was updated."
+  fi
+  case "$dry" in
+    true|True|TRUE|1|false|False|FALSE|0) ;;
+    *) die "B1: $app dispatcher is enabled but Outbox__Dispatcher__DryRun is '$dry' (must be true or false). Refusing to deploy." ;;
+  esac
+}
+
+# The retired web app is not consulted. Each container app carries its own flag.
 b1_aca() {
   local service app value
   for service in identity patients scheduling billing inventory edge; do
     app="ca-hms-$service"
-    if ! value="$(az containerapp show -g "$RG" -n "$app" \
-        --query "properties.template.containers[0].env[?name=='Outbox__Dispatcher__Enabled'].value | [0]" -o tsv)"; then
+    if ! value="$(outbox_env "$app" Outbox__Dispatcher__Enabled)"; then
       die "B1 guard could not read $app Outbox__Dispatcher__Enabled. No container was updated."
     fi
-    case "$value" in
-      true|True|TRUE|1)
-        die "B1: $app Outbox__Dispatcher__Enabled must stay false. Refusing to deploy."
-        ;;
-    esac
+    check_outbox_flags "$app" "$value"
   done
-  echo "B1: outbox dispatcher is off on every container app"
+  echo "B1: outbox dispatcher flags are consistent on every container app"
 }
 
 preflight_app() {
@@ -185,13 +205,8 @@ preflight_app() {
   if [[ -z "$identity" || "$identity" == "None" ]]; then
     die "$app cannot pull from $ACR_LOGIN_SERVER with a managed identity. Run scripts/azure-oidc-setup.sh first."
   fi
-  outbox="$(az containerapp show -g "$RG" -n "$app" \
-    --query "properties.template.containers[0].env[?name=='Outbox__Dispatcher__Enabled'].value | [0]" -o tsv)"
-  case "$outbox" in
-    true|True|TRUE|1)
-      die "B1: $app Outbox__Dispatcher__Enabled must stay false."
-      ;;
-  esac
+  outbox="$(outbox_env "$app" Outbox__Dispatcher__Enabled)"
+  check_outbox_flags "$app" "$outbox"
   if ! az acr repository show -n "$ACR_NAME" --image "hms-${service}:${IMAGE_TAG}" -o none; then
     die "image hms-${service}:${IMAGE_TAG} is not in $ACR_NAME"
   fi

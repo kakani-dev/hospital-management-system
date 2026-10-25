@@ -466,6 +466,10 @@ if [[ "$all" == *"registries"* ]]; then
   echo system
   exit 0
 fi
+if [[ "$all" == *"Outbox__Dispatcher__DryRun"* ]]; then
+  if [[ -n "${APP_OUTBOX_TRUE:-}" ]]; then echo false; else echo ""; fi
+  exit 0
+fi
 if [[ "$all" == *"Outbox__Dispatcher__Enabled"* ]]; then
   if [[ -n "${APP_OUTBOX_TRUE:-}" || -n "${B1_FORCE:-}" ]]; then echo true; else echo false; fi
   exit 0
@@ -676,7 +680,7 @@ echo "rollout smoke rollback ok"
 
 SMTP_PASSWORD='smtp-test-value' SUPABASE_SERVICE_ROLE_KEY='role-test-value' \
   B1_FORCE=1 run_rollout fail identity
-grep -q 'containerapp update' "$ROLLOUT_LOG" && fail "B1 failure still updated a container app" || true
+grep -q 'containerapp update' "$ROLLOUT_LOG" && fail "enabled dispatcher without DryRun still updated a container app" || true
 unset B1_FORCE
 echo "rollout B1 guard ok"
 
@@ -686,8 +690,8 @@ grep -q 'containerapp update' "$ROLLOUT_LOG" && fail "missing registry still upd
 unset NO_REGISTRY
 
 SMTP_PASSWORD='smtp-test-value' SUPABASE_SERVICE_ROLE_KEY='role-test-value' \
-  APP_OUTBOX_TRUE=1 run_rollout fail identity
-grep -q 'containerapp update' "$ROLLOUT_LOG" && fail "enabled dispatcher still updated a container app" || true
+  APP_OUTBOX_TRUE=1 run_rollout pass identity
+grep 'containerapp update' "$ROLLOUT_LOG" | grep -q 'Outbox__Dispatcher' && fail "rollout changed the dispatcher flags" || true
 unset APP_OUTBOX_TRUE
 echo "rollout preflight guards ok"
 
