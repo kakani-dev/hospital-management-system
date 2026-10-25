@@ -31,10 +31,17 @@ A consultation bill is raised automatically at check-in. On the bill:
    - **Apply advance** appears when the patient has an advance on account.
 5. Press **Close bill** to finalize. **View receipt** opens the receipt. **New bill** starts another.
 
+![A finalized bill](img/billing_paid_bill.png)
+
 ### Refunds and credit notes
 1. Open the finalized bill. In **Refund**, pick the receipt, enter **Refund rupees**, press **Refund**.
 2. HMS shows "Refund R… Credit note CN…". A credit note is created automatically when needed.
 3. If it needs a second person you see "This refund needs someone else to approve it." An admin approves it in **Approvals**.
+
+![Refund box on a paid bill](img/billing_refund_box.png)
+![Refund above the limit waits for approval](img/billing_refund_result.png)
+![Admin sees it under Approvals](img/admin_approvals_pending.png)
+![Credit notes are exported from Earnings → Accounts](img/accountant_ca_tab.png)
 
 ### Day end
 **Day end**: pick the **Business date**. Each counter shows its status, **Float**, **Expected** cash, and once closed, **Counted** and **Variance**. An admin presses **Reconcile** on a closed counter.
