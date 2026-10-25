@@ -18,7 +18,7 @@ functions below, never through its tables or views.
 Every function is `SECURITY DEFINER`, `set search_path = ''` and does an **explicit tenant check**
 (definer code bypasses RLS): when a signed-in user is behind the call (`auth.uid()` set) the tenant
 must be one of `identity.current_tenant_ids()`, otherwise P0002 (404-not-403) or an empty result.
-Callers without a user (`service_role` jobs, triggers) skip the membership check. `anon` can call none of these `_v1` functions. The billing service's anonymous receipt and webhook (`billing.public_link`, `billing.apply_webhook`) are separate entry points, not cross-service contracts.
+Callers without a user (`service_role` jobs, triggers) skip the membership check. `anon` can call none of these `_v1` functions. The billing service's anonymous receipt (`billing.public_link`) is a separate entry point, not a cross-service contract. `billing.apply_webhook` is granted to `hms_svc_billing` only; the HTTP webhook checks the HMAC before it calls that function.
 
 | Function | Owner | Used by | Added in |
 |---|---|---|---|

@@ -1,4 +1,5 @@
 using Hms.Platform.Auth;
+using Hms.Platform.Health;
 using Hms.Platform.Persistence;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -22,6 +23,8 @@ public static class EmailDeliverySetup
         services.Configure<SupabaseAuthOptions>(configuration.GetSection(SupabaseAuthOptions.Section));
         services.AddSingleton<IEmailSender, SmtpEmailSender>();
         services.AddSingleton<IEmailOutbox, PostgresEmailOutbox>();
+        services.AddSingleton<EmailDispatcherHealth>();
+        services.AddHealthChecks().AddCheck<EmailDispatcherHealthCheck>("email-dispatcher", tags: [HealthCheckSetup.ReadyTag]);
         services.AddSingleton<IInviteSignInStore, InviteSignInStore>();
         services.AddHttpClient<IPasswordlessSessionIssuer, GoTruePasswordlessSessionIssuer>()
             .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });

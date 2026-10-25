@@ -704,7 +704,7 @@ export class MockBackend {
           providerOrderId: order,
           channel,
           path: `/api/v1/billing-public/links/${order}`,
-          upiUri: `upi://pay?pa=stub@medicore&pn=MediCore&am=${(bill.duePaise / 100).toFixed(2)}&tr=${order}&cu=INR`,
+          upiUri: `upi://pay?pa=sandbox@medicore&pn=MediCore%20Sandbox&am=${(bill.duePaise / 100).toFixed(2)}&tr=${order}&cu=INR`,
           shareStatus: channel === 'whatsapp' || channel === 'sms' ? 'queued' : undefined,
         },
       }

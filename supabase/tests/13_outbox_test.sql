@@ -6,8 +6,14 @@ begin;
 select tests.ok(
   (select not rolcanlogin and not rolinherit and not rolbypassrls and not rolsuper from pg_roles where rolname = 'hms_dispatcher'),
   'hms_dispatcher is NOLOGIN NOINHERIT, no BYPASSRLS');
-select tests.ok(pg_has_role('hms_svc_scheduling', 'hms_dispatcher', 'MEMBER') and not pg_has_role('hms_api', 'hms_dispatcher', 'MEMBER'),
-  'only the scheduling service role may SET ROLE hms_dispatcher (B1; migration 20261011090100)');
+select tests.ok(
+  pg_has_role('hms_svc_scheduling', 'hms_dispatcher', 'MEMBER')
+  and pg_has_role('hms_svc_identity', 'hms_dispatcher', 'MEMBER')
+  and pg_has_role('hms_svc_patients', 'hms_dispatcher', 'MEMBER')
+  and pg_has_role('hms_svc_billing', 'hms_dispatcher', 'MEMBER')
+  and not pg_has_role('hms_svc_inventory', 'hms_dispatcher', 'MEMBER')
+  and not pg_has_role('hms_api', 'hms_dispatcher', 'MEMBER'),
+  'owning services may SET ROLE hms_dispatcher; inventory and hms_api may not');
 select tests.ok(
   (select relrowsecurity from pg_class where oid = 'messaging.outbox'::regclass)
   and not has_table_privilege('authenticated', 'messaging.outbox', 'SELECT')
@@ -80,13 +86,10 @@ select tests.throws_ok($$select * from messaging.claim_outbox('w1', 10, interval
 create temporary table c1 on commit drop as select * from messaging.claim_outbox('w1', 2);
 select tests.ok(
   (select count(*) = 2 and bool_and(status = 'processing' and claimed_by = 'w1' and attempts = 1 and claimed_until > now()) from c1)
-  and (select array_agg(event_type order by id) from c1) = array['appointment.booked', 'appointment.rescheduled'],
-  'claim returns the oldest rows first, leased to the worker, attempts incremented');
-create temporary table c2 on commit drop as select * from messaging.claim_outbox('w2', 50);
-select tests.ok(
-  (select count(*) = 2 and not exists (select 1 from c1 where c1.id in (select id from c2)) from c2),
-  'a second worker does not get rows under an active lease');
-select tests.ok((select count(*) from messaging.claim_outbox('w3', 50)) = 0, 'nothing left to claim');
+  and (select array_agg(event_type order by id) from c1) = array['appointment.booked', 'queue.token_issued'],
+  'claim returns one head per aggregate, oldest first, leased to the worker');
+select tests.ok((select count(*) from messaging.claim_outbox('w2', 50)) = 0,
+  'a later event on the same aggregate waits, and a leased head is not taken');
 
 select tests.throws_ok(format($$select messaging.complete_outbox(%s, 'w2')$$, (select min(id) from c1)),
   'P0002', 'completing a row leased to another worker -> P0002');
@@ -94,45 +97,59 @@ select messaging.complete_outbox((select min(id) from c1), 'w1');
 select tests.throws_ok(format($$select messaging.complete_outbox(%s, 'w1')$$, (select min(id) from c1)),
   'P0002', 'completing twice -> P0002');
 select messaging.fail_outbox((select max(id) from c1), 'w1', 'smtp timeout', interval '5 minutes');
-select tests.ok((select count(*) from messaging.claim_outbox('w3', 50)) = 0,
+reset role;
+select tests.ok(
+  (select status = 'pending' and available_at > now() and claimed_by is null
+     from messaging.outbox where id = (select max(id) from c1)),
   'a failed row is not re-claimable before its retry time');
-select messaging.fail_outbox((select min(id) from c2), 'w2', 'transient', interval '0');
+set local role hms_dispatcher;
+
 create temporary table c3 on commit drop as select * from messaging.claim_outbox('w3', 50);
-select tests.ok((select count(*) = 1 and min(id) = (select min(id) from c2) and min(attempts) = 2 from c3),
+select tests.ok(
+  (select count(*) = 1 and min(event_type) = 'appointment.rescheduled' and min(attempts) = 1 from c3),
+  'the next event on the aggregate is claimed only after the head is done');
+select messaging.fail_outbox((select min(id) from c3), 'w3', 'transient', interval '0');
+create temporary table c3b on commit drop as select * from messaging.claim_outbox('w3b', 50);
+select tests.ok((select count(*) = 1 and min(id) = (select min(id) from c3) and min(attempts) = 2 from c3b),
   'a failed row with retry 0 is re-claimed (attempts 2)');
 
 reset role;
 select tests.ok(
-  (select status = 'done' and processed_at is not null from messaging.outbox where id = (select min(id) from c1))
+  (select status = 'done' and processed_at is not null and processed_on is not null
+     from messaging.outbox where id = (select min(id) from c1))
   and (select status = 'pending' and last_error = 'smtp timeout' and available_at > now() and claimed_by is null
        from messaging.outbox where id = (select max(id) from c1)),
-  'complete -> done; fail -> pending with last_error and a future available_at');
+  'complete -> done with processed_on; fail -> pending with last_error and a future available_at');
 
 -- lease expiry: a crashed worker's rows are re-claimed by someone else
-update messaging.outbox set claimed_until = now() - interval '1 second' where id = (select max(id) from c2);
+update messaging.outbox set claimed_until = now() - interval '1 second' where id = (select min(id) from c3);
 set local role hms_dispatcher;
 create temporary table c4 on commit drop as select * from messaging.claim_outbox('w4', 50);
-select tests.ok((select count(*) = 1 and min(id) = (select max(id) from c2) and min(attempts) = 2 from c4),
+select tests.ok((select count(*) = 1 and min(id) = (select min(id) from c3) and min(attempts) = 3 from c4),
   'an expired lease is re-claimed by another worker (at-least-once)');
-select tests.throws_ok(format($$select messaging.complete_outbox(%s, 'w2')$$, (select max(id) from c2)),
+select tests.throws_ok(format($$select messaging.complete_outbox(%s, 'w3')$$, (select min(id) from c3)),
   'P0002', 'the original worker can no longer complete a row it lost');
 reset role;
 
 -- dead-lettering after 10 attempts
-update messaging.outbox set attempts = 10 where id = (select max(id) from c2);
+update messaging.outbox set attempts = 10 where id = (select min(id) from c3);
 set local role hms_dispatcher;
-select messaging.fail_outbox((select max(id) from c2), 'w4', 'permanent');
+select messaging.fail_outbox((select min(id) from c3), 'w4', 'permanent');
 reset role;
-select tests.ok((select status = 'dead' from messaging.outbox where id = (select max(id) from c2)),
+select tests.ok(
+  (select status = 'dead' and processed_on is not null from messaging.outbox where id = (select min(id) from c3)),
   'fail on the 10th attempt -> dead');
-update messaging.outbox set attempts = 10, claimed_until = now() - interval '1 second' where id = (select min(id) from c2);
+update messaging.outbox
+   set status = 'processing', attempts = 10, claimed_by = 'w-dead', claimed_until = now() - interval '1 second'
+ where event_type = 'appointment.cancelled' and status = 'pending';
 set local role hms_dispatcher;
 select tests.ok(
-  not exists (select 1 from messaging.claim_outbox('w5', 50) c where c.id = (select min(id) from c2)),
+  not exists (select 1 from messaging.claim_outbox('w5', 50) c where c.event_type = 'appointment.cancelled'),
   'an expired lease that used all attempts is not re-claimed');
 reset role;
 select tests.ok(
-  (select status = 'dead' and last_error is not null from messaging.outbox where id = (select min(id) from c2)),
+  (select status = 'dead' and last_error is not null and processed_on is not null
+     from messaging.outbox where event_type = 'appointment.cancelled'),
   '... it is marked dead instead');
 
 select tests.throws_ok(

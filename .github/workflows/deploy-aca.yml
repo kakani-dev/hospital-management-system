@@ -18,8 +18,9 @@
 # stays 1. Registry bindings are not changed: patients keeps its existing ACR identity,
 # scheduling keeps its system-assigned identity.
 #
-# Does not deploy the Vercel web app, does not modify medicore-hms-api, does not turn the
-# outbox dispatcher on, and does not run a database migration.
+# Does not deploy the Vercel web app. Does not modify medicore-hms-api and does not
+# read its settings. Refuses the deploy if any container app has the outbox dispatcher
+# on. Does not turn that dispatcher on, and does not run a database migration.
 # One-time Azure setup: scripts/azure-oidc-setup.sh and docs/deploy.md.
 name: Deploy to Azure Container Apps
 

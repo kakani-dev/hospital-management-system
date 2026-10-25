@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using Hms.Modules.Billing.Payments;
 using Npgsql;
 using static Hms.IntegrationTests.HmsApiFactory;
 
@@ -106,29 +107,47 @@ public sealed class BillingApiTests(HmsApiFactory factory) : IClassFixture<HmsAp
         Assert.Equal(HttpStatusCode.OK, receipt.StatusCode);
         Assert.Equal(50000, (await Read(receipt)).GetProperty("duePaise").GetInt64());
 
-        var body = JsonSerializer.Serialize(new { eventId = Guid.NewGuid().ToString("N"), providerOrderId = order, status = "paid", amountPaise = 50000 });
+        Assert.Contains("sandbox", link.Body.GetProperty("upiUri").GetString(), StringComparison.OrdinalIgnoreCase);
+        var eventId = Guid.NewGuid().ToString("N");
+        var body = JsonSerializer.Serialize(new { eventId, providerOrderId = order, status = "paid", amountPaise = 50000, tenantId = Guid.NewGuid() });
         using var missing = new HttpRequestMessage(HttpMethod.Post, "/api/v1/billing-public/webhooks/stub")
         {
             Content = new StringContent(body, Encoding.UTF8, "application/json"),
         };
         Assert.Equal(HttpStatusCode.Unauthorized, (await anon.SendAsync(missing)).StatusCode);
 
-        using var hook = new HttpRequestMessage(HttpMethod.Post, "/api/v1/billing-public/webhooks/stub")
+        using var shared = Signed("/api/v1/billing-public/webhooks/stub", body, DateTimeOffset.UtcNow);
+        shared.Headers.Remove(WebhookSignature.HeaderName);
+        shared.Headers.TryAddWithoutValidation("X-Billing-Webhook-Secret", "local-billing-webhook");
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anon.SendAsync(shared)).StatusCode);
+
+        var flipped = WebhookSignature.Sign("local-billing-webhook", Encoding.UTF8.GetBytes(body), DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        flipped = flipped[..^1] + (flipped[^1] == 'a' ? "b" : "a");
+        using var bad = new HttpRequestMessage(HttpMethod.Post, "/api/v1/billing-public/webhooks/stub")
         {
             Content = new StringContent(body, Encoding.UTF8, "application/json"),
         };
-        hook.Headers.TryAddWithoutValidation("X-Billing-Webhook-Secret", "local-billing-webhook");
+        bad.Headers.TryAddWithoutValidation(WebhookSignature.HeaderName, flipped);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anon.SendAsync(bad)).StatusCode);
+
+        using var stale = Signed("/api/v1/billing-public/webhooks/stub", body, DateTimeOffset.UtcNow.AddMinutes(-10));
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anon.SendAsync(stale)).StatusCode);
+
+        var shortBody = JsonSerializer.Serialize(new { eventId, providerOrderId = order, status = "paid", amountPaise = 1 });
+        using var partial = Signed("/api/v1/billing-public/webhooks/stub", shortBody, DateTimeOffset.UtcNow);
+        Assert.Equal(HttpStatusCode.BadRequest, (await anon.SendAsync(partial)).StatusCode);
+
+        using var hook = Signed("/api/v1/billing-public/webhooks/stub", body, DateTimeOffset.UtcNow);
         var applied = await Read(await anon.SendAsync(hook));
         Assert.False(applied.GetProperty("duplicate").GetBoolean());
         Assert.True(applied.GetProperty("applied").GetBoolean());
 
-        using var replay = new HttpRequestMessage(HttpMethod.Post, "/api/v1/billing-public/webhooks/stub")
-        {
-            Content = new StringContent(body, Encoding.UTF8, "application/json"),
-        };
-        replay.Headers.TryAddWithoutValidation("X-Billing-Webhook-Secret", "local-billing-webhook");
+        using var replay = Signed("/api/v1/billing-public/webhooks/stub", body, DateTimeOffset.UtcNow);
         Assert.True((await Read(await anon.SendAsync(replay))).GetProperty("duplicate").GetBoolean());
         Assert.Equal(0, (await Get(admin, $"/api/v1/bills/{billId}")).Body.GetProperty("duePaise").GetInt64());
+
+        using var live = Signed("/api/v1/billing-public/webhooks/razorpay", body, DateTimeOffset.UtcNow);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anon.SendAsync(live)).StatusCode);
     }
 
     [Fact]
@@ -310,6 +329,19 @@ public sealed class BillingApiTests(HmsApiFactory factory) : IClassFixture<HmsAp
         request.Headers.TryAddWithoutValidation("Idempotency-Key", key.ToString());
         var response = await client.SendAsync(request);
         return (response.StatusCode, await Read(response));
+    }
+
+    private static HttpRequestMessage Signed(string path, string body, DateTimeOffset stamped)
+    {
+        var bytes = Encoding.UTF8.GetBytes(body);
+        var request = new HttpRequestMessage(HttpMethod.Post, path)
+        {
+            Content = new StringContent(body, Encoding.UTF8, "application/json"),
+        };
+        request.Headers.TryAddWithoutValidation(
+            WebhookSignature.HeaderName,
+            WebhookSignature.Sign("local-billing-webhook", bytes, stamped.ToUnixTimeSeconds()));
+        return request;
     }
 
     private static async Task<JsonElement> Read(HttpResponseMessage response)
