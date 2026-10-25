@@ -86,6 +86,8 @@ on conflict (tenant_id) do nothing;
 -- --------------------------------------------------------------------- money ----
 -- Intra-state (or an unknown state) splits the tax in half; an odd paise goes to CGST.
 -- Different supplier and place-of-supply states put the whole tax on IGST.
+-- A missing place of supply, or a missing supplier state, is intra-state: CGST and SGST, never IGST.
+-- Odd paise on a line go to CGST. A multi-line bill sums those line splits and does not split the total again.
 create or replace function billing.tax_split(p_tax bigint, p_rate integer, p_supplier text, p_pos text)
 returns jsonb
 language sql
@@ -605,8 +607,74 @@ begin
 end;
 $$;
 
+-- Quantity already reversed by finalized credit notes. A second note cannot credit it again.
+create or replace function billing.line_credited_qty(p_line_id uuid)
+returns numeric
+language sql
+stable
+set search_path = ''
+as $$
+  select coalesce(sum(-l.quantity), 0)
+  from billing.bill_line l
+  join billing.bill cn on cn.id = l.bill_id
+  where l.reverses_line_id = p_line_id
+    and not l.is_deleted and not cn.is_deleted
+    and cn.bill_kind = 'credit_note' and cn.status = 'finalized'
+$$;
+
+create or replace function billing.create_credit_note(p_tenant_id uuid, p_bill_id uuid, p_body jsonb)
+returns jsonb
+language plpgsql
+set search_path = ''
+as $$
+declare
+  v_src billing.bill%rowtype;
+  v_note uuid;
+  v_line jsonb;
+  v_src_line billing.bill_line%rowtype;
+  v_qty numeric;
+  v_left numeric;
+  v_n int := 0;
+begin
+  perform billing.assert_permission(p_tenant_id, 'billing.bill');
+  select * into v_src from billing.bill
+  where id = p_bill_id and tenant_id = p_tenant_id and not is_deleted and status = 'finalized' and bill_kind <> 'credit_note'
+  for update;
+  if v_src.id is null then
+    raise exception 'finalized bill not found' using errcode = 'P0002';
+  end if;
+  insert into billing.bill (tenant_id, account_id, bill_kind, reverses_bill_id, payer_type)
+  values (p_tenant_id, v_src.account_id, 'credit_note', v_src.id, v_src.payer_type)
+  returning id into v_note;
+  for v_line in select * from jsonb_array_elements(coalesce(p_body -> 'lines', '[]'::jsonb))
+  loop
+    v_qty := (v_line ->> 'quantity')::numeric;
+    select * into v_src_line from billing.bill_line
+    where id = (v_line ->> 'lineId')::uuid and bill_id = p_bill_id and not is_deleted;
+    v_left := case when v_src_line.id is null then 0
+      else v_src_line.quantity - billing.line_credited_qty(v_src_line.id) end;
+    if v_src_line.id is null or v_qty is null or v_qty <= 0 or v_qty > v_left then
+      raise exception 'credit quantity exceeds the amount not already credited' using errcode = '22023';
+    end if;
+    v_n := v_n + 1;
+    insert into billing.bill_line (
+      tenant_id, bill_id, line_no, service_item_id, price_list_item_id, practitioner_id,
+      quantity, unit_price_paise, tax_rate_bp, reverses_line_id)
+    values (
+      p_tenant_id, v_note, v_n, v_src_line.service_item_id, v_src_line.price_list_item_id,
+      v_src_line.practitioner_id, -v_qty, v_src_line.unit_price_paise, v_src_line.tax_rate_bp, v_src_line.id);
+  end loop;
+  if v_n = 0 then
+    raise exception 'a credit note needs a line' using errcode = '22023';
+  end if;
+  return billing.finalize_bill(p_tenant_id, v_note);
+end;
+$$;
+
 -- A refund both reverses the allocation and issues a credit note, so due does not go negative
 -- and the patient is not billed again. A paid draft is finalized first so the note can cite it.
+-- Clearing every allocation on a draft credits the whole bill (a partial payment on a cancel
+-- must not leave the unpaid part due). A later note only credits quantity not already reversed.
 create or replace function billing.credit_note_for_refund(p_tenant_id uuid, p_payment_id uuid, p_amount bigint)
 returns uuid
 language plpgsql
@@ -619,8 +687,10 @@ declare
   v_line record;
   v_body jsonb := '[]'::jsonb;
   v_qty numeric;
+  v_left numeric;
   v_note jsonb;
   v_allocated bigint;
+  v_full boolean := false;
 begin
   select al.bill_id into v_bill
   from billing.allocation al
@@ -649,6 +719,7 @@ begin
       return null;
     end if;
     perform billing.finalize_bill(p_tenant_id, v_bill);
+    v_full := true;
   end if;
   v_gross := billing.bill_gross(v_bill);
   if v_gross is null or v_gross <= 0 or p_amount is null or p_amount <= 0 then
@@ -660,7 +731,12 @@ begin
     where l.bill_id = v_bill and not l.is_deleted and l.quantity > 0
     order by l.line_no
   loop
-    v_qty := least(v_line.quantity, round(v_line.quantity * least(p_amount, v_gross)::numeric / v_gross, 4));
+    v_left := v_line.quantity - billing.line_credited_qty(v_line.id);
+    if v_full then
+      v_qty := v_left;
+    else
+      v_qty := least(v_left, round(v_line.quantity * least(p_amount, v_gross)::numeric / v_gross, 3));
+    end if;
     if v_qty > 0 then
       v_body := v_body || jsonb_build_array(jsonb_build_object('lineId', v_line.id, 'quantity', v_qty));
     end if;
@@ -702,9 +778,12 @@ begin
   end if;
   perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('billing.payment:' || p_payment_id::text, 0));
   select * into v_src from billing.payment
-  where id = p_payment_id and tenant_id = p_tenant_id and not is_deleted and kind <> 'refund';
+  where id = p_payment_id and tenant_id = p_tenant_id and not is_deleted;
   if v_src.id is null then
     raise exception 'payment not found' using errcode = 'P0002';
+  end if;
+  if v_src.kind = 'refund' then
+    raise exception 'a refund cannot be refunded' using errcode = '22023';
   end if;
   select coalesce(sum(amount_paise), 0) into v_refunded
   from billing.payment where refund_of_payment_id = p_payment_id and not is_deleted;
@@ -775,14 +854,28 @@ declare
   v_id uuid;
   v_digital boolean;
   v_payload jsonb;
+  v_left bigint;
 begin
   perform billing.assert_permission(p_tenant_id, 'billing.refund');
-  select * into v_src from billing.payment where id = p_payment_id and tenant_id = p_tenant_id and not is_deleted and kind <> 'refund';
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('billing.payment:' || p_payment_id::text, 0));
+  select * into v_src from billing.payment where id = p_payment_id and tenant_id = p_tenant_id and not is_deleted;
   if v_src.id is null then
     raise exception 'payment not found' using errcode = 'P0002';
   end if;
+  if v_src.kind = 'refund' then
+    raise exception 'a refund cannot be refunded' using errcode = '22023';
+  end if;
   if v_amount is null then
     v_amount := v_src.amount_paise;
+  end if;
+  v_left := v_src.amount_paise
+    - coalesce((select sum(r.amount_paise) from billing.payment r
+                where r.refund_of_payment_id = p_payment_id and not r.is_deleted), 0)
+    - coalesce((select sum(ar.amount_paise) from billing.approval_request ar
+                where ar.tenant_id = p_tenant_id and ar.action = 'refund' and ar.subject_id = p_payment_id
+                  and ar.status = 'pending' and not ar.is_deleted), 0);
+  if v_amount is null or v_amount <= 0 or v_amount > v_left then
+    raise exception 'refund exceeds the amount still refundable' using errcode = '22023';
   end if;
   v_percent := case when v_src.amount_paise > 0 then round(v_amount * 10000.0 / v_src.amount_paise)::integer else null end;
   if v_mode is null then
@@ -907,9 +1000,9 @@ begin
   if v_status not in ('approved', 'rejected') then
     raise exception 'status must be approved or rejected' using errcode = '22023';
   end if;
+  -- Pending means a second person was required. Another role, or a lower threshold, does not let the maker approve it.
   if v_status = 'approved'
-     and v_req.requested_by is not distinct from audit.session_actor_id()
-     and billing.needs_checker(p_tenant_id, v_req.amount_paise) then
+     and v_req.requested_by is not distinct from audit.session_actor_id() then
     raise exception 'You requested this, so someone else must approve it.' using errcode = '42501';
   end if;
   if v_status = 'approved' and not billing.within_limit(p_tenant_id, v_req.action, v_req.amount_paise, v_req.percent_bp) then
