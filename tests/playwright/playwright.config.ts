@@ -81,6 +81,8 @@ export default defineConfig({
         Auth__Supabase__AllowInsecureHttp: 'true',
         RateLimiting__PermitPerMinute: '10000',
         RateLimiting__WarmupPerMinute: '1000',
+        // Invite previews share this window with hospital signup. The suite plus a retry exceeds the default of 10/hour.
+        RateLimiting__PublicFormsPerHour: '10000',
         Serilog__MinimumLevel__Default: 'Warning',
       },
     },
