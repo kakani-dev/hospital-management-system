@@ -2,7 +2,7 @@
 begin;
 select tests.as_superuser();
 
-select tests.ok((select count(*) from identity.role_permissions where role = 'tenant_admin') = 33, 'tenant_admin holds all 33 tenant permissions (inventory adds four)');
+select tests.ok((select count(*) from identity.role_permissions where role = 'tenant_admin') = 39, 'tenant_admin holds all 39 tenant permissions (privacy adds six)');
 select tests.ok(not exists (select 1 from identity.role_permissions where role in ('viewer', 'lab_technician')
                             and permission not in ('settings.view', 'branches.view', 'practitioners.view')),
   'viewer / lab_technician are read-only and see no patient data');

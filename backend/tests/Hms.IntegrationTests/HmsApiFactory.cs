@@ -6,6 +6,7 @@ using Hms.Billing.Api;
 using Hms.Edge;
 using Hms.Identity.Api;
 using Hms.Inventory.Api;
+using Hms.Privacy.Api;
 using Hms.Patients.Api;
 using Hms.Platform.Auth;
 using Hms.Scheduling.Api;
@@ -22,7 +23,7 @@ namespace Hms.IntegrationTests;
 /// <summary>Which system the API tests drive (QA-MICROSERVICES-TEST-PLAN.md §1.2). Env HMS_SYSTEM_TARGET.</summary>
 public enum SystemTarget
 {
-    /// <summary>Default (CI): the YARP edge in front of identity / patients / scheduling / billing / inventory, all in-process.</summary>
+    /// <summary>Default (CI): the YARP edge in front of identity / patients / scheduling / billing / inventory / privacy, all in-process.</summary>
     Edge,
 
     /// <summary>A running edge (docker compose / deployed dev) at HMS_SYSTEM_BASE_URL; tokens from mock-auth.</summary>
@@ -240,6 +241,7 @@ public class HmsApiFactory : IDisposable
         private readonly ServiceSystem<SchedulingServiceMarker> _scheduling;
         private readonly ServiceSystem<BillingServiceMarker> _billing;
         private readonly ServiceSystem<InventoryServiceMarker> _inventory;
+        private readonly ServiceSystem<PrivacyServiceMarker> _privacy;
         private readonly UpstreamRouter _router;
 
         public EdgeSystem(HmsApiFactory owner)
@@ -251,6 +253,7 @@ public class HmsApiFactory : IDisposable
             _scheduling = new ServiceSystem<SchedulingServiceMarker>(owner, "scheduling");
             _billing = new ServiceSystem<BillingServiceMarker>(owner, "billing");
             _inventory = new ServiceSystem<InventoryServiceMarker>(owner, "inventory");
+            _privacy = new ServiceSystem<PrivacyServiceMarker>(owner, "privacy");
             _router = new UpstreamRouter(new Dictionary<string, Func<HttpMessageHandler>>(StringComparer.OrdinalIgnoreCase)
             {
                 ["identity.hms.test"] = () => _identity.Server.CreateHandler(),
@@ -258,6 +261,7 @@ public class HmsApiFactory : IDisposable
                 ["scheduling.hms.test"] = () => _scheduling.Server.CreateHandler(),
                 ["billing.hms.test"] = () => _billing.Server.CreateHandler(),
                 ["inventory.hms.test"] = () => _inventory.Server.CreateHandler(),
+                ["privacy.hms.test"] = () => _privacy.Server.CreateHandler(),
             });
         }
 
@@ -268,6 +272,7 @@ public class HmsApiFactory : IDisposable
             "scheduling" => _scheduling.CreateClient(),
             "billing" => _billing.CreateClient(),
             "inventory" => _inventory.CreateClient(),
+            "privacy" => _privacy.CreateClient(),
             _ => throw new ArgumentOutOfRangeException(nameof(service)),
         };
 
@@ -276,7 +281,7 @@ public class HmsApiFactory : IDisposable
             _owner.ConfigureCommon(builder, _jwks);
             builder.UseSetting("Edge:Key", EdgeKey);
             builder.UseSetting("RateLimiting:WarmupPerMinute", "100000");
-            foreach (var svc in new[] { "identity", "patients", "scheduling", "billing", "inventory" })
+            foreach (var svc in new[] { "identity", "patients", "scheduling", "billing", "inventory", "privacy" })
             {
                 builder.UseSetting($"ReverseProxy:Clusters:{svc}:Destinations:primary:Address", $"http://{svc}.hms.test/");
             }
@@ -299,6 +304,7 @@ public class HmsApiFactory : IDisposable
                 _scheduling.Dispose();
                 _billing.Dispose();
                 _inventory.Dispose();
+                _privacy.Dispose();
             }
         }
     }

@@ -18,6 +18,7 @@ import { WakingBanner } from "./components/layout/WakingBanner";
 import { RegisterHospitalPage } from "./features/onboarding/RegisterHospitalPage";
 import { InvitePage } from "./features/invitations/InvitePage";
 import { PublicPaymentPage } from "./features/billing/PublicPaymentPage";
+import { PublicConsentPage } from "./features/privacy/PublicConsentPage";
 import { RequirePlatformAdmin } from "./features/platform/RequirePlatformAdmin";
 
 // Scheduling and OPD screens are split into their own chunks: most sessions (billing, patient
@@ -82,6 +83,15 @@ const AdminDeskPage = lazy(() =>
 const StockPage = lazy(() =>
   import("./features/stock/StockPage").then((m) => ({ default: m.StockPage })),
 );
+const NoticesPage = lazy(() =>
+  import("./features/privacy/NoticesPage").then((m) => ({ default: m.NoticesPage })),
+);
+const RequestsPage = lazy(() =>
+  import("./features/privacy/RequestsPage").then((m) => ({ default: m.RequestsPage })),
+);
+const PatientPrivacyPage = lazy(() =>
+  import("./features/privacy/PatientPrivacyPage").then((m) => ({ default: m.PatientPrivacyPage })),
+);
 
 function Lazy({ children }: { children: ReactNode }) {
   return <Suspense fallback={<LoadingBlock className="p-6" label="Loading page" />}>{children}</Suspense>;
@@ -99,6 +109,7 @@ export function App() {
       <Route path="/register-hospital" element={<RegisterHospitalPage />} />
       <Route path="/invite/:token" element={<InvitePage />} />
       <Route path="/pay/:token" element={<PublicPaymentPage />} />
+      <Route path="/privacy/consent/:token" element={<PublicConsentPage />} />
       <Route element={<RequireAuth />}>
         <Route element={<AppShell />}>
           <Route index element={<DashboardPage />} />
@@ -167,6 +178,13 @@ export function App() {
           <Route element={<RequireCapability capability="stock.view" />}>
             <Route path="stock" element={<Lazy><StockPage /></Lazy>} />
           </Route>
+          <Route element={<RequireCapability capability="privacy.view" />}>
+            <Route path="privacy" element={<Lazy><PatientPrivacyPage /></Lazy>} />
+            <Route path="patients/:patientId/privacy" element={<Lazy><PatientPrivacyPage /></Lazy>} />
+          </Route>
+          <Route element={<RequireCapability capability="privacy.desk" />}>
+            <Route path="compliance/requests" element={<Lazy><RequestsPage /></Lazy>} />
+          </Route>
           <Route path="admin">
             <Route
               path="desk"
@@ -208,6 +226,16 @@ export function App() {
                 <RequireCapability capability="admin.settings">
                   <Lazy>
                     <HospitalSettingsPage />
+                  </Lazy>
+                </RequireCapability>
+              }
+            />
+            <Route
+              path="privacy-notices"
+              element={
+                <RequireCapability capability="privacy.notice">
+                  <Lazy>
+                    <NoticesPage />
                   </Lazy>
                 </RequireCapability>
               }

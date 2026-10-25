@@ -18,6 +18,9 @@
   <Folder Name="/modules/Patients/">
     <Project Path="modules/Patients/Hms.Modules.Patients/Hms.Modules.Patients.csproj" />
   </Folder>
+  <Folder Name="/modules/Privacy/">
+    <Project Path="modules/Privacy/Hms.Modules.Privacy/Hms.Modules.Privacy.csproj" />
+  </Folder>
   <Folder Name="/platform/">
     <Project Path="platform/Hms.Platform/Hms.Platform.csproj" />
   </Folder>
@@ -33,6 +36,9 @@
   </Folder>
   <Folder Name="/services/inventory/">
     <Project Path="services/inventory/Hms.Inventory.Api/Hms.Inventory.Api.csproj" />
+  </Folder>
+  <Folder Name="/services/privacy/">
+    <Project Path="services/privacy/Hms.Privacy.Api/Hms.Privacy.Api.csproj" />
   </Folder>
   <Folder Name="/services/scheduling/">
     <Project Path="services/scheduling/Hms.Scheduling.Api/Hms.Scheduling.Api.csproj" />

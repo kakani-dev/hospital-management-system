@@ -547,9 +547,9 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Prepare E2E database (migrations + synthetic seed)
         run: npm run e2e:db
-      - name: Build API (edge + identity / patients / scheduling / billing / inventory)
+      - name: Build API (edge + identity / patients / scheduling / billing / inventory / privacy)
         run: dotnet build backend/Hms.slnx
-      # Playwright starts scripts/dev/run-microservices.sh (edge on :8080, services on :8101-8105,
+      # Playwright starts scripts/dev/run-microservices.sh (edge on :8080, services on :8101-8106,
       # one login role each) and waits on the edge's /health/ready.
       - run: npm run e2e
         env:

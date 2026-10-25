@@ -19,6 +19,7 @@
     <ProjectReference Include="../../services/scheduling/Hms.Scheduling.Api/Hms.Scheduling.Api.csproj" />
     <ProjectReference Include="../../services/billing/Hms.Billing.Api/Hms.Billing.Api.csproj" />
     <ProjectReference Include="../../services/inventory/Hms.Inventory.Api/Hms.Inventory.Api.csproj" />
+    <ProjectReference Include="../../services/privacy/Hms.Privacy.Api/Hms.Privacy.Api.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />

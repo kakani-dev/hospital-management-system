@@ -1022,3 +1022,73 @@ export interface StockOnHandRow {
   baseUomCode: string
   expiryState: 'expired' | 'soon' | 'ok'
 }
+
+export interface PrivacyPurpose {
+  code: string
+  label: string
+  required: boolean
+  granted?: boolean
+}
+
+export interface PrivacyNotice {
+  noticeId: string
+  version: number
+  language: string
+  title: string
+  body: string
+  uri?: string | null
+  contentSha256: string
+  publishedAt?: string | null
+  purposes: PrivacyPurpose[]
+}
+
+export interface ConsentChoice {
+  purposeCode: string
+  granted: boolean
+}
+
+export interface ConsentCurrent {
+  purposeCode: string
+  label: string
+  granted: boolean
+  since: string
+  noticeVersion: number
+}
+
+export interface ConsentHistory {
+  purposeCode: string
+  action: string
+  occurredAt: string
+  noticeVersion: number
+  channel: string
+  givenBy: string
+  patientId: string
+}
+
+export interface ConsentList {
+  current: ConsentCurrent[]
+  history: ConsentHistory[]
+}
+
+export interface ConsentLink {
+  expiresAt: string
+  path: string
+}
+
+export interface RightsRequest {
+  id: string
+  code: string
+  patientId: string
+  type: string
+  details: string
+  channel: string
+  status: string
+  receivedAt: string
+  dueAt: string
+  daysRemaining: number
+  response?: string | null
+}
+
+export interface PublicConsent extends PrivacyNotice {
+  purposes: PrivacyPurpose[]
+}

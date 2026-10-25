@@ -45,6 +45,12 @@ export type Permission =
   | 'inventory.catalog'
   | 'inventory.opening'
   | 'inventory.approve'
+  | 'privacy.view'
+  | 'privacy.consent'
+  | 'privacy.notice'
+  | 'privacy.request'
+  | 'privacy.fulfil'
+  | 'privacy.erase'
 
 /** UI capabilities (kept stable for the screens) -> the server permissions that grant them (any of). */
 const CAPABILITIES = {
@@ -82,6 +88,13 @@ const CAPABILITIES = {
   'stock.edit': ['inventory.catalog'],
   'stock.open': ['inventory.opening'],
   'stock.approve': ['inventory.approve'],
+  'privacy.view': ['privacy.view'],
+  'privacy.consent': ['privacy.consent'],
+  'privacy.notice': ['privacy.notice'],
+  'privacy.request': ['privacy.request'],
+  'privacy.fulfil': ['privacy.fulfil'],
+  'privacy.erase': ['privacy.erase'],
+  'privacy.desk': ['privacy.request', 'privacy.fulfil', 'privacy.erase'],
 } as const satisfies Record<string, readonly Permission[]>
 
 export type Capability = keyof typeof CAPABILITIES
@@ -96,15 +109,17 @@ export const ROLE_PERMISSIONS: Record<string, readonly Permission[]> = {
     'appointments.override_hours', 'queue.view', 'queue.manage',
     'billing.view', 'billing.bill', 'billing.collect', 'billing.discount_request', 'billing.approve', 'billing.refund', 'billing.counter_reconcile', 'billing.pricelist_manage',
     'inventory.view', 'inventory.catalog', 'inventory.opening', 'inventory.approve',
+    'privacy.view', 'privacy.consent', 'privacy.notice', 'privacy.request', 'privacy.fulfil', 'privacy.erase',
   ],
   receptionist: [
     ...READ_ONLY_OPS, 'patients.view', 'patients.create', 'patients.edit', 'patients.delete',
     'appointments.view', 'appointments.book', 'appointments.reschedule', 'appointments.cancel', 'appointments.check_in', 'appointments.no_show',
     'queue.view', 'queue.manage',
     'billing.view', 'billing.bill', 'billing.collect', 'billing.discount_request',
+    'privacy.view', 'privacy.consent', 'privacy.request',
   ],
   nurse: [...READ_ONLY_OPS, 'patients.view', 'appointments.view', 'appointments.book', 'appointments.check_in', 'appointments.no_show', 'queue.view', 'queue.manage'],
-  doctor: [...READ_ONLY_OPS, 'patients.view', 'appointments.view', 'appointments.book_followup_own', 'appointments.no_show_own', 'queue.view', 'queue.consult_own'],
+  doctor: [...READ_ONLY_OPS, 'patients.view', 'appointments.view', 'appointments.book_followup_own', 'appointments.no_show_own', 'queue.view', 'queue.consult_own', 'privacy.view'],
   billing: [...READ_ONLY_OPS, 'patients.view', 'appointments.view', 'billing.view', 'billing.bill', 'billing.collect', 'billing.discount_request', 'billing.refund'],
   pharmacist: [...READ_ONLY_OPS, 'inventory.view'],
   lab_technician: READ_ONLY_OPS,
