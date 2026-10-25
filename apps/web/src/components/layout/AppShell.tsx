@@ -9,6 +9,7 @@ import {
   CalendarDaysIcon,
   CheckBadgeIcon,
   ClipboardDocumentCheckIcon,
+  DocumentTextIcon,
   ClockIcon,
   Cog6ToothIcon,
   CurrencyRupeeIcon,
@@ -116,7 +117,12 @@ export function AppShell() {
         ? []
         : [
             ...(has('billing.approve') ? [{ id: 'approvals', path: '/billing/approvals', title: 'Approvals', Icon: CheckBadgeIcon }] : []),
-            ...(has('billing.view') ? [{ id: 'day-end', path: '/billing/day-end', title: 'Day end', Icon: BanknotesIcon }] : []),
+            ...(has('billing.view')
+              ? [
+                  { id: 'bills', path: '/billing/bills', title: 'Bills', Icon: DocumentTextIcon },
+                  { id: 'day-end', path: '/billing/day-end', title: 'Day end', Icon: BanknotesIcon },
+                ]
+              : []),
           ],
     }
     const stock: NavGroup = {

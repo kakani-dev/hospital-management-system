@@ -59,17 +59,18 @@ insert into t_v1 values
   ('identity.tenant_mrn_prefix_v1(uuid)', false), ('identity.tenant_default_country_code_v1(uuid)', true),
   -- recent patients (20261020130000): latest booking per patient (client-facing, patients.view-checked)
   ('appointment.patient_last_booked_v1(uuid,integer)', true),
-  -- billing reads (20261023120100 / 20261023120200): service-only, no client execute
+  -- billing reads (20261023120100 / 20261023120200 / 20261025230000): service-only, no client execute
   ('identity.caller_roles_v1(uuid)', false),
   ('appointment.appointment_billing_ref_v1(uuid,uuid)', false),
+  ('identity.branch_bill_header_v1(uuid,uuid)', false),
   -- setup wizard (20261025200000): the caller's own step (client-facing, settings.manage-checked)
   ('identity.setup_state_v1()', true);
 grant select on t_v1 to public;
 select tests.ok(
-  (select count(*) = 18 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+  (select count(*) = 19 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
    where p.proname like '%\_v1' and n.nspname in ('identity', 'patient', 'appointment')
      and p.proname not in ('change_time_zone_v1', 'assert_zone_change_allowed_v1', 'advance_setup_v1')),
-  'N5: exactly the 18 published v1 read functions exist (plus the change_time_zone_v1 / assert_zone_change_allowed_v1 / advance_setup_v1 commands)');
+  'N5: exactly the 19 published v1 read functions exist (plus the change_time_zone_v1 / assert_zone_change_allowed_v1 / advance_setup_v1 commands)');
 select tests.ok(
   (select prosecdef and proconfig @> array['search_path=""'] and has_function_privilege('authenticated', oid, 'execute')
           and not has_function_privilege('anon', oid, 'execute')

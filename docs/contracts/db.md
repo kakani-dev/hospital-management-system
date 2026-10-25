@@ -39,6 +39,7 @@ Callers without a user (`service_role` jobs, triggers) skip the membership check
 | `appointment.patient_has_active_visits_v1(tenant, patient)` | scheduling | **deprecated alias** of `patient_has_open_visits_v1` | 20261012090000 |
 | `identity.caller_roles_v1(tenant) → text[]` | identity | billing (approval policy) | 20261023120100 |
 | `appointment.appointment_billing_ref_v1(tenant, appointment) → table` | scheduling | billing (draft at check-in) | 20261023120200 |
+| `identity.branch_bill_header_v1(tenant, branch) → table(name, address)` | identity | billing (invoice supplier block) | 20261025230000 |
 | `inventory.fefo_pick_v1(tenant, store, item, qty) → jsonb` | inventory | inventory (lookup only; no other service yet) | 20261023170000 |
 | `privacy.consent_allows_v1(tenant, patient, purpose) → bool` | privacy | privacy (messaging and CRM are not granted it yet) | 20261025220500 |
 | `privacy.note_patient_merge_v1(tenant, from, to)` | privacy | service_role only; patients merge does not call it yet | 20261025220500 |
