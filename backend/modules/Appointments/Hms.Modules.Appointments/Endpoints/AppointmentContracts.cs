@@ -5,15 +5,60 @@ namespace Hms.Modules.Appointments.Endpoints;
 
 // ---------------------------------------------------------------- practitioners
 /// <param name="IsDeleted">Only ever true for admins listing with includeDeleted (restore).</param>
-public sealed record PractitionerDto(Guid Id, Guid? UserId, string DisplayName, string? Specialty, bool IsActive, bool IsDeleted = false)
+public sealed record PractitionerDto(
+    Guid Id, Guid? UserId, string DisplayName, string? Specialty, bool IsActive, bool IsDeleted = false,
+    string? RegistrationNumber = null, string? CouncilName = null, string? Qualifications = null,
+    Guid? DepartmentId = null, string? Phone = null, string? Email = null)
 {
-    public static PractitionerDto From(Practitioner p) => new(p.Id, p.UserId, p.DisplayName, p.Specialty, p.IsActive, p.IsDeleted);
+    public static PractitionerDto From(Practitioner p) => new(
+        p.Id, p.UserId, p.DisplayName, p.Specialty, p.IsActive, p.IsDeleted,
+        p.RegistrationNumber, p.CouncilName, p.Qualifications, p.DepartmentId, p.Phone, p.Email);
 }
 
-public sealed record CreatePractitionerRequest(string? DisplayName, string? Specialty, Guid? UserId);
+public sealed record CreatePractitionerRequest(
+    string? DisplayName, string? Specialty, Guid? UserId, string? RegistrationNumber = null, string? CouncilName = null,
+    string? Qualifications = null, Guid? DepartmentId = null, string? Phone = null, string? Email = null);
 
-/// <summary>Absent/null = unchanged. Send specialty "" to clear it and unlinkUser = true to clear userId.</summary>
-public sealed record UpdatePractitionerRequest(string? DisplayName, string? Specialty, Guid? UserId, bool? IsActive, bool? UnlinkUser);
+/// <summary>Absent/null = unchanged. Send specialty "" to clear it and unlinkUser = true to clear userId. Registration, council, qualifications, phone and email use "" to clear. clearDepartment removes the department.</summary>
+public sealed record UpdatePractitionerRequest(
+    string? DisplayName, string? Specialty, Guid? UserId, bool? IsActive, bool? UnlinkUser,
+    string? RegistrationNumber = null, string? CouncilName = null, string? Qualifications = null,
+    Guid? DepartmentId = null, bool? ClearDepartment = null, string? Phone = null, string? Email = null);
+
+public sealed record DepartmentDto(Guid Id, string Name, bool IsActive)
+{
+    public static DepartmentDto From(Department d) => new(d.Id, d.Name, d.IsActive);
+}
+
+public sealed record CreateDepartmentRequest(string? Name);
+
+public sealed record UpdateDepartmentRequest(string? Name, bool? IsActive);
+
+public sealed record VisitTypeDto(
+    Guid Id, string Code, string Name, long DefaultFeePaise, int DurationMinutes, int? FollowUpValidDays, long? FollowUpFeePaise,
+    int SortOrder, bool IsActive, long EffectiveFeePaise, int EffectiveDurationMinutes, int? EffectiveFollowUpValidDays, long? EffectiveFollowUpFeePaise);
+
+public sealed record CreateVisitTypeRequest(
+    string? Code, string? Name, long? DefaultFeePaise, int? DurationMinutes, int? FollowUpValidDays, long? FollowUpFeePaise, int? SortOrder);
+
+/// <summary>Absent = unchanged. clearFollowUpWindow / clearFollowUpFee remove the entitlement or the reduced fee.</summary>
+public sealed record UpdateVisitTypeRequest(
+    string? Name, long? DefaultFeePaise, int? DurationMinutes, int? FollowUpValidDays, bool? ClearFollowUpWindow,
+    long? FollowUpFeePaise, bool? ClearFollowUpFee, bool? IsActive);
+
+public sealed record VisitTypeOverrideDto(
+    Guid Id, Guid VisitTypeId, Guid BranchId, long? FeePaise, int? DurationMinutes, int? FollowUpValidDays, long? FollowUpFeePaise)
+{
+    public static VisitTypeOverrideDto From(VisitTypeOverride o) =>
+        new(o.Id, o.VisitTypeId, o.BranchId, o.FeePaise, o.DurationMinutes, o.FollowUpValidDays, o.FollowUpFeePaise);
+}
+
+/// <summary>Null fee, duration or window means inherit the tenant visit type. One row per branch; posting again updates it.</summary>
+public sealed record UpsertVisitTypeOverrideRequest(
+    Guid BranchId, long? FeePaise, int? DurationMinutes, int? FollowUpValidDays, long? FollowUpFeePaise);
+
+public sealed record VisitSuggestionDto(
+    Guid? VisitTypeId, string? Code, string? Name, int? DurationMinutes, long? FeePaise, bool Suggested, Guid? PriorAppointmentId, string? Reason);
 
 // -------------------------------------------------------------------- schedules
 /// <summary>Times are branch-local wall-clock "HH:mm"; weekday is ISO (1 = Monday … 7 = Sunday).</summary>
@@ -76,12 +121,12 @@ public sealed record AppointmentDto(
     Guid Id, Guid BranchId, Guid PractitionerId, Guid PatientId, DateTimeOffset StartsAt, DateTimeOffset EndsAt, string Status,
     string? Reason, string? CancelReason, DateTimeOffset? CheckedInAt, DateTimeOffset? StartedAt, DateTimeOffset? CompletedAt,
     DateTimeOffset? CancelledAt, DateTimeOffset CreatedOn, DateTimeOffset UpdatedOn, PatientRefDto? Patient,
-    Guid? ParentAppointmentId = null, bool HoursOverride = false)
+    Guid? ParentAppointmentId = null, bool HoursOverride = false, Guid? VisitTypeId = null, long? ConsultationFeePaise = null)
 {
     public static AppointmentDto From(Appointment a, PatientRef? patient) => new(
         a.Id, a.BranchId, a.PractitionerId, a.PatientId, a.StartsAt.ToUniversalTime(), a.EndsAt.ToUniversalTime(), a.Status, a.Reason, a.CancelReason,
         a.CheckedInAt, a.StartedAt, a.CompletedAt, a.CancelledAt, a.CreatedOn, a.UpdatedOn, PatientRefDto.From(patient),
-        a.ParentAppointmentId, a.HoursOverride);
+        a.ParentAppointmentId, a.HoursOverride, a.VisitTypeId, a.ConsultationFeePaise);
 }
 
 /// <summary>Embedded patient; null when the caller cannot read the patient (RLS) or it is soft-deleted.</summary>
@@ -94,7 +139,7 @@ public sealed record PatientRefDto(Guid Id, string Mrn, string FirstName, string
 /// <param name="OverrideWorkingHours">Admins only: book outside the practitioner's working hours (audited).</param>
 public sealed record CreateAppointmentRequest(
     Guid BranchId, Guid PractitionerId, Guid PatientId, DateTimeOffset? StartsAt, DateTimeOffset? EndsAt, string? Reason,
-    Guid? ParentAppointmentId = null, bool? OverrideWorkingHours = null);
+    Guid? ParentAppointmentId = null, bool? OverrideWorkingHours = null, Guid? VisitTypeId = null);
 
 public sealed record RescheduleAppointmentRequest(
     DateTimeOffset? StartsAt, DateTimeOffset? EndsAt, Guid? PractitionerId, bool? OverrideWorkingHours = null, string? Reason = null);

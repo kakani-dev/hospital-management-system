@@ -67,14 +67,16 @@ insert into t_v1 values
   ('identity.earnings_branches_v1(uuid)', false),
   ('patient.party_label_v1(uuid,uuid)', false),
   ('appointment.practitioner_label_v1(uuid,uuid)', false),
+  ('appointment.practitioner_credential_v1(uuid,uuid)', false),
+  ('appointment.appointment_consultation_fee_v1(uuid,uuid)', false),
   -- setup wizard (20261025200000): the caller's own step (client-facing, settings.manage-checked)
   ('identity.setup_state_v1()', true);
 grant select on t_v1 to public;
 select tests.ok(
-  (select count(*) = 22 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+  (select count(*) = 24 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
    where p.proname like '%\_v1' and n.nspname in ('identity', 'patient', 'appointment')
      and p.proname not in ('change_time_zone_v1', 'assert_zone_change_allowed_v1', 'advance_setup_v1')),
-  'N5: exactly the 22 published v1 read functions exist (plus the change_time_zone_v1 / assert_zone_change_allowed_v1 / advance_setup_v1 commands)');
+  'N5: exactly the 24 published v1 read functions exist (plus the change_time_zone_v1 / assert_zone_change_allowed_v1 / advance_setup_v1 commands)');
 select tests.ok(
   (select prosecdef and proconfig @> array['search_path=""'] and has_function_privilege('authenticated', oid, 'execute')
           and not has_function_privilege('anon', oid, 'execute')

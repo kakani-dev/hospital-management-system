@@ -8,7 +8,8 @@ import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
 import { SelectField } from '../../components/ui/SelectField'
 import { FormField } from '../../components/ui/FormField'
-import { useCreateAppointment, useSchedules, useSlots, useSlotsInRange, useTenantCountryCode } from '../../lib/api/hooks'
+import { useBookingVisitTypes, useCreateAppointment, useSchedules, useSlots, useSlotsInRange, useTenantCountryCode, useVisitSuggestion } from '../../lib/api/hooks'
+import { formatPaise } from '../billing/money'
 import { ApiError, apiClient, fieldErrors, problemCode } from '../../lib/api/client'
 import { addDays, formatDayLabel, formatTime, zonedTimeToInstant } from '../../lib/dates'
 import type { Appointment, PatientSummary, Practitioner, Slot } from '../../lib/api/types'
@@ -81,6 +82,7 @@ export function BookingPanel({
   const [parentAppointmentId, setParentAppointmentId] = useState(initial?.parentAppointmentId)
   const [overrideHours, setOverrideHours] = useState(false)
   const [overrideTime, setOverrideTime] = useState('')
+  const [visitChoice, setVisitChoice] = useState<string | null>(null)
   // After a conflict the chosen slot is cleared and not put back; changing the doctor or the date arms it again.
   const [reselectSlot, setReselectSlot] = useState(!initial?.slot)
   const [error, setError] = useState<string | null>(null)
@@ -123,6 +125,16 @@ export function BookingPanel({
         })()
       : null
   const chosen = overrideHours ? overrideSlot : (selectedSlot ?? suggested)
+  const visitTypes = useBookingVisitTypes(branchId)
+  const types = visitTypes.data ?? []
+  const suggestion = useVisitSuggestion(types.length ? branchId : null, selectedPractitionerId, patient?.id ?? '', chosen?.startsAt ?? '')
+  const visitTypeId = visitChoice ?? suggestion.data?.visitTypeId ?? ''
+  const selectedType = types.find((t) => t.id === visitTypeId)
+  const visitFee = selectedType && suggestion.data?.visitTypeId === selectedType.id && suggestion.data.feePaise != null
+    ? suggestion.data.feePaise
+    : selectedType?.effectiveFeePaise
+  const bookedEnds = (startsAt: string, fallback: string) =>
+    selectedType ? new Date(Date.parse(startsAt) + selectedType.effectiveDurationMinutes * 60_000).toISOString() : fallback
   const missing = [
     !selectedPractitionerId && 'a practitioner',
     !chosen && (overrideHours ? 'a time' : 'a free slot'),
@@ -149,7 +161,7 @@ export function BookingPanel({
       patientId: patient.id,
       patient: { id: patient.id, mrn: patient.mrn, firstName: patient.firstName, lastName: patient.lastName },
       startsAt: slot.startsAt,
-      endsAt: slot.endsAt,
+      endsAt: bookedEnds(slot.startsAt, slot.endsAt),
       status: 'booked',
       reason: reason.trim() || null,
       ...(parentAppointmentId ? { parentAppointmentId } : {}),
@@ -173,7 +185,8 @@ export function BookingPanel({
         practitionerId: selectedPractitionerId,
         patientId: patient.id,
         startsAt: slot.startsAt,
-        endsAt: slot.endsAt,
+        endsAt: bookedEnds(slot.startsAt, slot.endsAt),
+        ...(selectedType ? { visitTypeId: selectedType.id } : {}),
         ...(reason.trim() ? { reason: reason.trim() } : {}),
         ...(parentAppointmentId ? { parentAppointmentId } : {}),
         ...(overrideHours ? { overrideWorkingHours: true } : {}),
@@ -197,6 +210,8 @@ export function BookingPanel({
       const code = problemCode(e)
       const status = e instanceof ApiError ? e.status : 0
       const detail = e instanceof ApiError ? (e.problem?.detail ?? '') : ''
+      const fields = fieldErrors(e)
+      if (fields.visitTypeId) void qc.invalidateQueries({ queryKey: ['visit-types'] })
       setError(
         detail.includes('outside_working_hours')
           ? canOverrideHours
@@ -212,7 +227,9 @@ export function BookingPanel({
               ? parentAppointmentId
                 ? 'Doctors can only book a follow-up of an earlier visit, at a branch they can access.'
                 : 'You are not allowed to book appointments at this branch.'
-              : (Object.values(fieldErrors(e))[0] ?? 'Could not book the appointment. Try again.'),
+              : fields.visitTypeId
+                ? 'That visit type is no longer available. Pick another.'
+              : (Object.values(fields)[0] ?? 'Could not book the appointment. Try again.'),
       )
     }
   }
@@ -236,6 +253,7 @@ export function BookingPanel({
             setPractitionerId(e.target.value)
             setSlot(null)
             setReselectSlot(true)
+            setVisitChoice(null)
           }}
         >
           <option value="">
@@ -248,6 +266,26 @@ export function BookingPanel({
             </option>
           ))}
         </SelectField>
+        {types.length > 0 && (
+          <SelectField
+            label="Visit type"
+            value={visitTypeId}
+            onChange={(e) => setVisitChoice(e.target.value)}
+          >
+            <option value="">Select a visit type…</option>
+            {types.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name} ({t.effectiveDurationMinutes} min)
+              </option>
+            ))}
+          </SelectField>
+        )}
+        {selectedType && visitFee != null && (
+          <p data-testid="visit-fee" className="text-sm text-gray-600 dark:text-dark-200">
+            Consultation fee {formatPaise(visitFee)}
+            {suggestion.data?.suggested && suggestion.data.visitTypeId === selectedType.id ? `. ${suggestion.data.reason}` : ''}
+          </p>
+        )}
         {practitionersStatus === 'error' && <Alert tone="error">Practitioners could not be loaded. Close and try again.</Alert>}
         {noPractitioners && (
           <div data-testid="no-practitioners">

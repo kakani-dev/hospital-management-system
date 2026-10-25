@@ -47,6 +47,9 @@ const PractitionersPage = lazy(() =>
 const WorkingHoursPage = lazy(() =>
   import("./features/admin/WorkingHoursPage").then((m) => ({ default: m.WorkingHoursPage })),
 );
+const VisitTypesPage = lazy(() =>
+  import("./features/admin/VisitTypesPage").then((m) => ({ default: m.VisitTypesPage })),
+);
 const HospitalSettingsPage = lazy(() =>
   import("./features/admin/HospitalSettingsPage").then((m) => ({ default: m.HospitalSettingsPage })),
 );
@@ -241,6 +244,16 @@ export function App() {
                 <RequireCapability capability="admin.practitioners">
                   <Lazy>
                     <WorkingHoursPage />
+                  </Lazy>
+                </RequireCapability>
+              }
+            />
+            <Route
+              path="visit-types"
+              element={
+                <RequireCapability capability="admin.practitioners">
+                  <Lazy>
+                    <VisitTypesPage />
                   </Lazy>
                 </RequireCapability>
               }

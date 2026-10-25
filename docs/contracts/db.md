@@ -43,6 +43,8 @@ Callers without a user (`service_role` jobs, triggers) skip the membership check
 | `identity.earnings_branches_v1(tenant) → table(branch_id, name, is_deleted)` | identity | billing (earnings, including deleted branches) | 20261025250000 |
 | `patient.party_label_v1(tenant, patient) → text` | patients | billing (earnings party name, including deleted) | 20261025250100 |
 | `appointment.practitioner_label_v1(tenant, practitioner) → text` | scheduling | billing (earnings doctor name, including deleted) | 20261025250200 |
+| `appointment.practitioner_credential_v1(tenant, practitioner) → table` | scheduling | billing (later prescriptions and bills) | 20261025280000 |
+| `appointment.appointment_consultation_fee_v1(tenant, appointment) → table` | scheduling | billing (check-in consult line) | 20261025280000 |
 | `inventory.fefo_pick_v1(tenant, store, item, qty) → jsonb` | inventory | inventory (lookup only; no other service yet) | 20261023170000 |
 | `privacy.consent_allows_v1(tenant, patient, purpose) → bool` | privacy | privacy (messaging and CRM are not granted it yet) | 20261025220500 |
 | `privacy.note_patient_merge_v1(tenant, from, to)` | privacy | service_role only; patients merge does not call it yet | 20261025220500 |
@@ -62,6 +64,7 @@ Details:
   `authenticated` and `service_role`.
 - `caller_roles_v1` returns the caller's distinct live membership roles in the tenant (empty with no session). Billing maps `tenant_admin` onto the manager approval row; it does not read `identity.memberships`.
 - `appointment_billing_ref_v1` returns `patient_id, branch_id, practitioner_id, status` for one appointment. No names. Empty when the appointment is missing. A caller with a session must belong to the tenant (otherwise P0002).
+- `practitioner_credential_v1` returns `registration_number, council_name, qualifications, specialty, department_name, phone, email` for one practitioner. Empty when missing. Registration is a format check, not a live NMC lookup. `appointment_consultation_fee_v1` returns `visit_type_id, visit_type_code, consultation_fee_paise` snapshotted at booking. A soft-deleted visit type leaves the code null and still returns the fee. On check-in, `billing.ensure_draft` copies a non-null fee (including 0) onto the CONSULT line of the draft bill. A null snapshot keeps the price-catalog CONSULT price. `billing.add_line` does not accept a client price. Both functions are `service_role` and `hms_svc_billing` only.
 - Canonical names are the ones in this file (CTO decision 6). `patient_has_active_visits_v1` (the
   audit-tz name) delegates to `patient_has_open_visits_v1` and is dropped by a later contract migration.
 - Grants (re-review R6): `my_tenant_grant_v1`, `patient_summary_v1` and the two zone reads are executable by

@@ -31,5 +31,5 @@ public static class AppointmentsModule
     /// and my-day are mapped only by the scheduling service (<c>MapPractitionerBranchEndpoints</c>).
     /// </summary>
     public static RouteGroupBuilder MapAppointmentsModule(this RouteGroupBuilder api) =>
-        api.MapPractitionerScheduleEndpoints().MapAppointmentEndpoints().MapQueueEndpoints();
+        api.MapPractitionerScheduleEndpoints().MapClinicalMasterEndpoints().MapAppointmentEndpoints().MapQueueEndpoints();
 }

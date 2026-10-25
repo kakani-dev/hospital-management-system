@@ -17,6 +17,9 @@ public sealed class AppointmentsDbContext(DbContextOptions<AppointmentsDbContext
     public const string Schema = "appointment";
 
     public DbSet<Practitioner> Practitioners => Set<Practitioner>();
+    public DbSet<Department> Departments => Set<Department>();
+    public DbSet<VisitType> VisitTypes => Set<VisitType>();
+    public DbSet<VisitTypeOverride> VisitTypeOverrides => Set<VisitTypeOverride>();
     public DbSet<PractitionerBranch> PractitionerBranches => Set<PractitionerBranch>();
     public DbSet<Schedule> Schedules => Set<Schedule>();
     public DbSet<ScheduleOverride> ScheduleOverrides => Set<ScheduleOverride>();
@@ -34,6 +37,25 @@ public sealed class AppointmentsDbContext(DbContextOptions<AppointmentsDbContext
         {
             e.ToTable("practitioners");
             // soft-deleted practitioners are gone for the API (restore goes through the SQL function)
+            e.HasQueryFilter(x => x.TenantId == CurrentTenantId && !x.IsDeleted);
+        });
+
+        modelBuilder.Entity<Department>(e =>
+        {
+            e.ToTable("departments");
+            e.HasQueryFilter(x => x.TenantId == CurrentTenantId && !x.IsDeleted);
+        });
+
+        modelBuilder.Entity<VisitType>(e =>
+        {
+            e.ToTable("visit_types");
+            e.HasQueryFilter(x => x.TenantId == CurrentTenantId && !x.IsDeleted);
+            ReadOnlyAfterInsert(e.Property(x => x.Code));
+        });
+
+        modelBuilder.Entity<VisitTypeOverride>(e =>
+        {
+            e.ToTable("visit_type_overrides");
             e.HasQueryFilter(x => x.TenantId == CurrentTenantId && !x.IsDeleted);
         });
 
@@ -74,6 +96,11 @@ public sealed class AppointmentsDbContext(DbContextOptions<AppointmentsDbContext
             ReadOnlyAfterInsert(e.Property(x => x.PatientId));
             ReadOnlyAfterInsert(e.Property(x => x.BranchId));
             ReadOnlyAfterInsert(e.Property(x => x.ParentAppointmentId));
+            // Visit type and the fee snapshot are fixed at booking (insert grant only).
+            ReadOnlyAfterInsert(e.Property(x => x.VisitTypeId));
+            ReadOnlyAfterInsert(e.Property(x => x.ConsultationFeePaise));
+            ReadOnlyAfterInsert(e.Property(x => x.GrantedFollowUpDays));
+            ReadOnlyAfterInsert(e.Property(x => x.GrantedFollowUpFeePaise));
             // lifecycle timestamps: owned by appointment.enforce_appointment_transition()
             DbOwned(e.Property(x => x.CheckedInAt));
             DbOwned(e.Property(x => x.StartedAt));

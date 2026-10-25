@@ -77,6 +77,18 @@ insert into appointment.practitioners (id, tenant_id, user_id, display_name, spe
   ('c1111111-0000-4000-8000-000000000002', '11111111-1111-4111-8111-111111111111', null,                                   'Dr. Alpha General (synthetic)',       'General Medicine'),
   ('c2222222-0000-4000-8000-000000000001', '22222222-2222-4222-8222-222222222222', '0b000000-0000-4000-8000-000000000002', 'Dr. Beta Doctor (synthetic)',         'Family Medicine');
 
+insert into appointment.departments (id, tenant_id, name) values
+  ('f1111111-0000-4000-8000-000000000001', '11111111-1111-4111-8111-111111111111', 'General medicine'),
+  ('f1111111-0000-4000-8000-000000000002', '11111111-1111-4111-8111-111111111111', 'Cardiology');
+update appointment.practitioners set
+  registration_number = 'NMC/1000001',
+  council_name = 'National Medical Commission (synthetic)',
+  qualifications = 'MBBS (synthetic)',
+  department_id = 'f1111111-0000-4000-8000-000000000001',
+  phone = '+919800000201',
+  email = 'general@doctors.example'
+where id = 'c1111111-0000-4000-8000-000000000002';
+
 insert into appointment.practitioner_branches (tenant_id, practitioner_id, branch_id) values
   ('11111111-1111-4111-8111-111111111111', 'c1111111-0000-4000-8000-000000000001', 'a1111111-0000-4000-8000-000000000002'),
   ('11111111-1111-4111-8111-111111111111', 'c1111111-0000-4000-8000-000000000002', 'a1111111-0000-4000-8000-000000000001'),
@@ -114,3 +126,8 @@ update appointment.appointments set status = 'cancelled'
  where id in ('e1111111-0000-4000-8000-000000000010', 'e2222222-0000-4000-8000-000000000002');
 delete from messaging.outbox
  where aggregate_id in ('e1111111-0000-4000-8000-000000000010', 'e2222222-0000-4000-8000-000000000002');
+
+-- Migrations run before this seed, so Alpha and Beta do not exist when
+-- 20261025280000 calls ensure_default_visit_types. Idempotent: a tenant that
+-- already has the five codes is left unchanged.
+select appointment.ensure_default_visit_types(id) from identity.tenants;

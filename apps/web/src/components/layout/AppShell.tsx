@@ -152,6 +152,7 @@ export function AppShell() {
           ? [
               { id: 'practitioners', path: '/admin/practitioners', title: 'Practitioners', Icon: IdentificationIcon },
               { id: 'working-hours', path: '/admin/working-hours', title: 'Working hours', Icon: CalendarIcon },
+              { id: 'visit-types', path: '/admin/visit-types', title: 'Visit types', Icon: ClockIcon },
             ]
           : []),
         ...(has('admin.settings') ? [{ id: 'hospital', path: '/admin/hospital', title: 'Hospital settings', Icon: Cog6ToothIcon }] : []),

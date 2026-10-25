@@ -462,6 +462,8 @@ export class MockBackend {
 
   /** true = pre-v2 API: no embedded patient summary, `/practitioners?branchId=` → 400. */
   legacyApi = false
+  /** true = visit-type master is on. Off by default so older booking bodies stay unchanged. */
+  visitTypes = false
   /** Per-branch IANA zone overrides (default BRANCH_TZ). */
   readonly branchTimeZones = new Map<string, string>()
   branchZone(branchId: string) {
@@ -1560,6 +1562,20 @@ export class MockBackend {
         link.status = 'revoked'
         return reply(204, undefined, tenant)
       }
+    }
+    if (this.visitTypes && path.startsWith('/api/v1/visit-types')) {
+      const followUp = { id: 'v1000000-0000-4000-8000-000000000002', code: 'follow_up', name: 'Follow-up', defaultFeePaise: 20000, durationMinutes: 30, followUpValidDays: null, followUpFeePaise: 0, sortOrder: 2, isActive: true, effectiveFeePaise: 20000, effectiveDurationMinutes: 30, effectiveFollowUpValidDays: null, effectiveFollowUpFeePaise: 0 }
+      const fresh = { id: 'v1000000-0000-4000-8000-000000000001', code: 'new_consult', name: 'New consult', defaultFeePaise: 50000, durationMinutes: 30, followUpValidDays: 7, followUpFeePaise: 0, sortOrder: 1, isActive: true, effectiveFeePaise: 50000, effectiveDurationMinutes: 30, effectiveFollowUpValidDays: 7, effectiveFollowUpFeePaise: 0 }
+      if (method === 'GET' && path === '/api/v1/visit-types/suggestion') {
+        const practitionerId = url.searchParams.get('practitionerId')
+        const patientId = url.searchParams.get('patientId')
+        const startsAt = url.searchParams.get('startsAt') ?? ''
+        const prior = this.appointments.find((a) => a.practitionerId === practitionerId && a.patientId === patientId && a.startsAt < startsAt && ['booked', 'checked_in', 'in_consultation', 'completed'].includes(a.status))
+        return prior
+          ? reply(200, { visitTypeId: followUp.id, code: followUp.code, name: followUp.name, durationMinutes: 30, feePaise: 0, suggested: true, priorAppointmentId: prior.id, reason: 'Saw this doctor within 7 days, so Follow-up is suggested.' }, tenant)
+          : reply(200, { visitTypeId: fresh.id, code: fresh.code, name: fresh.name, durationMinutes: 30, feePaise: 50000, suggested: false, priorAppointmentId: null, reason: null }, tenant)
+      }
+      if (method === 'GET' && path === '/api/v1/visit-types') return reply(200, [fresh, followUp], tenant)
     }
     return reply(404, { title: 'Not found', status: 404 }, tenant)
   }

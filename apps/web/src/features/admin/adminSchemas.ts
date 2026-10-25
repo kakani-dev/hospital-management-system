@@ -82,6 +82,12 @@ export const practitionerSchema = z.object({
   specialty: z.string().trim().max(200, { error: 'Max 200 characters' }),
   /** '' = not linked to a staff account. */
   userId: z.union([z.literal(''), z.guid()]),
+  registrationNumber: z.string().trim().max(30, { error: 'Max 30 characters' }),
+  councilName: z.string().trim().max(120, { error: 'Max 120 characters' }),
+  qualifications: z.string().trim().max(200, { error: 'Max 200 characters' }),
+  departmentId: z.string(),
+  phone: z.string().trim().max(20, { error: 'Max 20 characters' }),
+  email: z.string().trim().max(254, { error: 'Max 254 characters' }),
 })
 export type PractitionerValues = z.infer<typeof practitionerSchema>
 

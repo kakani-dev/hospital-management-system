@@ -335,6 +335,36 @@ describe('AppointmentCalendarPage', () => {
     expect(screen.getAllByText('No matching appointments').length).toBeGreaterThan(0)
   })
 
+  it('a stale visit type is rejected and the list is reloaded', async () => {
+    const d = today()
+    const typeId = 'v1000000-0000-4000-8000-000000000001'
+    const type = {
+      id: typeId, code: 'new_consult', name: 'New consult', defaultFeePaise: 50000, durationMinutes: 30,
+      followUpValidDays: 7, followUpFeePaise: 0, sortOrder: 1, isActive: true,
+      effectiveFeePaise: 50000, effectiveDurationMinutes: 30, effectiveFollowUpValidDays: 7, effectiveFollowUpFeePaise: 0,
+    }
+    const calls = routes(['receptionist'], {
+      'GET /api/v1/slots': () => json([{ practitionerId: DR_RAO, branchId: ALPHA_MAIN, startsAt: at(d, '23:00'), endsAt: at(d, '23:15') }]),
+      'POST /api/v1/patients/search': () => json({ items: [patientDetail], page: 1, pageSize: 25, totalCount: 1 }),
+      'GET /api/v1/visit-types': () => json([type]),
+      'GET /api/v1/visit-types/suggestion': () => json({ visitTypeId: typeId, code: 'new_consult', name: 'New consult', durationMinutes: 30, feePaise: 50000, suggested: false, priorAppointmentId: null, reason: null }),
+      'POST /api/v1/appointments': () => json({ title: 'Validation', status: 400, errors: { visitTypeId: ['Visit type was not found.'] } }, 400),
+    }, ALPHA_MAIN)
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: '/appointments', auth: fakeAuthClient({ session: fakeSession() }) })
+    await user.click(await screen.findByRole('button', { name: 'Book appointment' }))
+    const form = screen.getByRole('form', { name: 'Book appointment' })
+    await user.selectOptions(within(form).getByLabelText('Practitioner'), DR_RAO)
+    await user.click(await within(form).findByRole('radio', { name: '23:00' }))
+    await user.type(within(form).getByLabelText('Find patient'), 'Asha')
+    await user.click(await within(form).findByRole('option', { name: /Synthetic-Alpha/ }))
+    await waitFor(() => expect(within(form).getByLabelText('Visit type')).toHaveValue(typeId))
+    const listed = calls.filter((c) => c.path === '/api/v1/visit-types').length
+    await user.click(within(form).getByRole('button', { name: 'Confirm booking' }))
+    expect(await within(form).findByRole('alert')).toHaveTextContent('That visit type is no longer available')
+    await waitFor(() => expect(calls.filter((c) => c.path === '/api/v1/visit-types').length).toBeGreaterThan(listed))
+  })
+
   it('blocks roles outside REG_READ', async () => {
     routes(['pharmacist'])
     renderWithProviders(<App />, { path: '/appointments', auth: fakeAuthClient({ session: fakeSession() }) })
