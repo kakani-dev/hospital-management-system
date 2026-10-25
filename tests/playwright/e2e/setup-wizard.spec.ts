@@ -34,6 +34,7 @@ async function signInTo(page: Page, email: string, heading: string) {
 }
 
 test('a new hospital finishes setup and books its first appointment', async ({ page, browser, request }) => {
+  test.setTimeout(90_000)
   const contact = await createSyntheticUser('wizard')
   const name = `Synthetic ${unique('Wiz')}`.slice(0, 40)
   const code = unique('wiz').toLowerCase()

@@ -1,4 +1,4 @@
-# Deploy identity, patients, scheduling, billing, inventory, and the YARP edge to Azure Container Apps.
+# Deploy identity, patients, scheduling, billing, inventory, privacy, and the YARP edge to Azure Container Apps.
 #
 # Push to main runs CI first. This workflow starts only after that CI run succeeds, builds
 # the images whose paths changed, pushes sha-<full 40-character commit sha> to ACR, shifts traffic, and smoke-tests
@@ -32,7 +32,7 @@ on:
   workflow_dispatch:
     inputs:
       service:
-        description: "Emergency only. One of identity, patients, scheduling, billing, inventory, edge. Blank builds changed services plus any app whose running image is not this commit. A service the live edge does not list yet must be rolled with the edge."
+        description: "Emergency only. One of identity, patients, scheduling, billing, inventory, privacy, edge. Blank builds changed services plus any app whose running image is not this commit. A service the live edge does not list yet must be rolled with the edge."
         required: false
         default: ""
       tag:

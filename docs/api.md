@@ -114,6 +114,16 @@ Permission: `billing.pricelist_manage` (tenant admin). Amounts are integer paise
 | POST | `/api/v1/service-items` | Create or update. On create the server calls `billing.allocate_service_code` and returns `{id, code}` (for example `PROC-0001`). A client `code` is **400** `invalid_parameter` (`Service codes are assigned by the server and cannot be supplied.`), on create and on update. The stored code is immutable. Codes already saved, including `CONSULT`, are left as they are. Omit `taxCodeId` to use the category default; send one to override SAC/GST. |
 | POST | `/api/v1/price-lists/import` | `{dryRun, rows}`. A `code` on a row is ignored, including a leftover CSV column. Rows match an existing service by name (case-insensitive) and category, and a new service is created when nothing matches. A code is allocated only when the row is applied. `dryRun` defaults to true and does not take a number. SAC may be omitted and then follows the category. |
 
+## Privacy (DPDP)
+
+The privacy service owns `/api/v1/privacy`. Writes return 200 with the JSON the SQL function produced. Notice versions and `DPR-YYYY-00001` numbers are allocated in the database. A client `code`, `version`, `id`, or `tenantId` is **400** `invalid_parameter` (`Codes are generated automatically; leave this field empty.`). The tenant comes from the validated token.
+
+`POST /api/v1/privacy/patients/{id}/consents` and the other commands that allocate or change state take an `Idempotency-Key` UUID. The same key and body replay. A different body is **400**.
+
+The anonymous link is `GET` and `POST /api/v1/privacy/public/consents/{token}` (no name, no MRN, rate limited). A used or expired token is **410** `link_expired`. A body that names `tenantId` or `patientId` is **400**.
+
+Privacy-only failures use SQLSTATE `P0001` and a `code|detail` message: `guardian_required`, `notice_not_current`, and `identity_not_verified` are **422**; `no_published_notice` is **404**; `not_granted`, `published_immutable`, `second_approver_required`, and `invalid_state` are **409**.
+
 ## Errors
 
 Errors use RFC 7807 problem details with an optional machine-readable `code`:

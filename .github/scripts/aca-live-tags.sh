@@ -27,7 +27,7 @@ tag_of() {
   printf '%s' "$tag"
 }
 
-for service in identity patients scheduling billing inventory edge; do
+for service in identity patients scheduling billing inventory privacy edge; do
   app="ca-hms-$service"
   rev="$(az containerapp ingress traffic show -g "$RG" -n "$app" -o json | python3 -c '
 import json, sys

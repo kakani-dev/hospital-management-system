@@ -19,7 +19,7 @@ DATABASE_URL=postgresql://postgres:postgres@localhost:5432/postgres npm run sql:
 ```
 
 - `supabase/scripts/local-supabase-shim.sql` creates the `anon`, `authenticated`, `service_role` and `supabase_auth_admin` roles, plus `auth.users`, `auth.uid()` and `auth.jwt()`, **only when they don't already exist**. Never run it against a hosted Supabase project.
-- `supabase/scripts/local-api-login-role.sql` creates the local login roles (**local/CI throwaway databases only**): `hms_identity_login`, `hms_patients_login`, `hms_scheduling_login`, `hms_billing_login`, `hms_inventory_login` (passwords `hms_<svc>_local_only`, members of `hms_svc_<svc>`), and `hms_api_login` (password `hms_api_local_only`, member of `hms_api`, still used by the App Service). On a hosted project, create the login roles out-of-band with generated passwords (`docs/runbooks/monolith-cutover.md`). Inventory's hosted password is the ACA secret `hms-db` on `ca-hms-inventory` (`docs/deploy.md`).
+- `supabase/scripts/local-api-login-role.sql` creates the local login roles (**local/CI throwaway databases only**): `hms_identity_login`, `hms_patients_login`, `hms_scheduling_login`, `hms_billing_login`, `hms_inventory_login`, `hms_privacy_login` (passwords `hms_<svc>_local_only`, members of `hms_svc_<svc>`), and `hms_api_login` (password `hms_api_local_only`, member of `hms_api`, still used by the App Service). On a hosted project, create the login roles out-of-band with generated passwords (`docs/runbooks/monolith-cutover.md`). Inventory's hosted password is the ACA secret `hms-db` on `ca-hms-inventory` (`docs/deploy.md`). Create the hosted privacy app once, before merge, as in [the privacy container app runbook](runbooks/privacy-container-app.md).
 - `SKIP_SQL_TESTS=1 TEST_DB=hms_e2e bash supabase/scripts/run-sql-tests.sh` (or `npm run e2e:db`) prepares a database without running the SQL tests.
 - On a real Supabase project, apply `supabase/migrations` with `supabase db push`, or let the Supabase GitHub integration do it. Expose the `identity` and `patient` schemas in API settings only if PostgREST access is wanted. The migrations themselves contain no `auth` stand-ins; Supabase already provides `auth.users`, `auth.uid()`, `auth.jwt()` and the roles.
 - Seeding a hosted project (synthetic data only): run `supabase/scripts/hosted-auth-users.sql` first (it creates the 7 demo users with the extra columns GoTrue needs, **without passwords**, so nobody can sign in as them), then `supabase/seed.sql`.
@@ -111,7 +111,7 @@ Without Docker:
 HMS_MS_DB="Host=localhost;Port=5432;Database=hms" \
 ASPNETCORE_ENVIRONMENT=Development \
 Auth__Supabase__ProjectUrl=http://localhost:54321 Auth__Supabase__AllowInsecureHttp=true \
-  bash scripts/dev/run-microservices.sh      # edge :8080 (API_PORT), services :8101-8105
+  bash scripts/dev/run-microservices.sh      # edge :8080 (API_PORT), services :8101-8106
 curl localhost:8080/health/ready             # 200 once identity, patients, scheduling, billing, and inventory are ready
 ```
 

@@ -3,6 +3,7 @@ using Hms.Billing.Api;
 using Hms.Identity.Api;
 using Hms.Inventory.Api;
 using Hms.Patients.Api;
+using Hms.Privacy.Api;
 using Hms.Scheduling.Api;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -24,6 +25,7 @@ public sealed class EdgeRouteCoverageTests
         ["Hms.Modules.Appointments"] = "scheduling",
         ["Hms.Modules.Billing"] = "billing",
         ["Hms.Modules.Inventory"] = "inventory",
+        ["Hms.Modules.Privacy"] = "privacy",
     };
 
     [Fact]
@@ -34,6 +36,7 @@ public sealed class EdgeRouteCoverageTests
             .Concat(Prefixes<SchedulingServiceMarker>())
             .Concat(Prefixes<BillingServiceMarker>())
             .Concat(Prefixes<InventoryServiceMarker>())
+            .Concat(Prefixes<PrivacyServiceMarker>())
             .Distinct()
             .ToList();
         Assert.NotEmpty(served);

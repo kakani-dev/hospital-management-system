@@ -11,6 +11,7 @@ functions below, never through its tables or views.
 | `appointment` | scheduling | `hms_scheduling_login` | `hms_svc_scheduling` |
 | `billing` | billing | `hms_billing_login` | `hms_svc_billing` |
 | `inventory` | inventory | `hms_inventory_login` | `hms_svc_inventory` |
+| `privacy` | privacy | `hms_privacy_login` | `hms_svc_privacy` |
 | `messaging` | shared (outbox) | – | `hms_dispatcher` (scheduling only) |
 
 ## Published functions (v1)
@@ -18,7 +19,7 @@ functions below, never through its tables or views.
 Every function is `SECURITY DEFINER`, `set search_path = ''` and does an **explicit tenant check**
 (definer code bypasses RLS): when a signed-in user is behind the call (`auth.uid()` set) the tenant
 must be one of `identity.current_tenant_ids()`, otherwise P0002 (404-not-403) or an empty result.
-Callers without a user (`service_role` jobs, triggers) skip the membership check. `anon` can call none of these `_v1` functions. The billing service's anonymous receipt (`billing.public_link`) is a separate entry point, not a cross-service contract. `billing.apply_webhook` is granted to `hms_svc_billing` only; the HTTP webhook checks the HMAC before it calls that function.
+Callers without a user (`service_role` jobs, triggers) skip the membership check. `anon` can call none of these `_v1` functions. The billing service's anonymous receipt (`billing.public_link`) is a separate entry point, not a cross-service contract. `billing.apply_webhook` is granted to `hms_svc_billing` only; the HTTP webhook checks the HMAC before it calls that function. The privacy service's consent link (`privacy.public_consent_preview`, `privacy.submit_public_consent`) is the same kind of separate entry point.
 
 | Function | Owner | Used by | Added in |
 |---|---|---|---|
@@ -39,6 +40,8 @@ Callers without a user (`service_role` jobs, triggers) skip the membership check
 | `identity.caller_roles_v1(tenant) → text[]` | identity | billing (approval policy) | 20261023120100 |
 | `appointment.appointment_billing_ref_v1(tenant, appointment) → table` | scheduling | billing (draft at check-in) | 20261023120200 |
 | `inventory.fefo_pick_v1(tenant, store, item, qty) → jsonb` | inventory | inventory (lookup only; no other service yet) | 20261023170000 |
+| `privacy.consent_allows_v1(tenant, patient, purpose) → bool` | privacy | privacy (messaging and CRM are not granted it yet) | 20261025220500 |
+| `privacy.note_patient_merge_v1(tenant, from, to)` | privacy | service_role only; patients merge does not call it yet | 20261025220500 |
 
 Details:
 
@@ -68,7 +71,7 @@ adds a cross-schema reference must carry the header line `-- cross-schema: appro
 
 ## Roles
 
-- `hms_svc_identity`, `hms_svc_patients`, `hms_svc_scheduling`, `hms_svc_billing`, `hms_svc_inventory` (migrations 20261013090100,
+- `hms_svc_identity`, `hms_svc_patients`, `hms_svc_scheduling`, `hms_svc_billing`, `hms_svc_inventory`, `hms_svc_privacy` (migrations 20261013090100,
   20261022140000, 20261023120000 and 20261023170000): `NOLOGIN NOINHERIT`. Each is a member of `anon` (public routes) and **not** of
   `authenticated`. Migration 20261022140000 copies `authenticated`'s table, column, sequence and
   function privileges onto the owning role for that schema only, adds the role to that schema's RLS
@@ -76,6 +79,7 @@ adds a cross-schema reference must carry the header line `-- cross-schema: appro
   `my_tenant_grant_v1`, `my_active_context`, `auth.uid()`, and the `_v1` contracts the service calls).
   Billing's grants are in 20261023120500, including `my_tenant_grant_v1` and `my_active_context` for tenant resolution.
   Inventory's grants are in 20261023170000. `inventory.fefo_pick_v1` is executable by `hms_svc_inventory` and `service_role` only. It looks up batches and does not change stock. Other services are not granted it yet.
+  Privacy's grants are in 20261025220500. `privacy.consent_allows_v1` is executable by `hms_svc_privacy` and `service_role` only. `privacy.note_patient_merge_v1` is `service_role` only. `anon` may execute only `privacy.public_consent_preview` and `privacy.submit_public_consent`, and has no table grants. The consent ledger is not partitioned in this slice.
   The service sets `Database:SessionRole` to `hms_svc_<service>` and `SET LOCAL ROLE`s that role per
   transaction, with `request.jwt.claims` unchanged (`role` claim stays `authenticated`). A service
   cannot `SET ROLE authenticated` and cannot `SELECT` another schema's tables. ADR 0002.

@@ -19,7 +19,7 @@ grep -q 'Azure allows at most 54' .github/scripts/aca-rollout.sh \
 failed_sha=b896ba108cf95c3193dbf7598d2882659a8c0da9
 failed_tag="sha-${failed_sha}"
 [[ "${#failed_sha}" -eq 40 && "$failed_tag" == "sha-${failed_sha}" ]] || fail "image tag fixture was shortened"
-for app in ca-hms-edge ca-hms-identity ca-hms-patients ca-hms-scheduling ca-hms-billing ca-hms-inventory; do
+for app in ca-hms-edge ca-hms-identity ca-hms-patients ca-hms-scheduling ca-hms-billing ca-hms-inventory ca-hms-privacy; do
   suffix="$(python3 .github/scripts/service_changes.py suffix --app "$app" --tag "$failed_tag")"
   name="${app}--${suffix}"
   [[ "$suffix" == "s-${failed_sha:0:12}" ]] || fail "$app suffix is '$suffix', expected s-${failed_sha:0:12}"
@@ -68,7 +68,7 @@ expect_all() {
   local out="$1" why="$2"
   grep -q 'deploy=true' <<<"$out" || fail "$why did not deploy"
   grep -q 'build=true' <<<"$out" || fail "$why did not build"
-  grep -q 'services=identity,patients,scheduling,billing,inventory,edge' <<<"$out" || fail "$why services were not all four: $out"
+  grep -q 'services=identity,patients,scheduling,billing,inventory,privacy,edge' <<<"$out" || fail "$why services were not the full set: $out"
   grep -q "tag=sha-${plan_sha}" <<<"$out" || fail "$why shortened the image tag: $out"
 }
 for path in \
@@ -85,14 +85,14 @@ do
 done
 only_patients="$(plan_of backend/services/patients/Dockerfile)"
 grep -q 'services=patients' <<<"$only_patients" || fail "patients path selected '$only_patients'"
-grep -q 'services=identity,patients,scheduling,billing,inventory,edge' <<<"$only_patients" && fail "patients path selected every service" || true
+grep -q 'services=identity,patients,scheduling,billing,inventory,privacy,edge' <<<"$only_patients" && fail "patients path selected every service" || true
 web_only="$(plan_of apps/web/src/App.tsx)"
 grep -q 'deploy=false' <<<"$web_only" || fail "web-only change deployed: $web_only"
 grep -q 'aca-live-tags.sh' .github/workflows/deploy-aca.yml || fail "plan job does not read running image tags"
 grep -q -- '--live' .github/workflows/deploy-aca.yml || fail "plan job does not pass live tags"
 
 stale_live="$(mktemp)"
-for service in identity patients scheduling billing inventory edge; do
+for service in identity patients scheduling billing inventory privacy edge; do
   printf '%s\t%s\n' "$service" "$old_tag" >>"$stale_live"
 done
 PLAN_LIVE="$stale_live"
@@ -100,7 +100,7 @@ expect_all "$(plan_of docs/deploy.md)" "stale running images"
 unset PLAN_LIVE
 
 current_live="$(mktemp)"
-for service in identity patients scheduling billing inventory edge; do
+for service in identity patients scheduling billing inventory privacy edge; do
   printf '%s\tsha-%s\n' "$service" "$plan_sha" >>"$current_live"
 done
 PLAN_LIVE="$current_live"
@@ -134,7 +134,7 @@ exit 1
 EOS
 chmod +x "$bin/az"
 live_out="$(PATH="$bin:$PATH" bash .github/scripts/aca-live-tags.sh)"
-for service in identity patients scheduling billing inventory edge; do
+for service in identity patients scheduling billing inventory privacy edge; do
   grep -qx "${service}"$'\t'"${old_tag}" <<<"$live_out" || fail "live tags missing $service: $live_out"
 done
 printf '%s\n' "$live_out" >"$stale_live"
@@ -253,7 +253,8 @@ class Handler(BaseHTTPRequestHandler):
                 b'{"name":"patients","status":"Healthy"},'
                 b'{"name":"scheduling","status":"Healthy"},'
                 b'{"name":"billing","status":"Healthy"},'
-                b'{"name":"inventory","status":"Healthy"}]}'
+                b'{"name":"inventory","status":"Healthy"},'
+                b'{"name":"privacy","status":"Healthy"}]}'
             )
             if mode == "unhealthy":
                 body = (
@@ -504,7 +505,7 @@ case "$url" in
       code=503
       body='{"status":"Unhealthy","services":[{"name":"identity","status":"Unhealthy"},{"name":"patients","status":"Unhealthy"},{"name":"scheduling","status":"Unhealthy"},{"name":"billing","status":"Unhealthy"},{"name":"inventory","status":"Unhealthy"}]}'
     else
-      names=(identity patients scheduling billing inventory)
+      names=(identity patients scheduling billing inventory privacy)
       if [[ -n "${EDGE_OMITS:-}" && ! -f "$CURL_STATE/ca-hms-edge.updated" ]]; then
         kept=()
         for name in "${names[@]}"; do

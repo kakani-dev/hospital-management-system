@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using Hms.IntegrationTests.AuditTz;
 using Hms.IntegrationTests.Sprint2;
 using static Hms.IntegrationTests.HmsApiFactory;
 
@@ -13,13 +14,36 @@ public sealed record AdminSchedule(Guid Id, Guid PractitionerId, Guid BranchId, 
 
 /// <summary>
 /// Endpoints the web admin screens need: GET /patients/stats (dashboard) and includeDeleted on the
-/// practitioner and schedule lists (restore). Other test classes write to the same tenant in
-/// parallel, so counts are checked as lower bounds. Today's registration count is covered by
-/// <see cref="PatientStatsClockTests"/>, which pins the clock away from the UTC/IST midnight edge.
+/// practitioner and schedule lists (restore). The count test uses a fresh tenant so the +1 is exact.
+/// Today's registration count across the UTC/IST midnight edge is covered by
+/// <see cref="PatientStatsClockTests"/>, which pins the clock.
 /// </summary>
 [Trait("Category", "Database")]
 public sealed class WebAdminApiTests(HmsApiFactory factory) : IClassFixture<HmsApiFactory>
 {
+    [Fact]
+    public async Task Patient_stats_count_live_patients_and_todays_registrations_per_branch()
+    {
+        // Alpha is shared with the rest of the suite, including tests that delete patients there.
+        // A fresh tenant makes the +1 exact.
+        var hospital = await ATz.NewTenantAsync(factory);
+        using var admin = factory.ClientAs(hospital.AdminId, hospital.TenantId);
+        var east = await ATz.CreateBranchAsync(admin, "Asia/Kolkata");
+        var tenantBefore = (await admin.GetFromJsonAsync<PatientStats>("/api/v1/patients/stats"))!;
+        var eastBefore = (await admin.GetFromJsonAsync<PatientStats>($"/api/v1/patients/stats?branchId={east.Id}"))!;
+        Assert.True(eastBefore.Total <= tenantBefore.Total);
+        Assert.True(eastBefore.RegisteredToday <= eastBefore.Total);
+
+        await S2.CreatePatientAsync(admin, east.Id);
+
+        var tenantAfter = (await admin.GetFromJsonAsync<PatientStats>("/api/v1/patients/stats"))!;
+        var eastAfter = (await admin.GetFromJsonAsync<PatientStats>($"/api/v1/patients/stats?branchId={east.Id}"))!;
+        Assert.Equal(tenantBefore.Total + 1, tenantAfter.Total);
+        Assert.Equal(tenantBefore.RegisteredToday + 1, tenantAfter.RegisteredToday);
+        Assert.Equal(eastBefore.Total + 1, eastAfter.Total);
+        Assert.Equal(eastBefore.RegisteredToday + 1, eastAfter.RegisteredToday);
+    }
+
     [Fact]
     public async Task Patient_stats_are_tenant_scoped_and_role_gated()
     {

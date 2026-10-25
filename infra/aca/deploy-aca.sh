@@ -290,7 +290,8 @@ deploy_app edge external /health/live hms-edge-key "${COMMON[@]}" \
   ReverseProxy__Clusters__patients__Destinations__primary__Address=http://ca-hms-patients/ \
   ReverseProxy__Clusters__scheduling__Destinations__primary__Address=http://ca-hms-scheduling/ \
   ReverseProxy__Clusters__billing__Destinations__primary__Address=http://ca-hms-billing/ \
-  ReverseProxy__Clusters__inventory__Destinations__primary__Address=http://ca-hms-inventory/
+  ReverseProxy__Clusters__inventory__Destinations__primary__Address=http://ca-hms-inventory/ \
+  ReverseProxy__Clusters__privacy__Destinations__primary__Address=http://ca-hms-privacy/
 
 # ---------------------------------------------------------------------------------------------------
 log "7. post-checks"

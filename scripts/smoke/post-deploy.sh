@@ -6,11 +6,11 @@
 #
 # SMOKE_MODE=full (default) requires:
 #   GET /health/live                         -> 200
-#   GET /health/ready                        -> 200 and identity, patients, scheduling, billing, inventory Healthy
+#   GET /health/ready                        -> 200 and identity, patients, scheduling, billing, inventory, privacy Healthy
 #   GET /api/v1/public/invites/<64 zeros>    -> 404 from the identity service (read-only;
 #                                               the unknown token is not a gateway "no such route")
 # SMOKE_MODE=health skips the invite call.
-# SMOKE_SERVICE=all (default) | identity | patients | scheduling | billing | inventory
+# SMOKE_SERVICE=all (default) | identity | patients | scheduling | billing | inventory | privacy
 #   In health mode, a single service only has to be Healthy (the aggregate may still be 503
 #   while another service is rolling). full mode always requires every service.
 #
@@ -32,8 +32,8 @@ case "$SMOKE_MODE" in
   *) echo "SMOKE_MODE must be full or health" >&2; exit 2 ;;
 esac
 case "$SMOKE_SERVICE" in
-  all|identity|patients|scheduling|billing|inventory) ;;
-  *) echo "SMOKE_SERVICE must be all, identity, patients, scheduling, billing, or inventory" >&2; exit 2 ;;
+  all|identity|patients|scheduling|billing|inventory|privacy) ;;
+  *) echo "SMOKE_SERVICE must be all, identity, patients, scheduling, billing, inventory, or privacy" >&2; exit 2 ;;
 esac
 
 tmp="$(mktemp -d)"
@@ -52,7 +52,7 @@ get() {
 }
 
 service_ready() {
-  # $1 is all | identity | patients | scheduling | billing | inventory. Reads $tmp/body.
+  # $1 is all | identity | patients | scheduling | billing | inventory | privacy. Reads $tmp/body.
   python3 - "$1" "$tmp/body" <<'PY'
 import json, sys
 want, path = sys.argv[1], sys.argv[2]
@@ -60,7 +60,7 @@ try:
     document = json.load(open(path, encoding="utf-8"))
 except (OSError, json.JSONDecodeError):
     sys.exit(1)
-need = ["identity", "patients", "scheduling", "billing", "inventory"] if want == "all" else [want]
+need = ["identity", "patients", "scheduling", "billing", "inventory", "privacy"] if want == "all" else [want]
 found = {item.get("name"): item.get("status") for item in document.get("services") or []}
 missing = [name for name in need if found.get(name) != "Healthy"]
 if missing:

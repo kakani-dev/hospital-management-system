@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <!-- Privacy service host. Service boundary: Hms.Platform + the Privacy module only. -->
+  <PropertyGroup>
+    <UserSecretsId>hms-privacy-dev</UserSecretsId>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../platform/Hms.Platform/Hms.Platform.csproj" />
+    <ProjectReference Include="../../../modules/Privacy/Hms.Modules.Privacy/Hms.Modules.Privacy.csproj" />
+  </ItemGroup>
+</Project>

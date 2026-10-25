@@ -149,3 +149,13 @@ hash_of hash_image_inventory \
   backend/Directory.Build.props \
   backend/Directory.Packages.props \
   .dockerignore
+
+hash_of hash_image_privacy \
+  backend/services/privacy \
+  backend/modules/Privacy \
+  backend/platform \
+  backend/shared \
+  backend/global.json \
+  backend/Directory.Build.props \
+  backend/Directory.Packages.props \
+  .dockerignore

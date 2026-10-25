@@ -32,6 +32,9 @@ const ACTIONS: Action[] = [
   { id: 'desk', label: 'Invite staff and branches', hint: 'Hospital desk', capability: 'admin.members', run: 'navigate', path: '/admin/desk' },
   { id: 'price-list', label: 'Price list', hint: 'Services and rates', capability: 'admin.pricelist', run: 'navigate', path: '/admin/price-list' },
   { id: 'stock', label: 'Stock', hint: 'Items, stores, and quantities on hand', capability: 'stock.view', run: 'navigate', path: '/stock' },
+  { id: 'consent', label: 'Consent', hint: 'What this person has allowed', capability: 'privacy.view', run: 'navigate', path: '/privacy' },
+  { id: 'data-requests', label: 'Data requests', hint: 'Access, correction, and erasure', capability: 'privacy.desk', run: 'navigate', path: '/compliance/requests' },
+  { id: 'privacy-notices', label: 'Privacy notices', hint: 'Draft and publish the notice', capability: 'privacy.notice', run: 'navigate', path: '/admin/privacy-notices' },
   { id: 'create-hospital', label: 'Create hospital', hint: 'Platform: hospital and first admin invite', platform: true, run: 'navigate', path: '/platform', state: { openCreate: true } },
 ]
 
