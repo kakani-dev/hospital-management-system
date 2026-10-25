@@ -148,7 +148,7 @@ describe('Platform console', () => {
     expect(dialog).toHaveTextContent('Asia/Dubai')
     await user.click(within(dialog).getByRole('button', { name: 'Approve and create' }))
     expect(await screen.findByTestId('invite-link-notice')).toHaveTextContent('omar@orchid.example')
-    expect(calls.find((c) => c.path.endsWith('/approve'))!.body).toEqual({ tenantCode: 'synthetic-orchid-hospital' })
+    expect(calls.find((c) => c.path.endsWith('/approve'))!.body).toEqual({ tenantCode: 'synthetic-orchid-hospital', acknowledgeDuplicate: false })
 
     await user.click(screen.getByRole('button', { name: 'Reject Spam Hospital' }))
     dialog = await screen.findByRole('alertdialog')
@@ -176,6 +176,68 @@ describe('Platform console', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Suspend' }))
     await waitFor(() => expect(calls.find((c) => c.path.endsWith('/suspend'))?.body).toEqual({ reason: 'Unpaid synthetic invoice' }))
     expect(await screen.findByText(/is suspended/)).toBeInTheDocument()
+  })
+
+  it('shows a possible duplicate and requires a confirm before approve', async () => {
+    const flagged = {
+      ...REQUEST,
+      id: '5a000000-0000-4000-8000-000000000003',
+      hospitalName: 'Synthetic Lotus Hospital',
+      possibleDuplicate: true,
+      matchedHospitals: ['Synthetic Lotus Clinic'],
+    }
+    const calls = stubFetch({
+      'GET /api/v1/me': () => json(OPERATOR),
+      'GET /api/v1/platform/hospital-requests': () => json([flagged]),
+      [`POST /api/v1/platform/hospital-requests/${flagged.id}/approve`]: () => json({ tenantId: LOTUS.id, invite: INVITE }),
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: '/platform/requests', auth: session() })
+    const row = await screen.findByTestId('hospital-request-row')
+    expect(row).toHaveTextContent('Possible duplicate')
+    expect(row).toHaveTextContent('Matches Synthetic Lotus Clinic')
+    await user.click(screen.getByRole('button', { name: 'Approve Synthetic Lotus Hospital' }))
+    const dialog = await screen.findByRole('alertdialog')
+    expect(dialog).toHaveTextContent('Synthetic Lotus Clinic')
+    await user.click(within(dialog).getByRole('button', { name: 'Approve and create' }))
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('Confirm that you reviewed the possible duplicate.')
+    expect(calls.find((c) => c.path.endsWith('/approve'))).toBeUndefined()
+    await user.click(within(dialog).getByRole('checkbox', { name: 'I have reviewed the possible duplicate' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Approve and create' }))
+    expect(await screen.findByTestId('invite-link-notice')).toBeInTheDocument()
+    expect(calls.find((c) => c.path.endsWith('/approve'))!.body).toEqual({ tenantCode: 'synthetic-lotus-hospital', acknowledgeDuplicate: true })
+  })
+
+  it('keeps the approve dialog open when the server reports a duplicate the list had not shown yet', async () => {
+    let posts = 0
+    const calls = stubFetch({
+      'GET /api/v1/me': () => json(OPERATOR),
+      'GET /api/v1/platform/hospital-requests': () =>
+        json([{ ...REQUEST, possibleDuplicate: posts > 0, matchedHospitals: posts > 0 ? ['Synthetic Lotus Clinic'] : [] }]),
+      [`POST /api/v1/platform/hospital-requests/${REQUEST.id}/approve`]: () => {
+        posts += 1
+        return posts === 1
+          ? json({ title: 'Possible duplicate', status: 409, detail: 'This request may duplicate an existing hospital. Confirm to approve it.', code: 'possible_duplicate' }, 409)
+          : json({ tenantId: LOTUS.id, invite: INVITE })
+      },
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: '/platform/requests', auth: session() })
+    await user.click(await screen.findByRole('button', { name: 'Approve Synthetic Orchid Hospital' }))
+    const dialog = await screen.findByRole('alertdialog')
+    expect(within(dialog).queryByRole('checkbox')).not.toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: 'Approve and create' }))
+    expect(await within(dialog).findByRole('checkbox', { name: 'I have reviewed the possible duplicate' })).toBeInTheDocument()
+    expect(calls.filter((c) => c.path.endsWith('/approve'))).toHaveLength(1)
+    await user.click(within(dialog).getByRole('button', { name: 'Approve and create' }))
+    expect(calls.filter((c) => c.path.endsWith('/approve'))).toHaveLength(1)
+    await user.click(within(dialog).getByRole('checkbox', { name: 'I have reviewed the possible duplicate' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Approve and create' }))
+    expect(await screen.findByTestId('invite-link-notice')).toBeInTheDocument()
+    expect(calls.filter((c) => c.path.endsWith('/approve')).map((c) => c.body)).toEqual([
+      { tenantCode: 'synthetic-orchid-hospital', acknowledgeDuplicate: false },
+      { tenantCode: 'synthetic-orchid-hospital', acknowledgeDuplicate: true },
+    ])
   })
 
   it('keeps hospital staff out of the console (UX guard; the API answers 403 anyway)', async () => {

@@ -324,6 +324,10 @@ export interface HospitalRequest {
   tenantId: Guid | null
   tenantCode: string | null
   createdOn: string
+  /** Live match against a hospital or another pending request. The approver decides. */
+  possibleDuplicate: boolean
+  /** Hospital names of the matches. Empty when possibleDuplicate is false. */
+  matchedHospitals: string[]
 }
 
 export interface HospitalApproved {

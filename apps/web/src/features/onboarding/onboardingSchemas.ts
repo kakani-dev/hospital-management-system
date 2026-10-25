@@ -11,7 +11,7 @@ export const hospitalSignupSchema = z.object({
   hospitalName: z.string().trim().min(2, { error: 'Hospital name is required' }).max(120, { error: 'Max 120 characters' }),
   timeZone: zone,
   contactName: z.string().trim().min(2, { error: 'Your name is required' }).max(120, { error: 'Max 120 characters' }),
-  contactEmail: z.email({ error: 'Enter a valid email' }).max(254),
+  contactEmail: z.string().trim().max(254).pipe(z.email({ error: 'Enter a valid email' })),
   phone: z
     .string()
     .trim()

@@ -947,6 +947,7 @@ export const useSetTenantStatus = () =>
 export const useReissueAdminInvite = () =>
   usePlatformWrite(({ id, email }: { id: string; email: string }) => apiClient.platform.reissueAdminInvite(id, email))
 export const useApproveHospitalRequest = () =>
-  usePlatformWrite(({ id, tenantCode }: { id: string; tenantCode: string }) => apiClient.platform.approve(id, tenantCode))
+  usePlatformWrite(({ id, tenantCode, acknowledgeDuplicate }: { id: string; tenantCode: string; acknowledgeDuplicate?: boolean }) =>
+    apiClient.platform.approve(id, tenantCode, acknowledgeDuplicate ?? false))
 export const useRejectHospitalRequest = () =>
   usePlatformWrite(({ id, reason }: { id: string; reason: string }) => apiClient.platform.reject(id, reason))
