@@ -29,12 +29,33 @@ import {
   useUpdatePractitioner,
   useUpdatePractitionerBranch,
   useUpdateSchedulingSettings,
+  useCreateDepartment,
+  useDepartments,
 } from '../../lib/api/hooks'
 import { localToday } from '../../lib/dates'
 import { ApiError, fieldErrors } from '../../lib/api/client'
 import { practitionerSchema, type PractitionerValues } from './adminSchemas'
 
-const EMPTY: PractitionerValues = { displayName: '', specialty: '', userId: '' }
+const EMPTY: PractitionerValues = {
+  displayName: '', specialty: '', userId: '', registrationNumber: '', councilName: '', qualifications: '', departmentId: '', phone: '', email: '',
+}
+
+function nmcBody(values: PractitionerValues, previous?: Practitioner) {
+  const text = (key: 'registrationNumber' | 'councilName' | 'qualifications' | 'phone' | 'email') => {
+    const next = values[key].trim()
+    if (!previous) return next ? { [key]: next } : {}
+    if (next === (previous[key] ?? '')) return {}
+    return { [key]: next }
+  }
+  const department = !previous
+    ? values.departmentId ? { departmentId: values.departmentId } : {}
+    : values.departmentId === (previous.departmentId ?? '')
+      ? {}
+      : values.departmentId
+        ? { departmentId: values.departmentId }
+        : { clearDepartment: true }
+  return { ...text('registrationNumber'), ...text('councilName'), ...text('qualifications'), ...text('phone'), ...text('email'), ...department }
+}
 
 type Message = { tone: 'info' | 'error'; text: string }
 
@@ -58,6 +79,8 @@ function writeError(error: unknown, action: string): string {
 /** Practitioners admin (tenant_admin): add, edit, (de)activate, delete and restore. */
 export function PractitionersPage() {
   const practitioners = useAdminPractitioners()
+  const departments = useDepartments()
+  const addDepartment = useCreateDepartment()
   const members = useMembers()
   const settings = useSchedulingSettings()
   const saveSettings = useUpdateSchedulingSettings()
@@ -84,6 +107,7 @@ export function PractitionersPage() {
         displayName: values.displayName,
         specialty: values.specialty || null,
         ...(values.userId ? { userId: values.userId } : {}),
+        ...nmcBody(values),
       })
       form.reset(EMPTY)
       setMessage({ tone: 'info', text: `${created.displayName} added. Add working hours so patients can be booked.` })
@@ -93,7 +117,7 @@ export function PractitionersPage() {
       }
       setMessage({
         tone: 'error',
-        text: error instanceof ApiError && error.status === 409 ? 'That staff account is already linked to another practitioner.' : writeError(error, 'add the practitioner'),
+        text: error instanceof ApiError && error.status === 409 ? (error.problem?.detail ?? 'That staff account is already linked to another practitioner.') : writeError(error, 'add the practitioner'),
       })
     }
   }
@@ -194,10 +218,20 @@ export function PractitionersPage() {
           onError: (e) => setMessage({ tone: 'error', text: e instanceof ApiError && e.problem?.detail ? e.problem.detail : 'Could not save the travel buffer.' }),
         })
       }} />
+      <DepartmentCard departments={departments.data ?? []} busy={addDepartment.isPending} onAdd={async (name) => {
+        setMessage(null)
+        try {
+          await addDepartment.mutateAsync(name)
+          setMessage({ tone: 'info', text: `${name} added.` })
+        } catch (e) {
+          setMessage({ tone: 'error', text: e instanceof ApiError && e.status === 409 ? 'A department with that name already exists.' : 'Could not add the department.' })
+        }
+      }} />
       <Card title="Add practitioner">
         <form noValidate aria-label="Add practitioner" onSubmit={form.handleSubmit(onCreate)} className="grid gap-4 sm:grid-cols-4 sm:items-start">
           <FormField label="Display name" hint="e.g. Dr. A. Rao" error={form.formState.errors.displayName?.message} {...form.register('displayName')} />
           <FormField label="Specialty (optional)" error={form.formState.errors.specialty?.message} {...form.register('specialty')} />
+          <NmcFields register={form.register} errors={form.formState.errors} departments={departments.data ?? []} />
           <SelectField label="Staff account (optional)" error={form.formState.errors.userId?.message} {...form.register('userId')}>
             <option value="">Not linked</option>
             {staff.map((m) => (
@@ -234,6 +268,7 @@ export function PractitionersPage() {
             <EditPractitionerForm
               practitioner={editing}
               staff={staff}
+              departments={departments.data ?? []}
               onCancel={() => setEditing(null)}
               onSaved={(p) => {
                 setEditing(null)
@@ -258,14 +293,81 @@ export function PractitionersPage() {
   )
 }
 
+function profileLine(label: string, value: string | null | undefined) {
+  return (
+    <div>
+      <dt className="text-xs text-gray-500">{label}</dt>
+      <dd>{value?.trim() ? value : 'Not recorded'}</dd>
+    </div>
+  )
+}
+
+function NmcFields({
+  register,
+  errors,
+  departments,
+}: {
+  register: ReturnType<typeof useForm<PractitionerValues>>['register']
+  errors: Partial<Record<keyof PractitionerValues, { message?: string }>>
+  departments: { id: string; name: string; isActive: boolean }[]
+}) {
+  const live = departments.filter((d) => d.isActive)
+  return (
+    <>
+      <FormField label="Registration number (optional)" hint="e.g. KMC/2018/12345" error={errors.registrationNumber?.message} {...register('registrationNumber')} />
+      <FormField label="Council (optional)" error={errors.councilName?.message} {...register('councilName')} />
+      <FormField label="Qualifications (optional)" error={errors.qualifications?.message} {...register('qualifications')} />
+      <FormField label="Phone (optional)" error={errors.phone?.message} {...register('phone')} />
+      <FormField label="Email (optional)" error={errors.email?.message} {...register('email')} />
+      {live.length > 0 && (
+        <SelectField label="Department (optional)" error={errors.departmentId?.message} {...register('departmentId')}>
+          <option value="">None</option>
+          {live.map((d) => (
+            <option key={d.id} value={d.id}>{d.name}</option>
+          ))}
+        </SelectField>
+      )}
+    </>
+  )
+}
+
+function DepartmentCard({ departments, busy, onAdd }: { departments: { id: string; name: string; isActive: boolean }[]; busy: boolean; onAdd: (name: string) => Promise<void> }) {
+  const [name, setName] = useState('')
+  return (
+    <Card title="Departments">
+      <form
+        className="flex flex-wrap items-end gap-3"
+        onSubmit={(e) => {
+          e.preventDefault()
+          const next = name.trim()
+          if (!next) return
+          void onAdd(next).then(() => setName(''))
+        }}
+      >
+        <FormField label="Department name" value={name} onChange={(e) => setName(e.target.value)} />
+        <Button type="submit" disabled={busy || !name.trim()}>Add department</Button>
+      </form>
+      {departments.length > 0 && (
+        <ul className="mt-3 text-sm">
+          {departments.map((d) => (
+            <li key={d.id}>{d.name}{d.isActive ? '' : ' (inactive)'}</li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  )
+}
+
 function EditPractitionerForm({
   practitioner,
   staff,
+  departments,
   onCancel,
   onSaved,
 }: {
   practitioner: Practitioner
   staff: Member[]
+  departments: { id: string; name: string; isActive: boolean }[]
   onCancel: () => void
   onSaved: (p: Practitioner) => void
 }) {
@@ -278,7 +380,17 @@ function EditPractitionerForm({
     formState: { errors, isSubmitting },
   } = useForm<PractitionerValues>({
     resolver: zodResolver(practitionerSchema),
-    defaultValues: { displayName: practitioner.displayName, specialty: practitioner.specialty ?? '', userId: practitioner.userId ?? '' },
+    defaultValues: {
+      displayName: practitioner.displayName,
+      specialty: practitioner.specialty ?? '',
+      userId: practitioner.userId ?? '',
+      registrationNumber: practitioner.registrationNumber ?? '',
+      councilName: practitioner.councilName ?? '',
+      qualifications: practitioner.qualifications ?? '',
+      departmentId: practitioner.departmentId ?? '',
+      phone: practitioner.phone ?? '',
+      email: practitioner.email ?? '',
+    },
   })
   const linked = practitioner.userId && !staff.some((s) => s.userId === practitioner.userId)
 
@@ -291,6 +403,7 @@ function EditPractitionerForm({
           displayName: values.displayName,
           specialty: values.specialty || null,
           ...(values.userId ? (values.userId !== practitioner.userId ? { userId: values.userId } : {}) : practitioner.userId ? { unlinkUser: true } : {}),
+          ...nmcBody(values, practitioner),
         },
       })
       onSaved(saved)
@@ -298,14 +411,22 @@ function EditPractitionerForm({
       for (const [field, msg] of Object.entries(fieldErrors(e))) {
         if (field in values) setFieldError(field as keyof PractitionerValues, { message: msg })
       }
-      setError(e instanceof ApiError && e.status === 409 ? 'That staff account is already linked to another practitioner.' : writeError(e, 'save the practitioner'))
+      setError(e instanceof ApiError && e.status === 409 ? (e.problem?.detail ?? 'That staff account is already linked to another practitioner.') : writeError(e, 'save the practitioner'))
     }
   }
 
   return (
     <form noValidate aria-label="Edit practitioner" onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+      <dl data-testid="doctor-profile" className="grid gap-2 sm:grid-cols-2">
+        {profileLine('Registration', practitioner.registrationNumber)}
+        {profileLine('Council', practitioner.councilName)}
+        {profileLine('Qualifications', practitioner.qualifications)}
+        {profileLine('Phone', practitioner.phone)}
+        {profileLine('Email', practitioner.email)}
+      </dl>
       <FormField label="Display name" error={errors.displayName?.message} {...register('displayName')} />
       <FormField label="Specialty (optional)" error={errors.specialty?.message} {...register('specialty')} />
+      <NmcFields register={register} errors={errors} departments={departments} />
       <SelectField label="Staff account (optional)" error={errors.userId?.message} {...register('userId')}>
         <option value="">Not linked</option>
         {linked && <option value={practitioner.userId!}>Current account</option>}

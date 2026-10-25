@@ -86,6 +86,9 @@ public class AuditColumnConventionsTests
 
     [Theory]
     [InlineData(typeof(Practitioner))]
+    [InlineData(typeof(Department))]
+    [InlineData(typeof(VisitType))]
+    [InlineData(typeof(VisitTypeOverride))]
     [InlineData(typeof(PractitionerBranch))]
     [InlineData(typeof(Schedule))]
     [InlineData(typeof(ScheduleOverride))]

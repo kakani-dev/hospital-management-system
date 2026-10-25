@@ -139,7 +139,7 @@ public static class AppointmentEndpoints
     }
 
     private static async Task<Results<Created<AppointmentDto>, ValidationProblem, ProblemHttpResult>> BookAsync(
-        CreateAppointmentRequest request, AppointmentsDbContext db, ITenantContext tenant, IAppointmentFunctions functions, IPatientSummaries patients, CancellationToken ct)
+        CreateAppointmentRequest request, AppointmentsDbContext db, ITenantContext tenant, IAppointmentFunctions functions, IPatientSummaries patients, TimeProvider clock, CancellationToken ct)
     {
         if (!tenant.CanAtAnyBranch(HmsPermissions.AppointmentsBook) && !tenant.CanAtAnyBranch(HmsPermissions.AppointmentsBookFollowUpOwn))
         {
@@ -167,7 +167,6 @@ public static class AppointmentEndpoints
             errors["patientId"] = ["Patient is required."];
         }
 
-        ValidateTimes(request.StartsAt, request.EndsAt, errors);
         if (request.Reason is { Length: > ReasonMaxLength })
         {
             errors["reason"] = [$"Reason must be at most {ReasonMaxLength} characters."];
@@ -177,6 +176,20 @@ public static class AppointmentEndpoints
             errors["reason"] = ["A reason is required when booking outside working hours."];
         }
 
+        ResolvedVisit? visit = null;
+        if (errors.Count == 0 && request.VisitTypeId is { } visitTypeId && visitTypeId != Guid.Empty && request.StartsAt is { } visitStart)
+        {
+            var (resolved, visitProblem) = await VisitTypeResolver.TryResolveAsync(
+                db, tenant, visitTypeId, request.BranchId, request.PractitionerId, request.PatientId, visitStart, clock.GetUtcNow(), ct);
+            if (visitProblem is not null)
+            {
+                return visitProblem;
+            }
+
+            visit = resolved;
+        }
+
+        ValidateTimes(request.StartsAt, visit?.EndsAt ?? request.EndsAt, errors);
         if (errors.Count > 0)
         {
             return TypedResults.ValidationProblem(errors);
@@ -235,7 +248,7 @@ public static class AppointmentEndpoints
         }
 
         var startsAt = request.StartsAt!.Value.ToUniversalTime();
-        var endsAt = request.EndsAt!.Value.ToUniversalTime();
+        var endsAt = (visit?.EndsAt ?? request.EndsAt)!.Value.ToUniversalTime();
         // overlap first: a double booking is the more fundamental answer than "outside working hours"
         if (await OverlapsAsync(db, request.PractitionerId, startsAt, endsAt, null, ct))
         {
@@ -257,6 +270,10 @@ public static class AppointmentEndpoints
             Reason = string.IsNullOrWhiteSpace(request.Reason) ? null : request.Reason.Trim(),
             ParentAppointmentId = request.ParentAppointmentId,
             HoursOverride = overrideHours,
+            VisitTypeId = visit?.VisitTypeId,
+            ConsultationFeePaise = visit?.FeePaise,
+            GrantedFollowUpDays = visit?.GrantedFollowUpDays,
+            GrantedFollowUpFeePaise = visit?.GrantedFollowUpFeePaise,
         };
         db.Appointments.Add(appointment);
         try

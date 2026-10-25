@@ -16,6 +16,9 @@ import type {
   CreateScheduleRequest,
   CurrentTenant,
   CurrentUser,
+  Department,
+  VisitSuggestion,
+  VisitType,
   DeletePatientRequest,
   DuplicateCandidate,
   DuplicateCheckRequest,
@@ -567,6 +570,21 @@ export class ApiClient {
   }
 
   myDay = (date: string) => this.request<MyDay>(`/api/v1/practitioners/me/day${qs({ date })}`)
+
+  departments = {
+    list: () => this.request<Department[]>('/api/v1/departments'),
+    create: (name: string) => this.request<Department>('/api/v1/departments', { method: 'POST', body: JSON.stringify({ name }) }),
+  }
+
+  visitTypes = {
+    list: (branchId?: string) => this.request<VisitType[]>(`/api/v1/visit-types${qs({ branchId })}`),
+    suggestion: (params: { branchId: string; practitionerId: string; patientId: string; startsAt: string }) =>
+      this.request<VisitSuggestion>(`/api/v1/visit-types/suggestion${qs(params)}`),
+    update: (id: string, body: { name?: string; defaultFeePaise?: number; durationMinutes?: number; followUpValidDays?: number | null; clearFollowUpWindow?: boolean; followUpFeePaise?: number | null; clearFollowUpFee?: boolean; isActive?: boolean }) =>
+      this.request<VisitType>(`/api/v1/visit-types/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    upsertOverride: (id: string, body: { branchId: string; feePaise?: number | null; durationMinutes?: number | null; followUpValidDays?: number | null; followUpFeePaise?: number | null }) =>
+      this.request<unknown>(`/api/v1/visit-types/${encodeURIComponent(id)}/overrides`, { method: 'POST', body: JSON.stringify(body) }),
+  }
 
   /** Free, future slots; `from`/`to` are branch-local dates, inclusive, ≤ 31 days. */
   slots = (params: { branchId: string; from: string; to: string; practitionerId?: string }) =>

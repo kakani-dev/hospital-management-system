@@ -439,12 +439,58 @@ export interface Practitioner {
   isActive: boolean
   /** Only ever true in the admin list with includeDeleted (restore). */
   isDeleted?: boolean
+  registrationNumber?: string | null
+  councilName?: string | null
+  qualifications?: string | null
+  departmentId?: Guid | null
+  phone?: string | null
+  email?: string | null
+}
+
+export interface Department {
+  id: Guid
+  name: string
+  isActive: boolean
+}
+
+/** Effective amounts are the branch override when one exists, otherwise the hospital default. Fees are paise. */
+export interface VisitType {
+  id: Guid
+  code: string
+  name: string
+  defaultFeePaise: number
+  durationMinutes: number
+  followUpValidDays: number | null
+  followUpFeePaise: number | null
+  sortOrder: number
+  isActive: boolean
+  effectiveFeePaise: number
+  effectiveDurationMinutes: number
+  effectiveFollowUpValidDays: number | null
+  effectiveFollowUpFeePaise: number | null
+}
+
+export interface VisitSuggestion {
+  visitTypeId: Guid | null
+  code: string | null
+  name: string | null
+  durationMinutes: number | null
+  feePaise: number | null
+  suggested: boolean
+  priorAppointmentId: Guid | null
+  reason: string | null
 }
 
 export interface CreatePractitionerRequest {
   displayName: string
   specialty?: string | null
   userId?: Guid | null
+  registrationNumber?: string | null
+  councilName?: string | null
+  qualifications?: string | null
+  departmentId?: Guid | null
+  phone?: string | null
+  email?: string | null
 }
 
 /** Merge-patch: absent = unchanged; unlinkUser clears the staff account link. */
@@ -454,6 +500,13 @@ export interface UpdatePractitionerRequest {
   userId?: Guid
   isActive?: boolean
   unlinkUser?: boolean
+  registrationNumber?: string | null
+  councilName?: string | null
+  qualifications?: string | null
+  departmentId?: Guid | null
+  clearDepartment?: boolean
+  phone?: string | null
+  email?: string | null
 }
 
 /** Weekly recurring working hours at a branch (ScheduleDto). Times are branch-local wall clock. */
@@ -652,6 +705,8 @@ export interface CreateAppointmentRequest {
   parentAppointmentId?: Guid
   /** Admins only: book outside the doctor's working hours (checked and audited on the server). */
   overrideWorkingHours?: boolean
+  /** When set, the server sets the length and the fee. Omitted when the hospital has no visit types. */
+  visitTypeId?: Guid
 }
 
 export interface CancelAppointmentRequest {

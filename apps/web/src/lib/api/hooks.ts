@@ -52,6 +52,8 @@ export const queryKeys = {
   patientStats: (branchId: string) => ['patients', 'stats', branchId] as const,
   appointmentCount: (q: AppointmentQuery) => ['appointments', 'count', q] as const,
   adminPractitioners: ['practitioners', 'admin'] as const,
+  departments: ['departments'] as const,
+  visitTypes: (branchId: string) => ['visit-types', branchId] as const,
   adminSchedules: (branchId: string) => ['schedules', 'admin', branchId] as const,
   practitionerBranches: (practitionerId: string) => ['practitioner-branches', practitionerId] as const,
   scheduleOverrides: (practitionerId: string) => ['schedule-overrides', practitionerId] as const,
@@ -446,6 +448,79 @@ export function useSlots(branchId: string | null, practitionerId: string, date: 
     enabled: !!branchId && !!practitionerId && !!date,
     retry: false,
     placeholderData: keepPreviousIf<Slot[]>((prev) => prev[2] === (branchId ?? '') && prev[3] === practitionerId),
+  })
+}
+
+/** 404 means this server has no visit-type master yet. Booking then keeps the slot length. */
+export function useBookingVisitTypes(branchId: string | null) {
+  return useQuery({
+    queryKey: queryKeys.visitTypes(branchId ?? ''),
+    queryFn: async () => {
+      try {
+        return await apiClient.visitTypes.list(branchId!)
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 404) return []
+        throw e
+      }
+    },
+    enabled: !!branchId,
+    retry: false,
+  })
+}
+
+export function useVisitSuggestion(branchId: string | null, practitionerId: string, patientId: string, startsAt: string) {
+  return useQuery({
+    queryKey: ['visit-types', 'suggestion', branchId, practitionerId, patientId, startsAt] as const,
+    queryFn: () => apiClient.visitTypes.suggestion({ branchId: branchId!, practitionerId, patientId, startsAt }),
+    enabled: !!branchId && !!practitionerId && !!patientId && !!startsAt,
+    retry: false,
+  })
+}
+
+export function useAdminVisitTypes() {
+  return useQuery({
+    queryKey: ['visit-types', 'admin'] as const,
+    queryFn: async () => {
+      try {
+        return await apiClient.visitTypes.list()
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 404) return []
+        throw e
+      }
+    },
+    retry: false,
+  })
+}
+
+export function useDepartments() {
+  return useQuery({
+    queryKey: queryKeys.departments,
+    queryFn: async () => {
+      try {
+        return await apiClient.departments.list()
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 404) return []
+        throw e
+      }
+    },
+    retry: false,
+  })
+}
+
+export function useCreateDepartment() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (name: string) => apiClient.departments.create(name),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.departments }),
+  })
+}
+
+export function useUpdateVisitType() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: { name?: string; defaultFeePaise?: number; durationMinutes?: number; followUpValidDays?: number | null; clearFollowUpWindow?: boolean; followUpFeePaise?: number | null; clearFollowUpFee?: boolean; isActive?: boolean } }) =>
+      apiClient.visitTypes.update(id, body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['visit-types'] }),
   })
 }
 

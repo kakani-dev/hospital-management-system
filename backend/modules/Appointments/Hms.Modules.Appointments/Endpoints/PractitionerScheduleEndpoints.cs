@@ -91,9 +91,28 @@ public static class PractitionerScheduleEndpoints
         }
 
         var errors = ValidatePractitioner(request.DisplayName, request.Specialty, required: true);
+        if (PractitionerFields.Read(request.RegistrationNumber, request.CouncilName, request.Qualifications, request.Phone, request.Email, creating: true) is { } fields)
+        {
+            foreach (var (key, messages) in fields.Errors)
+            {
+                errors[key] = messages;
+            }
+        }
+
         if (errors.Count > 0)
         {
             return TypedResults.ValidationProblem(errors);
+        }
+
+        var profile = PractitionerFields.Read(request.RegistrationNumber, request.CouncilName, request.Qualifications, request.Phone, request.Email, creating: true).Value;
+        if (await PractitionerFields.RegistrationTakenAsync(db, profile.RegistrationNumber, null, ct))
+        {
+            return HmsProblems.Conflict(HmsProblems.Codes.Conflict, "That registration number is already used by another doctor.");
+        }
+
+        if (await PractitionerFields.DepartmentErrorAsync(db, request.DepartmentId, ct) is { } departmentError)
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["departmentId"] = [departmentError] });
         }
 
         var practitioner = new Practitioner
@@ -101,13 +120,19 @@ public static class PractitionerScheduleEndpoints
             DisplayName = request.DisplayName!.Trim(),
             Specialty = string.IsNullOrWhiteSpace(request.Specialty) ? null : request.Specialty.Trim(),
             UserId = request.UserId is { } u && u != Guid.Empty ? u : null,
+            RegistrationNumber = profile.RegistrationNumber,
+            CouncilName = profile.CouncilName,
+            Qualifications = profile.Qualifications,
+            DepartmentId = request.DepartmentId is { } d && d != Guid.Empty ? d : null,
+            Phone = profile.Phone,
+            Email = profile.Email,
         };
         db.Practitioners.Add(practitioner);
         try
         {
             await db.SaveChangesAsync(ct);
         }
-        catch (Exception ex) when (HmsProblems.FromDatabase(ex, uniqueDetail: "That staff account is already linked to a practitioner.") is { } problem)
+        catch (Exception ex) when (PractitionerWriteProblem(ex) is { } problem)
         {
             return problem;
         }
@@ -124,6 +149,15 @@ public static class PractitionerScheduleEndpoints
         }
 
         var errors = ValidatePractitioner(request.DisplayName, request.Specialty, required: false);
+        var patch = PractitionerFields.Read(request.RegistrationNumber, request.CouncilName, request.Qualifications, request.Phone, request.Email, creating: false);
+        if (patch.Errors.Count > 0)
+        {
+            foreach (var (key, messages) in patch.Errors)
+            {
+                errors[key] = messages;
+            }
+        }
+
         if (errors.Count > 0)
         {
             return TypedResults.ValidationProblem(errors);
@@ -159,11 +193,55 @@ public static class PractitionerScheduleEndpoints
             practitioner.IsActive = active;
         }
 
+        if (request.RegistrationNumber is not null)
+        {
+            if (await PractitionerFields.RegistrationTakenAsync(db, patch.Value.RegistrationNumber, practitioner.Id, ct))
+            {
+                return HmsProblems.Conflict(HmsProblems.Codes.Conflict, "That registration number is already used by another doctor.");
+            }
+
+            practitioner.RegistrationNumber = patch.Value.RegistrationNumber;
+        }
+
+        if (request.CouncilName is not null)
+        {
+            practitioner.CouncilName = patch.Value.CouncilName;
+        }
+
+        if (request.Qualifications is not null)
+        {
+            practitioner.Qualifications = patch.Value.Qualifications;
+        }
+
+        if (request.Phone is not null)
+        {
+            practitioner.Phone = patch.Value.Phone;
+        }
+
+        if (request.Email is not null)
+        {
+            practitioner.Email = patch.Value.Email;
+        }
+
+        if (request.ClearDepartment == true)
+        {
+            practitioner.DepartmentId = null;
+        }
+        else if (request.DepartmentId is { } department && department != Guid.Empty)
+        {
+            if (await PractitionerFields.DepartmentErrorAsync(db, department, ct) is { } departmentError)
+            {
+                return TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["departmentId"] = [departmentError] });
+            }
+
+            practitioner.DepartmentId = department;
+        }
+
         try
         {
             await db.SaveChangesAsync(ct);
         }
-        catch (Exception ex) when (HmsProblems.FromDatabase(ex, uniqueDetail: "That staff account is already linked to a practitioner.") is { } problem)
+        catch (Exception ex) when (PractitionerWriteProblem(ex) is { } problem)
         {
             return problem;
         }
@@ -185,6 +263,16 @@ public static class PractitionerScheduleEndpoints
         }
 
         return errors;
+    }
+
+    private static ProblemHttpResult? PractitionerWriteProblem(Exception ex)
+    {
+        if (ex.ToString().Contains("practitioners_registration", StringComparison.Ordinal))
+        {
+            return HmsProblems.Conflict(HmsProblems.Codes.Conflict, "That registration number is already used by another doctor.");
+        }
+
+        return HmsProblems.FromDatabase(ex, uniqueDetail: "That staff account is already linked to a practitioner.");
     }
 
     // ----------------------------------------------------------------- schedules

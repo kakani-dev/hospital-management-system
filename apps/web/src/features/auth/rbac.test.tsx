@@ -7,7 +7,7 @@ import { ROLE_PERMISSIONS } from '../../lib/permissions'
 afterEach(() => vi.unstubAllGlobals())
 
 const page = { items: [], page: 1, pageSize: 25, totalCount: 0 }
-const NAV = ['Patients', 'Appointments', 'Schedules', 'Check-in', 'OPD queue', 'Approvals', 'Day end', 'Branches', 'Members', 'Practitioners', 'Working hours', 'Hospital settings', 'Price list', 'Stock', 'Consent', 'Data requests', 'Privacy notices'] as const
+const NAV = ['Patients', 'Appointments', 'Schedules', 'Check-in', 'OPD queue', 'Approvals', 'Day end', 'Branches', 'Members', 'Practitioners', 'Working hours', 'Visit types', 'Hospital settings', 'Price list', 'Stock', 'Consent', 'Data requests', 'Privacy notices'] as const
 
 // RBAC (ADR 0001): the menu each role sees
 const EXPECTED: Record<string, readonly (typeof NAV)[number][]> = {

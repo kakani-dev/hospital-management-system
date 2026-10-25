@@ -11,6 +11,48 @@ public sealed class Practitioner : AuditableEntity, ITenantOwned
     public required string DisplayName { get; set; }
     public string? Specialty { get; set; }
     public bool IsActive { get; set; } = true;
+    /// <summary>NMC or State Medical Council number, stored uppercase. Format-checked, not looked up.</summary>
+    public string? RegistrationNumber { get; set; }
+    public string? CouncilName { get; set; }
+    public string? Qualifications { get; set; }
+    public Guid? DepartmentId { get; set; }
+    public string? Phone { get; set; }
+    public string? Email { get; set; }
+}
+
+/// <summary>appointment.departments: per-tenant department master.</summary>
+public sealed class Department : AuditableEntity, ITenantOwned
+{
+    public Guid TenantId { get; set; }
+    public required string Name { get; set; }
+    public bool IsActive { get; set; } = true;
+}
+
+/// <summary>appointment.visit_types: tenant master of consult kinds, fees, duration and follow-up windows.</summary>
+public sealed class VisitType : AuditableEntity, ITenantOwned
+{
+    public Guid TenantId { get; set; }
+    public required string Code { get; set; }
+    public required string Name { get; set; }
+    public long DefaultFeePaise { get; set; }
+    public short DurationMinutes { get; set; }
+    public short? FollowUpValidDays { get; set; }
+    public long? FollowUpFeePaise { get; set; }
+    public short SortOrder { get; set; }
+    public bool IsActive { get; set; } = true;
+}
+
+/// <summary>appointment.visit_type_overrides: null columns inherit the tenant visit type.</summary>
+public sealed class VisitTypeOverride : AuditableEntity, ITenantOwned
+{
+    public Guid TenantId { get; set; }
+    public Guid VisitTypeId { get; set; }
+    public Guid BranchId { get; set; }
+    public long? FeePaise { get; set; }
+    public short? DurationMinutes { get; set; }
+    public short? FollowUpValidDays { get; set; }
+    public long? FollowUpFeePaise { get; set; }
+    public bool IsActive { get; set; } = true;
 }
 
 /// <summary>appointment.practitioner_branches: a branch this practitioner works at.</summary>
@@ -86,6 +128,14 @@ public sealed class Appointment : AuditableEntity, ITenantOwned
     public Guid? ParentAppointmentId { get; set; }
     /// <summary>Booked outside the practitioner's working hours by an admin override (audited).</summary>
     public bool HoursOverride { get; set; }
+    /// <summary>Visit type chosen at booking. Null on appointments booked before visit types existed.</summary>
+    public Guid? VisitTypeId { get; set; }
+    /// <summary>Paise snapshot of the consultation fee at booking. Null when no visit type was sent.</summary>
+    public long? ConsultationFeePaise { get; set; }
+    /// <summary>Follow-up window snapshotted from the visit type at booking. Null opens none; 0 is an explicit none.</summary>
+    public short? GrantedFollowUpDays { get; set; }
+    /// <summary>Follow-up fee snapshotted at booking. Null means no special fee; 0 is free.</summary>
+    public long? GrantedFollowUpFeePaise { get; set; }
 }
 
 /// <summary>appointment.queue_entries: READ-ONLY for the API; written only by the check-in / queue RPCs.</summary>

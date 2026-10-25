@@ -128,8 +128,10 @@ select tests.ok(
         'appointment.branch_has_open_activity_v1(p_tenant_id uuid, p_branch_id uuid)',
         'appointment.queue_has_entries_v1(p_tenant_id uuid, p_branch_ids uuid[], p_days date[])',
         'identity.caller_roles_v1(p_tenant_id uuid)',
-        'appointment.appointment_billing_ref_v1(p_tenant_id uuid, p_appointment_id uuid)')) = 13,
-  'all 13 published _v1 functions exist with their exact signatures, SECURITY DEFINER, search_path pinned');
+        'appointment.appointment_billing_ref_v1(p_tenant_id uuid, p_appointment_id uuid)',
+        'appointment.practitioner_credential_v1(p_tenant_id uuid, p_practitioner_id uuid)',
+        'appointment.appointment_consultation_fee_v1(p_tenant_id uuid, p_appointment_id uuid)')) = 15,
+  'all 15 published _v1 functions exist with their exact signatures, SECURITY DEFINER, search_path pinned');
 select tests.ok(
   not exists (select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace
               where c.relkind = 'v' and n.nspname in ('identity', 'patient', 'appointment', 'messaging')

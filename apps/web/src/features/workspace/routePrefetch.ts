@@ -22,6 +22,7 @@ const loaders: Record<string, () => Promise<unknown>> = {
   '/admin/members': () => import('../admin/MembersPage'),
   '/admin/practitioners': () => import('../admin/PractitionersPage'),
   '/admin/working-hours': () => import('../admin/WorkingHoursPage'),
+  '/admin/visit-types': () => import('../admin/VisitTypesPage'),
   '/admin/hospital': () => import('../admin/HospitalSettingsPage'),
   '/admin/price-list': () => import('../admin/PriceListPage'),
   '/platform': () => import('../platform/PlatformHospitalsPage'),
