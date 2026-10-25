@@ -344,6 +344,39 @@ interface MockSession {
   branchId: string
 }
 
+function earningsReport() {
+  const move = { direction: 'down', pct: -12 }
+  const card = {
+    grossBilledPaise: 1038400, collectedPaise: 1038400, refundsPaise: 0, netEarningsPaise: 1038400, outstandingPaise: 0,
+    discountPaise: 0, cgstPaise: 79200, sgstPaise: 79200, igstPaise: 0, billCount: 1, averageBillPaise: 1038400,
+    visitCount: 1, doctorCount: 1, revenuePerVisitPaise: 1038400, revenuePerDoctorPaise: 1038400,
+    collectionEfficiencyPct: 100, refundRatePct: 0, discountRatePct: 0,
+    periodGrowthPct: -12, momGrowthPct: null, yoyGrowthPct: null,
+    deltas: {
+      grossBilled: move, collected: move, netEarnings: move, refunds: { direction: 'flat', pct: null }, billCount: move,
+      averageBill: move, collectionEfficiency: move, refundRate: move, mom: move, yoy: move,
+    },
+  }
+  return {
+    from: '2026-04-01', to: '2026-04-30', grain: 'month', branchId: null, financialYear: null, quarter: null, level: 'tenant',
+    tenant: card, focus: card,
+    branches: [{
+      branchId: ids.alphaMain, name: 'Alpha Main Campus', gstin: '36AABCU9603R1ZM', deleted: false, rank: 1, sharePct: 89.8,
+      grossBilledPaise: 1038400, collectedPaise: 1038400, netEarningsPaise: 1038400, outstandingPaise: 0, billCount: 1,
+      periodGrowthPct: -12, direction: 'down',
+    }],
+    trend: [{ bucket: '2026-04-01', grossBilledPaise: 1038400, collectedPaise: 1038400, netEarningsPaise: 1038400 }],
+    doctors: [], services: [], paymentModes: [],
+    ageing: { b0To30Paise: 0, b31To60Paise: 0, b61To90Paise: 0, b90PlusPaise: 0 },
+    topBottom: { topBranch: null, bottomBranch: null, topDoctor: null, bottomDoctor: null },
+    insights: ['Alpha Main Campus revenue down 12% vs last month'],
+    gstr1: [{ gstin: '36AABCU9603R1ZM', month: '2026-04', b2cTaxablePaise: 880000, b2bTaxablePaise: 0, b2cCgstPaise: 79200, b2cSgstPaise: 79200, b2cIgstPaise: 0, b2bCgstPaise: 0, b2bSgstPaise: 0, b2bIgstPaise: 0, b2cInvoices: 1, b2bInvoices: 0, creditNoteCount: 0 }],
+    gstr3b: [], hsn: [],
+    sales: [{ invoiceNumber: 'AM-APR', date: '2026-04-10', party: 'Asha Synthetic-Alpha', supply: 'B2C', gstin: '36AABCU9603R1ZM', taxablePaise: 880000, cgstPaise: 79200, sgstPaise: 79200, igstPaise: 0, taxPaise: 158400, totalPaise: 1038400 }],
+    creditNotes: [], refunds: [], receipts: [], dayEndCash: [], truncated: false,
+  }
+}
+
 export class MockBackend {
   readonly calls: RecordedCall[] = []
   /** Pending injected faults, consumed in order (see Fault). */
@@ -363,6 +396,7 @@ export class MockBackend {
     this.addUser('reception@alpha.example').memberships.push(this.membership(ids.alpha, ids.alphaMain, 'receptionist', 'active'))
     this.addUser('doctor@alpha.example').memberships.push(this.membership(ids.alpha, null, 'doctor', 'active'))
     this.addUser('billing@alpha.example').memberships.push(this.membership(ids.alpha, null, 'billing', 'active'))
+    this.addUser('accounts@alpha.example').memberships.push(this.membership(ids.alpha, null, 'accountant', 'active'))
     // Level 1: the platform operator (no hospital membership) and an account invited by link.
     this.addUser(OPERATOR_EMAIL).platformAdmin = true
     this.addUser(INVITEE_EMAIL)
@@ -865,6 +899,29 @@ export class MockBackend {
     } catch {
       body = {}
     }
+    if (path === '/api/v1/billing-reports/earnings' || path === '/api/v1/billing-reports/earnings/export') {
+      const allowed = roles.includes('tenant_admin') || roles.includes('billing') || roles.includes('accountant')
+      if (!allowed) return reply(403, { title: 'Forbidden', status: 403, code: 'forbidden' })
+      if (path.endsWith('/export')) {
+        const format = (url.searchParams.get('format') ?? 'csv').toLowerCase()
+        if (format === 'xlsx') {
+          return route.fulfill({
+            status: 200,
+            headers: {
+              'content-type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+              'content-disposition': 'attachment; filename="earnings-accounts.xlsx"',
+            },
+            body: 'PK\u0003\u0004synthetic',
+          })
+        }
+        return route.fulfill({
+          status: 200,
+          headers: { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': 'attachment; filename="earnings-sales.csv"' },
+          body: 'Invoice number,Date\nAM-APR,2026-04-10\n',
+        })
+      }
+      return reply(200, earningsReport(), tenant)
+    }
     const billed = this.billingResponse(method, path, url, body, request.headers()['idempotency-key'] ?? null)
     if (billed) return reply(billed.status, billed.body, tenant)
 
@@ -878,7 +935,7 @@ export class MockBackend {
           activeTenantId: tenant,
           activeBranchId: scopedBranches && scopedBranches.size === 1 ? [...scopedBranches][0] : null,
           roles,
-          accessibleBranches: tenant ? tenants[tenant]!.branches.filter((b) => !scopedBranches || scopedBranches.has(b.id)).map(({ id, name }) => ({ id, name })) : [],
+          accessibleBranches: tenant ? tenants[tenant]!.branches.filter((b) => !scopedBranches || scopedBranches.has(b.id)).map(({ id, name }) => ({ id, name, timeZone: this.branchZone(id) })) : [],
           memberships: active.filter((m) => this.tenantIsActive(m.tenantId)).map((m) => ({ tenantId: m.tenantId, tenantName: this.tenantNames.get(m.tenantId) ?? tenants[m.tenantId]!.name, branchId: m.branchId, branchName: null, role: m.role })),
           isPlatformAdmin: user.platformAdmin === true,
         },

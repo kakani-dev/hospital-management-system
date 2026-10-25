@@ -77,6 +77,9 @@ const ApprovalsPage = lazy(() =>
 const DayEndPage = lazy(() =>
   import("./features/billing/DayEndPage").then((m) => ({ default: m.DayEndPage })),
 );
+const EarningsPage = lazy(() =>
+  import("./features/billing/EarningsPage").then((m) => ({ default: m.EarningsPage })),
+);
 const BillsPage = lazy(() =>
   import("./features/billing/BillsPage").then((m) => ({ default: m.BillsPage })),
 );
@@ -190,6 +193,9 @@ export function App() {
           </Route>
           <Route element={<RequireCapability capability="billing.approve" />}>
             <Route path="billing/approvals" element={<Lazy><ApprovalsPage /></Lazy>} />
+          </Route>
+          <Route element={<RequireCapability capability="billing.earnings" />}>
+            <Route path="billing/earnings" element={<Lazy><EarningsPage /></Lazy>} />
           </Route>
           <Route element={<RequireCapability capability="billing.view" />}>
             <Route path="billing/bills" element={<Lazy><BillsPage /></Lazy>} />

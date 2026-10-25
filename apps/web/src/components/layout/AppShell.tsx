@@ -6,6 +6,7 @@ import { useWorkspace } from '../../features/workspace/WorkspaceProvider'
 import {
   BuildingOffice2Icon,
   BanknotesIcon,
+  PresentationChartLineIcon,
   CalendarDaysIcon,
   CheckBadgeIcon,
   ClipboardDocumentCheckIcon,
@@ -122,6 +123,9 @@ export function AppShell() {
                   { id: 'bills', path: '/billing/bills', title: 'Bills', Icon: DocumentTextIcon },
                   { id: 'day-end', path: '/billing/day-end', title: 'Day end', Icon: BanknotesIcon },
                 ]
+              : []),
+            ...(has('billing.earnings')
+              ? [{ id: 'earnings', path: '/billing/earnings', title: 'Earnings', Icon: PresentationChartLineIcon }]
               : []),
           ],
     }
