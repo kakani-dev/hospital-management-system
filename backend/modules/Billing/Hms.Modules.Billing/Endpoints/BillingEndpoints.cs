@@ -58,6 +58,13 @@ public static class BillingEndpoints
             Exec(db, tenant, HmsPermissions.BillingPricelistManage,
                 "select billing.set_branch_prefix(@t::uuid, @b::uuid, @p::text)::text", ct,
                 ("b", branchId), ("p", body.GetProperty("docPrefix").GetString())));
+        lists.MapGet("/branches/{branchId:guid}/profile", (Guid branchId, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
+            Exec(db, tenant, HmsPermissions.BillingView,
+                "select billing.branch_profile_json(@t::uuid, @br::uuid)::text", ct, ("br", branchId)));
+        lists.MapPut("/branches/{branchId:guid}/profile", (Guid branchId, JsonElement body, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
+            Exec(db, tenant, HmsPermissions.BillingPricelistManage,
+                "select billing.set_branch_profile(@t::uuid, @br::uuid, @j::jsonb)::text", ct,
+                ("br", branchId), ("j", body.GetRawText())));
 
         api.MapGet("/price", ResolvePriceAsync).WithTags("Billing").RequireTenant().WithDbTransaction<BillingDbContext>();
 
@@ -71,8 +78,16 @@ public static class BillingEndpoints
             Exec(db, tenant, HmsPermissions.BillingView, "select billing.patient_summary(@t::uuid, @p::uuid)::text", ct, ("p", patientId)));
 
         var bills = api.MapGroup("/bills").WithTags("Billing").RequireTenant().WithDbTransaction<BillingDbContext>();
+        bills.MapGet("/", (string? status, Guid? branchId, DateOnly? from, DateOnly? to, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
+            Exec(db, tenant, HmsPermissions.BillingView,
+                "select billing.list_bills(@t::uuid, @s::text, @br::uuid, @f::date, @u::date)::text", ct,
+                ("s", status), ("br", branchId), ("f", from), ("u", to)));
         bills.MapGet("/{id:guid}", (Guid id, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
             Exec(db, tenant, HmsPermissions.BillingView, "select billing.bill_document(@t::uuid, @b::uuid)::text", ct, ("b", id)));
+        bills.MapPut("/{id:guid}/place-of-supply", (Guid id, JsonElement body, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
+            Exec(db, tenant, HmsPermissions.BillingBill,
+                "select billing.set_place_of_supply(@t::uuid, @b::uuid, @s::text)::text", ct,
+                ("b", id), ("s", body.GetProperty("stateCode").GetString())));
         bills.MapPost("/{id:guid}/lines", (Guid id, JsonElement body, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
             Exec(db, tenant, HmsPermissions.BillingBill, "select billing.add_line(@t::uuid, @b::uuid, @j::jsonb)::text", ct, ("b", id), ("j", body.GetRawText())));
         bills.MapDelete("/{id:guid}/lines/{lineId:guid}", (Guid id, Guid lineId, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
@@ -98,6 +113,10 @@ public static class BillingEndpoints
             .WithTags("Billing").RequireTenant().WithDbTransaction<BillingDbContext>();
 
         var approvals = api.MapGroup("/approvals").WithTags("Billing").RequireTenant().WithDbTransaction<BillingDbContext>();
+        approvals.MapGet("/settings", (BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
+            Exec(db, tenant, HmsPermissions.BillingView, "select billing.approval_settings_json(@t::uuid)::text", ct));
+        approvals.MapPut("/settings", (JsonElement body, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
+            Exec(db, tenant, HmsPermissions.BillingApprove, "select billing.set_approval_settings(@t::uuid, @j::jsonb)::text", ct, ("j", body.GetRawText())));
         approvals.MapGet("/", (string? status, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
             Exec(db, tenant, HmsPermissions.BillingView, "select billing.list_approvals(@t::uuid, @s::text)::text", ct, ("s", status)));
         approvals.MapPost("/{id:guid}/decide", (Guid id, JsonElement body, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>

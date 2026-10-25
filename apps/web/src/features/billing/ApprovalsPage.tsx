@@ -11,6 +11,21 @@ import { formatPaise } from './money'
 export function ApprovalsPage() {
   const qc = useQueryClient()
   const [note, setNote] = useState('')
+  const settings = useQuery({
+    queryKey: ['billing', 'approval-settings'],
+    queryFn: () => apiClient.billing.approvalSettings(),
+  })
+  const [threshold, setThreshold] = useState('')
+  const [cancelPct, setCancelPct] = useState('')
+  const [noShowPct, setNoShowPct] = useState('')
+  const saveSettings = useMutation({
+    mutationFn: () => apiClient.billing.saveApprovalSettings({
+      makerCheckerThresholdPaise: threshold === '' ? (settings.data?.makerCheckerThresholdPaise ?? 20000) : Math.round(Number(threshold) * 100),
+      cancelRefundPctBp: cancelPct === '' ? (settings.data?.cancelRefundPctBp ?? 10000) : Math.round(Number(cancelPct) * 100),
+      noShowRefundPctBp: noShowPct === '' ? (settings.data?.noShowRefundPctBp ?? 0) : Math.round(Number(noShowPct) * 100),
+    }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['billing', 'approval-settings'] }),
+  })
   const list = useQuery({
     queryKey: ['billing', 'approvals', 'pending'],
     queryFn: () => apiClient.billing.approvals('pending'),
@@ -24,7 +39,50 @@ export function ApprovalsPage() {
   return (
     <div className="mx-auto max-w-lg space-y-4 p-4 sm:p-6">
       <h1 className="text-xl font-semibold text-gray-800 dark:text-dark-50">Pending approvals</h1>
-      <p className="text-sm text-gray-500 dark:text-dark-300">Discounts and refunds above the cashier’s limit.</p>
+      <p className="text-sm text-gray-500 dark:text-dark-300">Discounts and refunds above the cashier’s limit need someone else to approve them.</p>
+      <form
+        className="space-y-2 rounded-lg border border-gray-200 p-4 dark:border-dark-500"
+        onSubmit={(event) => {
+          event.preventDefault()
+          saveSettings.mutate()
+        }}
+      >
+        <label className="block text-sm">
+          Maker-checker above (rupees)
+          <input
+            aria-label="Maker-checker above (rupees)"
+            inputMode="decimal"
+            className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-dark-500 dark:bg-dark-700"
+            placeholder={settings.data ? String(settings.data.makerCheckerThresholdPaise / 100) : '200'}
+            value={threshold}
+            onChange={(event) => setThreshold(event.target.value)}
+          />
+        </label>
+        <label className="block text-sm">
+          Cancel refund (%)
+          <input
+            aria-label="Cancel refund percent"
+            inputMode="decimal"
+            className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-dark-500 dark:bg-dark-700"
+            placeholder={settings.data ? String(settings.data.cancelRefundPctBp / 100) : '100'}
+            value={cancelPct}
+            onChange={(event) => setCancelPct(event.target.value)}
+          />
+        </label>
+        <label className="block text-sm">
+          No-show refund (%)
+          <input
+            aria-label="No-show refund percent"
+            inputMode="decimal"
+            className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-dark-500 dark:bg-dark-700"
+            placeholder={settings.data ? String(settings.data.noShowRefundPctBp / 100) : '0'}
+            value={noShowPct}
+            onChange={(event) => setNoShowPct(event.target.value)}
+          />
+        </label>
+        <Button type="submit" variant="secondary" disabled={saveSettings.isPending}>Save limits</Button>
+        {saveSettings.isError && <Alert tone="error">Could not save the limits.</Alert>}
+      </form>
       {list.isPending && <LoadingBlock label="Loading approvals" />}
       {list.isError && <Alert tone="error">{list.error instanceof ApiError ? list.error.message : 'Could not load approvals.'}</Alert>}
       {list.data?.length === 0 && (

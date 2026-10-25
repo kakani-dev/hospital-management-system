@@ -9,6 +9,21 @@ test.beforeEach(async ({ context }) => {
   await backend.install(context)
 })
 
+test('check-in opens the consult bill, and the bill list can filter it', async ({ page }) => {
+  await signIn(page, 'reception@alpha.example')
+  await page.goto('/reception/check-in')
+  await page.getByRole('button', { name: 'Check in Asha Synthetic-Alpha at 09:30' }).click()
+  await expect(page.getByTestId('token-number')).toHaveText('1')
+  await expect(page.getByTestId('billing-drawer')).toBeVisible()
+  await expect(page.getByTestId('billing-drawer').getByText('OP consultation')).toBeVisible()
+  await expect(page.getByTestId('bill-gstin')).toBeVisible()
+
+  await page.getByRole('link', { name: 'Bills' }).click()
+  await expect(page.getByRole('heading', { name: 'Bills' })).toBeVisible()
+  await page.getByLabel('Bill status').selectOption('draft')
+  await expect(page.getByTestId('bill-row').first()).toBeVisible()
+})
+
 test('Alt+B raises an OP consult bill, then the UPI QR shows Paid', async ({ page }) => {
   await signIn(page, 'reception@alpha.example')
   await page.keyboard.press('Control+K')

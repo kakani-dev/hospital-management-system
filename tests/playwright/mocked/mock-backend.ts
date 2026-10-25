@@ -674,6 +674,21 @@ export class MockBackend {
   }
 
   private billingResponse(method: string, path: string, url: URL, body: Record<string, unknown>, idempotencyKey: string | null): { status: number; body: unknown } | null {
+    if (method === 'POST' && path === '/api/v1/accounts/from-appointment') {
+      const bill = this.blankBill(String(body.patientId ?? patientIds.asha), ids.alphaMain)
+      bill.lines.push(this.consultLine())
+      bill.totalPaise = 50000
+      bill.duePaise = 50000
+      this.mockBills.set(bill.id, bill)
+      return { status: 200, body: this.billJson(bill) }
+    }
+    if (method === 'GET' && path === '/api/v1/bills') {
+      const status = url.searchParams.get('status')
+      const rows = [...this.mockBills.values()]
+        .filter((bill) => !status || bill.status === status)
+        .map((bill) => ({ id: bill.id, billNo: bill.billNo, status: bill.status, billKind: 'final', patientId: bill.patientId, branchId: bill.branchId, totalPaise: bill.totalPaise, duePaise: bill.duePaise, createdOn: '2026-10-25T00:00:00Z' }))
+      return { status: 200, body: rows }
+    }
     const summary = /^\/api\/v1\/accounts\/([^/]+)\/summary$/.exec(path)
     if (method === 'GET' && summary) {
       return { status: 200, body: { patientId: summary[1], advancePaise: 0, accounts: [], bills: [] } }
