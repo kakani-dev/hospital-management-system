@@ -63,15 +63,14 @@ Set by the image (`appsettings.json`) plus the deploy workflow:
 | `Email__Dispatcher__Enabled` | `true` (workflow, main deploy of identity) | no |
 | `Email__Dispatcher__DailySendLimit` | `400` | no |
 
-`Outbox__Dispatcher__Enabled` stays unset or `false` on identity. That dispatcher claims scheduling
-events, which this service cannot see.
+`Outbox__Dispatcher__Enabled` stays unset or `false` on identity, and `Outbox__Dispatcher__DryRun` stays true. When that flag is turned on later, identity claims only its own tenant events. It does not claim `email_message` rows; those stay on this email worker.
 
 ### Other apps
 
 | App | Required setting |
 |---|---|
 | `ca-hms-edge`, `ca-hms-patients`, `ca-hms-scheduling` | Do not set `Smtp__Password`, `Email__Dispatcher__Enabled`, or `Auth__Supabase__ServiceRoleKey`. |
-| Legacy monolith (`hms_api`) | `Outbox__Dispatcher__Enabled=false`. Do not grant `hms_mailer` or `hms_dispatcher`. |
+| Legacy monolith (`hms_api`) | Do not grant `hms_mailer` or `hms_dispatcher`. The rollout does not read this app. |
 
 ### Database (hosted Supabase, approval required)
 

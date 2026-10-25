@@ -6,9 +6,9 @@
 # must pass. Any failure, or cancellation of this script, puts 100% of the traffic back
 # on the previous revision and deactivates the new one.
 #
-# Never updates the legacy App Service medicore-hms-api. Never enables the outbox
-# dispatcher (B1: it stays off on medicore-hms-api and on every service). No database
-# migration. No registry password.
+# Never updates the legacy App Service medicore-hms-api, and does not read it.
+# Never enables the outbox dispatcher (B1: Outbox__Dispatcher__Enabled stays off on
+# every container app). No database migration. No registry password.
 #
 # ca-hms-identity, and only that app, receives SMTP_PASSWORD (secret smtp-password,
 # Smtp__Password=secretref:smtp-password) and SUPABASE_SERVICE_ROLE_KEY (secret
@@ -44,7 +44,6 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 RG="${RESOURCE_GROUP:-rg-medicore-hms-dev}"
 ACR_NAME="${ACR_NAME:-acrmedicorehmsdev}"
 ACR_LOGIN_SERVER="${ACR_LOGIN_SERVER:-${ACR_NAME}.azurecr.io}"
-LEGACY_APP="medicore-hms-api"
 STATE="${ROLLBACK_STATE:-${RUNNER_TEMP:-/tmp}/aca-rollback.tsv}"
 IMAGE_TAG="${IMAGE_TAG:-}"
 rolling=0
@@ -160,18 +159,22 @@ cleanup() {
   exit "$status"
 }
 
-b1_legacy() {
-  local value
-  if ! value="$(az webapp config appsettings list -g "$RG" -n "$LEGACY_APP" \
-      --query "[?name=='Outbox__Dispatcher__Enabled'].value | [0]" -o tsv)"; then
-    die "B1 guard could not read $LEGACY_APP settings. The legacy App Service was not modified."
-  fi
-  case "$value" in
-    true|True|TRUE|1)
-      die "B1: $LEGACY_APP Outbox__Dispatcher__Enabled must stay false. Refusing to deploy."
-      ;;
-  esac
-  echo "B1: $LEGACY_APP outbox dispatcher is off (setting ${value:-unset})"
+# The retired web app is not consulted. Each container app carries its own flag.
+b1_aca() {
+  local service app value
+  for service in identity patients scheduling billing inventory edge; do
+    app="ca-hms-$service"
+    if ! value="$(az containerapp show -g "$RG" -n "$app" \
+        --query "properties.template.containers[0].env[?name=='Outbox__Dispatcher__Enabled'].value | [0]" -o tsv)"; then
+      die "B1 guard could not read $app Outbox__Dispatcher__Enabled. No container was updated."
+    fi
+    case "$value" in
+      true|True|TRUE|1)
+        die "B1: $app Outbox__Dispatcher__Enabled must stay false. Refusing to deploy."
+        ;;
+    esac
+  done
+  echo "B1: outbox dispatcher is off on every container app"
 }
 
 preflight_app() {
@@ -456,7 +459,7 @@ main() {
   done
 
   : >"$STATE"
-  b1_legacy
+  b1_aca
   local fqdn
   fqdn="$(az containerapp show -g "$RG" -n ca-hms-edge --query properties.configuration.ingress.fqdn -o tsv)"
   [[ -n "$fqdn" ]] || die "ca-hms-edge has no public fqdn"

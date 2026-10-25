@@ -19,6 +19,7 @@ public static class BillingModule
         services.AddDbContext<BillingDbContext>((sp, options) => options
             .UseHmsNpgsql(configuration)
             .AddInterceptors(sp.GetRequiredService<RlsTransactionInterceptor>()));
+        services.Configure<BillingPaymentOptions>(configuration.GetSection(BillingPaymentOptions.Section));
         services.TryAddSingleton<IPaymentProvider, StubPaymentProvider>();
         services.TryAddSingleton<IBillShareSender, StubBillShareSender>();
         return services;

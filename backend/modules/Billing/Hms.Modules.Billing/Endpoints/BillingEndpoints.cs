@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -11,7 +10,6 @@ using Hms.SharedKernel.Tenancy;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
-using Microsoft.Extensions.Configuration;
 
 namespace Hms.Modules.Billing.Endpoints;
 
@@ -196,26 +194,59 @@ public static class BillingEndpoints
         }
     }
 
-    private static async Task<IResult> WebhookAsync(string provider, HttpRequest request, BillingDbContext db, IConfiguration configuration, CancellationToken ct)
+    private static async Task<IResult> WebhookAsync(
+        string provider, HttpRequest request, BillingDbContext db, IPaymentProvider payments, TimeProvider clock, CancellationToken ct)
     {
-        var expected = configuration["Billing:WebhookSecret"] ?? "";
-        var got = request.Headers["X-Billing-Webhook-Secret"].ToString();
-        if (!SecretMatches(expected, got))
+        var bytes = await ReadBodyAsync(request, ct);
+        if (bytes is null)
+        {
+            return HmsProblems.BadRequest(HmsProblems.Codes.InvalidParameter, "Webhook body is too large.");
+        }
+
+        if (!payments.VerifyWebhook(provider, bytes, request.Headers[WebhookSignature.HeaderName].ToString(), clock.GetUtcNow()))
         {
             return Results.Unauthorized();
         }
 
-        using var reader = new StreamReader(request.Body);
-        var body = await reader.ReadToEndAsync(ct);
+        var body = Encoding.UTF8.GetString(bytes);
         try
         {
-            var value = await RawSql.ScalarAsync(db, "select billing.apply_webhook(@p::text, @b::jsonb)::text", ct, ("p", provider), ("b", body));
+            // Anonymous HTTP starts as anon. HMAC is already checked, so this transaction
+            // switches to the billing service role. anon itself cannot execute apply_webhook,
+            // which keeps the Data API from applying a payment without the signature check.
+            await RawSql.ScalarAsync(db, "select set_config('role', 'hms_svc_billing', true)", ct);
+            var value = await RawSql.ScalarAsync(
+                db,
+                "select billing.apply_webhook(@p::text, @b::jsonb)::text",
+                ct,
+                ("p", provider),
+                ("b", body));
             return Json(value?.ToString() ?? "null");
         }
         catch (Exception ex) when (HmsProblems.FromDatabase(ex) is { } problem)
         {
             return problem;
         }
+    }
+
+    private static async Task<byte[]?> ReadBodyAsync(HttpRequest request, CancellationToken ct)
+    {
+        const int maxBytes = 65_536;
+        request.EnableBuffering();
+        using var buffer = new MemoryStream();
+        var rented = new byte[8192];
+        int read;
+        while ((read = await request.Body.ReadAsync(rented.AsMemory(), ct)) > 0)
+        {
+            if (buffer.Length + read > maxBytes)
+            {
+                return null;
+            }
+
+            buffer.Write(rented, 0, read);
+        }
+
+        return buffer.ToArray();
     }
 
     private static Task<IResult> Write(BillingDbContext db, ITenantContext tenant, string permission, string sql, JsonElement body, CancellationToken ct) =>
@@ -255,16 +286,4 @@ public static class BillingEndpoints
     }
 
     private static IResult Json(string body) => Results.Text(body, "application/json");
-
-    private static bool SecretMatches(string expected, string got)
-    {
-        if (expected.Length == 0)
-        {
-            return false;
-        }
-
-        var a = Encoding.UTF8.GetBytes(expected);
-        var b = Encoding.UTF8.GetBytes(got);
-        return a.Length == b.Length && CryptographicOperations.FixedTimeEquals(a, b);
-    }
 }

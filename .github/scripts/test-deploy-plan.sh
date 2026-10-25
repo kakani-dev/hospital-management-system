@@ -164,8 +164,8 @@ if grep -RInE 'az webapp (config appsettings set|deploy|restart|update|start|sto
     .github/scripts .github/workflows scripts
   fail "legacy App Service must not be modified"
 fi
-if grep -n 'az webapp' .github/scripts/aca-rollout.sh | grep -v 'appsettings list'; then
-  fail "rollout may only read the legacy outbox setting"
+if grep -n 'az webapp' .github/scripts/aca-rollout.sh; then
+  fail "rollout must not call az webapp"
 fi
 if grep -n 'az webapp' .github/scripts/aca-cleanup-azure.sh .github/workflows/cleanup.yml .github/workflows/deploy-aca.yml; then
   fail "cleanup and the workflow must not call az webapp"
@@ -466,7 +466,7 @@ if [[ "$all" == *"registries"* ]]; then
   exit 0
 fi
 if [[ "$all" == *"Outbox__Dispatcher__Enabled"* ]]; then
-  if [[ -n "${APP_OUTBOX_TRUE:-}" ]]; then echo true; else echo false; fi
+  if [[ -n "${APP_OUTBOX_TRUE:-}" || -n "${B1_FORCE:-}" ]]; then echo true; else echo false; fi
   exit 0
 fi
 if [[ "$all" == acr\ repository\ show* ]]; then exit 0; fi

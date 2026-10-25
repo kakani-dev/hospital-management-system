@@ -15,8 +15,10 @@ public sealed partial class EmailOutboxDispatcher(
     IEmailSender sender,
     IOptions<EmailDeliveryOptions> options,
     TimeProvider clock,
-    ILogger<EmailOutboxDispatcher> logger) : BackgroundService
+    ILogger<EmailOutboxDispatcher> logger,
+    EmailDispatcherHealth? health = null) : BackgroundService
 {
+    private readonly EmailDispatcherHealth _health = health ?? new EmailDispatcherHealth(options);
     private DateTimeOffset _limitLoggedAt = DateTimeOffset.MinValue;
 
     public string WorkerId { get; } = Truncate($"{Environment.MachineName}:{Environment.ProcessId}:{Guid.NewGuid():N}", 200);
@@ -47,6 +49,7 @@ public sealed partial class EmailOutboxDispatcher(
 #pragma warning restore CA1031
             {
                 LogPollFailed(logger, ex.GetType().Name);
+                _health.RecordFailure(clock.GetUtcNow());
                 handled = 0;
             }
 
@@ -71,6 +74,7 @@ public sealed partial class EmailOutboxDispatcher(
                 LogDailyLimit(logger, limit);
             }
 
+            _health.RecordPoll(clock.GetUtcNow(), 0);
             return 0;
         }
 
@@ -100,6 +104,7 @@ public sealed partial class EmailOutboxDispatcher(
             }
         }
 
+        _health.RecordPoll(clock.GetUtcNow(), batch.Count);
         return batch.Count;
     }
 

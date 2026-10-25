@@ -13,7 +13,7 @@ The web app stays on Vercel. Production deploys of the web app run from GitHub A
 
 Resource group `rg-medicore-hms-dev`, Central India. Registry `acrmedicorehmsdev` (admin user disabled). Every app pulls `acrmedicorehmsdev.azurecr.io/hms-<svc>:sha-<full 40-character commit sha>`, not GHCR. Patients uses its existing identity with AcrPull. Scheduling uses its system-assigned identity with AcrPull. The deploy does not change those bindings.
 
-`medicore-hms-api` (the App Service) is stopped. Production web traffic uses the edge. The pipeline still reads that app's `Outbox__Dispatcher__Enabled` and refuses to deploy if it is true. It does not start, deploy, or reconfigure the App Service. On the current schema `hms_api` is not a member of `hms_dispatcher` (B1). This pipeline never runs a database migration.
+`medicore-hms-api` (the App Service) is stopped. Production web traffic uses the edge. The pipeline does not read, start, deploy, or reconfigure that app. Before it updates any container it reads `Outbox__Dispatcher__Enabled` on all six container apps and refuses the deploy if any of them is true. On the current schema `hms_api` is not a member of `hms_dispatcher` (B1). This pipeline never runs a database migration.
 
 ACR Basic is a paid SKU (about $0.17 per day). Container Apps stay on the consumption plan the apps were created with.
 

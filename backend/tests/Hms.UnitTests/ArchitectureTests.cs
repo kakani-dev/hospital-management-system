@@ -63,21 +63,25 @@ public class ArchitectureTests
         Assert.Equal(["Hms.Platform"], References("edge/Hms.Edge/Hms.Edge.csproj"));
 
     [Fact]
-    public void Only_the_identity_service_registers_the_email_worker()
+    public void Email_worker_stays_on_identity_and_the_outbox_dispatcher_stays_on_owning_services()
     {
         var identity = File.ReadAllText(Path.Combine(Backend, "services", "identity", "Hms.Identity.Api", "Program.cs"));
         var patients = File.ReadAllText(Path.Combine(Backend, "services", "patients", "Hms.Patients.Api", "Program.cs"));
         var scheduling = File.ReadAllText(Path.Combine(Backend, "services", "scheduling", "Hms.Scheduling.Api", "Program.cs"));
         var billing = File.ReadAllText(Path.Combine(Backend, "services", "billing", "Hms.Billing.Api", "Program.cs"));
         var inventory = File.ReadAllText(Path.Combine(Backend, "services", "inventory", "Hms.Inventory.Api", "Program.cs"));
+        var edge = File.ReadAllText(Path.Combine(Backend, "edge", "Hms.Edge", "Program.cs"));
         Assert.Contains("AddIdentityEmailDelivery", identity, StringComparison.Ordinal);
         Assert.DoesNotContain("AddIdentityEmailDelivery", patients, StringComparison.Ordinal);
         Assert.DoesNotContain("AddIdentityEmailDelivery", scheduling, StringComparison.Ordinal);
         Assert.DoesNotContain("AddIdentityEmailDelivery", billing, StringComparison.Ordinal);
         Assert.DoesNotContain("AddIdentityEmailDelivery", inventory, StringComparison.Ordinal);
-        Assert.DoesNotContain("AddHmsOutboxDispatcher", billing, StringComparison.Ordinal);
+        Assert.Contains("AddHmsOutboxDispatcher", identity, StringComparison.Ordinal);
+        Assert.Contains("AddHmsOutboxDispatcher", patients, StringComparison.Ordinal);
+        Assert.Contains("AddHmsOutboxDispatcher", scheduling, StringComparison.Ordinal);
+        Assert.Contains("AddHmsOutboxDispatcher", billing, StringComparison.Ordinal);
         Assert.DoesNotContain("AddHmsOutboxDispatcher", inventory, StringComparison.Ordinal);
-        Assert.DoesNotContain("AddHmsOutboxDispatcher", identity, StringComparison.Ordinal);
+        Assert.DoesNotContain("AddHmsOutboxDispatcher", edge, StringComparison.Ordinal);
     }
 
     [Fact]

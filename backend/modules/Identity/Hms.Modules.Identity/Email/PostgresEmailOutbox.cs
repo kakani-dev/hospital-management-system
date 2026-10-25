@@ -7,8 +7,9 @@ namespace Hms.Modules.Identity.Email;
 
 /// <summary>
 /// Claims <c>email_message</c> rows as <c>hms_mailer</c>. The identity login can assume that role;
-/// the legacy <c>hms_api</c> login cannot (B1). Scheduling keeps <c>hms_dispatcher</c> and does not
-/// see these rows.
+/// the legacy <c>hms_api</c> login cannot (B1). <c>claim_email_outbox</c> keeps one aggregate in
+/// id order. <c>complete_outbox</c> records <c>processed_on</c>. The domain dispatcher does not
+/// claim these rows.
 /// </summary>
 public sealed class PostgresEmailOutbox(NpgsqlDataSource dataSource) : IEmailOutbox
 {
