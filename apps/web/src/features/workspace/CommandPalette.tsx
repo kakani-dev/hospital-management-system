@@ -29,6 +29,7 @@ const ACTIONS: Action[] = [
   { id: 'check-in', label: 'Reception check-in', hint: 'Today’s appointments', capability: 'queue.checkIn', run: 'navigate', path: '/reception/check-in' },
   { id: 'queue', label: 'OPD queue', hint: 'Today’s tokens', capability: 'queue.view', run: 'navigate', path: '/queue' },
   { id: 'patients', label: 'Patients', hint: 'Search the registry', capability: 'patients.view', run: 'navigate', path: '/patients' },
+  { id: 'earnings', label: 'Earnings', hint: 'Hospital and branch accounts', capability: 'billing.earnings', run: 'navigate', path: '/billing/earnings' },
   { id: 'desk', label: 'Invite staff and branches', hint: 'Hospital desk', capability: 'admin.members', run: 'navigate', path: '/admin/desk' },
   { id: 'price-list', label: 'Price list', hint: 'Services and rates', capability: 'admin.pricelist', run: 'navigate', path: '/admin/price-list' },
   { id: 'stock', label: 'Stock', hint: 'Items, stores, and quantities on hand', capability: 'stock.view', run: 'navigate', path: '/stock' },

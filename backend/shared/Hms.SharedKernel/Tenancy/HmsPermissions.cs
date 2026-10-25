@@ -42,6 +42,8 @@ public static class HmsPermissions
     public const string BillingDiscountRequest = "billing.discount_request";
     public const string BillingApprove = "billing.approve";
     public const string BillingRefund = "billing.refund";
+    /// <summary>Read the earnings dashboard and CA registers. Not granted to reception.</summary>
+    public const string BillingEarnings = "billing.earnings";
     public const string BillingCounterReconcile = "billing.counter_reconcile";
     public const string BillingPricelistManage = "billing.pricelist_manage";
     public const string InventoryView = "inventory.view";
@@ -64,7 +66,7 @@ public static class HmsPermissions
             PatientsView, PatientsCreate, PatientsEdit, PatientsDelete, PatientsRestore,
             AppointmentsView, AppointmentsBook, AppointmentsReschedule, AppointmentsCancel, AppointmentsCheckIn, AppointmentsNoShow,
             AppointmentsOverrideHours, QueueView, QueueManage,
-            BillingView, BillingBill, BillingCollect, BillingDiscountRequest, BillingApprove, BillingRefund,
+            BillingView, BillingBill, BillingCollect, BillingDiscountRequest, BillingApprove, BillingRefund, BillingEarnings,
             BillingCounterReconcile, BillingPricelistManage,
             InventoryView, InventoryCatalog, InventoryOpening, InventoryApprove,
             PrivacyView, PrivacyConsent, PrivacyNotice, PrivacyRequest, PrivacyFulfil, PrivacyErase),
@@ -77,10 +79,11 @@ public static class HmsPermissions
         [HmsRoles.Nurse] = Set([.. ReadOnlyOps, PatientsView, AppointmentsView, AppointmentsBook, AppointmentsCheckIn, AppointmentsNoShow, QueueView, QueueManage]),
         [HmsRoles.Doctor] = Set([.. ReadOnlyOps, PatientsView, AppointmentsView, AppointmentsBookFollowUpOwn, AppointmentsNoShowOwn, QueueView, QueueConsultOwn, PrivacyView]),
         [HmsRoles.Billing] = Set([.. ReadOnlyOps, PatientsView, AppointmentsView,
-            BillingView, BillingBill, BillingCollect, BillingDiscountRequest, BillingRefund]),
+            BillingView, BillingBill, BillingCollect, BillingDiscountRequest, BillingRefund, BillingEarnings]),
         [HmsRoles.Pharmacist] = Set([.. ReadOnlyOps, InventoryView]),
         [HmsRoles.LabTechnician] = Set(ReadOnlyOps),
         [HmsRoles.Viewer] = Set(ReadOnlyOps),
+        [HmsRoles.Accountant] = Set([.. ReadOnlyOps, BillingEarnings]),
     };
 
     public static readonly IReadOnlySet<string> All = new HashSet<string>(ByRole.Values.SelectMany(p => p), StringComparer.Ordinal);

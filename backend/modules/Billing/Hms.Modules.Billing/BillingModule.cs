@@ -1,3 +1,4 @@
+using Hms.Modules.Billing.Caching;
 using Hms.Modules.Billing.Endpoints;
 using Hms.Modules.Billing.Payments;
 using Hms.Modules.Billing.Persistence;
@@ -19,6 +20,9 @@ public static class BillingModule
         services.AddDbContext<BillingDbContext>((sp, options) => options
             .UseHmsNpgsql(configuration)
             .AddInterceptors(sp.GetRequiredService<RlsTransactionInterceptor>()));
+        services.AddMemoryCache();
+        services.TryAddSingleton(TimeProvider.System);
+        services.AddSingleton<EarningsReportCache>();
         services.Configure<BillingPaymentOptions>(configuration.GetSection(BillingPaymentOptions.Section));
         services.TryAddSingleton<IPaymentProvider, StubPaymentProvider>();
         services.TryAddSingleton<IBillShareSender, StubBillShareSender>();

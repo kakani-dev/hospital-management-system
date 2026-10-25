@@ -2,7 +2,11 @@
 begin;
 select tests.as_superuser();
 
-select tests.ok((select count(*) from identity.role_permissions where role = 'tenant_admin') = 39, 'tenant_admin holds all 39 tenant permissions (privacy adds six)');
+select tests.ok((select count(*) from identity.role_permissions where role = 'tenant_admin') = 40, 'tenant_admin holds all 40 tenant permissions (earnings adds one)');
+select tests.ok((select count(*) from identity.role_permissions where role = 'accountant') = 4
+                and exists (select 1 from identity.role_permissions where role = 'accountant' and permission = 'billing.earnings')
+                and not exists (select 1 from identity.role_permissions where role = 'accountant' and permission in ('billing.bill', 'billing.collect', 'billing.refund', 'billing.view')),
+  'accountant can read earnings and cannot bill, collect, refund or open the bill list');
 select tests.ok(not exists (select 1 from identity.role_permissions where role in ('viewer', 'lab_technician')
                             and permission not in ('settings.view', 'branches.view', 'practitioners.view')),
   'viewer / lab_technician are read-only and see no patient data');
