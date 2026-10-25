@@ -26,6 +26,7 @@ public static partial class EdgeHost
     public static WebApplicationBuilder AddHmsEdge(this WebApplicationBuilder builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
+        builder.WebHost.ConfigureKestrel(options => options.AddServerHeader = false);
         var services = builder.Services;
         var configuration = builder.Configuration;
 
@@ -190,6 +191,9 @@ public static partial class EdgeHost
             headers["X-Content-Type-Options"] = "nosniff";
             headers["X-Frame-Options"] = "DENY";
             headers["Referrer-Policy"] = "no-referrer";
+            headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains";
+            // API documents only. The SPA's CSP lives in vercel.json; this one must not be copied onto HTML.
+            headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'";
             headers.Remove("Server");
             // Revalidatable reference reads (ReferenceETag) keep "private, no-cache"; all else is no-store.
             if (context.Request.Path.StartsWithSegments("/api") && !(headers.ContainsKey("ETag") && headers.CacheControl == ReferenceETag.CacheControlValue))

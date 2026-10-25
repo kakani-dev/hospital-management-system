@@ -102,8 +102,8 @@ public sealed class S2AppointmentApiTests(HmsApiFactory factory) : IClassFixture
 
         Assert.Equal(HttpStatusCode.Forbidden, (await S2.BookAsync(receptionMain, AlphaEast, pr.Id, patient.Id, S2.FutureSlot(6))).StatusCode);
         var atEast = (await (await S2.BookAsync(admin, AlphaEast, pr.Id, patient.Id, S2.FutureSlot(6, 12))).Content.ReadFromJsonAsync<S2Appointment>())!;
-        Assert.Equal(HttpStatusCode.Forbidden, (await receptionMain.PostAsJsonAsync($"/api/v1/appointments/{atEast.Id}/cancel", new { })).StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await receptionMain.GetAsync($"/api/v1/appointments/{atEast.Id}")).StatusCode); // reads tenant-wide (D10)
+        Assert.Equal(HttpStatusCode.NotFound, (await receptionMain.PostAsJsonAsync($"/api/v1/appointments/{atEast.Id}/cancel", new { })).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await receptionMain.GetAsync($"/api/v1/appointments/{atEast.Id}")).StatusCode); // another branch is not visible
         Assert.Equal(HttpStatusCode.Created, (await S2.BookAsync(receptionMain, AlphaMain, pr.Id, patient.Id, S2.FutureSlot(7, 14))).StatusCode); // Main on another day (one branch per day)
 
         using var beta = factory.ClientAs(BetaAdmin, Beta);

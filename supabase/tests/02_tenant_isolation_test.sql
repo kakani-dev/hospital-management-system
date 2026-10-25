@@ -55,7 +55,7 @@ select tests.throws_ok(
 
 -- ---------- Beta doctor ----------
 select tests.authenticate_as('doctor@beta.example');
-select tests.ok((select count(*) from patient.patients) = 3, 'beta doctor sees exactly the 3 Beta patients');
+select tests.ok((select count(*) from patient.patients) = 1, 'beta doctor sees only the patient on their own visit');
 select tests.ok(
   not exists (select 1 from patient.patients where tenant_id = '11111111-1111-4111-8111-111111111111'),
   'beta doctor cannot read Alpha patients');
@@ -71,8 +71,11 @@ select tests.authenticate_as('consultant@shared.example');
 select tests.ok((select count(*) from identity.current_tenant_ids()) = 2, 'multi-tenant consultant has 2 tenants without a pin');
 select tests.authenticate_as('consultant@shared.example', '{"app_metadata": {"tenant_id": "11111111-1111-4111-8111-111111111111"}}');
 select tests.ok(
-  (select count(*) from patient.patients) = 4 and not exists (select 1 from patient.patients where tenant_id = '22222222-2222-4222-8222-222222222222'),
-  'active-tenant claim pins the consultant to Alpha only');
+  (select count(*) from identity.current_tenant_ids()) = 1
+  and not exists (select 1 from identity.current_tenant_ids() t where t <> '11111111-1111-4111-8111-111111111111')
+  and (select count(*) = 1 and bool_and(id = 'aa000000-0000-4000-8000-000000000003') from patient.patients)
+  and not exists (select 1 from patient.patients where tenant_id = '22222222-2222-4222-8222-222222222222'),
+  'active-tenant claim pins the consultant to Alpha only (their own East chart, no Beta rows)');
 select tests.authenticate_as('outsider@example.test', '{"app_metadata": {"tenant_id": "11111111-1111-4111-8111-111111111111"}}');
 select tests.ok((select count(*) from patient.patients) = 0,
   'a tenant claim without a real membership grants nothing (claims are intersected with memberships)');

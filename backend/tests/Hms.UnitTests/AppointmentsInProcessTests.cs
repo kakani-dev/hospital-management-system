@@ -169,4 +169,26 @@ public sealed class AppointmentsInProcessTests(ApiFactory factory) : IClassFixtu
         Assert.Contains("Only booked appointments that have started can be marked as no-show.", detail, StringComparison.Ordinal);
         Assert.DoesNotContain("invalid_transition:", detail, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public async Task A_doctor_lists_only_appointments_of_their_linked_practitioner()
+    {
+        var doctorId = RoleUsers["doctor"];
+        using var admin = factory.ClientAs(Admin);
+        var own = await CreatePractitionerAsync();
+        var other = await CreatePractitionerAsync();
+        Assert.Equal(HttpStatusCode.OK, (await admin.PatchAsJsonAsync($"/api/v1/practitioners/{own.Id}", new { userId = doctorId })).StatusCode);
+
+        Assert.Equal(HttpStatusCode.Created, (await BookAsync(admin, Main, own.Id, Slot.AddDays(1))).StatusCode);
+        var hidden = await BookAsync(admin, Main, other.Id, Slot.AddDays(1).AddHours(1));
+        Assert.Equal(HttpStatusCode.Created, hidden.StatusCode);
+        var hiddenId = (await hidden.Content.ReadFromJsonAsync<Appointment>())!.Id;
+
+        using var doctor = factory.ClientAs(doctorId);
+        var list = await doctor.GetAsync($"/api/v1/appointments?branchId={Main}");
+        Assert.Equal(HttpStatusCode.OK, list.StatusCode);
+        using var doc = JsonDocument.Parse(await list.Content.ReadAsStringAsync());
+        Assert.Equal(1, doc.RootElement.GetProperty("items").GetArrayLength());
+        Assert.Equal(HttpStatusCode.NotFound, (await doctor.GetAsync($"/api/v1/appointments/{hiddenId}")).StatusCode);
+    }
 }
