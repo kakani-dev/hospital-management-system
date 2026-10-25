@@ -21,12 +21,19 @@ See [Signing in](README.md#signing-in-all-roles). Your admin adds you in **Membe
 
 (Screenshot taken with a billing login; the accountant sees the same page.)
 
+![Accountant dashboard](img/accountant_home.png)
+![Earnings: all branches](img/accountant_earnings_tenant.png)
+![Earnings: one branch](img/accountant_earnings_branch.png)
+
 ### Accounts tab (for the CA)
 Open **Accounts** to see the **GST summary** (by GSTIN and month: B2C taxable, B2B taxable, CGST, SGST, IGST, credit notes) and the **Sales register**.
 
 Downloads: **Sales register CSV**, **Sales register Excel**, **GST summary CSV**, **HSN summary CSV**, **Credit notes CSV**, **Receipts CSV**, **Refund register CSV**, **Day-end cash CSV**, **Ageing CSV**, and **All accounts Excel**.
 
 If you see "A register was cut at 500 rows. Narrow the dates to export the rest.", export in smaller date ranges.
+
+![Accounts tab with export buttons](img/accountant_ca_tab.png)
+![GST summary and registers (full page)](img/accountant_registers.png)
 
 ## Common errors and FAQ
 - "The earnings report could not be loaded." Try again in a moment.

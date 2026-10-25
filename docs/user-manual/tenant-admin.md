@@ -25,11 +25,16 @@ You can leave and finish later; the wizard opens again the next time you sign in
 ### Hospital desk
 **Administration → Hospital desk** shows invite links and branches on one page ("Invite staff and manage branches without leaving this page").
 
+![Hospital desk](img/admin_desk.png)
+![Hospital profile](img/admin_hospital.png)
+
 ### Branches and GSTIN
 1. **Administration → Branches**, press **Add branch**.
 2. Fill **Branch name**, **Code**, **Branch time zone** (or tick **Use hospital time zone**), **Legal name**, **Address** and **GSTIN**. Press **Save branch**.
 3. To change a branch, use **Edit branch**. Changing a time zone asks **Move future bookings?**.
 4. **Deactivate** or delete a branch from **Actions**. A branch with open appointments or queue entries cannot be deleted. Tick **Show deleted branches** to find and restore one (it comes back inactive).
+
+![Branches: the Add branch form has GSTIN and Legal name](img/admin_branches.png)
 
 ### Staff and roles (Members)
 1. **Administration → Members**, press **Add member**.
@@ -38,28 +43,44 @@ You can leave and finish later; the wizard opens again the next time you sign in
 4. You can change a member's role in the list, **Remove member**, or **Reactivate** them. You cannot change your own membership.
 5. **Invite links** (on Members and Hospital desk): **Create invite link** for an email, role and branch scope; revoke links you no longer need.
 
+![Members: add member, invite links, roles](img/admin_members.png)
+
 ### Practitioners and working hours
 1. **Administration → Practitioners → Add practitioner**: **Display name**, **Specialty**, **Department**, **Qualifications**, **Registration number** and **Council** (NMC details), **Phone**, **Email**, and **Staff account** (link the doctor's login so they see their own calendar and queue).
 2. In **Branches and hours**, add the branch, **Room**, **Fee**, **Slot minutes**, days and times, mark a **Day off**, and set the **Travel buffer** (minutes between branches).
 3. **Administration → Working hours** lists every schedule: **Add working hours** (practitioner, weekday, start time, end time, slot length, valid from/to). Overlapping hours, including at another branch, are refused.
 
+![Practitioners](img/admin_practitioners.png)
+![Working hours](img/admin_working_hours.png)
+![Schedules](img/admin_schedules.png)
+
 ### Visit types
 **Administration → Visit types** lists the five defaults: new consult, follow-up, review, emergency and teleconsult. For each, set **Fee (rupees)**, **Minutes** (5–240) and **Follow-up days** (0–366, blank for none), and optionally **This branch fee (rupees)** for the branch in the top bar. Press **Save**. Bookings already made keep their old fee and follow-up window.
+
+![Visit types](img/admin_visit_types.png)
 
 ### Price list
 1. **Administration → Price list → Add service** (name, category; the category sets the tax, e.g. "Healthcare service, GST exempt" or "Taxable service 18%").
 2. **Set a price**: **Applies to** (Hospital, One branch or One practitioner), **Amount (rupees)**, **Effective from** and optional **Effective to**. Overlapping periods are refused.
 3. **Import from CSV**: pick a **CSV file**, check the preview, then import. **Copy to a branch** copies a list (preview first).
 
+![Price list](img/admin_price_list.png)
+
 ### Maker-checker settings and approvals
 **Billing → Approvals**:
 1. Set **Maker-checker above (rupees)**, **Cancel refund (%)** and **No-show refund (%)**, then **Save limits**. Discounts and refunds above the limit wait here for a second person.
 2. Under **Pending approvals**, add a **Note** and press **Approve** or **Reject**.
 
+![Approvals: maker-checker limits](img/admin_approvals.png)
+![A refund waiting for approval](img/admin_approvals_pending.png)
+
 ### Patient merge
 1. Open the patient who should stay (**Patients**, click the name).
 2. Press **Merge patient**, choose the **Duplicate chart**, enter a **Reason**, confirm.
 3. Appointments and bills move to the kept chart; the duplicate is hidden and the merge is logged.
+
+![Patient chart (admin)](img/admin_patient_detail.png)
+![Merge a duplicate into this chart](img/admin_patient_merge.png)
 
 ### Other admin screens
 - **Hospital settings**: hospital name, time zone, default country code, and which branches follow the hospital zone.

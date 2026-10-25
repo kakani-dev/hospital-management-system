@@ -1,0 +1,39 @@
+name: Bug report
+description: A defect found in MediCore. Never include real patient data or passwords.
+labels: [bug, qa]
+body:
+  - type: input
+    id: case
+    attributes: {label: Test case ID, description: "e.g. BIL-012, if any"}
+  - type: dropdown
+    id: role
+    attributes:
+      label: Role
+      options: [tenant_admin, receptionist, nurse, doctor, billing, accountant, pharmacist, lab_technician, viewer, platform admin, anonymous]
+    validations: {required: true}
+  - type: input
+    id: where
+    attributes: {label: Tenant and branch, placeholder: MediCore Demo Hospital / branch name}
+    validations: {required: true}
+  - type: textarea
+    id: steps
+    attributes: {label: Steps to reproduce (minimal)}
+    validations: {required: true}
+  - type: textarea
+    id: expected
+    attributes: {label: Expected}
+    validations: {required: true}
+  - type: textarea
+    id: actual
+    attributes: {label: Actual}
+    validations: {required: true}
+  - type: textarea
+    id: evidence
+    attributes: {label: Console and network evidence, description: "Status code, endpoint, X-Request-Id, console errors, time in IST"}
+    validations: {required: true}
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity (also add the matching severity label)
+      options: [high, medium, low]
+    validations: {required: true}

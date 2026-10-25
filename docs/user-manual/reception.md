@@ -40,6 +40,8 @@ Before saving, HMS checks for existing patients:
 
 ![Appointments](img/reception_appointments.png)
 
+![Book appointment: practitioner, visit type and fee](img/reception_booking_visit_type.png)
+
 ### Reschedule, cancel or no-show
 In **Appointments**, open the booking:
 - **Reschedule**: pick a new slot.
@@ -53,12 +55,16 @@ In **Appointments**, open the booking:
 
 ![Check-in](img/reception_reception_check-in.png)
 
+![Reception check-in](img/reception_check_in.png)
+
 ### OPD queue
 **OPD queue** (Alt+Q) shows **Waiting**, **In consultation**, **Done** and **Closed**, refreshing every 10 seconds.
 - **Call in** sends the next token to the doctor; **Mark done** finishes; **Remove** takes a token off.
 - At the end of the day press **Close the day**, then confirm **Expire waiting tokens**.
 
 ![OPD queue](img/reception_queue.png)
+
+![OPD queue board](img/reception_queue.png)
 
 ### Bills at the desk
 You can open **Bills**, take **Cash**, show a **UPI QR**, **Share payment link** (WhatsApp or SMS) and **Request discount**. Refunds and approvals are for billing staff and admins. See [Billing](billing.md).
