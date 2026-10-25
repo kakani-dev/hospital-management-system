@@ -3,8 +3,7 @@ import type { PrivacyPurpose } from '../../lib/api/types'
 /**
  * Purpose toggles for a privacy notice. Nothing else in the app is a consent block:
  * treatment and billing are not choices, and each purpose here is optional.
- * RegisterPatientPage cannot be edited in this slice. It needs an optional
- * `consent?: ReactNode` rendered above Save so this step can sit on registration.
+ * Registration passes this as RegisterPatientPage's optional `consent` node.
  */
 export function ConsentStep({
   purposes,

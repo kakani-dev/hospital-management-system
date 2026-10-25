@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Which container images a commit needs to build and deploy.
 
-Path rules (deploy order is always identity, patients, scheduling, billing, inventory, then edge):
+Path rules (deploy order is always identity, patients, scheduling, billing, inventory, privacy, then edge):
 
 - backend/platform, backend/shared, Directory.Build.props, Directory.Packages.props,
   global.json, a backend packages.lock.json (the NuGet lock), or .dockerignore
@@ -29,7 +29,7 @@ import re
 import sys
 from pathlib import Path
 
-ORDER = ("identity", "patients", "scheduling", "billing", "inventory", "edge")
+ORDER = ("identity", "patients", "scheduling", "billing", "inventory", "privacy", "edge")
 
 DOCKERFILES = {
     "identity": "backend/services/identity/Dockerfile",
@@ -37,6 +37,7 @@ DOCKERFILES = {
     "scheduling": "backend/services/scheduling/Dockerfile",
     "billing": "backend/services/billing/Dockerfile",
     "inventory": "backend/services/inventory/Dockerfile",
+    "privacy": "backend/services/privacy/Dockerfile",
     "edge": "backend/edge/Dockerfile",
 }
 
@@ -53,6 +54,7 @@ SERVICE_PREFIXES = {
     "scheduling": ("backend/services/scheduling/", "backend/modules/Appointments/"),
     "billing": ("backend/services/billing/", "backend/modules/Billing/"),
     "inventory": ("backend/services/inventory/", "backend/modules/Inventory/"),
+    "privacy": ("backend/services/privacy/", "backend/modules/Privacy/"),
     "edge": ("backend/edge/",),
 }
 # Rollout and plan changes are not inside a service directory. They still have to
@@ -265,6 +267,7 @@ def self_test() -> None:
     assert services_for_paths(["./backend/services/patients/Dockerfile"]) == ["patients"]
     assert services_for_paths(["backend/modules/Identity/Endpoints/Me.cs"]) == ["identity"]
     assert services_for_paths(["backend/modules/Appointments/Scheduling/Book.cs"]) == ["scheduling"]
+    assert services_for_paths(["backend/services/privacy/Dockerfile"]) == ["privacy"]
     assert services_for_paths(["backend/edge/Hms.Edge/EdgeHost.cs"]) == ["edge"]
     assert services_for_paths(
         ["backend/edge/Dockerfile", "backend/services/identity/Hms.Identity.Api/Program.cs"]
@@ -290,7 +293,7 @@ def self_test() -> None:
     rejected = "b896ba108cf95c3193dbf7598d2882659a8c0da9"
     full_tag = image_tag(rejected)
     assert full_tag == "sha-" + rejected and len(full_tag) == 44
-    assert ORDER == ("identity", "patients", "scheduling", "billing", "inventory", "edge")
+    assert ORDER == ("identity", "patients", "scheduling", "billing", "inventory", "privacy", "edge")
     assert APPS == tuple(f"ca-hms-{service}" for service in ORDER)
     for app in APPS:
         suffix = revision_suffix(app, full_tag)

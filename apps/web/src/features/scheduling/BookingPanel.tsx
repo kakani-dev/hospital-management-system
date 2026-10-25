@@ -14,6 +14,7 @@ import { addDays, formatDayLabel, formatTime, zonedTimeToInstant } from '../../l
 import type { Appointment, PatientSummary, Practitioner, Slot } from '../../lib/api/types'
 import { PatientPicker } from '../patients/PatientPicker'
 import { RegisterPatientPage } from '../patients/RegisterPatientPage'
+import { useRegistrationConsent } from '../privacy/registrationConsent'
 import { prefillFromTerm, type RegisterPatientState } from '../patients/registerReturn'
 import { SlotPicker } from './SlotPicker'
 import { nextFreeSlot } from './nextFreeSlot'
@@ -67,6 +68,7 @@ export function BookingPanel({
   initial?: BookingDraft & { patient?: PatientSummary | null }
 }) {
   const location = useLocation()
+  const consent = useRegistrationConsent()
   const [practitionerId, setPractitionerId] = useState(initial?.practitionerId ?? '')
   const [date, setDate] = useState(initial?.date ?? initialDate)
   const [slot, setSlot] = useState<Slot | null>(initial?.slot ?? null)
@@ -329,6 +331,8 @@ export function BookingPanel({
         )}
         {quick ? (
           <RegisterPatientPage
+            consent={consent.slot}
+            afterSave={consent.record}
             embedded={{
               prefill: quick.prefill,
               branchId,

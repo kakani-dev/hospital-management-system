@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Delete stale Azure Container Registry sha- tags and deactivate old Container Apps revisions.
 #
-# Keeps, per image repository (hms-identity, hms-patients, hms-scheduling, hms-billing, hms-inventory, hms-edge):
+# Keeps, per image repository (hms-identity, hms-patients, hms-scheduling, hms-billing, hms-inventory, hms-privacy, hms-edge):
 #   - the 10 newest sha-<hex> tags
 #   - every tag currently deployed (app template, traffic, replicas, or a revision that is
 #     Running/Activating), on every repository — a tag string in use is never deleted
@@ -21,8 +21,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 RG="${RESOURCE_GROUP:-rg-medicore-hms-dev}"
 ACR_NAME="${ACR_NAME:-acrmedicorehmsdev}"
 DRY_RUN="${DRY_RUN:-false}"
-APPS=(ca-hms-identity ca-hms-patients ca-hms-scheduling ca-hms-billing ca-hms-inventory ca-hms-edge)
-REPOS=(hms-identity hms-patients hms-scheduling hms-billing hms-inventory hms-edge)
+APPS=(ca-hms-identity ca-hms-patients ca-hms-scheduling ca-hms-billing ca-hms-inventory ca-hms-privacy ca-hms-edge)
+REPOS=(hms-identity hms-patients hms-scheduling hms-billing hms-inventory hms-privacy hms-edge)
 
 [[ "$RG" == "rg-medicore-hms-dev" ]] || { echo "::error::refusing resource group $RG" >&2; exit 1; }
 [[ "$ACR_NAME" == "acrmedicorehmsdev" ]] || { echo "::error::refusing registry $ACR_NAME" >&2; exit 1; }

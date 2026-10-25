@@ -66,6 +66,7 @@ jobs:
       hash_image_scheduling: ${{ steps.hash.outputs.hash_image_scheduling }}
       hash_image_billing: ${{ steps.hash.outputs.hash_image_billing }}
       hash_image_inventory: ${{ steps.hash.outputs.hash_image_inventory }}
+      hash_image_privacy: ${{ steps.hash.outputs.hash_image_privacy }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -187,6 +188,15 @@ jobs:
               - 'backend/Directory.Build.props'
               - 'backend/Directory.Packages.props'
               - '.dockerignore'
+            image_privacy:
+              - 'backend/services/privacy/**'
+              - 'backend/modules/Privacy/**'
+              - 'backend/platform/**'
+              - 'backend/shared/**'
+              - 'backend/global.json'
+              - 'backend/Directory.Build.props'
+              - 'backend/Directory.Packages.props'
+              - '.dockerignore'
       - id: hash
         run: bash .github/scripts/ci-input-hashes.sh >> "$GITHUB_OUTPUT"
       - id: cache_web
@@ -280,6 +290,13 @@ jobs:
         with:
           job: images-inventory
           hash: ${{ steps.hash.outputs.hash_image_inventory }}
+      - id: cache_image_privacy
+        if: steps.mode.outputs.full != 'true'
+        continue-on-error: true
+        uses: ./.github/actions/lookup-pass-marker
+        with:
+          job: images-privacy
+          hash: ${{ steps.hash.outputs.hash_image_privacy }}
       - id: plan
         env:
           FULL: ${{ steps.mode.outputs.full }}
@@ -296,6 +313,7 @@ jobs:
           IMAGE_SCHEDULING: ${{ steps.filter.outputs.image_scheduling }}
           IMAGE_BILLING: ${{ steps.filter.outputs.image_billing }}
           IMAGE_INVENTORY: ${{ steps.filter.outputs.image_inventory }}
+          IMAGE_PRIVACY: ${{ steps.filter.outputs.image_privacy }}
           CACHED_WEB: ${{ steps.cache_web.outputs.hit }}
           CACHED_API: ${{ steps.cache_api.outputs.hit }}
           CACHED_DATABASE: ${{ steps.cache_database.outputs.hit }}
@@ -309,12 +327,14 @@ jobs:
           CACHED_IMAGE_SCHEDULING: ${{ steps.cache_image_scheduling.outputs.hit }}
           CACHED_IMAGE_BILLING: ${{ steps.cache_image_billing.outputs.hit }}
           CACHED_IMAGE_INVENTORY: ${{ steps.cache_image_inventory.outputs.hit }}
+          CACHED_IMAGE_PRIVACY: ${{ steps.cache_image_privacy.outputs.hit }}
           HASH_IMAGE_EDGE: ${{ steps.hash.outputs.hash_image_edge }}
           HASH_IMAGE_IDENTITY: ${{ steps.hash.outputs.hash_image_identity }}
           HASH_IMAGE_PATIENTS: ${{ steps.hash.outputs.hash_image_patients }}
           HASH_IMAGE_SCHEDULING: ${{ steps.hash.outputs.hash_image_scheduling }}
           HASH_IMAGE_BILLING: ${{ steps.hash.outputs.hash_image_billing }}
           HASH_IMAGE_INVENTORY: ${{ steps.hash.outputs.hash_image_inventory }}
+          HASH_IMAGE_PRIVACY: ${{ steps.hash.outputs.hash_image_privacy }}
         run: bash .github/scripts/ci-plan.sh >> "$GITHUB_OUTPUT"
 
   web-run:

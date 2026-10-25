@@ -8,7 +8,7 @@ import { LoginPage } from "./features/auth/LoginPage";
 import { RequireAuth } from "./features/auth/RequireAuth";
 import { DashboardPage } from "./features/dashboard/DashboardPage";
 import { PatientListPage } from "./features/patients/PatientListPage";
-import { RegisterPatientPage } from "./features/patients/RegisterPatientPage";
+import { RegisterPatientWithConsent } from "./features/privacy/registrationConsent";
 import { PatientDetailPage } from "./features/patients/PatientDetailPage";
 import { BranchesPage } from "./features/admin/BranchesPage";
 import { MembersPage } from "./features/admin/MembersPage";
@@ -118,7 +118,7 @@ export function App() {
             <Route path="patients/:patientId" element={<PatientDetailPage />} />
           </Route>
           <Route element={<RequireCapability capability="patients.write" />}>
-            <Route path="patients/new" element={<RegisterPatientPage />} />
+            <Route path="patients/new" element={<RegisterPatientWithConsent />} />
           </Route>
           <Route element={<RequireCapability capability="appointments.view" />}>
             <Route
