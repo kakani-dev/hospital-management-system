@@ -125,7 +125,8 @@ adds a cross-schema reference must carry the header line `-- cross-schema: appro
 - File name `<14-digit version>_<snake_case>.sql`, versions unique.
 - A PR's new migrations must sort after the newest migration on its base branch, and applied
   migrations are never renamed or deleted. CI enforces all three in the required database job
-  (`.github/scripts/check-migration-versions.sh`).
+  (`.github/scripts/check-migration-versions.sh`). `20261025280000` is the one in-place edit:
+  the hosted apply failed before any database recorded that version.
 - Expand/contract for renames: the audit columns (`created_at` → `created_on`, `updated_at` →
   `updated_on`) are kept in sync by trigger until the contract migration, so readers accept either.
 
