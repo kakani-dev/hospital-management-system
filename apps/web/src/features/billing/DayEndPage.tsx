@@ -56,7 +56,15 @@ export function DayEndPage() {
               <p className="font-medium capitalize" data-testid="session-status">{session.status.replace('_', ' ')}</p>
               <p className="text-sm text-gray-500">
                 Float {formatPaise(session.openingFloatPaise)}
+                {' · '}
+                <span data-testid="session-expected">Expected {formatPaise(session.expectedCashPaise)}</span>
                 {session.countedCashPaise != null ? ` · Counted ${formatPaise(session.countedCashPaise)}` : ''}
+                {session.variancePaise != null ? (
+                  <>
+                    {' · '}
+                    <span data-testid="session-variance">Variance {formatPaise(session.variancePaise)}</span>
+                  </>
+                ) : null}
               </p>
             </div>
             {has('billing.reconcile') && session.status === 'closed' && (
