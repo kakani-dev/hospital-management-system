@@ -55,6 +55,29 @@ describe('Register your hospital (public)', () => {
     expect(calls.some((c) => c.method === 'POST')).toBe(false)
   })
 
+  it('shows a registered-email message and does not claim the request was received', async () => {
+    stubFetch({
+      'POST /api/v1/public/hospital-signups': () =>
+        json(
+          {
+            title: 'Already registered',
+            status: 409,
+            code: 'email_registered',
+            detail: 'This email is already registered. Please sign in or contact support.',
+          },
+          409,
+        ),
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: '/register-hospital', auth: fakeAuthClient() })
+    await fill(user)
+    await user.click(screen.getByRole('button', { name: 'Send request' }))
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('This email is already registered. Please sign in or contact support.')
+    expect(alert).not.toHaveTextContent('Synthetic Lotus')
+    expect(screen.queryByRole('heading', { name: 'Request received' })).not.toBeInTheDocument()
+  })
+
   it('explains a 429 rate limit', async () => {
     stubFetch({ 'POST /api/v1/public/hospital-signups': () => json({ title: 'Too many', status: 429, code: 'rate_limited' }, 429) })
     const user = userEvent.setup()

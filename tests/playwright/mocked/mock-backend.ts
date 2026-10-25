@@ -229,6 +229,8 @@ interface MockSignup {
   tenantId: string | null
   tenantCode: string | null
   createdOn: string
+  possibleDuplicate?: boolean
+  matchedHospitals?: string[]
 }
 interface MockPlatformTenant {
   id: string
@@ -255,6 +257,23 @@ interface MockInviteLink {
 
 export const OPERATOR_EMAIL = 'operator@medicore.example'
 export const INVITEE_EMAIL = 'invitee@synthetic.example'
+
+/** identity.hospital_name_key: lowercase, strip non-alnum, drop a trailing hospital/clinic suffix. */
+function signupNameKey(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+    .replace(/(hospitals|hospital|clinics|clinic)+$/, '')
+}
+
+/** identity.phone_key: digits only; +91 or a leading 0 folds a 10-digit national number. */
+function signupPhoneKey(phone: string): string {
+  const digits = phone.replace(/[^0-9]/g, '')
+  if (/^91\d{10}$/.test(digits)) return digits.slice(2)
+  if (/^0\d{10}$/.test(digits)) return digits.slice(1)
+  return digits
+}
 
 
 export interface RecordedCall {
@@ -817,9 +836,56 @@ export class MockBackend {
       if (method === 'POST' && path === '/api/v1/public/hospital-signups') {
         const accepted = { message: 'Thank you. If the details are valid, our team will review your request and contact you.' }
         if (pub.website) return reply(202, accepted) // honeypot: dropped silently
-        const email = String(pub.contactEmail ?? '').toLowerCase()
+        const email = String(pub.contactEmail ?? '').trim().toLowerCase()
+        const registered =
+          [...this.users.values()].some(
+            (u) =>
+              u.email.toLowerCase() === email &&
+              u.memberships.some((m) => m.role === 'tenant_admin' && m.status === 'active' && this.tenantIsActive(m.tenantId)),
+          ) || this.signups.some((s) => s.status === 'approved' && s.contactEmail === email)
+        if (registered) {
+          return reply(409, {
+            title: 'Already registered',
+            status: 409,
+            code: 'email_registered',
+            detail: 'This email is already registered. Please sign in or contact support.',
+          })
+        }
         if (!this.signups.some((x) => x.status === 'pending' && x.contactEmail === email)) {
-          this.signups.push({ id: uuid('5a100000'), hospitalName: String(pub.hospitalName), timeZone: String(pub.timeZone), contactName: String(pub.contactName), contactEmail: email, phone: String(pub.phone), city: String(pub.city), status: 'pending', decisionReason: null, decidedOn: null, tenantId: null, tenantCode: null, createdOn: new Date().toISOString() })
+          const hospitalName = String(pub.hospitalName)
+          const phone = String(pub.phone)
+          const nameKey = signupNameKey(hospitalName)
+          const phoneKey = signupPhoneKey(phone)
+          const matched = new Set<string>()
+          for (const other of this.signups) {
+            if (other.status !== 'pending') continue
+            const sameName = nameKey !== '' && signupNameKey(other.hospitalName) === nameKey
+            const samePhone = phoneKey !== '' && signupPhoneKey(other.phone) === phoneKey
+            if (!sameName && !samePhone) continue
+            matched.add(other.hospitalName)
+            other.possibleDuplicate = true
+            other.matchedHospitals = [...new Set([...(other.matchedHospitals ?? []), hospitalName])]
+          }
+          for (const hospital of Object.values(tenants)) {
+            if (nameKey !== '' && signupNameKey(hospital.name) === nameKey) matched.add(hospital.name)
+          }
+          this.signups.push({
+            id: uuid('5a100000'),
+            hospitalName,
+            timeZone: String(pub.timeZone),
+            contactName: String(pub.contactName),
+            contactEmail: email,
+            phone,
+            city: String(pub.city),
+            status: 'pending',
+            decisionReason: null,
+            decidedOn: null,
+            tenantId: null,
+            tenantCode: null,
+            createdOn: new Date().toISOString(),
+            possibleDuplicate: matched.size > 0,
+            matchedHospitals: [...matched],
+          })
         }
         return reply(202, accepted)
       }
@@ -1508,6 +1574,9 @@ export class MockBackend {
       const r = this.signups.find((x) => x.id === rm[1])
       if (!r) return p(404, 'not_found')
       if (r.status !== 'pending') return p(409, 'invalid_state', 'request already decided')
+      if (rm[2] === 'approve' && r.possibleDuplicate && body.acknowledgeDuplicate !== true) {
+        return p(409, 'possible_duplicate', 'This request may duplicate an existing hospital. Confirm to approve it.')
+      }
       if (rm[2] === 'reject') {
         if (String(body.reason ?? '').trim().length < 3) return invalid({ reason: ['Give a reason (3-500 characters).'] })
         Object.assign(r, { status: 'rejected', decisionReason: String(body.reason).trim(), decidedOn: new Date().toISOString() })
