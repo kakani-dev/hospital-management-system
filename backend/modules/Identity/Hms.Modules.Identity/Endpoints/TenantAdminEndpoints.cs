@@ -151,6 +151,10 @@ public static class TenantAdminEndpoints
             await RawSql.ScalarAsync(db, sql, ct, ("id", id));
             return TypedResults.NoContent();
         }
+        catch (Exception ex) when (IsLastAdminError(ex))
+        {
+            return LastAdmin();
+        }
         catch (Exception ex) when (HmsProblems.FromDatabase(ex, uniqueDetail: "A live record with the same key already exists.") is { } problem)
         {
             return problem;
