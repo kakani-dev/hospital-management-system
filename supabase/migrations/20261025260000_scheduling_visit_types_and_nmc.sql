@@ -157,9 +157,6 @@ begin
      and p_tenant_id not in (select identity.current_tenant_ids()) then
     raise exception 'tenant not found' using errcode = 'P0002';
   end if;
-  if not exists (select 1 from identity.tenants t where t.id = p_tenant_id and not t.is_deleted) then
-    raise exception 'tenant not found' using errcode = 'P0002';
-  end if;
 
   insert into appointment.visit_types (
     tenant_id, code, name, default_fee_paise, duration_minutes, follow_up_valid_days, follow_up_fee_paise, sort_order)
