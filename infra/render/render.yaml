@@ -1,3 +1,0 @@
-# Retired. The API is the YARP edge on Azure Container Apps (docs/deploy.md).
-# This blueprint used to build the legacy all-in-one image. It is not deployed.
-# Do not point a host at medicore-hms-api from here.
