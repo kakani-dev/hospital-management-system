@@ -20,6 +20,7 @@ export const branchSchema = z
     /** true (the form's default): no override, the branch follows the hospital zone. */
     useHospitalZone: z.boolean().optional(),
     timezone: z.string().trim(),
+    address: z.string().trim().max(300, { error: 'Max 300 characters' }).optional(),
   })
   .refine((v) => v.useHospitalZone === true || isIanaZone(v.timezone), {
     path: ['timezone'],
@@ -45,6 +46,7 @@ export const branchEditSchema = z
     name: z.string().trim().min(1, { error: 'Name is required' }).max(120, { error: 'Max 120 characters' }),
     useHospitalZone: z.boolean(),
     timezone: z.string().trim(),
+    address: z.string().trim().max(300, { error: 'Max 300 characters' }).optional(),
   })
   .refine((v) => v.useHospitalZone || isIanaZone(v.timezone), { path: ['timezone'], error: 'Use an IANA time zone, e.g. Asia/Kolkata' })
 export type BranchEditValues = z.infer<typeof branchEditSchema>
@@ -56,6 +58,10 @@ export const hospitalSchema = z.object({
     .string()
     .trim()
     .refine(isIanaZone, { error: 'Use an IANA time zone, e.g. Asia/Kolkata' }),
+  defaultCountryCode: z
+    .string()
+    .trim()
+    .refine((value) => value === '' || /^\+[1-9]\d{0,2}$/.test(value), { error: 'Use a calling code like +91' }),
 })
 export type HospitalValues = z.infer<typeof hospitalSchema>
 

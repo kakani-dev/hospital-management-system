@@ -1,4 +1,5 @@
 using Hms.Platform.Http;
+using Hms.Modules.Identity.Domain;
 using Hms.Modules.Identity.Persistence;
 using Hms.SharedKernel.Http;
 using Hms.SharedKernel.Persistence;
@@ -158,7 +159,7 @@ public static class MeEndpoints
         var row = await db.Tenants.AsNoTracking().SingleOrDefaultAsync(t => t.Id == tenant.TenantId, ct);
         return row is null
             ? TypedResults.NotFound()
-            : TypedResults.Ok(new CurrentTenantDto(row.Id, row.Code, row.Name, tenant.BranchId, [.. tenant.Roles.Order(StringComparer.Ordinal)], row.TimeZone, row.DefaultCountryCode));
+            : TypedResults.Ok(TenantDto(row, tenant));
     }
 
     private static async Task<Results<Ok<CurrentTenantDto>, NotFound, ValidationProblem, ProblemHttpResult>> UpdateCurrentTenantAsync(
@@ -202,12 +203,28 @@ public static class MeEndpoints
                 row.Name = request.Name.Trim();
                 await db.SaveChangesAsync(ct);
             }
+
+            // Same transaction as the zone change. A 409 above returns before this runs.
+            // The column is ignored by EF (the insert trigger owns it); this is the admin's confirmation.
+            if (request.DefaultCountryCode is not null)
+            {
+                await RawSql.ScalarAsync(
+                    db,
+                    "update identity.tenants set default_country_code = @code where id = @id",
+                    ct,
+                    ("code", request.DefaultCountryCode),
+                    ("id", row.Id));
+                row.DefaultCountryCode = request.DefaultCountryCode;
+            }
         }
         catch (Exception ex) when (TimeZoneChange.FromDatabase(ex) is { } problem)
         {
             return problem;
         }
 
-        return TypedResults.Ok(new CurrentTenantDto(row.Id, row.Code, row.Name, tenant.BranchId, [.. tenant.Roles.Order(StringComparer.Ordinal)], zone, row.DefaultCountryCode));
+        return TypedResults.Ok(TenantDto(row, tenant, zone));
     }
+
+    private static CurrentTenantDto TenantDto(Tenant row, ITenantContext tenant, string? zone = null) =>
+        new(row.Id, row.Code, row.Name, tenant.BranchId, [.. tenant.Roles.Order(StringComparer.Ordinal)], zone ?? row.TimeZone, row.DefaultCountryCode, row.SetupStep, row.SetupCompletedOn);
 }

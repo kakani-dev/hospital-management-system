@@ -52,7 +52,7 @@ function applyFieldErrors(error: unknown, setError: UseFormSetError<ScheduleForm
  * Weekly working hours per branch (tenant_admin). Times are branch-local wall clock and "today"
  * (the default start date) is the branch's day, never the workstation's.
  */
-export function WorkingHoursPage() {
+export function WorkingHoursPage({ embedded = false, onCreated }: { embedded?: boolean; onCreated?: () => void } = {}) {
   const { branches, branchId, timeZone, timeZoneReady, timeZoneMissing, setBranchId } = useBranchSelection()
   const practitioners = useAdminPractitioners()
   const schedules = useAdminSchedules(branchId)
@@ -87,6 +87,7 @@ export function WorkingHoursPage() {
       const created = await create.mutateAsync({ ...values, branchId, validTo: values.validTo || null })
       form.reset({ ...form.getValues(), validTo: '' })
       setMessage({ tone: 'info', text: `Added ${describe(created)}.` })
+      onCreated?.()
     } catch (error) {
       applyFieldErrors(error, form.setError)
       setMessage({ tone: 'error', text: scheduleError(error, 'add the working hours') })
@@ -161,7 +162,7 @@ export function WorkingHoursPage() {
   const errors = form.formState.errors
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold text-gray-800 dark:text-dark-50">Working hours</h1>
+      {!embedded && <h1 className="text-xl font-semibold text-gray-800 dark:text-dark-50">Working hours</h1>}
       <div className="flex flex-wrap items-end gap-4">
         <BranchPicker branches={branches} value={branchId} onChange={setBranchId} />
         {timeZoneReady && <p className="pb-2 text-sm text-gray-600 dark:text-dark-200">Times are branch-local ({timeZone}).</p>}
@@ -205,7 +206,7 @@ export function WorkingHoursPage() {
           </form>
         </Card>
       )}
-      <Card>
+      {!embedded && <Card>
         <div className="mb-3 flex justify-end">
           <Checkbox label="Show deleted" classNames={{ labelText: 'text-sm' }} checked={showDeleted} onChange={(e) => setShowDeleted(e.target.checked)} />
         </div>
@@ -219,7 +220,7 @@ export function WorkingHoursPage() {
           getRowId={(s) => s.id}
           getRowProps={(row) => ({ 'data-testid': 'schedule-row', 'data-status': statusOf(row.original).toLowerCase() })}
         />
-      </Card>
+      </Card>}
       {editing && (
         <Drawer open onClose={() => setEditing(null)} title="Edit working hours" closeLabel="Close editing" testId="schedule-drawer">
           <EditScheduleForm

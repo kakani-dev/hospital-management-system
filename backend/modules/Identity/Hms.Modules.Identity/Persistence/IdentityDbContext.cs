@@ -34,6 +34,13 @@ public sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> option
             // Read-only here: filled by the a_tenants_default_country_code trigger on insert, never sent by EF.
             e.Property(x => x.DefaultCountryCode).HasColumnName("default_country_code").ValueGeneratedOnAdd();
             e.Property(x => x.DefaultCountryCode).Metadata.SetAfterSaveBehavior(Microsoft.EntityFrameworkCore.Metadata.PropertySaveBehavior.Ignore);
+            // Setup progress is written only by identity.advance_setup_v1 (no client UPDATE grant).
+            e.Property(x => x.SetupStep).HasColumnName("setup_step");
+            e.Property(x => x.SetupStep).Metadata.SetBeforeSaveBehavior(Microsoft.EntityFrameworkCore.Metadata.PropertySaveBehavior.Ignore);
+            e.Property(x => x.SetupStep).Metadata.SetAfterSaveBehavior(Microsoft.EntityFrameworkCore.Metadata.PropertySaveBehavior.Ignore);
+            e.Property(x => x.SetupCompletedOn).HasColumnName("setup_completed_on");
+            e.Property(x => x.SetupCompletedOn).Metadata.SetBeforeSaveBehavior(Microsoft.EntityFrameworkCore.Metadata.PropertySaveBehavior.Ignore);
+            e.Property(x => x.SetupCompletedOn).Metadata.SetAfterSaveBehavior(Microsoft.EntityFrameworkCore.Metadata.PropertySaveBehavior.Ignore);
         });
 
         modelBuilder.Entity<Branch>(e =>
