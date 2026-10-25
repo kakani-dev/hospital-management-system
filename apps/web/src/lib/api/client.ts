@@ -494,8 +494,11 @@ export class ApiClient {
     reissueAdminInvite: (id: string, email: string) =>
       this.request<InviteLinkIssued>(`/api/v1/platform/tenants/${encodeURIComponent(id)}/admin-invite`, { method: 'POST', body: JSON.stringify({ email }) }),
     requests: (status?: string) => this.request<HospitalRequest[]>(`/api/v1/platform/hospital-requests${qs({ status })}`),
-    approve: (id: string, tenantCode: string) =>
-      this.request<HospitalApproved>(`/api/v1/platform/hospital-requests/${encodeURIComponent(id)}/approve`, { method: 'POST', body: JSON.stringify({ tenantCode }) }),
+    approve: (id: string, tenantCode: string, acknowledgeDuplicate = false) =>
+      this.request<HospitalApproved>(`/api/v1/platform/hospital-requests/${encodeURIComponent(id)}/approve`, {
+        method: 'POST',
+        body: JSON.stringify({ tenantCode, acknowledgeDuplicate }),
+      }),
     reject: (id: string, reason: string) =>
       this.request<void>(`/api/v1/platform/hospital-requests/${encodeURIComponent(id)}/reject`, { method: 'POST', body: JSON.stringify({ reason }) }),
   }

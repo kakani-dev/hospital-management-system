@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router'
-import { Badge, Textarea } from '@tailux/components/ui'
+import { Badge, Checkbox, Textarea } from '@tailux/components/ui'
 import { Card } from '../../components/ui/Card'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
@@ -33,13 +33,19 @@ export function HospitalRequestsPage() {
   const [code, setCode] = useState('')
   const [reason, setReason] = useState('')
   const [fieldError, setFieldError] = useState<string | null>(null)
+  const [ackDuplicate, setAckDuplicate] = useState(false)
+  const [confirmDuplicate, setConfirmDuplicate] = useState(false)
   const [message, setMessage] = useState<{ tone: 'info' | 'error'; text: string } | null>(null)
   const [approved, setApproved] = useState<{ result: HospitalApproved; request: HospitalRequest } | null>(null)
+  const approvingNow = approving ? (requests.data?.find((r) => r.id === approving.id) ?? approving) : null
+  const mustConfirm = Boolean(approvingNow?.possibleDuplicate) || confirmDuplicate
 
   const close = () => {
     setApproving(null)
     setRejecting(null)
     setFieldError(null)
+    setAckDuplicate(false)
+    setConfirmDuplicate(false)
     setReason('')
   }
 
@@ -50,9 +56,13 @@ export function HospitalRequestsPage() {
       setFieldError(parsed.error.issues[0]?.message ?? 'Invalid code')
       return
     }
-    const request = approving
+    if (mustConfirm && !ackDuplicate) {
+      setFieldError('Confirm that you reviewed the possible duplicate.')
+      return
+    }
+    const request = approvingNow ?? approving
     approve.mutate(
-      { id: request.id, tenantCode: parsed.data },
+      { id: request.id, tenantCode: parsed.data, acknowledgeDuplicate: mustConfirm },
       {
         onSuccess: (result) => {
           setApproved({ result, request })
@@ -60,6 +70,11 @@ export function HospitalRequestsPage() {
           close()
         },
         onError: (e) => {
+          if (problemCode(e) === 'possible_duplicate') {
+            setConfirmDuplicate(true)
+            setFieldError('This request may duplicate an existing hospital. Confirm to approve it.')
+            return
+          }
           if (fieldErrors(e).tenantCode) return setFieldError(fieldErrors(e).tenantCode!)
           if (problemCode(e) === 'conflict') return setFieldError('A hospital with this code already exists. Choose another code.')
           setMessage({ tone: 'error', text: problemCode(e) === 'invalid_state' ? 'This request was already decided.' : 'Could not approve the request.' })
@@ -95,6 +110,16 @@ export function HospitalRequestsPage() {
           <p className="text-xs text-gray-600 dark:text-dark-200">
             {r.city} · {r.timeZone}
           </p>
+          {r.possibleDuplicate && (
+            <div className="mt-1">
+              <Badge color="warning" variant="soft" data-testid="possible-duplicate">
+                Possible duplicate
+              </Badge>
+              {r.matchedHospitals.length > 0 && (
+                <p className="mt-1 text-xs text-gray-600 dark:text-dark-200">Matches {r.matchedHospitals.join(', ')}</p>
+              )}
+            </div>
+          )}
         </div>
       ),
     },
@@ -143,6 +168,9 @@ export function HospitalRequestsPage() {
               onClick={() => {
                 setMessage(null)
                 setApproved(null)
+                setAckDuplicate(false)
+                setConfirmDuplicate(false)
+                setFieldError(null)
                 setCode(codeFromName(r.hospitalName))
                 setApproving(r)
               }}
@@ -201,18 +229,36 @@ export function HospitalRequestsPage() {
       </Card>
       <ConfirmDialog
         open={approving !== null}
-        title={approving ? `Approve ${approving.hospitalName}?` : 'Approve'}
+        title={approvingNow ? `Approve ${approvingNow.hospitalName}?` : 'Approve'}
         confirmLabel="Approve and create"
         busy={approve.isPending}
         onCancel={close}
         onConfirm={onApprove}
       >
-        {approving && (
+        {approvingNow && (
           <div className="space-y-3">
             <p>
-              Creates the hospital in <strong>{approving.timeZone}</strong> with one branch, and emails a one-time tenant-admin invite link to{' '}
-              {approving.contactEmail}.
+              Creates the hospital in <strong>{approvingNow.timeZone}</strong> with one branch, and emails a one-time tenant-admin invite link to{' '}
+              {approvingNow.contactEmail}.
             </p>
+            {mustConfirm && (
+              <div className="space-y-2">
+                <Alert tone="warning">
+                  {approvingNow.matchedHospitals.length > 0
+                    ? `This may duplicate ${approvingNow.matchedHospitals.join(', ')}. Approve only if it is a different hospital.`
+                    : 'This request may duplicate an existing hospital. Confirm to approve it.'}
+                </Alert>
+                <Checkbox
+                  label="I have reviewed the possible duplicate"
+                  checked={ackDuplicate}
+                  onChange={(e) => {
+                    setAckDuplicate(e.target.checked)
+                    setFieldError(null)
+                  }}
+                  classNames={{ labelText: 'text-sm' }}
+                />
+              </div>
+            )}
             <FormField
               label="Hospital code"
               value={code}

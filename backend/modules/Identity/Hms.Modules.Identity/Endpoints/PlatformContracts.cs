@@ -5,7 +5,7 @@ namespace Hms.Modules.Identity.Endpoints;
 public sealed record HospitalSignupRequest(
     string? HospitalName, string? TimeZone, string? ContactName, string? ContactEmail, string? Phone, string? City, string? Website = null);
 
-/// <summary>Same body for every accepted outcome (stored, duplicate, honeypot), so the form cannot probe.</summary>
+/// <summary>Same body for every accepted outcome (stored, pending duplicate, honeypot), so the form cannot probe who already applied. An email that already belongs to a hospital is a 409 with a fixed message and no tenant details.</summary>
 public sealed record HospitalSignupAcceptedDto(string Message)
 {
     public const string Text = "Thank you. Your request was received; our team will review it and email the contact person.";
@@ -15,9 +15,11 @@ public sealed record HospitalSignupAcceptedDto(string Message)
 
 public sealed record HospitalRequestDto(
     Guid Id, string HospitalName, string TimeZone, string ContactName, string ContactEmail, string Phone, string City,
-    string Status, string? DecisionReason, DateTimeOffset? DecidedOn, Guid? TenantId, string? TenantCode, DateTimeOffset CreatedOn);
+    string Status, string? DecisionReason, DateTimeOffset? DecidedOn, Guid? TenantId, string? TenantCode, DateTimeOffset CreatedOn,
+    bool PossibleDuplicate, IReadOnlyList<string> MatchedHospitals);
 
-public sealed record ApproveHospitalRequest(string? TenantCode);
+/// <param name="AcknowledgeDuplicate">Required when the request currently matches another hospital. Ignored otherwise.</param>
+public sealed record ApproveHospitalRequest(string? TenantCode, bool AcknowledgeDuplicate = false);
 
 public sealed record RejectHospitalRequest(string? Reason);
 

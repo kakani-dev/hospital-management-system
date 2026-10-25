@@ -47,9 +47,11 @@ export function RegisterHospitalPage() {
       setError(
         Object.keys(fields).length
           ? 'Please fix the highlighted fields.'
-          : problemCode(e) === 'rate_limited' || (e instanceof ApiError && e.status === 429)
-            ? 'Too many registrations were sent from here. Please try again later.'
-            : 'Could not send your request. Check your connection and try again.',
+          : problemCode(e) === 'email_registered'
+            ? (e instanceof ApiError && e.problem?.detail) || 'This email is already registered. Please sign in or contact support.'
+            : problemCode(e) === 'rate_limited' || (e instanceof ApiError && e.status === 429)
+              ? 'Too many registrations were sent from here. Please try again later.'
+              : 'Could not send your request. Check your connection and try again.',
       )
     }
   }

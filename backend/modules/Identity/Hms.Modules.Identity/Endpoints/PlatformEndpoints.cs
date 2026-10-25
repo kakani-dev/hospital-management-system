@@ -50,7 +50,7 @@ public static partial class PlatformEndpoints
     {
         var pub = api.MapGroup("/public").WithTags("Public").AllowAnonymous().WithDbTransaction<IdentityDbContext>();
         pub.MapPost("/hospital-signups", SubmitSignupAsync).WithName("SubmitHospitalSignup").RequireRateLimiting(PublicPolicy)
-            .WithSummary("Register your hospital: stores a PENDING request only (no tenant, no access). Always 202.");
+            .WithSummary("Register your hospital: stores a PENDING request only (no tenant, no access). 202 when received or already pending; 409 when the email already belongs to a hospital.");
         pub.MapGet("/invites/{token}", PreviewInviteAsync).WithName("PreviewInvite").RequireRateLimiting(PublicPolicy)
             .WithSummary("Hospital, role and masked email of a pending invite link; 404 if unknown, used or expired.");
         pub.MapPost("/invites/{token}/sign-in-code", RequestInviteSignInCodeAsync).WithName("RequestInviteSignInCode").RequireRateLimiting(PublicPolicy)
@@ -67,7 +67,7 @@ public static partial class PlatformEndpoints
         });
         platform.MapGet("/hospital-requests", ListRequestsAsync).WithName("ListHospitalRequests");
         platform.MapPost("/hospital-requests/{id:guid}/approve", ApproveAsync).WithName("ApproveHospitalRequest")
-            .WithSummary("identity.create_tenant (requested zone) + first-admin invite link. 409 if already decided.");
+            .WithSummary("identity.create_tenant (requested zone) + first-admin invite link. 409 if already decided, or if a possible duplicate was not confirmed.");
         platform.MapPost("/hospital-requests/{id:guid}/reject", RejectAsync).WithName("RejectHospitalRequest");
         platform.MapGet("/tenants", ListTenantsAsync).WithName("PlatformListTenants");
         platform.MapGet("/tenants/{id:guid}", GetTenantAsync).WithName("PlatformGetTenant");
@@ -116,6 +116,20 @@ public static partial class PlatformEndpoints
             return TypedResults.Problem(title: "Too many requests", detail: "Too many registrations were sent. Try again tomorrow or contact us.",
                 statusCode: StatusCodes.Status429TooManyRequests, extensions: new Dictionary<string, object?> { ["code"] = "rate_limited" });
         }
+        catch (Exception ex) when (IsDbSignal(ex, "P0001", "email_already_registered"))
+        {
+            // Fixed copy. The database token carries no hospital name, code, or id.
+            return TypedResults.Problem(
+                title: "Already registered",
+                detail: EmailRegisteredDetail,
+                statusCode: StatusCodes.Status409Conflict,
+                extensions: new Dictionary<string, object?> { ["code"] = "email_registered" });
+        }
+        catch (Exception ex) when (HmsProblems.FindDbError(ex)?.SqlState == HmsProblems.SqlStates.UniqueViolation)
+        {
+            // Two pending inserts for one email raced past the check; the unique index kept a single row.
+            return TypedResults.Accepted((string?)null, HospitalSignupAcceptedDto.Instance);
+        }
         catch (Exception ex) when (HmsProblems.FromDatabase(ex) is { } problem)
         {
             return problem;
@@ -158,11 +172,12 @@ public static partial class PlatformEndpoints
 
         var rows = await RawSql.QueryAsync(
             db,
-            "select id, hospital_name, time_zone, contact_name, contact_email, phone, city, status, decision_reason, decided_on, tenant_id, tenant_code, created_on from identity.platform_list_signups(@status)",
+            "select id, hospital_name, time_zone, contact_name, contact_email, phone, city, status, decision_reason, decided_on, tenant_id, tenant_code, created_on, possible_duplicate, matched_hospitals from identity.platform_list_signups(@status)",
             r => new HospitalRequestDto(
                 r.GetGuid(0), r.GetString(1), r.GetString(2), r.GetString(3), r.GetString(4), r.GetString(5), r.GetString(6), r.GetString(7),
                 r.IsDBNull(8) ? null : r.GetString(8), r.IsDBNull(9) ? null : r.GetFieldValue<DateTimeOffset>(9),
-                r.IsDBNull(10) ? null : r.GetGuid(10), r.IsDBNull(11) ? null : r.GetString(11), r.GetFieldValue<DateTimeOffset>(12)),
+                r.IsDBNull(10) ? null : r.GetGuid(10), r.IsDBNull(11) ? null : r.GetString(11), r.GetFieldValue<DateTimeOffset>(12),
+                r.GetBoolean(13), r.IsDBNull(14) ? [] : r.GetFieldValue<string[]>(14)),
             ct,
             ("status", status));
         return TypedResults.Ok(rows);
@@ -180,12 +195,21 @@ public static partial class PlatformEndpoints
         {
             var rows = await RawSql.QueryAsync(
                 db,
-                "select tenant_id, invite_link_id, token, expires_on from identity.platform_approve_signup(@id, @code)",
+                "select tenant_id, invite_link_id, token, expires_on from identity.platform_approve_signup(@id, @code, @confirm)",
                 r => new HospitalApprovedDto(r.GetGuid(0), Issued(r.GetGuid(1), r.GetString(2), r.GetFieldValue<DateTimeOffset>(3))),
                 ct,
                 ("id", id),
-                ("code", request.TenantCode));
+                ("code", request.TenantCode),
+                ("confirm", request.AcknowledgeDuplicate));
             return TypedResults.Ok(rows[0]);
+        }
+        catch (Exception ex) when (IsDbSignal(ex, "P0001", "possible_duplicate"))
+        {
+            return TypedResults.Problem(
+                title: "Possible duplicate",
+                detail: PossibleDuplicateDetail,
+                statusCode: StatusCodes.Status409Conflict,
+                extensions: new Dictionary<string, object?> { ["code"] = "possible_duplicate" });
         }
         catch (Exception ex) when (HmsProblems.FromDatabase(ex, uniqueDetail: "A hospital with this code already exists. Choose another code.") is { } problem)
         {
@@ -343,6 +367,9 @@ public static partial class PlatformEndpoints
     }
 
     // --------------------------------------------------------------- validation ----
+    internal const string EmailRegisteredDetail = "This email is already registered. Please sign in or contact support.";
+    internal const string PossibleDuplicateDetail = "This request may duplicate an existing hospital. Confirm to approve it.";
+
     private const string CodeRule = "Code must be 2-40 lowercase letters, digits or hyphens, starting with a letter or digit.";
     private const string ReasonRule = "Give a reason (3-500 characters).";
 
@@ -399,4 +426,17 @@ public static partial class PlatformEndpoints
 
     [GeneratedRegex("^[0-9a-f]{64}$")]
     internal static partial Regex TokenPattern();
+
+    /// <summary>True when Postgres raised <paramref name="sqlState"/> with exactly <paramref name="message"/> (no interpolated hospital data).</summary>
+    private static bool IsDbSignal(Exception ex, string sqlState, string message)
+    {
+        var db = HmsProblems.FindDbError(ex);
+        if (db?.SqlState != sqlState)
+        {
+            return false;
+        }
+
+        var text = db.GetType().GetProperty("MessageText")?.GetValue(db) as string ?? db.Message;
+        return string.Equals(text, message, StringComparison.Ordinal);
+    }
 }
