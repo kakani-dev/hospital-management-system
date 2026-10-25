@@ -1,5 +1,5 @@
 -- cross-schema: approved (appointment policies call identity.has_role_at_branch;
--- the patient select policy calls appointment.caller_sees_patient_v1)
+-- the patient select policy calls appointment.caller_sees_patient)
 -- A doctor sees and acts only on appointments, queue entries and charts of a practitioner
 -- linked to their login. A broader role at that branch (admin, nurse, reception, billing)
 -- still sees the branch. An unlinked practitioner is not "own".
@@ -54,8 +54,8 @@ grant execute on function appointment.caller_practitioner_ids()
 comment on function appointment.caller_practitioner_ids() is
   'Practitioners linked to the caller. Empty when the login is not linked: the doctor sees nothing.';
 
--- cross-schema: approved (patient RLS calls this; it reads appointment rows)
-create or replace function appointment.caller_sees_patient_v1(p_tenant_id uuid, p_patient_id uuid)
+-- Patient RLS calls this; it reads appointment rows. Not a published _v1 contract.
+create or replace function appointment.caller_sees_patient(p_tenant_id uuid, p_patient_id uuid)
 returns boolean
 language sql
 stable
@@ -72,10 +72,10 @@ as $$
        and q.practitioner_id in (select appointment.caller_practitioner_ids())
   )
 $$;
-revoke all on function appointment.caller_sees_patient_v1(uuid, uuid) from public, anon;
-grant execute on function appointment.caller_sees_patient_v1(uuid, uuid)
+revoke all on function appointment.caller_sees_patient(uuid, uuid) from public, anon;
+grant execute on function appointment.caller_sees_patient(uuid, uuid)
   to authenticated, hms_svc_patients, hms_svc_scheduling;
-comment on function appointment.caller_sees_patient_v1(uuid, uuid) is
+comment on function appointment.caller_sees_patient(uuid, uuid) is
   'True when the caller is the practitioner on a visit or queue entry for this patient in this hospital.';
 
 -- Doctors may follow up only their own visit, booked as themselves.
@@ -245,7 +245,7 @@ begin
       for select to %s
       using ((identity.has_tenant_role(tenant_id, array['tenant_admin', 'nurse', 'receptionist', 'billing'])
               or (identity.has_tenant_role(tenant_id, array['doctor'])
-                  and appointment.caller_sees_patient_v1(tenant_id, id)))
+                  and appointment.caller_sees_patient(tenant_id, id)))
              and (not is_deleted or identity.has_tenant_role(tenant_id, array['tenant_admin'])))
   $f$, v_patient_select);
 end

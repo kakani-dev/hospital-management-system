@@ -19,7 +19,7 @@ select tests.ok(
 select tests.authenticate_as('lab@alpha.example');
 select tests.ok((select count(*) from appointment.practitioners) = 2, 'any Alpha member sees the 2 Alpha practitioners only');
 select tests.authenticate_as('admin@beta.example');
-select tests.ok((select count(*) from appointment.practitioners) = 1, 'Beta admin sees only the Beta practitioner');
+select tests.ok((select count(*) from appointment.practitioners) = 2, 'Beta admin sees the two Beta practitioners');
 select tests.ok(
   tests.affected_rows($$update appointment.practitioners set display_name = 'Hacked' where id = 'c1111111-0000-4000-8000-000000000002'$$) = 0,
   'cross-tenant: Beta admin cannot update an Alpha practitioner (0 rows)');
@@ -180,9 +180,9 @@ select tests.throws_ok(
 -- ---------- visibility ----------
 select tests.authenticate_as('admin@beta.example');
 select tests.ok(
-  (select count(*) from appointment.appointments) = 1
+  (select count(*) from appointment.appointments) = 2
   and not exists (select 1 from appointment.appointments where tenant_id = '11111111-1111-4111-8111-111111111111'),
-  'cross-tenant: Beta admin sees only the Beta appointment');
+  'cross-tenant: Beta admin sees only the Beta appointments');
 select tests.ok(
   tests.affected_rows($$update appointment.appointments set status = 'cancelled' where id = 'e1111111-0000-4000-8000-0000000000a1'$$) = 0,
   'cross-tenant: Beta admin cannot cancel an Alpha appointment (0 rows)');
@@ -191,8 +191,10 @@ select tests.ok(not exists (select 1 from appointment.appointments), 'lab techni
 select tests.authenticate_as('consultant@shared.example');
 select tests.ok(
   not exists (select 1 from appointment.appointments where branch_id = 'a1111111-0000-4000-8000-000000000001')
-  and not exists (select 1 from appointment.appointments where tenant_id = '22222222-2222-4222-8222-222222222222'),
-  'a doctor sees no appointments until the visit is their own linked practitioner');
+  and exists (select 1 from appointment.appointments where id = 'e1111111-0000-4000-8000-000000000010')
+  and exists (select 1 from appointment.appointments where id = 'e2222222-0000-4000-8000-000000000002')
+  and not exists (select 1 from appointment.appointments where id = 'e2222222-0000-4000-8000-000000000001'),
+  'a doctor sees only visits of the practitioner linked to their login, in each hospital');
 select tests.ok(
   tests.affected_rows($$update appointment.appointments set reason = 'x' where branch_id = 'a1111111-0000-4000-8000-000000000001'$$) = 0,
   'consultant (doctor @ Alpha East) cannot modify Alpha Main appointments (can_access_branch)');

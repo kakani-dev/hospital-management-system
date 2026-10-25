@@ -58,8 +58,9 @@ select tests.ok((select count(*) = 0 from patient.patients), 'MAJ-2 setup: an un
 select tests.authenticate_as('consultant@shared.example');
 select tests.ok(
   identity.has_tenant_role('11111111-1111-4111-8111-111111111111', array['doctor'])
-  and (select count(*) = 0 from patient.patients where tenant_id = '11111111-1111-4111-8111-111111111111'),
-  'MAJ-2 setup: the consultant holds the Alpha doctor role and sees no charts until a visit is theirs');
+  and (select count(*) = 1 and bool_and(id = 'aa000000-0000-4000-8000-000000000003')
+       from patient.patients where tenant_id = '11111111-1111-4111-8111-111111111111'),
+  'MAJ-2 setup: the consultant holds the Alpha doctor role and sees only their own chart');
 
 select tests.authenticate_as('admin@alpha.example');
 select identity.soft_delete_branch('a1111111-0000-4000-8000-000000000002');

@@ -95,3 +95,16 @@ insert into appointment.appointments (id, tenant_id, branch_id, practitioner_id,
    'aa000000-0000-4000-8000-000000000001', '2030-01-07 10:00+05:30', '2030-01-07 10:20+05:30', 'Synthetic follow-up'),
   ('e2222222-0000-4000-8000-000000000001', '22222222-2222-4222-8222-222222222222', 'b2222222-0000-4000-8000-000000000001', 'c2222222-0000-4000-8000-000000000001',
    'bb000000-0000-4000-8000-000000000001', '2030-01-07 09:00+05:30', '2030-01-07 09:15+05:30', 'Synthetic check-up');
+
+-- The visiting consultant's own charts (one per hospital). A doctor sees only these.
+insert into appointment.practitioners (id, tenant_id, user_id, display_name, specialty) values
+  ('c2222222-0000-4000-8000-000000000002', '22222222-2222-4222-8222-222222222222', '0d000000-0000-4000-8000-000000000001', 'Dr. Visiting Consultant (synthetic)', 'Cardiology');
+insert into appointment.practitioner_branches (tenant_id, practitioner_id, branch_id) values
+  ('22222222-2222-4222-8222-222222222222', 'c2222222-0000-4000-8000-000000000002', 'b2222222-0000-4000-8000-000000000001');
+insert into appointment.schedules (id, tenant_id, practitioner_id, branch_id, weekday, start_time, end_time, slot_minutes, valid_from) values
+  ('d2222222-0000-4000-8000-000000000002', '22222222-2222-4222-8222-222222222222', 'c2222222-0000-4000-8000-000000000002', 'b2222222-0000-4000-8000-000000000001', 1, '09:00', '12:00', 15, '2026-01-01');
+insert into appointment.appointments (id, tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at, reason) values
+  ('e1111111-0000-4000-8000-000000000010', '11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000002', 'c1111111-0000-4000-8000-000000000001',
+   'aa000000-0000-4000-8000-000000000003', '2024-01-08 09:00+05:30', '2024-01-08 09:15+05:30', 'Synthetic consultant visit'),
+  ('e2222222-0000-4000-8000-000000000002', '22222222-2222-4222-8222-222222222222', 'b2222222-0000-4000-8000-000000000001', 'c2222222-0000-4000-8000-000000000002',
+   'bb000000-0000-4000-8000-000000000001', '2024-01-08 11:00+05:30', '2024-01-08 11:15+05:30', 'Synthetic consultant visit');

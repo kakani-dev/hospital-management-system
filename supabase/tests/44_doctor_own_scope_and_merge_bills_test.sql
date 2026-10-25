@@ -13,6 +13,8 @@ select tests.ok(
 select tests.as_superuser();
 insert into appointment.practitioners (id, tenant_id, display_name)
 values ('c2440000-0000-4000-8000-000000000001', '22222222-2222-4222-8222-222222222222', 'Dr Other Beta (synthetic)');
+insert into appointment.practitioner_branches (tenant_id, practitioner_id, branch_id)
+values ('22222222-2222-4222-8222-222222222222', 'c2440000-0000-4000-8000-000000000001', 'b2222222-0000-4000-8000-000000000001');
 insert into patient.patients (id, tenant_id, registered_branch_id, first_name, last_name)
 values ('bb244000-0000-4000-8000-000000000001', '22222222-2222-4222-8222-222222222222',
         'b2222222-0000-4000-8000-000000000001', 'Other', 'Chart');
