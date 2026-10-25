@@ -77,7 +77,7 @@ public sealed class S2QueueAndOutboxApiTests(HmsApiFactory factory) : IClassFixt
         using var receptionMain = factory.ClientAs(AlphaReception, Alpha); // receptionist @Main only
         var (_, _, appt) = await BookTodayAsync(admin, AlphaEast);
 
-        Assert.Equal(HttpStatusCode.Forbidden, (await receptionMain.PostAsync($"/api/v1/appointments/{appt.Id}/check-in", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await receptionMain.PostAsync($"/api/v1/appointments/{appt.Id}/check-in", null)).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await receptionMain.GetAsync($"/api/v1/queue?branchId={AlphaEast}")).StatusCode);
 
         using var beta = factory.ClientAs(BetaAdmin, Beta);

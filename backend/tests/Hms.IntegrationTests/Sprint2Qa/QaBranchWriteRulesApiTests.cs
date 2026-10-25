@@ -88,8 +88,8 @@ public sealed class QaBranchWriteRulesApiTests(HmsApiFactory factory) : IClassFi
         var patient = await Qa.CreatePatientAsync(admin, AlphaMain, "Queue", Qa.NewSurname("Branch"));
         var eastAppointment = await Qa.BookOkAsync(admin, AlphaEast, practitioner.Id, patient.Id, await Qa.BranchTodayAtAsync(AlphaEast, 1));
 
-        // Receptionist at Main: East check-in, East walk-in and the East board are all 403 (same tenant).
-        Assert.Equal(HttpStatusCode.Forbidden, (await receptionMain.PostAsync(QaRoutes.CheckIn(eastAppointment.Id), content: null)).StatusCode);
+        // Receptionist at Main cannot see an East visit (404). East walk-in and the East board stay 403.
+        Assert.Equal(HttpStatusCode.NotFound, (await receptionMain.PostAsync(QaRoutes.CheckIn(eastAppointment.Id), content: null)).StatusCode);
         Assert.Equal("booked", await Qa.AppointmentStatusAsync(eastAppointment.Id));
         Assert.Equal(HttpStatusCode.Forbidden,
             (await receptionMain.PostAsJsonAsync(QaRoutes.WalkIn, new { branchId = AlphaEast, patientId = patient.Id })).StatusCode);
