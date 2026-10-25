@@ -37,6 +37,9 @@ describe('CheckInPage', () => {
   it('checks in a booked appointment and shows the issued token', async () => {
     const calls = routes(['receptionist'], {
       [`POST /api/v1/appointments/${APPT}/check-in`]: () => json({ queueEntryId: 'q1', tokenNo: 7, queueDate: '2026-10-09', entry: entry() }, 201),
+      'POST /api/v1/accounts/from-appointment': () => json({ id: 'bill-1', accountId: 'acct-1', patientId: PATIENT_ID, branchId: ALPHA_MAIN, status: 'draft', billKind: 'final', payerType: 'self', lines: [], discounts: [], netPaise: 0, taxPaise: 0, discountPaise: 0, exactPaise: 0, roundOffPaise: 0, totalPaise: 0, duePaise: 0 }),
+      [`GET /api/v1/accounts/${PATIENT_ID}/summary`]: () => json({ patientId: PATIENT_ID, advancePaise: 0, accounts: [], bills: [{ id: 'bill-1', accountId: 'acct-1', branchId: ALPHA_MAIN, billNo: null, status: 'draft', billKind: 'final', totalPaise: 50000, duePaise: 50000 }] }),
+      'GET /api/v1/bills/bill-1': () => json({ id: 'bill-1', billNo: null, status: 'draft', billKind: 'final', payerType: 'self', accountId: 'acct-1', patientId: PATIENT_ID, branchId: ALPHA_MAIN, lines: [{ id: 'line-1', lineNo: 1, serviceItemId: 'item-1', code: 'CONSULT', name: 'OP consultation', quantity: 1, unitPricePaise: 50000, taxRateBp: 0, netPaise: 50000, taxPaise: 0, practitionerId: null }], discounts: [], netPaise: 50000, taxPaise: 0, discountPaise: 0, exactPaise: 50000, roundOffPaise: 0, totalPaise: 50000, duePaise: 50000, cgstPaise: 0, sgstPaise: 0, igstPaise: 0, supplier: { gstin: null, stateCode: null, name: 'Alpha', address: null } }),
     })
     const user = userEvent.setup()
     renderWithProviders(<App />, { path: '/reception/check-in', auth: fakeAuthClient({ session: fakeSession() }) })
@@ -48,6 +51,9 @@ describe('CheckInPage', () => {
     expect(await screen.findByTestId('token-number')).toHaveTextContent('7')
     expect(screen.getByTestId('token-issued')).toHaveTextContent('Checked in Asha Synthetic-Alpha.')
     expect(calls.filter((c) => c.path === `/api/v1/appointments/${APPT}/check-in`)).toHaveLength(1)
+    expect(await screen.findByTestId('billing-drawer')).toBeInTheDocument()
+    expect(screen.getByText('OP consultation')).toBeInTheDocument()
+    expect(calls.filter((c) => c.path === '/api/v1/accounts/from-appointment')).toHaveLength(1)
     // the list refreshes after a check-in
     await waitFor(() => expect(calls.filter((c) => c.path === '/api/v1/appointments').length).toBeGreaterThan(1))
     // the embedded patient summary (API v2) names the row: no per-patient fetch

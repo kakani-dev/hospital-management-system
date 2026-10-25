@@ -6,9 +6,9 @@ import { Button } from '../../components/ui/Button'
 import { Illustration } from '../../components/ui/Illustration'
 import { LoadingBlock } from '../../components/ui/LoadingBlock'
 import { ApiError, apiClient } from '../../lib/api/client'
-import type { BillDocument, ServiceItem } from '../../lib/api/types'
+import type { BillDocument, Receipt, ServiceItem } from '../../lib/api/types'
 import { useDebouncedValue } from '../../lib/useDebouncedValue'
-import { formatPaise, rupeesToPaise } from './money'
+import { formatPaise, parseRupeesToPaise, rupeesToPaise } from './money'
 
 const UpiQr = lazy(() => import('./UpiQr').then((m) => ({ default: m.UpiQr })))
 
@@ -21,7 +21,18 @@ function problemText(error: unknown): string {
  * OP consult bill beside the open patient. Alt+B opens this panel. The consultation is
  * collected on the open bill, later items share that bill, and Close bill numbers it.
  */
-export function BillingPanel({ patientId, branchId, onBack }: { patientId: string; branchId: string; onBack: () => void }) {
+export function BillingPanel({
+  patientId,
+  branchId,
+  onBack,
+  focusCollect = true,
+}: {
+  patientId: string
+  branchId: string
+  onBack: () => void
+  /** Check-in leaves focus on the token. The patient drawer still jumps to Collect. */
+  focusCollect?: boolean
+}) {
   const qc = useQueryClient()
   const [generation, setGeneration] = useState(0)
   const [override, setOverride] = useState<{ generation: number; bill: BillDocument } | null>(null)
@@ -30,6 +41,7 @@ export function BillingPanel({ patientId, branchId, onBack }: { patientId: strin
   const [phone, setPhone] = useState('')
   const [discountRupees, setDiscountRupees] = useState('')
   const [receiptId, setReceiptId] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
 
   const summary = useQuery({
     queryKey: ['billing', 'summary', patientId, branchId],
@@ -69,10 +81,10 @@ export function BillingPanel({ patientId, branchId, onBack }: { patientId: strin
   const shown = polled.data ?? bill
 
   useEffect(() => {
-    if (shown?.status !== 'draft') return
+    if (!focusCollect || shown?.status !== 'draft') return
     const target = shown.duePaise > 0 ? 'collect-cash' : 'finalize-bill'
     document.querySelector<HTMLButtonElement>(`[data-testid="${target}"]`)?.focus()
-  }, [shown?.id, shown?.status, shown?.duePaise])
+  }, [focusCollect, shown?.id, shown?.status, shown?.duePaise])
 
   const remove = useMutation({
     mutationFn: (lineId: string) => apiClient.billing.removeLine(shown!.id, lineId),
@@ -84,13 +96,17 @@ export function BillingPanel({ patientId, branchId, onBack }: { patientId: strin
       if (!shown) throw new Error('No bill')
       if (action === 'finalize') return { bill: await apiClient.billing.finalize(shown.id) }
       if (action === 'discount') {
-        return {
-          bill: await apiClient.billing.discount(shown.id, {
-            kind: 'flat_paise',
-            value: rupeesToPaise(Number(discountRupees)),
-            reasonCode: 'courtesy',
-          }),
+        const result = await apiClient.billing.discount(shown.id, {
+          kind: 'flat_paise',
+          value: rupeesToPaise(Number(discountRupees)),
+          reasonCode: 'courtesy',
+        })
+        if (!('lines' in result)) {
+          setNotice('This discount is above the limit. Someone else has to approve it.')
+          return { bill: shown }
         }
+        setNotice(null)
+        return { bill: result }
       }
       if (action === 'cash') {
         const session = await apiClient.billing.ensureSession(branchId)
@@ -174,10 +190,13 @@ export function BillingPanel({ patientId, branchId, onBack }: { patientId: strin
       {shown.status === 'draft' && (
         <ServiceAdder billId={shown.id} onAdded={(next) => setOverride({ generation, bill: next })} />
       )}
+      <TaxSplit bill={shown} />
       <p className="flex items-baseline justify-between text-base font-medium">
         <span>Total</span>
         <span className="font-mono" data-testid="bill-total">{formatPaise(shown.totalPaise)}</span>
       </p>
+      {notice && <Alert tone="info">{notice}</Alert>}
+      <RefundBox bill={shown} onChanged={(next) => { if (next) setOverride({ generation, bill: next }) }} onNotice={setNotice} />
       {shown.roundOffPaise !== 0 && (
         <p className="text-xs text-gray-500">Round-off {formatPaise(shown.roundOffPaise)}</p>
       )}
@@ -386,6 +405,103 @@ function ServiceAdder({ billId, onAdded }: { billId: string; onAdded: (bill: Bil
         </ul>
       )}
       {add.isError && <Alert tone="error">{problemText(add.error)}</Alert>}
+    </form>
+  )
+}
+
+function TaxSplit({ bill }: { bill: BillDocument }) {
+  const supplier = bill.supplier
+  return (
+    <div className="space-y-1 text-sm text-gray-600 dark:text-dark-200" data-testid="tax-split">
+      {supplier?.name && <p>{supplier.name}</p>}
+      {supplier?.address && <p>{supplier.address}</p>}
+      <p>
+        GSTIN <span data-testid="bill-gstin">{supplier?.gstin ?? 'Not set'}</span>
+        {bill.placeOfSupplyState ? ` · Place of supply ${bill.placeOfSupplyState}` : ''}
+      </p>
+      <p data-testid="gst-components">
+        CGST {formatPaise(bill.cgstPaise ?? 0)} · SGST {formatPaise(bill.sgstPaise ?? 0)} · IGST {formatPaise(bill.igstPaise ?? 0)}
+      </p>
+    </div>
+  )
+}
+
+/** Refund against a receipt already on this bill. Pending when the amount needs another approver. */
+export function RefundBox({
+  bill,
+  onChanged,
+  onNotice,
+}: {
+  bill: BillDocument
+  onChanged: (next: BillDocument | null) => void
+  onNotice: (message: string | null) => void
+}) {
+  const open = (bill.payments ?? []).filter((payment) => payment.amountPaise > payment.refundedPaise)
+  const [paymentId, setPaymentId] = useState(open[0]?.id ?? '')
+  const [rupees, setRupees] = useState('')
+  const [note, setNote] = useState<string | null>(null)
+  const selected = open.find((payment) => payment.id === paymentId) ?? open[0]
+  const refund = useMutation({
+    mutationFn: () => {
+      const amountPaise = parseRupeesToPaise(rupees)
+      if (!selected || amountPaise == null) throw new Error('Enter the refund in rupees.')
+      return apiClient.billing.refund(selected.id, { amountPaise })
+    },
+    onSuccess: async (result) => {
+      if ('status' in result && result.status === 'pending') {
+        const message = 'This refund needs someone else to approve it.'
+        setNote(message)
+        onNotice(message)
+        onChanged(null)
+        return
+      }
+      const receipt = result as Receipt
+      const message = receipt.creditNoteNo
+        ? `Refund ${receipt.receiptNo}. Credit note ${receipt.creditNoteNo}.`
+        : `Refund ${receipt.receiptNo ?? 'recorded'}.`
+      setNote(message)
+      onNotice(null)
+      onChanged(await apiClient.billing.bill(bill.id))
+    },
+  })
+  if (!selected) return null
+  return (
+    <form
+      className="space-y-2 rounded-lg border border-gray-200 p-3 dark:border-dark-500"
+      data-testid="refund-box"
+      onSubmit={(event) => {
+        event.preventDefault()
+        refund.mutate()
+      }}
+    >
+      <p className="text-sm font-medium">Refund</p>
+      {open.length > 1 && (
+        <label className="block text-sm">
+          Receipt
+          <select className="mt-1 w-full rounded-lg border border-gray-300 px-2 py-2 dark:border-dark-500 dark:bg-dark-700" value={selected.id} onChange={(event) => setPaymentId(event.target.value)}>
+            {open.map((payment) => (
+              <option key={payment.id} value={payment.id}>
+                {payment.receiptNo ?? payment.mode} · {formatPaise(payment.amountPaise - payment.refundedPaise)} left
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      <label className="block text-sm">
+        Amount (rupees)
+        <input
+          aria-label="Refund rupees"
+          inputMode="decimal"
+          className="mt-1 w-32 rounded-lg border border-gray-300 px-2 py-2 dark:border-dark-500 dark:bg-dark-700"
+          value={rupees}
+          onChange={(event) => setRupees(event.target.value)}
+        />
+      </label>
+      <Button type="submit" variant="secondary" disabled={refund.isPending || parseRupeesToPaise(rupees) == null}>
+        Refund
+      </Button>
+      {note && <p className="text-sm" data-testid="refund-note">{note}</p>}
+      {refund.isError && <Alert tone="error">{problemText(refund.error)}</Alert>}
     </form>
   )
 }

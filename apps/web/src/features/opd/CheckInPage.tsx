@@ -28,6 +28,8 @@ import { useBookablePractitioners } from '../scheduling/useBookablePractitioners
 import { PatientPicker } from '../patients/PatientPicker'
 import type { ReturnedPatientState } from '../patients/registerReturn'
 import { checkInErrorMessage } from './checkInErrors'
+import { BillingPanel } from '../billing/BillingPanel'
+import { apiClient } from '../../lib/api/client'
 
 /** Failed write: message, plus a retry for transient failures (writes are never auto-retried). */
 interface FailedWrite {
@@ -43,6 +45,7 @@ export function CheckInPage() {
   const { branches, branchId, timeZone, timeZoneReady, timeZoneMissing, setBranchId } = useBranchSelection()
   const today = localToday(new Date(), timeZone)
   const canCheckIn = can(rolesAtBranch(me.data, branchId), 'queue.checkIn')
+  const canBill = can(rolesAtBranch(me.data, branchId), 'billing.bill')
   const [issued, setIssued] = useState<{ result: CheckInResult; name: string } | null>(null)
   const [failure, setFailure] = useState<FailedWrite | null>(null)
   const tokenRef = useRef<HTMLDivElement>(null)
@@ -77,6 +80,9 @@ export function CheckInPage() {
   const onIssued = (result: CheckInResult, name: string) => {
     setFailure(null)
     setIssued({ result, name })
+    if (canBill && result.entry?.appointmentId) {
+      void apiClient.billing.ensureDraft(result.entry.appointmentId).catch(() => undefined)
+    }
   }
 
   const failed = (error: unknown, action: string, retry: () => void) => {
@@ -131,6 +137,9 @@ export function CheckInPage() {
               </p>
             </div>
           </div>
+        )}
+        {issued && canBill && branchId && issued.result.entry?.patientId && (
+          <BillingPanel focusCollect={false} patientId={issued.result.entry.patientId} branchId={branchId} onBack={() => setIssued(null)} />
         )}
       </div>
       {failure &&

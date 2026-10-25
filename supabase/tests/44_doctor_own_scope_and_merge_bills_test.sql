@@ -66,6 +66,31 @@ values ('a2440000-0000-4000-8000-000000000021', '11111111-1111-4111-8111-1111111
 insert into billing.cost_estimate (id, tenant_id, patient_id, branch_id, valid_until)
 values ('a2440000-0000-4000-8000-000000000031', '11111111-1111-4111-8111-111111111111',
         'aa244000-0000-4000-8000-000000000002', 'a1111111-0000-4000-8000-000000000001', '2031-12-31');
+insert into billing.bill (id, tenant_id, account_id, bill_kind, status)
+values ('a2440000-0000-4000-8000-000000000041', '11111111-1111-4111-8111-111111111111',
+        'a2440000-0000-4000-8000-000000000001', 'final', 'draft');
+insert into billing.bill (id, tenant_id, account_id, bill_kind, reverses_bill_id, status)
+values ('a2440000-0000-4000-8000-000000000042', '11111111-1111-4111-8111-111111111111',
+        'a2440000-0000-4000-8000-000000000001', 'credit_note',
+        'a2440000-0000-4000-8000-000000000041', 'draft');
+insert into billing.approval_request (
+  id, tenant_id, action, subject_type, subject_id, amount_paise, requested_by, approver_id, status, decided_at)
+values ('a2440000-0000-4000-8000-000000000051', '11111111-1111-4111-8111-111111111111',
+        'refund', 'payment', 'a2440000-0000-4000-8000-000000000061', 50000,
+        '0a000000-0000-4000-8000-000000000001', '0a000000-0000-4000-8000-000000000001',
+        'approved', now());
+insert into billing.payment (id, tenant_id, account_id, receipt_no, idempotency_key, kind, amount_paise)
+values ('a2440000-0000-4000-8000-000000000061', '11111111-1111-4111-8111-111111111111',
+        'a2440000-0000-4000-8000-000000000001', 'M244-PAY',
+        'a2440000-0000-4000-8000-000000000061', 'payment', 50000);
+insert into billing.payment (
+  id, tenant_id, account_id, receipt_no, idempotency_key, kind, amount_paise,
+  refund_of_payment_id, approval_id, credit_note_id)
+values ('a2440000-0000-4000-8000-000000000062', '11111111-1111-4111-8111-111111111111',
+        'a2440000-0000-4000-8000-000000000001', 'M244-RFND',
+        'a2440000-0000-4000-8000-000000000062', 'refund', 50000,
+        'a2440000-0000-4000-8000-000000000061', 'a2440000-0000-4000-8000-000000000051',
+        'a2440000-0000-4000-8000-000000000042');
 
 select tests.authenticate_as('reception@alpha.example');
 select tests.throws_ok(
@@ -89,5 +114,14 @@ select tests.ok(
            where table_name = 'patients' and record_id = 'aa244000-0000-4000-8000-000000000002'
              and action = 'UPDATE' and (new_data ->> 'merged_into_patient_id') = 'aa244000-0000-4000-8000-000000000001'),
   'merge writes an audit row for the soft-deleted duplicate');
+select tests.ok(
+  (select patient_id = 'aa244000-0000-4000-8000-000000000001' from billing.billing_account where id = 'a2440000-0000-4000-8000-000000000001')
+  and (select account_id = 'a2440000-0000-4000-8000-000000000001' and not is_deleted from billing.bill where id = 'a2440000-0000-4000-8000-000000000041')
+  and (select account_id = 'a2440000-0000-4000-8000-000000000001' and reverses_bill_id = 'a2440000-0000-4000-8000-000000000041' and not is_deleted
+       from billing.bill where id = 'a2440000-0000-4000-8000-000000000042')
+  and (select account_id = 'a2440000-0000-4000-8000-000000000001' and credit_note_id = 'a2440000-0000-4000-8000-000000000042'
+            and refund_of_payment_id = 'a2440000-0000-4000-8000-000000000061' and not is_deleted
+       from billing.payment where id = 'a2440000-0000-4000-8000-000000000062'),
+  'merge moves the bill, refund and credit note with the account onto the survivor');
 
 rollback;
