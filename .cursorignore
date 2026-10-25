@@ -1,0 +1,25 @@
+# Keep Cursor agents from indexing or reading bulky, generated files (saves tokens).
+**/node_modules/
+**/bin/
+**/obj/
+**/dist/
+**/build/
+**/coverage/
+**/playwright-report/
+**/test-results/
+**/.vite/
+**/*.lock
+**/package-lock.json
+**/*.min.js
+**/*.min.css
+**/*.map
+**/*.png
+**/*.jpg
+**/*.jpeg
+**/*.gif
+**/*.webp
+**/*.ico
+**/*.woff
+**/*.woff2
+**/*.pdf
+**/*.zip
