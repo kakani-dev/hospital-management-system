@@ -296,7 +296,7 @@ export function PractitionersPage() {
 function profileLine(label: string, value: string | null | undefined) {
   return (
     <div>
-      <dt className="text-xs text-gray-500">{label}</dt>
+      <dt className="text-xs text-gray-600 dark:text-dark-200">{label}</dt>
       <dd>{value?.trim() ? value : 'Not recorded'}</dd>
     </div>
   )
