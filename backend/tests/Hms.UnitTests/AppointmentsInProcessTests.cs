@@ -112,5 +112,61 @@ public sealed class AppointmentsInProcessTests(ApiFactory factory) : IClassFixtu
         Assert.Equal(HttpStatusCode.NotFound, (await admin.PostAsJsonAsync("/api/v1/queue/walk-in", new { branchId = BetaMain, patientId = Guid.NewGuid() })).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await admin.PostAsJsonAsync("/api/v1/queue/walk-in", new { branchId = Main, patientId = Guid.NewGuid() })).StatusCode); // RPC P0002
         Assert.Equal(HttpStatusCode.NotFound, (await admin.PostAsync($"/api/v1/appointments/{Guid.NewGuid()}/check-in", null)).StatusCode);
+
+        Assert.Equal(HttpStatusCode.OK, (await admin.GetAsync($"/api/v1/slots?branchId={Main}&date=2031-03-01")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.GetAsync($"/api/v1/slots?branchId={Main}&date=2031-03-01&from=2031-03-01")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.GetAsync($"/api/v1/slots?branchId={Main}&date=not-a-date")).StatusCode);
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await lab.PostAsJsonAsync("/api/v1/queue/close-day", new { branchId = Main })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PostAsJsonAsync("/api/v1/queue/close-day", new { branchId = Main, date = "2099-01-01" })).StatusCode);
+        var closed = await admin.PostAsJsonAsync("/api/v1/queue/close-day", new { branchId = Main });
+        Assert.Equal(HttpStatusCode.OK, closed.StatusCode);
+        Assert.Equal(2, (await closed.Content.ReadFromJsonAsync<CloseQueueDay>())!.ExpiredCount);
+    }
+
+    private sealed record CloseQueueDay(Guid BranchId, DateOnly QueueDate, int ExpiredCount);
+
+    [Fact]
+    public async Task Booking_outside_working_hours_requires_a_reason()
+    {
+        var pr = await CreatePractitionerAsync();
+        using var admin = factory.ClientAs(Admin);
+        var missing = await admin.PostAsJsonAsync("/api/v1/appointments", new
+        {
+            branchId = Main, practitionerId = pr.Id, patientId = Guid.NewGuid(), startsAt = Slot, endsAt = Slot.AddMinutes(15), overrideWorkingHours = true,
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, missing.StatusCode);
+        Assert.Contains("reason", await missing.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
+
+        var blank = await admin.PostAsJsonAsync("/api/v1/appointments", new
+        {
+            branchId = Main, practitionerId = pr.Id, patientId = Guid.NewGuid(), startsAt = Slot, endsAt = Slot.AddMinutes(15),
+            overrideWorkingHours = true, reason = "   ",
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, blank.StatusCode);
+
+        var booked = await admin.PostAsJsonAsync("/api/v1/appointments", new
+        {
+            branchId = Main, practitionerId = pr.Id, patientId = Guid.NewGuid(), startsAt = Slot, endsAt = Slot.AddMinutes(15),
+            overrideWorkingHours = true, reason = "Emergency add-on (synthetic)",
+        });
+        Assert.Equal(HttpStatusCode.Created, booked.StatusCode);
+    }
+
+    [Fact]
+    public async Task No_show_before_the_start_is_a_friendly_conflict()
+    {
+        var pr = await CreatePractitionerAsync();
+        using var admin = factory.ClientAs(Admin);
+        var booked = await BookAsync(admin, Main, pr.Id, Slot);
+        Assert.Equal(HttpStatusCode.Created, booked.StatusCode);
+        var id = (await booked.Content.ReadFromJsonAsync<Appointment>())!.Id;
+
+        var noShow = await admin.PostAsync($"/api/v1/appointments/{id}/no-show", null);
+        Assert.Equal(HttpStatusCode.Conflict, noShow.StatusCode);
+        Assert.Equal("invalid_transition", await CodeOf(noShow));
+        var detail = await noShow.Content.ReadAsStringAsync();
+        Assert.Contains("Only booked appointments that have started can be marked as no-show.", detail, StringComparison.Ordinal);
+        Assert.DoesNotContain("invalid_transition:", detail, StringComparison.Ordinal);
     }
 }

@@ -14,7 +14,9 @@ public sealed record AdminSchedule(Guid Id, Guid PractitionerId, Guid BranchId, 
 
 /// <summary>
 /// Endpoints the web admin screens need: GET /patients/stats (dashboard) and includeDeleted on the
-/// practitioner and schedule lists (restore).
+/// practitioner and schedule lists (restore). The count test uses a fresh tenant so the +1 is exact.
+/// Today's registration count across the UTC/IST midnight edge is covered by
+/// <see cref="PatientStatsClockTests"/>, which pins the clock.
 /// </summary>
 [Trait("Category", "Database")]
 public sealed class WebAdminApiTests(HmsApiFactory factory) : IClassFixture<HmsApiFactory>

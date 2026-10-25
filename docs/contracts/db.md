@@ -40,8 +40,8 @@ Callers without a user (`service_role` jobs, triggers) skip the membership check
 | `identity.caller_roles_v1(tenant) → text[]` | identity | billing (approval policy) | 20261023120100 |
 | `appointment.appointment_billing_ref_v1(tenant, appointment) → table` | scheduling | billing (draft at check-in) | 20261023120200 |
 | `inventory.fefo_pick_v1(tenant, store, item, qty) → jsonb` | inventory | inventory (lookup only; no other service yet) | 20261023170000 |
-| `privacy.consent_allows_v1(tenant, patient, purpose) → bool` | privacy | privacy (messaging and CRM are not granted it yet) | 20261025210200 |
-| `privacy.note_patient_merge_v1(tenant, from, to)` | privacy | service_role only; patients merge does not call it yet | 20261025210200 |
+| `privacy.consent_allows_v1(tenant, patient, purpose) → bool` | privacy | privacy (messaging and CRM are not granted it yet) | 20261025220500 |
+| `privacy.note_patient_merge_v1(tenant, from, to)` | privacy | service_role only; patients merge does not call it yet | 20261025220500 |
 
 Details:
 
@@ -79,7 +79,7 @@ adds a cross-schema reference must carry the header line `-- cross-schema: appro
   `my_tenant_grant_v1`, `my_active_context`, `auth.uid()`, and the `_v1` contracts the service calls).
   Billing's grants are in 20261023120500, including `my_tenant_grant_v1` and `my_active_context` for tenant resolution.
   Inventory's grants are in 20261023170000. `inventory.fefo_pick_v1` is executable by `hms_svc_inventory` and `service_role` only. It looks up batches and does not change stock. Other services are not granted it yet.
-  Privacy's grants are in 20261025210200. `privacy.consent_allows_v1` is executable by `hms_svc_privacy` and `service_role` only. `privacy.note_patient_merge_v1` is `service_role` only. `anon` may execute only `privacy.public_consent_preview` and `privacy.submit_public_consent`, and has no table grants. The consent ledger is not partitioned in this slice.
+  Privacy's grants are in 20261025220500. `privacy.consent_allows_v1` is executable by `hms_svc_privacy` and `service_role` only. `privacy.note_patient_merge_v1` is `service_role` only. `anon` may execute only `privacy.public_consent_preview` and `privacy.submit_public_consent`, and has no table grants. The consent ledger is not partitioned in this slice.
   The service sets `Database:SessionRole` to `hms_svc_<service>` and `SET LOCAL ROLE`s that role per
   transaction, with `request.jwt.claims` unchanged (`role` claim stays `authenticated`). A service
   cannot `SET ROLE authenticated` and cannot `SELECT` another schema's tables. ADR 0002.

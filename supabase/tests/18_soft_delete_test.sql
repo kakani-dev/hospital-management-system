@@ -21,7 +21,7 @@ select tests.throws_ok(format($$select identity.soft_delete_membership(%L)$$, (s
 
 select tests.authenticate_as('admin@alpha.example');
 select tests.throws_ok(format($$select identity.soft_delete_membership(%L)$$, (select admin_m from t_ids)),
-  '55000', 'an admin cannot delete their own membership (lock-out guard)');
+  '55000', 'the last admin cannot be removed');
 select identity.soft_delete_membership((select reception_m from t_ids));
 select tests.ok(
   (select is_deleted from identity.memberships where id = (select reception_m from t_ids)),

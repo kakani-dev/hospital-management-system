@@ -29,9 +29,18 @@ select tests.ok(
   (select count(*) from (select appointment.assert_bookable_window_v2('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001',
      'c1111111-0000-4000-8000-000000000002', '2030-01-07 15:00+05:30', '2030-01-07 15:20+05:30', true)) x) = 1,
   'an admin may override working hours');
-insert into appointment.appointments (id, tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at, hours_override)
+select tests.throws_ok($$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at, hours_override)
+  values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'c1111111-0000-4000-8000-000000000002',
+          'aa000000-0000-4000-8000-000000000002', '2030-01-07 16:30+05:30', '2030-01-07 16:50+05:30', true)$$,
+  '22023', 'an override without a reason is rejected');
+select tests.throws_ok($$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at, hours_override, reason)
+  values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'c1111111-0000-4000-8000-000000000002',
+          'aa000000-0000-4000-8000-000000000002', '2030-01-07 16:30+05:30', '2030-01-07 16:50+05:30', true, '   ')$$,
+  '22023', 'a blank override reason is rejected');
+insert into appointment.appointments (id, tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at, hours_override, reason)
 values ('e3000000-0000-4000-8000-000000000001', '11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001',
-        'c1111111-0000-4000-8000-000000000002', 'aa000000-0000-4000-8000-000000000002', '2030-01-07 15:00+05:30', '2030-01-07 15:20+05:30', true);
+        'c1111111-0000-4000-8000-000000000002', 'aa000000-0000-4000-8000-000000000002', '2030-01-07 15:00+05:30', '2030-01-07 15:20+05:30', true,
+        'Emergency add-on (synthetic)');
 select tests.as_superuser();
 select tests.ok(exists (select 1 from audit.audit_log where table_name = 'appointments' and record_id = 'e3000000-0000-4000-8000-000000000001'
                           and (new_data ->> 'hours_override')::boolean and changed_by = '0a000000-0000-4000-8000-000000000001'),
@@ -90,7 +99,7 @@ values ('f3000000-0000-4000-8000-000000000001', '11111111-1111-4111-8111-1111111
         identity.branch_local_date_v1('a1111111-0000-4000-8000-000000000001'), 902, 'aa000000-0000-4000-8000-000000000003', null, 'waiting', '0a000000-0000-4000-8000-000000000001', '0a000000-0000-4000-8000-000000000001');
 set local session_replication_role = origin;
 select tests.ok(appointment.close_stale_queues() >= 1, 'end-of-day close runs');
-select tests.ok((select status from appointment.queue_entries where id = 'f3000000-0000-4000-8000-000000000001') = 'no_show', 'yesterday''s waiting entry is no_show');
+select tests.ok((select status from appointment.queue_entries where id = 'f3000000-0000-4000-8000-000000000001') = 'expired', 'yesterday''s waiting entry is expired');
 select tests.ok((select status from appointment.appointments where id = 'e3000000-0000-4000-8000-000000000009') = 'no_show', 'its appointment is no_show');
 select tests.ok((select status from appointment.queue_entries where id = 'f3000000-0000-4000-8000-000000000002') = 'waiting', 'today''s entry is untouched');
 select tests.ok(appointment.close_stale_queues() = 0, 'idempotent');

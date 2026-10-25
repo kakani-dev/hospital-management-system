@@ -338,6 +338,8 @@ interface MockSession {
   status: string
   openingFloatPaise: number
   countedCashPaise: number | null
+  expectedCashPaise: number
+  variancePaise: number | null
   businessDate: string
   branchId: string
 }
@@ -398,6 +400,8 @@ export class MockBackend {
       status: 'closed',
       openingFloatPaise: 0,
       countedCashPaise: 50000,
+      expectedCashPaise: 50000,
+      variancePaise: 0,
       businessDate: today,
       branchId: ids.alphaMain,
     })

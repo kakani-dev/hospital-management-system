@@ -1,4 +1,5 @@
 using System.Data.Common;
+using System.Globalization;
 using Hms.Modules.Appointments.Persistence;
 using Hms.SharedKernel.Persistence;
 
@@ -33,6 +34,13 @@ public sealed class PostgresAppointmentFunctions(AppointmentsDbContext db) : IAp
 
     public Task SetQueueStatusAsync(Guid queueEntryId, string status, CancellationToken ct) =>
         RawSql.ScalarAsync(db, "select appointment.set_queue_status(@q::uuid, @s::text)", ct, ("q", queueEntryId), ("s", status));
+
+    public async Task<int> CloseQueueDayAsync(Guid tenantId, Guid branchId, DateOnly queueDate, CancellationToken ct)
+    {
+        var value = await RawSql.ScalarAsync(
+            db, "select appointment.close_queue_day(@t::uuid, @b::uuid, @d::date)", ct, ("t", tenantId), ("b", branchId), ("d", queueDate));
+        return Convert.ToInt32(value, CultureInfo.InvariantCulture);
+    }
 
     public Task AssertBookableWindowAsync(Guid tenantId, Guid branchId, Guid practitionerId, DateTimeOffset startsAt, DateTimeOffset endsAt, bool overrideHours, CancellationToken ct) =>
         RawSql.ScalarAsync(db, "select appointment.assert_bookable_window_v2(@t::uuid, @b::uuid, @p::uuid, @s::timestamptz, @e::timestamptz, @o::boolean)", ct,

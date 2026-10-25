@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import userEvent from '@testing-library/user-event'
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import { App } from '../../App'
 import { ROLE_PERMISSIONS } from '../../lib/permissions'
 import { ALPHA_MAIN, fakeAuthClient, fakeSession, json, meFor, meWithRoles, renderWithProviders, stubFetch } from '../../test/fakes'
@@ -64,6 +64,8 @@ function stub(role: string) {
           purchaseRatePaise: 900,
           onHandBase: 4,
           baseUomCode: 'TAB',
+          minQty: 10,
+          lowStock: true,
           expiryState: 'expired',
         },
       ]),
@@ -131,7 +133,7 @@ describe('Stock page', () => {
 
   it('highlights expired stock and hides catalog edits from a pharmacist', async () => {
     const user = userEvent.setup()
-    renderStock('pharmacist')
+    const calls = renderStock('pharmacist')
     expect(await screen.findByRole('tab', { name: 'Items' })).toBeInTheDocument()
     expect(screen.queryByRole('tab', { name: 'Opening stock' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Save item' })).not.toBeInTheDocument()
@@ -139,6 +141,13 @@ describe('Stock page', () => {
     await user.click(screen.getByRole('tab', { name: 'Stock on hand' }))
     const row = await screen.findByText('Expired')
     expect(row.closest('tr')).toHaveAttribute('data-expiry', 'expired')
+    expect(screen.getByTestId('low-stock')).toHaveTextContent('Low stock')
+    expect(screen.getByTestId('low-stock')).toHaveTextContent('reorder 10')
+    await user.click(screen.getByRole('checkbox', { name: 'Below reorder level' }))
+    await waitFor(() => {
+      const stockCall = calls.find((c) => c.path === '/api/v1/inventory/stock' && c.url.includes('lowStock=true'))
+      expect(stockCall).toBeTruthy()
+    })
   })
 
   it('keeps stock off the menu for a receptionist', async () => {

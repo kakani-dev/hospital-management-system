@@ -25,6 +25,8 @@ public static class QueueEndpoints
         group.MapGet("/", BoardAsync).WithName("GetQueueBoard")
             .WithSummary("Queue for one branch and branch-local day (default today), ordered by token.");
         group.MapPost("/walk-in", WalkInAsync).WithName("CheckInWalkIn");
+        group.MapPost("/close-day", CloseDayAsync).WithName("CloseQueueDay")
+            .WithSummary("Expire waiting tokens for one branch-local day (default today). A future day is rejected.");
         group.MapPatch("/{id:guid}", SetStatusAsync).WithName("SetQueueStatus");
         return api;
     }
@@ -114,6 +116,47 @@ public static class QueueEndpoints
         var entry = await PatientEmbedding.LoadQueueEntryAsync(db, patients, token.QueueEntryId, ct);
         return TypedResults.Created(
             $"/api/v1/queue/{token.QueueEntryId}", new CheckInResultDto(token.QueueEntryId, token.TokenNo, token.QueueDate, entry));
+    }
+
+    private static async Task<Results<Ok<CloseQueueDayResult>, ValidationProblem, ProblemHttpResult>> CloseDayAsync(
+        CloseQueueDayRequest request, AppointmentsDbContext db, ITenantContext tenant, IAppointmentFunctions functions, TimeProvider clock, CancellationToken ct)
+    {
+        if (!tenant.CanAtAnyBranch(HmsPermissions.QueueManage))
+        {
+            return HmsProblems.Forbidden();
+        }
+
+        if (request.BranchId == Guid.Empty)
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["branchId"] = ["Branch is required."] });
+        }
+
+        if (!tenant.CanAtBranch(request.BranchId, HmsPermissions.QueueManage))
+        {
+            return await BranchScope.DenyAsync(db, tenant, request.BranchId, "You cannot close the queue of this branch.", ct);
+        }
+
+        var tz = tenant.TimeZoneFor(request.BranchId);
+        var day = request.Date ?? BranchTime.Today(clock, tz);
+        if (day > BranchTime.Today(clock, tz))
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["date"] = ["A queue day cannot be closed before it ends in the branch time zone."],
+            });
+        }
+
+        int expired;
+        try
+        {
+            expired = await functions.CloseQueueDayAsync(tenant.TenantId, request.BranchId, day, ct);
+        }
+        catch (Exception ex) when (HmsProblems.FromDatabase(ex) is { } problem)
+        {
+            return problem;
+        }
+
+        return TypedResults.Ok(new CloseQueueDayResult(request.BranchId, day, expired));
     }
 
     private static async Task<Results<Ok<QueueEntryDto>, ValidationProblem, ProblemHttpResult>> SetStatusAsync(

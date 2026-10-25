@@ -96,7 +96,8 @@ public sealed record CreateAppointmentRequest(
     Guid BranchId, Guid PractitionerId, Guid PatientId, DateTimeOffset? StartsAt, DateTimeOffset? EndsAt, string? Reason,
     Guid? ParentAppointmentId = null, bool? OverrideWorkingHours = null);
 
-public sealed record RescheduleAppointmentRequest(DateTimeOffset? StartsAt, DateTimeOffset? EndsAt, Guid? PractitionerId, bool? OverrideWorkingHours = null);
+public sealed record RescheduleAppointmentRequest(
+    DateTimeOffset? StartsAt, DateTimeOffset? EndsAt, Guid? PractitionerId, bool? OverrideWorkingHours = null, string? Reason = null);
 
 public sealed record CancelAppointmentRequest(string? Reason);
 
@@ -115,6 +116,10 @@ public sealed record CheckInResultDto(Guid QueueEntryId, int TokenNo, DateOnly Q
 public sealed record WalkInRequest(Guid BranchId, Guid PatientId, Guid? PractitionerId);
 
 public sealed record UpdateQueueStatusRequest(string? Status);
+
+public sealed record CloseQueueDayRequest(Guid BranchId, DateOnly? Date);
+
+public sealed record CloseQueueDayResult(Guid BranchId, DateOnly QueueDate, int ExpiredCount);
 
 /// <summary>"HH:mm" wall-clock times (24h).</summary>
 public static class HhMm

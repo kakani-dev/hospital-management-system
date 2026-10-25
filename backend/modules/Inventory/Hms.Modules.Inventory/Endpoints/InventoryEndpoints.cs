@@ -40,10 +40,10 @@ public static class InventoryEndpoints
             return Write(db, tenant, HmsPermissions.InventoryCatalog, "select inventory.create_store(@t::uuid, @b::jsonb)::text", body, ct);
         });
         root.MapPost("/opening-stock", PostOpeningAsync);
-        root.MapGet("/stock", (Guid? storeId, Guid? itemId, InventoryDbContext db, ITenantContext tenant, CancellationToken ct) =>
+        root.MapGet("/stock", (Guid? storeId, Guid? itemId, bool? lowStock, InventoryDbContext db, ITenantContext tenant, CancellationToken ct) =>
             Exec(db, tenant, HmsPermissions.InventoryView,
-                "select inventory.stock_on_hand(@t::uuid, @s::uuid, @i::uuid)::text", ct,
-                ("s", storeId), ("i", itemId)));
+                "select inventory.stock_on_hand(@t::uuid, @s::uuid, @i::uuid, @low::boolean)::text", ct,
+                ("s", storeId), ("i", itemId), ("low", lowStock == true)));
         root.MapGet("/fefo", (Guid storeId, Guid itemId, long? qty, InventoryDbContext db, ITenantContext tenant, CancellationToken ct) =>
             Exec(db, tenant, HmsPermissions.InventoryView,
                 "select inventory.fefo_pick_v1(@t::uuid, @s::uuid, @i::uuid, @q::bigint)::text", ct,

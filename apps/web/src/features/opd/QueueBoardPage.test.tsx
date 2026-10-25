@@ -120,4 +120,27 @@ describe('QueueBoardPage', () => {
     await waitFor(() => expect(screen.getAllByTestId('queue-entry')).toHaveLength(2), { timeout: 2000 })
     expect(calls.filter((c) => c.path === '/api/v1/queue').length).toBeGreaterThan(1)
   })
+
+  it('closes the day and moves waiting tokens to closed', async () => {
+    let closed = false
+    const calls = routes(
+      ['receptionist'],
+      () => (closed ? [entry('q1', 1, 'expired'), entry('q2', 2, 'in_consultation')] : [entry('q1', 1, 'waiting'), entry('q2', 2, 'in_consultation')]),
+      {
+        'POST /api/v1/queue/close-day': () => {
+          closed = true
+          return json({ branchId: ALPHA_MAIN, queueDate: today(), expiredCount: 1 })
+        },
+      },
+    )
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: '/queue', auth: fakeAuthClient({ session: fakeSession() }) })
+    await user.click(await screen.findByRole('button', { name: 'Close the day' }))
+    await user.click(await screen.findByRole('button', { name: 'Expire waiting tokens' }))
+    expect(await screen.findByText(/1 waiting token expired/)).toBeInTheDocument()
+    const closedColumn = await screen.findByTestId('queue-expired')
+    expect(within(closedColumn).getByTestId('queue-entry')).toHaveAttribute('data-token', '1')
+    expect(within(screen.getByTestId('queue-in_consultation')).getByTestId('queue-entry')).toHaveAttribute('data-token', '2')
+    expect(calls.find((c) => c.path === '/api/v1/queue/close-day')?.body).toEqual({ branchId: ALPHA_MAIN, date: today() })
+  })
 })

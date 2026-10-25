@@ -170,6 +170,10 @@ public static class AppointmentEndpoints
         {
             errors["reason"] = [$"Reason must be at most {ReasonMaxLength} characters."];
         }
+        else if (request.OverrideWorkingHours == true && string.IsNullOrWhiteSpace(request.Reason))
+        {
+            errors["reason"] = ["A reason is required when booking outside working hours."];
+        }
 
         if (errors.Count > 0)
         {
@@ -252,6 +256,11 @@ public static class AppointmentEndpoints
     {
         var errors = new Dictionary<string, string[]>();
         ValidateTimes(request.StartsAt, request.EndsAt, errors);
+        if (request.Reason is { Length: > ReasonMaxLength })
+        {
+            errors["reason"] = [$"Reason must be at most {ReasonMaxLength} characters."];
+        }
+
         if (errors.Count > 0)
         {
             return TypedResults.ValidationProblem(errors);
@@ -272,6 +281,15 @@ public static class AppointmentEndpoints
         var endsAt = request.EndsAt!.Value.ToUniversalTime();
         var practitioner = request.PractitionerId is { } p && p != Guid.Empty ? p : appointment.PractitionerId;
         var overrideHours = request.OverrideWorkingHours == true;
+        var nextReason = string.IsNullOrWhiteSpace(request.Reason) ? appointment.Reason : request.Reason.Trim();
+        if (overrideHours && !appointment.HoursOverride && string.IsNullOrWhiteSpace(nextReason))
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["reason"] = ["A reason is required when booking outside working hours."],
+            });
+        }
+
         if (overrideHours && !tenant.CanAtBranch(appointment.BranchId, HmsPermissions.AppointmentsOverrideHours))
         {
             return HmsProblems.Forbidden("Only admins can book outside a doctor's working hours.");
@@ -290,6 +308,11 @@ public static class AppointmentEndpoints
         appointment.StartsAt = startsAt;
         appointment.EndsAt = endsAt;
         appointment.PractitionerId = practitioner;
+        if (!string.IsNullOrWhiteSpace(request.Reason))
+        {
+            appointment.Reason = request.Reason.Trim();
+        }
+
         appointment.HoursOverride |= overrideHours;
         return await SaveAsync(db, appointment, patients, ct);
     }
@@ -329,7 +352,7 @@ public static class AppointmentEndpoints
 
         if (appointment!.Status != AppointmentStatus.Booked || clock.GetUtcNow() < appointment.StartsAt)
         {
-            return InvalidTransition($"invalid_transition:{appointment.Status}->no_show (only booked appointments, once they have started)");
+            return InvalidTransition(HmsProblems.NoShowNotAllowedDetail);
         }
 
         appointment.Status = AppointmentStatus.NoShow;

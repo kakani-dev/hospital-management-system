@@ -576,6 +576,10 @@ export interface RescheduleAppointmentRequest {
   startsAt: string
   endsAt: string
   practitionerId?: Guid
+  /** Admins only, when the new time is outside working hours. */
+  overrideWorkingHours?: boolean
+  /** Required when overrideWorkingHours turns the override on and the visit has no reason yet. */
+  reason?: string
 }
 
 /** GET /api/v1/slots: only free, future slots. */
@@ -654,17 +658,24 @@ export interface CancelAppointmentRequest {
   reason?: string
 }
 
-/** no_show: set only by the end-of-day close (entries still waiting after the branch-local day ended). */
-export const QUEUE_STATUSES = ['waiting', 'in_consultation', 'done', 'cancelled', 'no_show'] as const
+/** expired: set by the day-end close (waiting tokens). no_show remains for older rows. */
+export const QUEUE_STATUSES = ['waiting', 'in_consultation', 'done', 'cancelled', 'no_show', 'expired'] as const
 export type QueueStatus = (typeof QUEUE_STATUSES)[number]
 
 /** Allowed OPD queue transitions (DB §3.1); anything else is a 409 invalid_transition. */
+export interface CloseQueueDayResult {
+  branchId: Guid
+  queueDate: string
+  expiredCount: number
+}
+
 export const QUEUE_TRANSITIONS: Record<QueueStatus, QueueStatus[]> = {
   waiting: ['in_consultation', 'cancelled'],
   in_consultation: ['done', 'cancelled'],
   done: [],
   cancelled: [],
   no_show: [],
+  expired: [],
 }
 
 /** QueueEntryDto: one OPD token for a branch and branch-local day. */
@@ -802,7 +813,11 @@ export interface DayEndSession {
   cashierId: Guid
   status: string
   openingFloatPaise: number
+  /** Float plus cash receipts, minus cash refunds. Same figure close_session returns. */
+  expectedCashPaise: number
   countedCashPaise: number | null
+  /** Counted minus expected, once the cashier has counted. Empty while the session is still open. */
+  variancePaise: number | null
   businessDate: string
 }
 
@@ -1038,6 +1053,10 @@ export interface StockOnHandRow {
   purchaseRatePaise: number
   onHandBase: number
   baseUomCode: string
+  /** store_item_policy.min_qty when this store tracks a reorder level for the item. */
+  minQty: number | null
+  /** True when on-hand for the store and item is below minQty. */
+  lowStock: boolean
   expiryState: 'expired' | 'soon' | 'ok'
 }
 

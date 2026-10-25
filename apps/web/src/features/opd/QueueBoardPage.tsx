@@ -8,7 +8,8 @@ import { useWorkspace } from '../workspace/WorkspaceProvider'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
 import { BranchPicker } from '../../components/scheduling/BranchPicker'
-import { mutationKeys, QUEUE_REFRESH_MS, usePatientRefs, usePendingMutationIds, usePractitioners, useQueue, useUpdateQueueStatus, type QueueStatusChange } from '../../lib/api/hooks'
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
+import { mutationKeys, QUEUE_REFRESH_MS, useCloseQueueDay, usePatientRefs, usePendingMutationIds, usePractitioners, useQueue, useUpdateQueueStatus, type QueueStatusChange } from '../../lib/api/hooks'
 import { transientWriteMessage } from '../../lib/api/errors'
 import { RetryAlert } from '../../components/ui/RetryAlert'
 import { formatDayLabel, formatTime, localToday } from '../../lib/dates'
@@ -23,6 +24,7 @@ const COLUMNS: { status: QueueStatus; title: string }[] = [
   { status: 'waiting', title: 'Waiting' },
   { status: 'in_consultation', title: 'In consultation' },
   { status: 'done', title: 'Done' },
+  { status: 'expired', title: 'Closed' },
 ]
 
 const ACTION_LABEL: Partial<Record<QueueStatus, string>> = { in_consultation: 'Call in', done: 'Mark done', cancelled: 'Remove' }
@@ -38,17 +40,43 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
   const practitioners = usePractitioners()
   const patient = usePatientRefs(queue.data ?? [])
   const update = useUpdateQueueStatus()
+  const closeDay = useCloseQueueDay()
+  const [confirmClose, setConfirmClose] = useState(false)
   const [error, setError] = useState<{ message: string; retry: (() => void) | null } | null>(null)
   const saving = usePendingMutationIds<QueueStatusChange>(mutationKeys.queueStatus, (v) => v.id)
   const branchRoles = rolesAtBranch(me.data, branchId)
   const canAdvance = can(branchRoles, 'queue.advance')
   const canCancel = can(branchRoles, 'queue.cancel')
+  const canCloseDay = can(branchRoles, 'queue.cancel')
   const canBook = can(branchRoles, 'appointments.book')
   // doctors: follow-ups of their own appointment visits only (the server checks ownership)
   const canFollowUpOwn = can(branchRoles, 'appointments.bookFollowUp')
 
   const entries = [...(queue.data ?? [])].sort((a, b) => a.tokenNo - b.tokenNo)
   const cancelledCount = entries.filter((e) => e.status === 'cancelled').length
+  const waitingCount = entries.filter((e) => e.status === 'waiting').length
+
+  const close = async () => {
+    if (!branchId) return
+    setError(null)
+    try {
+      const result = await closeDay.mutateAsync({ branchId, date: today })
+      setConfirmClose(false)
+      setError({
+        message:
+          result.expiredCount === 0
+            ? 'The day is closed. No tokens were still waiting.'
+            : `Closed the day. ${result.expiredCount} waiting token${result.expiredCount === 1 ? '' : 's'} expired.`,
+        retry: null,
+      })
+    } catch (e) {
+      const transient = transientWriteMessage(e, 'close the queue')
+      setError({
+        message: transient ?? (e instanceof ApiError ? (e.problem?.detail ?? 'Could not close the queue.') : 'Could not close the queue.'),
+        retry: transient ? () => void close() : null,
+      })
+    }
+  }
   const practitionerName = (id: string | null) => (id ? (practitioners.data?.find((p) => p.id === id)?.displayName ?? '—') : 'Any doctor')
 
   // Optimistic: the card moves at once (useUpdateQueueStatus), and rolls back on failure.
@@ -79,6 +107,11 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <h1 className="text-xl font-semibold text-gray-800 dark:text-dark-50">OPD queue</h1>
+        {canCloseDay && branchId && (
+          <Button variant="secondary" disabled={closeDay.isPending || !timeZoneReady} onClick={() => setConfirmClose(true)}>
+            Close the day
+          </Button>
+        )}
         <p className="text-sm text-gray-600 dark:text-dark-200" data-testid="queue-updated">
           {formatDayLabel(today)} · {queue.dataUpdatedAt ? `updated ${formatTime(new Date(queue.dataUpdatedAt), timeZone)}` : 'loading'} · refreshes
           every {Math.round(refreshMs / 1000)} s
@@ -92,14 +125,21 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
           {queue.error instanceof ApiError && queue.error.status === 403 ? 'You cannot view the queue of this branch.' : 'The queue is unavailable right now.'}
         </Alert>
       )}
-      {error && (error.retry ? <RetryAlert message={error.message} onRetry={error.retry} /> : <Alert tone="error">{error.message}</Alert>)}
+      {error &&
+        (error.retry ? (
+          <RetryAlert message={error.message} onRetry={error.retry} />
+        ) : error.message.startsWith('Closed the day') || error.message.startsWith('The day is closed') ? (
+          <Alert tone="info">{error.message}</Alert>
+        ) : (
+          <Alert tone="error">{error.message}</Alert>
+        ))}
       {queue.data && entries.length === 0 && (
         <div className="flex flex-col items-center gap-2 py-2 text-center">
           <Illustration name="clock" size={96} />
           <p className="text-sm text-gray-600 dark:text-dark-200">No tokens on the board yet.</p>
         </div>
       )}
-      <div className={`grid gap-4 md:grid-cols-3 ${queue.isPlaceholderData ? 'opacity-60' : ''}`} aria-busy={queue.isFetching && !queue.data}>
+      <div className={`grid gap-4 md:grid-cols-2 xl:grid-cols-4 ${queue.isPlaceholderData ? 'opacity-60' : ''}`} aria-busy={queue.isFetching && !queue.data}>
         {COLUMNS.map((col) => {
           const items = entries.filter((e) => e.status === col.status)
           return (
@@ -191,6 +231,20 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
           )
         })}
       </div>
+      <ConfirmDialog
+        open={confirmClose}
+        title="Close the queue for today?"
+        confirmLabel="Expire waiting tokens"
+        busy={closeDay.isPending}
+        onCancel={() => setConfirmClose(false)}
+        onConfirm={() => void close()}
+      >
+        <p>
+          {waitingCount === 0
+            ? 'No tokens are waiting. Tokens already with a doctor stay as they are.'
+            : `${waitingCount} waiting token${waitingCount === 1 ? '' : 's'} will be marked closed for this branch's day. Tokens already with a doctor stay as they are.`}
+        </p>
+      </ConfirmDialog>
       {cancelledCount > 0 && (
         <p className="text-sm text-gray-600 dark:text-dark-200" data-testid="queue-cancelled-count">
           {cancelledCount} token{cancelledCount === 1 ? '' : 's'} removed from the queue today.
