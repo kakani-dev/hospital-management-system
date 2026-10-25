@@ -1,0 +1,26 @@
+name: Test failure
+description: A test case from docs/testing failed.
+labels: [bug, qa]
+body:
+  - type: input
+    id: case
+    attributes: {label: Test case ID, description: "ID from docs/testing / Notion Test Cases, e.g. PAY-007"}
+    validations: {required: true}
+  - type: input
+    id: link
+    attributes: {label: Link to the case (Notion or docs/testing)}
+  - type: input
+    id: where
+    attributes: {label: Role, tenant and branch}
+    validations: {required: true}
+  - type: textarea
+    id: actual
+    attributes: {label: What happened instead of the expected result}
+    validations: {required: true}
+  - type: textarea
+    id: evidence
+    attributes: {label: Evidence, description: "Status code, X-Request-Id, console errors, time in IST"}
+  - type: dropdown
+    id: severity
+    attributes: {label: Severity, options: [high, medium, low]}
+    validations: {required: true}

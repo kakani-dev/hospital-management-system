@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: QA test scenarios
+    url: https://github.com/kakani-dev/hospital-management-system/tree/main/docs/testing
+    about: Test cases, smoke checklist and triage guide. Check known issues first.

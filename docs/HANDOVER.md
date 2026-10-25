@@ -30,6 +30,10 @@ dotnet test backend/Hms.slnx --filter "Category=Database"    # integration + RLS
 npm run e2e     # Playwright (mock auth)
 ```
 
+## Manual QA
+
+199 test cases, P0 smoke checklist and bug triage guide: [docs/testing](testing/README.md). Notion: [QA Test Scenarios](https://app.notion.com/p/404ead9eb8a8819ab6b3e371d45b719e). File bugs with the issue templates (labels `bug`, `severity:*`, `qa`).
+
 ## CI/CD and go-live
 - `ci.yml` is the required gate (`ci-ok`). `deploy-web.yml` deploys Vercel; `deploy-aca.yml` rolls the 7 ACA apps from main with rollback; `cleanup.yml` weekly.
 - **Go-live procedure (one deploy at a time):**
