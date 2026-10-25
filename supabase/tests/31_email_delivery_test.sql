@@ -142,6 +142,17 @@ create temporary table t_mail_event on commit drop as
    where o.event_type = 'email.signup_rejected' and p.recipient = 'reject@email-test.example';
 grant select on t_mail_event to public;
 
+-- Per-aggregate order: earlier unsent emails on this signup stay ahead of the rejection.
+update messaging.outbox earlier
+   set status = 'done', processed_on = now(), processed_at = now()
+  from t_mail_event ev
+  join messaging.outbox target on target.id = ev.id
+ where earlier.aggregate_type = 'email_message'
+   and earlier.tenant_id = target.tenant_id
+   and earlier.aggregate_id = target.aggregate_id
+   and earlier.id < target.id
+   and earlier.status in ('pending', 'processing');
+
 set local session authorization hms_scheduling_login;
 set local role hms_dispatcher;
 select tests.ok(

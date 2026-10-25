@@ -22,11 +22,11 @@ select tests.ok(
 
 select tests.ok(
   has_function_privilege('anon', 'billing.public_link(text)', 'execute')
-  and has_function_privilege('anon', 'billing.apply_webhook(text, jsonb)', 'execute')
+  and not has_function_privilege('anon', 'billing.apply_webhook(text, jsonb)', 'execute')
   and not has_function_privilege('anon', 'billing.finalize_bill(uuid, uuid)', 'execute')
   and not has_function_privilege('anon', 'identity.caller_roles_v1(uuid)', 'execute')
   and not has_function_privilege('anon', 'appointment.appointment_billing_ref_v1(uuid, uuid)', 'execute'),
-  'anon can open a receipt link and a webhook, and nothing else on the published surface');
+  'anon can open a receipt link, and cannot apply a webhook');
 
 select tests.ok(
   (select count(*) from appointment.appointment_billing_ref_v1(

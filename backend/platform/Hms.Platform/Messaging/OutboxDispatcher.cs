@@ -15,8 +15,10 @@ public sealed partial class OutboxDispatcher(
     IOutboxPublisher publisher,
     IOptions<OutboxOptions> options,
     TimeProvider clock,
-    ILogger<OutboxDispatcher> logger) : BackgroundService
+    ILogger<OutboxDispatcher> logger,
+    OutboxDispatcherHealth? health = null) : BackgroundService
 {
+    private readonly OutboxDispatcherHealth _health = health ?? new OutboxDispatcherHealth(options);
     private readonly RecentEventIds _published = new(Math.Max(options.Value.DedupCapacity, 1));
 
     public string WorkerId { get; } = Truncate($"{Environment.MachineName}:{Environment.ProcessId}:{Guid.NewGuid():N}", 200);
@@ -47,6 +49,7 @@ public sealed partial class OutboxDispatcher(
 #pragma warning restore CA1031
             {
                 LogPollFailed(logger, ex);
+                _health.RecordFailure(clock.GetUtcNow());
                 handled = 0;
             }
 
@@ -62,22 +65,36 @@ public sealed partial class OutboxDispatcher(
     public async Task<int> RunOnceAsync(CancellationToken ct)
     {
         var opts = options.Value;
-        var batch = await store.ClaimAsync(WorkerId, Math.Clamp(opts.BatchSize, 1, 500), TimeSpan.FromSeconds(Math.Clamp(opts.LeaseSeconds, 1, 3600)), ct);
+        if (opts.DryRun)
+        {
+            var backlog = await store.ReadBacklogAsync(ct).ConfigureAwait(false);
+            _health.RecordPoll(clock.GetUtcNow(), backlog, dryRun: true, claimed: 0);
+            LogDryRun(logger, backlog.Pending, backlog.StalePending, backlog.Dead);
+            return 0;
+        }
+
+        var batch = await store.ClaimAsync(WorkerId, Math.Clamp(opts.BatchSize, 1, 500), TimeSpan.FromSeconds(Math.Clamp(opts.LeaseSeconds, 1, 3600)), ct).ConfigureAwait(false);
         foreach (var message in batch)
         {
             try
             {
-                if (_published.Contains(message.EventId))
+                var already = await store.WasDispatchedAsync(message.EventId, ct).ConfigureAwait(false);
+                if (already || _published.Contains(message.EventId))
                 {
                     LogDuplicateSkipped(logger, message.EventId, message.EventType);
+                    if (!already)
+                    {
+                        await store.NoteDispatchedAsync(message.EventId, message.TenantId, ct).ConfigureAwait(false);
+                    }
                 }
                 else
                 {
-                    await publisher.PublishAsync(message, ct);
+                    await publisher.PublishAsync(message, ct).ConfigureAwait(false);
                     _published.Add(message.EventId);
+                    await store.NoteDispatchedAsync(message.EventId, message.TenantId, ct).ConfigureAwait(false);
                 }
 
-                await store.CompleteAsync(message.Id, WorkerId, ct);
+                await store.CompleteAsync(message.Id, WorkerId, ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -89,10 +106,11 @@ public sealed partial class OutboxDispatcher(
             {
                 var retryIn = RetryDelay(message.Attempts, opts.RetryBaseSeconds);
                 LogPublishFailed(logger, ex, message.EventId, message.EventType, message.Attempts);
-                await store.FailAsync(message.Id, WorkerId, Truncate($"{ex.GetType().Name}: {ex.Message}", 2000), retryIn, ct);
+                await store.FailAsync(message.Id, WorkerId, Truncate($"{ex.GetType().Name}: {ex.Message}", 2000), retryIn, ct).ConfigureAwait(false);
             }
         }
 
+        _health.RecordPoll(clock.GetUtcNow(), null, dryRun: false, claimed: batch.Count);
         return batch.Count;
     }
 
@@ -107,6 +125,9 @@ public sealed partial class OutboxDispatcher(
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Outbox dispatcher disabled (Outbox:Dispatcher:Enabled=false).")]
     private static partial void LogDisabled(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Outbox dry run: {Pending} pending, {StalePending} stale, {Dead} dead. Nothing was claimed.")]
+    private static partial void LogDryRun(ILogger logger, long pending, long stalePending, long dead);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Outbox dispatcher {WorkerId} started (batch {BatchSize}).")]
     private static partial void LogStarted(ILogger logger, string workerId, int batchSize);

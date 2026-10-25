@@ -219,7 +219,7 @@ public sealed class S2QueueAndOutboxApiTests(HmsApiFactory factory) : IClassFixt
         await store.CompleteAsync(m1.Id, worker, CancellationToken.None);
         await store.FailAsync(m2.Id, worker, "consumer down", TimeSpan.FromMinutes(10), CancellationToken.None);
 
-        Assert.Equal(1, await S2.ScalarLongAsync("select count(*) from messaging.outbox where id = @id and status = 'done' and processed_at is not null", ("id", m1.Id)));
+        Assert.Equal(1, await S2.ScalarLongAsync("select count(*) from messaging.outbox where id = @id and status = 'done' and processed_at is not null and processed_on is not null", ("id", m1.Id)));
         Assert.Equal(1, await S2.ScalarLongAsync(
             "select count(*) from messaging.outbox where id = @id and status = 'pending' and available_at > now() + interval '5 minutes' and last_error = 'consumer down'",
             ("id", m2.Id)));
@@ -236,14 +236,35 @@ public sealed class S2QueueAndOutboxApiTests(HmsApiFactory factory) : IClassFixt
     }
 
     [Fact]
-    public async Task Only_the_scheduling_login_can_dispatch_and_other_logins_cannot()
+    public async Task Owning_logins_see_only_their_source_and_inventory_cannot_dispatch()
     {
-        foreach (var connection in new[] { ApiConnection, ServiceConnection("patients"), ServiceConnection("identity") })
+        foreach (var (service, source) in new (string Service, string Source)[]
+        {
+            ("patients", "patients"),
+            ("identity", "identity"),
+            ("billing", "billing"),
+            ("scheduling", "scheduling"),
+        })
+        {
+            await using var dataSource = NpgsqlDataSource.Create(ServiceConnection(service));
+            await using var connection = await dataSource.OpenConnectionAsync();
+            await using var tx = await connection.BeginTransactionAsync();
+            await using (var role = new NpgsqlCommand("set local role hms_dispatcher", connection, tx))
+            {
+                await role.ExecuteNonQueryAsync();
+            }
+
+            await using var sources = new NpgsqlCommand("select messaging.caller_sources()", connection, tx);
+            var value = Assert.IsType<string[]>(await sources.ExecuteScalarAsync());
+            Assert.Equal([source], value);
+        }
+
+        foreach (var connection in new[] { ApiConnection, ServiceConnection("inventory") })
         {
             await using var dataSource = NpgsqlDataSource.Create(connection);
             var store = new PostgresOutboxStore(dataSource);
             var error = await Assert.ThrowsAnyAsync<PostgresException>(() => store.ClaimAsync($"it-{Guid.NewGuid():N}", 1, TimeSpan.FromSeconds(30), CancellationToken.None));
-            Assert.Equal("42501", error.SqlState); // permission denied to set role "hms_dispatcher"
+            Assert.Equal("42501", error.SqlState);
         }
     }
 }

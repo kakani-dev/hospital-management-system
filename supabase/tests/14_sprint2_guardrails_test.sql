@@ -24,8 +24,13 @@ select tests.ok(
       and (has_schema_privilege('anon', n.oid, 'USAGE') or has_schema_privilege('public', n.oid, 'USAGE'))),
   'anon / PUBLIC have no USAGE on appointment or messaging');
 select tests.ok(
-  not has_schema_privilege('authenticated', 'messaging', 'USAGE'),
-  'authenticated has no USAGE on messaging');
+  has_schema_privilege('authenticated', 'messaging', 'USAGE')
+  and not has_table_privilege('authenticated', 'messaging.outbox', 'SELECT')
+  and has_table_privilege('authenticated', 'messaging.dispatch_receipt', 'SELECT')
+  and not has_table_privilege('authenticated', 'messaging.dispatch_receipt', 'INSERT')
+  and not has_table_privilege('authenticated', 'messaging.dispatch_receipt', 'UPDATE')
+  and not has_table_privilege('authenticated', 'messaging.dispatch_receipt', 'DELETE'),
+  'authenticated can read dispatch receipts under RLS and cannot read or write the outbox');
 select tests.ok(
   not exists (
     select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace

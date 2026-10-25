@@ -27,11 +27,11 @@ select tests.ok(
 
 select tests.ok(
   pg_has_role('hms_svc_scheduling', 'hms_dispatcher', 'SET')
-  and not pg_has_role('hms_svc_identity', 'hms_dispatcher', 'SET')
-  and not pg_has_role('hms_svc_patients', 'hms_dispatcher', 'SET')
-  and not pg_has_role('hms_svc_billing', 'hms_dispatcher', 'SET')
+  and pg_has_role('hms_svc_identity', 'hms_dispatcher', 'SET')
+  and pg_has_role('hms_svc_patients', 'hms_dispatcher', 'SET')
+  and pg_has_role('hms_svc_billing', 'hms_dispatcher', 'SET')
   and not pg_has_role('hms_svc_inventory', 'hms_dispatcher', 'SET'),
-  'only the scheduling service can switch to hms_dispatcher (outbox owner)');
+  'owning services can switch to hms_dispatcher; inventory cannot');
 
 select tests.ok(
   not exists (select 1 from pg_class c join pg_roles r on r.oid = c.relowner
@@ -58,12 +58,13 @@ select tests.ok(
 select tests.ok(
   not pg_has_role('hms_patients_login', 'hms_svc_identity', 'MEMBER')
   and not pg_has_role('hms_identity_login', 'hms_svc_scheduling', 'MEMBER')
-  and not pg_has_role('hms_patients_login', 'hms_dispatcher', 'MEMBER')
+  and pg_has_role('hms_patients_login', 'hms_dispatcher', 'MEMBER')
   and not pg_has_role('hms_billing_login', 'hms_svc_identity', 'MEMBER')
-  and not pg_has_role('hms_billing_login', 'hms_dispatcher', 'MEMBER')
+  and pg_has_role('hms_billing_login', 'hms_dispatcher', 'MEMBER')
+  and pg_has_role('hms_identity_login', 'hms_dispatcher', 'MEMBER')
   and not pg_has_role('hms_inventory_login', 'hms_svc_billing', 'MEMBER')
   and not pg_has_role('hms_inventory_login', 'hms_dispatcher', 'MEMBER'),
-  'a service login cannot assume another service''s role or the dispatcher');
+  'a service login cannot assume another service role; owning logins reach the dispatcher and inventory does not');
 
 select tests.ok(
   not pg_has_role('hms_api', 'hms_dispatcher', 'MEMBER') and not pg_has_role('hms_api_login', 'hms_dispatcher', 'MEMBER'),
@@ -98,9 +99,20 @@ update messaging.outbox set status = 'done' where status in ('pending', 'process
 insert into messaging.outbox (tenant_id, aggregate_type, aggregate_id, event_type, payload)
 values ('11111111-1111-4111-8111-111111111111', 'queue_entry', gen_random_uuid(), 'test.scoped', '{}');
 
-set local session authorization hms_patients_login;
+set local session authorization hms_inventory_login;
 select tests.throws_ok($$set local role hms_dispatcher$$, '42501',
-  'patients login cannot SET ROLE hms_dispatcher');
+  'inventory login cannot SET ROLE hms_dispatcher');
+reset session authorization;
+
+set local session authorization hms_patients_login;
+set local role hms_dispatcher;
+select tests.ok(
+  messaging.caller_sources() = array['patients'],
+  'patients login (as hms_dispatcher) consumes exactly the patients source');
+select tests.ok(
+  (select count(*) from messaging.claim_outbox('t-patients', 50, '30 seconds') c where c.event_type = 'test.scoped') = 0,
+  'patients login does not claim a scheduling event');
+reset role;
 reset session authorization;
 
 set local session authorization hms_api_login;

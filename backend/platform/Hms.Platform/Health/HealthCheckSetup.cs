@@ -11,8 +11,8 @@ namespace Hms.Platform.Health;
 
 public static class HealthCheckSetup
 {
-    private const string LiveTag = "live";
-    private const string ReadyTag = "ready";
+    public const string LiveTag = "live";
+    public const string ReadyTag = "ready";
 
     /// <summary>
     /// /health/live = process only; /health/ready = can open a connection on the service's shared
@@ -39,10 +39,27 @@ public static class HealthCheckSetup
     private static Task WriteAsync(HttpContext context, HealthReport report)
     {
         context.Response.ContentType = "application/json";
-        var payload = new
+        var checks = new List<Dictionary<string, object?>>(report.Entries.Count);
+        foreach (var entry in report.Entries)
         {
-            status = report.Status.ToString(),
-            checks = report.Entries.Select(e => new { name = e.Key, status = e.Value.Status.ToString(), durationMs = Math.Round(e.Value.Duration.TotalMilliseconds, 1) }),
+            var item = new Dictionary<string, object?>
+            {
+                ["name"] = entry.Key,
+                ["status"] = entry.Value.Status.ToString(),
+                ["durationMs"] = Math.Round(entry.Value.Duration.TotalMilliseconds, 1),
+            };
+            if (entry.Value.Data.Count > 0)
+            {
+                item["data"] = entry.Value.Data;
+            }
+
+            checks.Add(item);
+        }
+
+        var payload = new Dictionary<string, object?>
+        {
+            ["status"] = report.Status.ToString(),
+            ["checks"] = checks,
         };
         return context.Response.WriteAsync(JsonSerializer.Serialize(payload, JsonSerializerOptions.Web));
     }

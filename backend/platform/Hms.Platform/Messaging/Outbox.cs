@@ -17,6 +17,15 @@ public interface IOutboxStore
     Task CompleteAsync(long id, string workerId, CancellationToken ct);
 
     Task FailAsync(long id, string workerId, string errorMessage, TimeSpan retryIn, CancellationToken ct);
+
+    /// <summary>True when this service already handed <paramref name="eventId"/> to its publisher.</summary>
+    Task<bool> WasDispatchedAsync(Guid eventId, CancellationToken ct);
+
+    /// <summary>Records a successful publish. The tenant id must be the one on the outbox row.</summary>
+    Task NoteDispatchedAsync(Guid eventId, Guid tenantId, CancellationToken ct);
+
+    /// <summary>Counts for this service's rows. Does not claim.</summary>
+    Task<OutboxBacklog> ReadBacklogAsync(CancellationToken ct);
 }
 
 /// <summary>Delivers one event to its consumers. Must be idempotent per <see cref="OutboxMessage.EventId"/> (at-least-once).</summary>
@@ -25,12 +34,20 @@ public interface IOutboxPublisher
     Task PublishAsync(OutboxMessage message, CancellationToken ct);
 }
 
+public sealed record OutboxBacklog(long Pending, long Processing, long Dead, long StalePending, long? OldestPendingSeconds);
+
 public sealed class OutboxOptions
 {
     public const string Section = "Outbox:Dispatcher";
 
-    /// <summary>Off by default until the outbox migration and the hms_dispatcher role exist in the target DB.</summary>
+    /// <summary>Dead-letter threshold enforced by messaging.fail_outbox. Not a client setting.</summary>
+    public const int MaxAttempts = 10;
+
+    /// <summary>Off by default. Turning it on with <see cref="DryRun"/> still does not claim.</summary>
     public bool Enabled { get; set; }
+
+    /// <summary>When true, the worker only reads the backlog. It does not claim, publish, or bump attempts.</summary>
+    public bool DryRun { get; set; } = true;
 
     public int BatchSize { get; set; } = 50;
 
