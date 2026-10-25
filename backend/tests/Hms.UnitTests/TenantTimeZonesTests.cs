@@ -97,4 +97,20 @@ public class TenantTimeZonesTests
         Assert.Equal(new DateOnly(2026, 10, 10), BranchTime.LocalDate(at, TenantTimeZones.Effective(null, "Asia/Kolkata")));
         Assert.Equal(new DateOnly(2026, 10, 9), BranchTime.LocalDate(at, TenantTimeZones.Effective("UTC", "Asia/Kolkata")));
     }
+
+    [Fact]
+    public void Ist_midnight_boundary_moves_today_and_the_utc_day_window()
+    {
+        var zone = "Asia/Kolkata";
+        var before = new DateTimeOffset(2026, 10, 9, 18, 29, 59, TimeSpan.Zero);
+        var after = new DateTimeOffset(2026, 10, 9, 18, 30, 1, TimeSpan.Zero);
+        Assert.Equal(new DateOnly(2026, 10, 9), BranchTime.LocalDate(before, zone));
+        Assert.Equal(new DateOnly(2026, 10, 10), BranchTime.LocalDate(after, zone));
+
+        var ninth = BranchTime.DayRangeUtc(new DateOnly(2026, 10, 9), zone);
+        var tenth = BranchTime.DayRangeUtc(new DateOnly(2026, 10, 10), zone);
+        Assert.True(before >= ninth.StartUtc && before < ninth.EndUtc);
+        Assert.True(after >= tenth.StartUtc && after < tenth.EndUtc);
+        Assert.Equal(ninth.EndUtc, tenth.StartUtc);
+    }
 }

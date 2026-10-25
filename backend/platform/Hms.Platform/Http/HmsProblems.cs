@@ -28,6 +28,9 @@ public static class HmsProblems
         public const string InvalidState = "invalid_state";
     }
 
+    /// <summary>Shown for a no-show that the transition rule rejects. The rule itself is unchanged.</summary>
+    public const string NoShowNotAllowedDetail = "Only booked appointments that have started can be marked as no-show.";
+
     public static class SqlStates
     {
         public const string InsufficientPrivilege = "42501";
@@ -100,6 +103,8 @@ public static class HmsProblems
             SqlStates.UniqueViolation => Conflict(uniqueCode, uniqueDetail ?? "A conflicting record already exists."),
             SqlStates.ExclusionViolation => Conflict(exclusionCode, exclusionDetail ?? "The time range overlaps an existing booking."),
             SqlStates.ObjectNotInPrerequisiteState => Conflict(Codes.InvalidState, Sanitize(message) ?? "The record is not in a state that allows this operation."),
+            SqlStates.CheckViolation when message?.Contains("->no_show", StringComparison.Ordinal) == true =>
+                Conflict(Codes.InvalidTransition, NoShowNotAllowedDetail),
             SqlStates.CheckViolation when message?.Contains("invalid_transition:", StringComparison.Ordinal) == true =>
                 Conflict(Codes.InvalidTransition, Sanitize(message)!),
             SqlStates.CheckViolation => BadRequest(Codes.CheckViolation, "A value violates a database rule."),

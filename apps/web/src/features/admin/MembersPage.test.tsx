@@ -94,4 +94,31 @@ describe('Members page: add member (B1, no account enumeration)', () => {
     await waitFor(() => expect(screen.getByTestId('member-row')).toHaveTextContent('invited'))
     expect(screen.queryByRole('button', { name: /suspend|reactivate/i })).not.toBeInTheDocument()
   })
+
+  it('shows the last-admin error when removal is refused', async () => {
+    const detail = "This is the hospital's last active admin. Make someone else an admin first."
+    stubFetch({
+      'GET /api/v1/me': () => json(meFor()),
+      'GET /api/v1/branches': () => json([]),
+      'GET /api/v1/members': () =>
+        json([
+          {
+            id: 'm-other',
+            userId: 'u-other',
+            email: 'peer@synthetic.example',
+            displayName: null,
+            role: 'tenant_admin',
+            branchId: null,
+            branchName: null,
+            status: 'active',
+          },
+        ]),
+      'DELETE /api/v1/members/m-other': () => json({ title: 'Conflict', status: 409, code: 'last_admin', detail }, 409),
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: '/admin/members', auth: fakeAuthClient({ session: fakeSession() }) })
+    await user.click(await screen.findByRole('button', { name: 'Remove peer@synthetic.example' }))
+    await user.click(screen.getByRole('button', { name: 'Remove member' }))
+    expect(await screen.findByText(detail)).toBeInTheDocument()
+  })
 })

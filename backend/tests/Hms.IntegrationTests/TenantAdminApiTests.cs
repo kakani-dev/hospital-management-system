@@ -1,5 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
+using Hms.IntegrationTests.AuditTz;
 using static Hms.IntegrationTests.HmsApiFactory;
 
 namespace Hms.IntegrationTests;
@@ -209,5 +211,24 @@ public sealed class TenantAdminApiTests(HmsApiFactory factory) : IClassFixture<H
         var betaDoctor = betaMembers!.First(m => m.UserId == BetaDoctor);
         var cross = await client.PatchAsJsonAsync($"/api/v1/members/{betaDoctor.Id}", new { role = "nurse" });
         Assert.Equal(HttpStatusCode.NotFound, cross.StatusCode);
+    }
+
+    [Fact]
+    public async Task The_last_active_admin_cannot_be_removed()
+    {
+        var hospital = await ATz.NewTenantAsync(factory);
+        var peer = await CreateUserAsync("last-admin-peer", (hospital.TenantId, null, "tenant_admin"));
+        using var admin = factory.ClientAs(peer, hospital.TenantId);
+        var members = (await admin.GetFromJsonAsync<List<MemberView>>("/api/v1/members"))!;
+        var original = Assert.Single(members, m => m.UserId == hospital.AdminId);
+        var demoted = await admin.PatchAsJsonAsync($"/api/v1/members/{original.Id}", new { role = "doctor" });
+        Assert.Equal(HttpStatusCode.OK, demoted.StatusCode);
+
+        var self = Assert.Single(members, m => m.UserId == peer);
+        var removed = await admin.DeleteAsync($"/api/v1/members/{self.Id}");
+        Assert.Equal(HttpStatusCode.Conflict, removed.StatusCode);
+        using var doc = JsonDocument.Parse(await removed.Content.ReadAsStringAsync());
+        Assert.Equal("last_admin", doc.RootElement.GetProperty("code").GetString());
+        Assert.Contains("last active admin", doc.RootElement.GetProperty("detail").GetString(), StringComparison.OrdinalIgnoreCase);
     }
 }

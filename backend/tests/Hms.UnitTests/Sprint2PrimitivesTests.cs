@@ -37,6 +37,16 @@ public class Sprint2PrimitivesTests
     }
 
     [Fact]
+    public void No_show_check_violation_is_a_friendly_invalid_transition()
+    {
+        var problem = HmsProblems.FromDatabase(new FakeDbException("23514", "invalid_transition:booked->no_show"))!;
+        Assert.Equal(409, problem.StatusCode);
+        Assert.Equal("invalid_transition", problem.ProblemDetails.Extensions["code"]);
+        Assert.Equal(HmsProblems.NoShowNotAllowedDetail, problem.ProblemDetails.Detail);
+        Assert.DoesNotContain("->no_show", problem.ProblemDetails.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Invalid_transition_check_violation_is_409_and_keeps_the_message()
     {
         var problem = HmsProblems.FromDatabase(new InvalidOperationException("wrapper", new FakeDbException("23514", "invalid_transition:completed->booked")))!;

@@ -24,4 +24,7 @@ public interface IAppointmentFunctions
     Task AssertBookableWindowAsync(Guid tenantId, Guid branchId, Guid practitionerId, DateTimeOffset startsAt, DateTimeOffset endsAt, bool overrideHours, CancellationToken ct);
 
     Task SetQueueStatusAsync(Guid queueEntryId, string status, CancellationToken ct);
+
+    /// <summary><c>appointment.close_queue_day</c>: waiting tokens on that branch-local day become expired.</summary>
+    Task<int> CloseQueueDayAsync(Guid tenantId, Guid branchId, DateOnly queueDate, CancellationToken ct);
 }

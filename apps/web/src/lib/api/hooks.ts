@@ -535,6 +535,15 @@ export function useUpdateQueueStatus() {
   })
 }
 
+/** Expire tokens still waiting on the board's branch-local day. */
+export function useCloseQueueDay() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: { branchId: string; date: string }) => apiClient.queue.closeDay(body),
+    onSettled: () => invalidateQueueAndAppointments(qc),
+  })
+}
+
 /** Ids (variables) of the pending mutations with `mutationKey`: per-row "saving" state. */
 export function usePendingMutationIds<V>(mutationKey: readonly unknown[], idOf: (variables: V) => string): string[] {
   return useMutationState({

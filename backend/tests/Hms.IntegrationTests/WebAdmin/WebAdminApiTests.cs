@@ -14,30 +14,12 @@ public sealed record AdminSchedule(Guid Id, Guid PractitionerId, Guid BranchId, 
 /// <summary>
 /// Endpoints the web admin screens need: GET /patients/stats (dashboard) and includeDeleted on the
 /// practitioner and schedule lists (restore). Other test classes write to the same tenant in
-/// parallel, so counts are checked as lower bounds.
+/// parallel, so counts are checked as lower bounds. Today's registration count is covered by
+/// <see cref="PatientStatsClockTests"/>, which pins the clock away from the UTC/IST midnight edge.
 /// </summary>
 [Trait("Category", "Database")]
 public sealed class WebAdminApiTests(HmsApiFactory factory) : IClassFixture<HmsApiFactory>
 {
-    [Fact]
-    public async Task Patient_stats_count_live_patients_and_todays_registrations_per_branch()
-    {
-        using var admin = factory.ClientAs(AlphaAdmin, Alpha);
-        var tenantBefore = (await admin.GetFromJsonAsync<PatientStats>("/api/v1/patients/stats"))!;
-        var eastBefore = (await admin.GetFromJsonAsync<PatientStats>($"/api/v1/patients/stats?branchId={AlphaEast}"))!;
-        Assert.True(eastBefore.Total <= tenantBefore.Total);
-        Assert.True(eastBefore.RegisteredToday <= eastBefore.Total);
-
-        await S2.CreatePatientAsync(admin, AlphaEast);
-
-        var tenantAfter = (await admin.GetFromJsonAsync<PatientStats>("/api/v1/patients/stats"))!;
-        var eastAfter = (await admin.GetFromJsonAsync<PatientStats>($"/api/v1/patients/stats?branchId={AlphaEast}"))!;
-        Assert.True(tenantAfter.Total >= tenantBefore.Total + 1);
-        Assert.True(tenantAfter.RegisteredToday >= tenantBefore.RegisteredToday + 1);
-        Assert.True(eastAfter.Total >= eastBefore.Total + 1);
-        Assert.True(eastAfter.RegisteredToday >= eastBefore.RegisteredToday + 1);
-    }
-
     [Fact]
     public async Task Patient_stats_are_tenant_scoped_and_role_gated()
     {
