@@ -38,8 +38,8 @@ select tests.throws_ok(
 -- ---------- event production ----------
 select tests.as_superuser();
 select tests.ok(
-  (select count(*) from messaging.outbox where event_type = 'appointment.booked') = 4,
-  'seeded bookings produced 4 appointment.booked events');
+  (select count(*) from messaging.outbox where event_type = 'appointment.booked') = 2,
+  'seeded bookings produced 2 appointment.booked events');
 update messaging.outbox set status = 'done', processed_at = now();  -- start from a clean slate
 
 select tests.authenticate_as('reception@alpha.example');

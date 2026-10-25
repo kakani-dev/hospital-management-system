@@ -112,3 +112,5 @@ insert into appointment.appointments (id, tenant_id, branch_id, practitioner_id,
 -- delete tests can remove East and Meera.
 update appointment.appointments set status = 'cancelled'
  where id in ('e1111111-0000-4000-8000-000000000010', 'e2222222-0000-4000-8000-000000000002');
+delete from messaging.outbox
+ where aggregate_id in ('e1111111-0000-4000-8000-000000000010', 'e2222222-0000-4000-8000-000000000002');

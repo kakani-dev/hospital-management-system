@@ -7,7 +7,6 @@ import { ALPHA_EAST, ALPHA_MAIN, fakeAuthClient, fakeSession, json, meFor, rende
 
 import { restoreWorkstation, workstationAt } from '../../test/timeZones'
 import { toast } from 'sonner'
-import { RegisterPatientPage } from './RegisterPatientPage'
 
 // The Toaster lives in main.tsx; here we only check that the success toast is raised with the MRN.
 vi.mock('sonner', async (importOriginal) => ({ ...(await importOriginal<typeof import('sonner')>()), toast: { success: vi.fn() } }))
