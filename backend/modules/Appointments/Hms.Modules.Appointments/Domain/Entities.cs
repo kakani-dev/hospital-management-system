@@ -132,8 +132,13 @@ public static class QueueStatus
     public const string InConsultation = "in_consultation";
     public const string Done = "done";
     public const string Cancelled = "cancelled";
+    public const string NoShow = "no_show";
+    public const string Expired = "expired";
 
-    public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal) { Waiting, InConsultation, Done, Cancelled };
+    public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
+    {
+        Waiting, InConsultation, Done, Cancelled, NoShow, Expired,
+    };
 
     /// <summary>Statuses a client may request through PATCH /queue/{id}.</summary>
     public static readonly IReadOnlySet<string> Settable = new HashSet<string>(StringComparer.Ordinal) { InConsultation, Done, Cancelled };

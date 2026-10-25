@@ -6,6 +6,7 @@ import type {
   Branch,
   CancelAppointmentRequest,
   CheckInResult,
+  CloseQueueDayResult,
   CreateAppointmentRequest,
   CreateBranchRequest,
   CreatePatientRequest,
@@ -581,6 +582,9 @@ export class ApiClient {
     /** waiting → in_consultation | cancelled; in_consultation → done | cancelled. Otherwise 409 invalid_transition. */
     updateStatus: (id: string, body: UpdateQueueStatusRequest) =>
       this.request<QueueEntry>(`/api/v1/queue/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    /** Expire tokens still waiting on that branch-local day (default today). A future day is 400. */
+    closeDay: (body: { branchId: string; date?: string }) =>
+      this.request<CloseQueueDayResult>('/api/v1/queue/close-day', { method: 'POST', body: JSON.stringify(body) }),
   }
 
   billing = {
@@ -648,8 +652,10 @@ export class ApiClient {
         body: JSON.stringify(body),
         headers: { 'Idempotency-Key': idempotencyKey },
       }),
-    stock: (params: { storeId?: string; itemId?: string } = {}) =>
-      this.request<StockOnHandRow[]>(`/api/v1/inventory/stock${qs(params)}`),
+    stock: (params: { storeId?: string; itemId?: string; lowStock?: boolean } = {}) =>
+      this.request<StockOnHandRow[]>(
+        `/api/v1/inventory/stock${qs({ storeId: params.storeId, itemId: params.itemId, lowStock: params.lowStock ? true : undefined })}`,
+      ),
   }
 }
 

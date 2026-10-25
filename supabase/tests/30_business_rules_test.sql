@@ -99,7 +99,7 @@ values ('f3000000-0000-4000-8000-000000000001', '11111111-1111-4111-8111-1111111
         identity.branch_local_date_v1('a1111111-0000-4000-8000-000000000001'), 902, 'aa000000-0000-4000-8000-000000000003', null, 'waiting', '0a000000-0000-4000-8000-000000000001', '0a000000-0000-4000-8000-000000000001');
 set local session_replication_role = origin;
 select tests.ok(appointment.close_stale_queues() >= 1, 'end-of-day close runs');
-select tests.ok((select status from appointment.queue_entries where id = 'f3000000-0000-4000-8000-000000000001') = 'no_show', 'yesterday''s waiting entry is no_show');
+select tests.ok((select status from appointment.queue_entries where id = 'f3000000-0000-4000-8000-000000000001') = 'expired', 'yesterday''s waiting entry is expired');
 select tests.ok((select status from appointment.appointments where id = 'e3000000-0000-4000-8000-000000000009') = 'no_show', 'its appointment is no_show');
 select tests.ok((select status from appointment.queue_entries where id = 'f3000000-0000-4000-8000-000000000002') = 'waiting', 'today''s entry is untouched');
 select tests.ok(appointment.close_stale_queues() = 0, 'idempotent');
