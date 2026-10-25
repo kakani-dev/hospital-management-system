@@ -18,7 +18,18 @@ public sealed record CurrentUserDto(
     IReadOnlyList<string>? Permissions = null);
 
 /// <summary>DefaultCountryCode: E.164 calling code applied to phones typed without one (e.g. "+91").</summary>
-public sealed record CurrentTenantDto(Guid Id, string Code, string Name, Guid? ActiveBranchId, IReadOnlyList<string> Roles, string TimeZone, string? DefaultCountryCode = null);
+/// <param name="SetupStep">profile, branch, staff, schedule, or done. Null on an API that predates the wizard.</param>
+/// <param name="SetupCompletedOn">UTC time the wizard finished. Null while setup is open.</param>
+public sealed record CurrentTenantDto(
+    Guid Id,
+    string Code,
+    string Name,
+    Guid? ActiveBranchId,
+    IReadOnlyList<string> Roles,
+    string TimeZone,
+    string? DefaultCountryCode = null,
+    string? SetupStep = null,
+    DateTimeOffset? SetupCompletedOn = null);
 
 /// <summary>
 /// PATCH /api/v1/tenants/current (tenant_admin). A zone change is refused with 409 time_zone_locked
@@ -26,21 +37,27 @@ public sealed record CurrentTenantDto(Guid Id, string Code, string Name, Guid? A
 /// time_zone_has_future_bookings with futureBookings = N; repeat with confirmFutureBookings = true.
 /// The create-tenant HTTP endpoint lives in the identity service (code review MIN-5).
 /// </summary>
-public sealed record UpdateTenantRequest(string? Name, string? TimeZone, bool? ConfirmFutureBookings = null);
+public sealed record UpdateTenantRequest(string? Name, string? TimeZone, bool? ConfirmFutureBookings = null, string? DefaultCountryCode = null);
 
 /// <summary>Requested tenant/branch switch. Validated in the database against memberships.</summary>
 public sealed record SwitchContextRequest(Guid TenantId, Guid? BranchId);
 
 /// <param name="Timezone">EFFECTIVE zone (override, else tenant zone): what every day-based rule at this branch uses.</param>
 /// <param name="TimezoneOverride">The branch's own override, or null when it inherits the tenant zone.</param>
-public sealed record BranchDto(Guid Id, string Code, string Name, string Timezone, bool IsActive, string? TimezoneOverride, bool IsDeleted);
+public sealed record BranchDto(Guid Id, string Code, string Name, string Timezone, bool IsActive, string? TimezoneOverride, bool IsDeleted, string? Address = null);
 
 /// <param name="Timezone">Optional override; omit to inherit the tenant zone.</param>
-public sealed record CreateBranchRequest(string? Code, string? Name, string? Timezone);
+public sealed record CreateBranchRequest(string? Code, string? Name, string? Timezone, string? Address = null);
 
 /// <param name="InheritTimezone">true clears the override so the branch follows the tenant zone again.</param>
 /// <summary>PATCH /api/v1/branches/{id}. Same future-bookings confirmation as the tenant zone.</summary>
-public sealed record UpdateBranchRequest(string? Name, string? Timezone, bool? IsActive, bool? InheritTimezone = null, bool? ConfirmFutureBookings = null);
+public sealed record UpdateBranchRequest(string? Name, string? Timezone, bool? IsActive, bool? InheritTimezone = null, bool? ConfirmFutureBookings = null, string? Address = null);
+
+/// <summary>GET /api/v1/setup. The tenant is the one in the validated JWT, never a client argument.</summary>
+public sealed record SetupStateDto(string Step, DateTimeOffset? CompletedOn, Guid? BranchId, string? DocumentPrefix);
+
+/// <summary>POST /api/v1/setup/step. Extra properties (including a tenant id) are ignored.</summary>
+public sealed record AdvanceSetupRequest(string? Step);
 
 public sealed record MemberDto(Guid Id, Guid UserId, string? Email, string? DisplayName, string Role, Guid? BranchId, string? BranchName, string Status);
 

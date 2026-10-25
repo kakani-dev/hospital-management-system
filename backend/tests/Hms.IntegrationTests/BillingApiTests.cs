@@ -44,7 +44,7 @@ public sealed class BillingApiTests(HmsApiFactory factory) : IClassFixture<HmsAp
         Assert.Equal("finalized", finalized.Body.GetProperty("status").GetString());
         var billNo = finalized.Body.GetProperty("billNo").GetString()!;
         Assert.Equal(16, billNo.Length);
-        Assert.StartsWith("OPB", billNo);
+        Assert.StartsWith("DEMOB", billNo);
 
         var changed = await admin.SendAsync(new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/bills/{billId}/lines/{Guid.NewGuid()}"));
         Assert.Equal(HttpStatusCode.Conflict, changed.StatusCode);
@@ -195,7 +195,7 @@ public sealed class BillingApiTests(HmsApiFactory factory) : IClassFixture<HmsAp
         Assert.Equal("finalized", closed.Body.GetProperty("status").GetString());
         var billNo = closed.Body.GetProperty("billNo").GetString()!;
         Assert.Equal(16, billNo.Length);
-        Assert.StartsWith("OPB", billNo);
+        Assert.StartsWith("DEMOB", billNo);
 
         var drawer = await Post(admin, $"/api/v1/counter-sessions/{sessionId}/close", new { countedCashPaise = 65000 });
         Assert.Equal(HttpStatusCode.OK, drawer.Status);

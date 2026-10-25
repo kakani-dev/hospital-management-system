@@ -49,7 +49,7 @@ public static class TenantAdminEndpoints
         TypedResults.Problem(title: "Forbidden", detail: "Only tenant admins can manage branches and members.", statusCode: StatusCodes.Status403Forbidden);
 
     private static BranchDto ToDto(Branch b, string tenantZone) =>
-        new(b.Id, b.Code, b.Name, TenantTimeZones.Effective(b.Timezone, tenantZone), b.IsActive, b.Timezone, b.IsDeleted);
+        new(b.Id, b.Code, b.Name, TenantTimeZones.Effective(b.Timezone, tenantZone), b.IsActive, b.Timezone, b.IsDeleted, b.Address);
 
     // Any member may list branches of their tenant (needed for forms); admins see inactive ones too,
     // and deleted ones with ?includeDeleted=true (to restore them).
@@ -183,7 +183,13 @@ public static class TenantAdminEndpoints
 
         // TenantId is set by TenantSaveChangesInterceptor; RLS (branches_insert_admin) re-checks it.
         // Timezone null = inherit the tenant zone (no override).
-        var branch = new Branch { Code = request.Code!, Name = request.Name!.Trim(), Timezone = TenantTimeZones.Canonicalize(request.Timezone) };
+        var branch = new Branch
+        {
+            Code = request.Code!,
+            Name = request.Name!.Trim(),
+            Timezone = TenantTimeZones.Canonicalize(request.Timezone),
+            Address = request.Address?.Trim(),
+        };
         db.Branches.Add(branch);
         try
         {
@@ -255,6 +261,11 @@ public static class TenantAdminEndpoints
             if (request.IsActive is { } active)
             {
                 branch.IsActive = active;
+            }
+
+            if (request.Address is not null)
+            {
+                branch.Address = request.Address.Trim();
             }
 
             await db.SaveChangesAsync(ct);

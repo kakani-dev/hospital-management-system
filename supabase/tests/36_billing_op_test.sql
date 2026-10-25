@@ -97,7 +97,7 @@ begin
 
   v_doc := billing.finalize_bill(v_tenant, v_bill);
   v_first_no := v_doc ->> 'billNo';
-  perform tests.ok(v_doc ->> 'status' = 'finalized' and length(v_first_no) = 16 and v_first_no like 'OPB%',
+  perform tests.ok(v_doc ->> 'status' = 'finalized' and length(v_first_no) = 16 and v_first_no like 'DEMOB%',
     'finalized bill number is 16 characters');
   select id into v_line from billing.bill_line where bill_id = v_bill and not is_deleted;
   begin
@@ -130,7 +130,7 @@ begin
 
   v_note := billing.create_credit_note(v_tenant, v_bill, jsonb_build_object(
     'lines', jsonb_build_array(jsonb_build_object('lineId', v_line, 'quantity', 1))));
-  perform tests.ok(v_note ->> 'status' = 'finalized' and (v_note ->> 'billNo') like 'OPC%'
+  perform tests.ok(v_note ->> 'status' = 'finalized' and (v_note ->> 'billNo') like 'DEMOC%'
     and (v_note -> 'lines' -> 0 ->> 'quantity')::numeric = -1,
     'a credit note is the correction and carries a C series number');
 
