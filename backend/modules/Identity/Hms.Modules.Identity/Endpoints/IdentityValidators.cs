@@ -17,6 +17,7 @@ public static partial class IdentityValidators
 
         ValidateName(r.Name, errors, required: true);
         ValidateTimezone(r.Timezone, errors);
+        ValidateAddress(r.Address, errors);
         return errors;
     }
 
@@ -29,15 +30,27 @@ public static partial class IdentityValidators
         }
 
         ValidateTimezone(r.Timezone, errors);
+        ValidateAddress(r.Address, errors);
+        return errors;
+    }
+
+    public static Dictionary<string, string[]> Validate(AdvanceSetupRequest r)
+    {
+        var errors = new Dictionary<string, string[]>();
+        if (r.Step is not ("profile" or "branch" or "staff" or "schedule" or "done"))
+        {
+            errors["step"] = ["Step must be profile, branch, staff, schedule, or done."];
+        }
+
         return errors;
     }
 
     public static Dictionary<string, string[]> Validate(UpdateTenantRequest r)
     {
         var errors = new Dictionary<string, string[]>();
-        if (r.Name is null && r.TimeZone is null)
+        if (r.Name is null && r.TimeZone is null && r.DefaultCountryCode is null)
         {
-            errors["request"] = ["Provide name and/or timeZone."];
+            errors["request"] = ["Provide name, timeZone and/or defaultCountryCode."];
         }
 
         if (r.Name is not null)
@@ -46,6 +59,11 @@ public static partial class IdentityValidators
         }
 
         ValidateTimezone(r.TimeZone, errors, "timeZone");
+        if (r.DefaultCountryCode is not null && !CountryCodePattern().IsMatch(r.DefaultCountryCode))
+        {
+            errors["defaultCountryCode"] = ["Use a calling code like +91."];
+        }
+
         return errors;
     }
 
@@ -110,6 +128,20 @@ public static partial class IdentityValidators
         }
     }
 
+    private static void ValidateAddress(string? address, Dictionary<string, string[]> errors)
+    {
+        if (address is null)
+        {
+            return;
+        }
+
+        var trimmed = address.Trim();
+        if (trimmed.Length is < 1 or > 300)
+        {
+            errors["address"] = ["Address must be 1 to 300 characters."];
+        }
+    }
+
     private static void ValidateTimezone(string? timezone, Dictionary<string, string[]> errors, string field = "timezone")
     {
         if (timezone is not null && !IsIanaTimeZone(timezone))
@@ -124,4 +156,7 @@ public static partial class IdentityValidators
 
     [GeneratedRegex("^[a-z0-9][a-z0-9-]{1,39}$")]
     private static partial Regex CodePattern();
+
+    [GeneratedRegex(@"^\+[1-9][0-9]{0,2}$")]
+    private static partial Regex CountryCodePattern();
 }

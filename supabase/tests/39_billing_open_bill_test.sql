@@ -72,7 +72,7 @@ begin
     'tenders', jsonb_build_array(jsonb_build_object('mode', 'cash', 'amountPaise', 50000)),
     'allocations', jsonb_build_array(jsonb_build_object('billId', v_bill, 'amountPaise', 50000))));
   v_receipt := v_pay ->> 'receiptNo';
-  perform tests.ok(length(v_receipt) = 16 and v_receipt like 'OPR%'
+  perform tests.ok(length(v_receipt) = 16 and v_receipt like 'DEMOR%'
     and (v_pay ->> 'counterSessionId')::uuid = v_session,
     'the consultation receipt is numbered at collection and tied to the drawer');
   v_doc := billing.bill_json(v_bill);
@@ -138,7 +138,7 @@ begin
 
   v_doc := billing.finalize_bill(v_tenant, v_bill);
   perform tests.ok(v_doc ->> 'status' = 'finalized' and length(v_doc ->> 'billNo') = 16
-    and (v_doc ->> 'billNo') like 'OPB%' and (v_doc ->> 'duePaise')::bigint = 5000,
+    and (v_doc ->> 'billNo') like 'DEMOB%' and (v_doc ->> 'duePaise')::bigint = 5000,
     'the invoice number is assigned when the bill is closed');
   begin
     perform billing.add_line(v_tenant, v_bill, jsonb_build_object('code', 'CONSULT'));

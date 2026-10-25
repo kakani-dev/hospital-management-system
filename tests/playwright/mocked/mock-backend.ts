@@ -1337,7 +1337,7 @@ export class MockBackend {
       if (typeof body.isActive === 'boolean') this.branchState.set(b.id, { isActive: body.isActive, isDeleted: false })
       return reply(200, branchDto(b), tenant)
     }
-    const tenantDto = () => ({ id: tenant, code: tenant === ids.alpha ? 'alpha' : 'beta', name: this.tenantNames.get(tenant) ?? tenants[tenant]!.name, activeBranchId: null, roles, timeZone: this.tenantZone(tenant), defaultCountryCode: tenant === ids.alpha ? '+91' : '+971' })
+    const tenantDto = () => ({ id: tenant, code: tenant === ids.alpha ? 'alpha' : 'beta', name: this.tenantNames.get(tenant) ?? tenants[tenant]!.name, activeBranchId: null, roles, timeZone: this.tenantZone(tenant), defaultCountryCode: tenant === ids.alpha ? '+91' : '+971', setupStep: 'done', setupCompletedOn: '2026-01-01T00:00:00.000Z' })
     if (method === 'GET' && path === '/api/v1/tenants/current') return reply(200, tenantDto(), tenant)
     if (method === 'PATCH' && path === '/api/v1/tenants/current') {
       if (!isAdmin) return forbidden()

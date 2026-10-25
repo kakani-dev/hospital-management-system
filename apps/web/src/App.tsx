@@ -80,6 +80,9 @@ const ReceiptPage = lazy(() =>
 const AdminDeskPage = lazy(() =>
   import("./features/admin/AdminDeskPage").then((m) => ({ default: m.AdminDeskPage })),
 );
+const SetupWizardPage = lazy(() =>
+  import("./features/setup/SetupWizardPage").then((m) => ({ default: m.SetupWizardPage })),
+);
 const StockPage = lazy(() =>
   import("./features/stock/StockPage").then((m) => ({ default: m.StockPage })),
 );
@@ -113,6 +116,14 @@ export function App() {
       <Route element={<RequireAuth />}>
         <Route element={<AppShell />}>
           <Route index element={<DashboardPage />} />
+          <Route
+            path="setup"
+            element={
+              <Lazy>
+                <SetupWizardPage />
+              </Lazy>
+            }
+          />
           <Route element={<RequireCapability capability="patients.view" />}>
             <Route path="patients" element={<PatientListPage />} />
             <Route path="patients/:patientId" element={<PatientDetailPage />} />

@@ -31,5 +31,5 @@ public static class IdentityModule
     }
 
     public static RouteGroupBuilder MapIdentityEndpoints(this RouteGroupBuilder api) =>
-        api.MapMeEndpoints().MapInviteLinkEndpoints().MapTenantAdminEndpoints();
+        api.MapMeEndpoints().MapInviteLinkEndpoints().MapTenantAdminEndpoints().MapSetupEndpoints();
 }
