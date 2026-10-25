@@ -501,7 +501,7 @@ public static class PractitionerScheduleEndpoints
 
     // --------------------------------------------------------------------- slots
     private static async Task<Results<Ok<List<SlotDto>>, ValidationProblem, ProblemHttpResult>> SlotsAsync(
-        Guid? branchId, DateOnly? from, DateOnly? to, Guid? practitionerId, AppointmentsDbContext db, ITenantContext tenant, TimeProvider clock,
+        Guid? branchId, DateOnly? from, DateOnly? to, DateOnly? date, Guid? practitionerId, AppointmentsDbContext db, ITenantContext tenant, TimeProvider clock,
         IAppointmentFunctions functions, CancellationToken ct)
     {
         if (!tenant.Can(HmsPermissions.AppointmentsView))
@@ -519,9 +519,17 @@ public static class PractitionerScheduleEndpoints
             return await BranchScope.DenyAsync(db, tenant, branch, "You cannot view slots at this branch.", ct);
         }
 
+        if (date is not null && (from is not null || to is not null))
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["date"] = ["Pass date or from/to, not both."],
+            });
+        }
+
         var tz = tenant.TimeZoneFor(branch);
-        var start = from ?? BranchTime.Today(clock, tz);
-        var end = to ?? start;
+        var start = date ?? from ?? BranchTime.Today(clock, tz);
+        var end = date ?? to ?? start;
         if (end < start || end.DayNumber - start.DayNumber > MaxSlotRangeDays)
         {
             return TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["to"] = [$"'to' must be within {MaxSlotRangeDays} days after 'from'."] });
