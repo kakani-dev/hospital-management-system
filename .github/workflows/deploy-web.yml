@@ -5,6 +5,12 @@
 # infra/vercel, or this file. workflow_dispatch from main deploys the current
 # tip. A nightly CI run does not deploy.
 #
+# The plan job checks out github.sha (the commit this workflow is running
+# as) and diffs the triggering commit. It does not check that commit out.
+# workflow_dispatch can write the default-branch Actions cache, and the plan
+# step runs a script from the checkout. The deploy job checks out the planned
+# SHA and builds that tree. It does not restore an Actions cache.
+#
 # Vercel git deploys of main are off (git.deploymentEnabled.main in
 # apps/web/vercel.json). Squash-merge commits are authored by kakani17481a0566,
 # who is not the Hobby team member, and those production deploys are blocked.
@@ -52,8 +58,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
-          fetch-depth: 2
+          ref: ${{ github.sha }}
+          fetch-depth: 0
       - id: p
         env:
           SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
@@ -61,13 +67,14 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::sha must be 40 hex, got '$SHA'"; exit 1; }
+          git cat-file -e "${SHA}^{commit}" || { echo "::error::sha $SHA is not in the trusted checkout"; exit 1; }
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           if [[ "$FORCE" == "true" ]]; then
             bash .github/scripts/web-deploy-plan.sh --force | tee -a "$GITHUB_OUTPUT"
           else
             files="$(mktemp)"
-            if git rev-parse --verify -q 'HEAD^' >/dev/null; then
-              git diff --name-only 'HEAD^' HEAD >"$files"
+            if git rev-parse --verify -q "${SHA}^" >/dev/null; then
+              git diff --name-only "${SHA}^" "$SHA" >"$files"
             else
               printf '%s\n' apps/web >"$files"
             fi
