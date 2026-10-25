@@ -101,6 +101,9 @@ select tests.authenticate_as('reception@alpha.example');
 create temporary table t_q3 on commit drop as
   select * from appointment.check_in('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001',
                                      'aa000000-0000-4000-8000-000000000001', 'e1111111-0000-4000-8000-0000000000c3');
+select tests.as_superuser();
+update appointment.practitioners set user_id = '0a000000-0000-4000-8000-0000000000d5'
+ where id = 'c1111111-0000-4000-8000-000000000002';
 select tests.authenticate_as('doctor-main-15@alpha.example');
 select appointment.set_queue_status((select queue_entry_id from t_q3), 'in_consultation');
 select tests.throws_ok(

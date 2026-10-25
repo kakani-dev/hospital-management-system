@@ -59,7 +59,7 @@ insert into t_v1 values
   ('identity.tenant_mrn_prefix_v1(uuid)', false), ('identity.tenant_default_country_code_v1(uuid)', true),
   -- recent patients (20261020130000): latest booking per patient (client-facing, patients.view-checked)
   ('appointment.patient_last_booked_v1(uuid,integer)', true),
-  -- billing reads (20261023120100 / 20261023120200 / 20261025230000): service-only, no client execute
+  -- billing reads (20261023120100 / 20261023120200 / 20261025240200): service-only, no client execute
   ('identity.caller_roles_v1(uuid)', false),
   ('appointment.appointment_billing_ref_v1(uuid,uuid)', false),
   ('identity.branch_bill_header_v1(uuid,uuid)', false),

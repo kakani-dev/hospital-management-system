@@ -188,7 +188,8 @@ create temporary table t4 on commit drop as
 select tests.ok((select token_no = 1 from t4), 'token sequence is per tenant + branch (Beta Central starts at 1)');
 select tests.authenticate_as('admin@alpha.example');
 create temporary table t5 on commit drop as
-  select * from appointment.check_in_walk_in('a1111111-0000-4000-8000-000000000002', 'aa000000-0000-4000-8000-000000000003');
+  select * from appointment.check_in_walk_in('a1111111-0000-4000-8000-000000000002', 'aa000000-0000-4000-8000-000000000003',
+      'c1111111-0000-4000-8000-000000000001');
 select tests.ok((select token_no = 1 from t5), 'token sequence is per branch (Alpha East starts at 1)');
 
 select tests.as_superuser();
@@ -234,6 +235,9 @@ select tests.throws_ok(
 select tests.throws_ok(
   $$select appointment.set_queue_status(gen_random_uuid(), 'cancelled')$$,
   'P0002', 'unknown queue entry -> P0002');
+select tests.as_superuser();
+update appointment.practitioners set user_id = '0a000000-0000-4000-8000-0000000000d1'
+ where id = 'c1111111-0000-4000-8000-000000000002';
 select tests.authenticate_as('doctor-main@alpha.example');
 select tests.throws_ok(
   format($$select appointment.set_queue_status(%L, 'cancelled')$$, (select queue_entry_id from t2)),

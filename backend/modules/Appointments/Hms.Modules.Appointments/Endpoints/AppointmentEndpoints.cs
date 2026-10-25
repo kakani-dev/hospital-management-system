@@ -109,6 +109,8 @@ public static class AppointmentEndpoints
             query = query.Where(a => a.StartsAt < value);
         }
 
+        query = ScopeToOwnPractitioner(query, db, tenant);
+
         var p = Math.Max(page ?? 1, 1);
         var size = Math.Clamp(pageSize ?? 25, 1, 100);
         var total = await query.CountAsync(ct);
@@ -127,7 +129,7 @@ public static class AppointmentEndpoints
             return HmsProblems.Forbidden();
         }
 
-        var row = await db.Appointments.AsNoTracking().Where(a => a.Id == id).WithPatient(db).SingleOrDefaultAsync(ct);
+        var row = await ScopeToOwnPractitioner(db.Appointments.AsNoTracking().Where(a => a.Id == id), db, tenant).WithPatient(db).SingleOrDefaultAsync(ct);
         if (row is not null)
         {
             await patients.AttachAsync([row], ct);
@@ -188,10 +190,28 @@ public static class AppointmentEndpoints
                 return await BranchScope.DenyAsync(db, tenant, request.BranchId, "You cannot book appointments at this branch.", ct);
             }
 
-            // Doctors book follow-ups only, of any earlier visit in the hospital, at a branch they can access.
+            // Doctors book follow-ups only, of their own visit, as their own practitioner.
             if (request.ParentAppointmentId is null)
             {
                 return HmsProblems.Forbidden("Doctors can only book a follow-up of an earlier visit.");
+            }
+
+            var ownPractitionerIds = await db.Practitioners.AsNoTracking()
+                .Where(p => p.UserId == tenant.UserId)
+                .Select(p => p.Id)
+                .ToListAsync(ct);
+            if (ownPractitionerIds.Count == 0 || !ownPractitionerIds.Contains(request.PractitionerId))
+            {
+                return HmsProblems.Forbidden("Doctors can only book a follow-up with their own practitioner.");
+            }
+
+            var parentPractitioner = await db.Appointments.AsNoTracking()
+                .Where(a => a.Id == request.ParentAppointmentId)
+                .Select(a => (Guid?)a.PractitionerId)
+                .SingleOrDefaultAsync(ct);
+            if (parentPractitioner is null || !ownPractitionerIds.Contains(parentPractitioner.Value))
+            {
+                return HmsProblems.Forbidden("Doctors can only book a follow-up of their own visit.");
             }
         }
 
@@ -458,15 +478,27 @@ public static class AppointmentEndpoints
             return (appointment, null);
         }
 
-        // "own" permissions: appointments of the practitioner linked to the caller (server-side user id), or of a
-        // practitioner not linked to any login yet (Level 1 practitioners are usually unlinked; ADR 0001 D4)
+        // "own" permissions: only the practitioner linked to this login. An unlinked practitioner is not theirs.
         if (ownPermission is not null && tenant.CanAtBranch(appointment.BranchId, ownPermission)
-            && await db.Practitioners.AsNoTracking().AnyAsync(p => p.Id == appointment.PractitionerId && (p.UserId == null || p.UserId == tenant.UserId), ct))
+            && await db.Practitioners.AsNoTracking().AnyAsync(p => p.Id == appointment.PractitionerId && p.UserId == tenant.UserId, ct))
         {
             return (appointment, null);
         }
 
         return (null, HmsProblems.Forbidden("You cannot change this appointment."));
+    }
+
+    /// <summary>A doctor with no broader role sees only visits of the practitioner linked to their login.</summary>
+    private static IQueryable<Appointment> ScopeToOwnPractitioner(IQueryable<Appointment> query, AppointmentsDbContext db, ITenantContext tenant)
+    {
+        if (!tenant.HasAnyRole(HmsRoles.Doctor)
+            || tenant.HasAnyRole(HmsRoles.TenantAdmin, HmsRoles.Nurse, HmsRoles.Receptionist, HmsRoles.Billing))
+        {
+            return query;
+        }
+
+        var me = tenant.UserId;
+        return query.Where(a => db.Practitioners.Any(p => p.Id == a.PractitionerId && p.UserId == me));
     }
 
     private static async Task<Results<Ok<AppointmentDto>, ValidationProblem, ProblemHttpResult>> SaveAsync(

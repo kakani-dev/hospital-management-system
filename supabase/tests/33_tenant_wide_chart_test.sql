@@ -79,8 +79,8 @@ values ('d1310000-0000-4000-8000-000000000001', '11111111-1111-4111-8111-1111111
 
 select tests.authenticate_as('consultant@shared.example', '{"tenant_id":"11111111-1111-4111-8111-111111111111"}');
 select tests.ok(
-  exists (select 1 from appointment.appointments where id = 'e1111111-0000-4000-8000-000000000001'),
-  'a doctor at East can see a visit booked at Main');
+  not exists (select 1 from appointment.appointments where id = 'e1111111-0000-4000-8000-000000000001'),
+  'a doctor at East cannot see a visit booked for another practitioner at Main');
 select tests.throws_ok(
   $$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at)
     values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000002',
@@ -93,12 +93,12 @@ select tests.throws_ok(
             'c1111111-0000-4000-8000-000000000002', 'aa000000-0000-4000-8000-000000000001',
             '2032-03-01 10:00+05:30', '2032-03-01 10:15+05:30', 'e1111111-0000-4000-8000-000000000001')$$,
   '42501', 'a doctor cannot book at a branch they cannot access');
-select tests.ok(
-  tests.affected_rows($$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at, parent_appointment_id)
+select tests.throws_ok(
+  $$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at, parent_appointment_id)
     values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000002',
             'c1310000-0000-4000-8000-000000000001', 'aa000000-0000-4000-8000-000000000001',
-            '2032-03-03 09:00+05:30', '2032-03-03 09:15+05:30', 'e1111111-0000-4000-8000-000000000001')$$) = 1,
-  'a doctor can book a follow-up at their branch of a visit from another branch, with another clinician');
+            '2032-03-03 09:00+05:30', '2032-03-03 09:15+05:30', 'e1111111-0000-4000-8000-000000000001')$$,
+  '42501', 'a doctor cannot follow up another clinician''s visit');
 select tests.throws_ok(
   $$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at, parent_appointment_id)
     values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000002',

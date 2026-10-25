@@ -39,7 +39,7 @@ Callers without a user (`service_role` jobs, triggers) skip the membership check
 | `appointment.patient_has_active_visits_v1(tenant, patient)` | scheduling | **deprecated alias** of `patient_has_open_visits_v1` | 20261012090000 |
 | `identity.caller_roles_v1(tenant) → text[]` | identity | billing (approval policy) | 20261023120100 |
 | `appointment.appointment_billing_ref_v1(tenant, appointment) → table` | scheduling | billing (draft at check-in) | 20261023120200 |
-| `identity.branch_bill_header_v1(tenant, branch) → table(name, address)` | identity | billing (invoice supplier block) | 20261025230000 |
+| `identity.branch_bill_header_v1(tenant, branch) → table(name, address)` | identity | billing (invoice supplier block) | 20261025240200 |
 | `identity.earnings_branches_v1(tenant) → table(branch_id, name, is_deleted)` | identity | billing (earnings, including deleted branches) | 20261025250000 |
 | `patient.party_label_v1(tenant, patient) → text` | patients | billing (earnings party name, including deleted) | 20261025250100 |
 | `appointment.practitioner_label_v1(tenant, practitioner) → text` | scheduling | billing (earnings doctor name, including deleted) | 20261025250200 |

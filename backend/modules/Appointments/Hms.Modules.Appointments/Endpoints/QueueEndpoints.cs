@@ -64,6 +64,13 @@ public static class QueueEndpoints
         var tz = tenant.TimeZoneFor(branch);
         var day = date ?? BranchTime.Today(clock, tz);
         var query = db.QueueEntries.AsNoTracking().Where(q => q.BranchId == branch && q.QueueDate == day);
+        if (tenant.HasAnyRole(HmsRoles.Doctor)
+            && !tenant.HasAnyRole(HmsRoles.TenantAdmin, HmsRoles.Nurse, HmsRoles.Receptionist, HmsRoles.Billing))
+        {
+            var me = tenant.UserId;
+            query = query.Where(q => q.PractitionerId != null && db.Practitioners.Any(p => p.Id == q.PractitionerId && p.UserId == me));
+        }
+
         if (status is not null)
         {
             query = query.Where(q => q.Status == status);
@@ -192,12 +199,12 @@ public static class QueueEndpoints
             return HmsProblems.NotFound("Queue entry not found.");
         }
 
-        // queue.consult_own: a doctor may start/finish entries that are unassigned, of a practitioner not linked to a login yet, or of their own practitioner
+        // queue.consult_own: a doctor may start/finish only the practitioner linked to their login.
         var allowed = tenant.CanAtBranch(entry.BranchId, HmsPermissions.QueueManage)
                       || (request.Status is QueueStatus.InConsultation or QueueStatus.Done
                           && tenant.CanAtBranch(entry.BranchId, HmsPermissions.QueueConsultOwn)
-                          && (entry.PractitionerId is null
-                              || await db.Practitioners.AsNoTracking().AnyAsync(p => p.Id == entry.PractitionerId && (p.UserId == null || p.UserId == tenant.UserId), ct)));
+                          && entry.PractitionerId is { } practitionerId
+                          && await db.Practitioners.AsNoTracking().AnyAsync(p => p.Id == practitionerId && p.UserId == tenant.UserId, ct));
         if (!allowed)
         {
             return HmsProblems.Forbidden("You cannot change this queue entry.");

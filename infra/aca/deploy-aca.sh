@@ -277,7 +277,7 @@ log "5. internal services"
 for s in "${SERVICES[@]}"; do
   deploy_app "$s" internal /health/ready hms-db,hms-edge-key "${COMMON[@]}" \
     ConnectionStrings__HmsDatabase=secretref:hms-db "Database__MaxPoolSize=$POOL_SIZE" \
-    Outbox__Dispatcher__Enabled=false
+    Outbox__Dispatcher__Enabled=true Outbox__Dispatcher__DryRun=false
 done
 
 log "6. edge (external)"
