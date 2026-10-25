@@ -25,6 +25,8 @@ import {
   ArrowLeftStartOnRectangleIcon,
   ArchiveBoxIcon,
   CommandLineIcon,
+  ShieldCheckIcon,
+  ClipboardDocumentListIcon,
 } from '@heroicons/react/24/outline'
 import { ShortcutHelp } from '../../features/shortcuts/ShortcutHelp'
 import { useReceptionShortcuts } from '../../features/shortcuts/useReceptionShortcuts'
@@ -94,6 +96,7 @@ export function AppShell() {
             ]
           : []),
         ...(has('schedules.view') ? [{ id: 'schedules', path: '/schedules', title: 'Schedules', Icon: ClockIcon }] : []),
+        ...(has('privacy.view') ? [{ id: 'consent', path: '/privacy', title: 'Consent', Icon: ShieldCheckIcon }] : []),
       ],
     }
     const reception: NavGroup = {
@@ -123,6 +126,7 @@ export function AppShell() {
         ? []
         : [
             ...(has('stock.view') ? [{ id: 'stock', path: '/stock', title: 'Stock', Icon: ArchiveBoxIcon }] : []),
+            ...(has('privacy.desk') ? [{ id: 'data-requests', path: '/compliance/requests', title: 'Data requests', Icon: ClipboardDocumentListIcon }] : []),
           ],
     }
     const admin: NavGroup = {
@@ -142,6 +146,7 @@ export function AppShell() {
           : []),
         ...(has('admin.settings') ? [{ id: 'hospital', path: '/admin/hospital', title: 'Hospital settings', Icon: Cog6ToothIcon }] : []),
         ...(has('admin.pricelist') ? [{ id: 'price-list', path: '/admin/price-list', title: 'Price list', Icon: CurrencyRupeeIcon }] : []),
+        ...(has('privacy.notice') ? [{ id: 'privacy-notices', path: '/admin/privacy-notices', title: 'Privacy notices', Icon: ShieldCheckIcon }] : []),
       ],
     }
     // Server-checked flag (identity.is_platform_admin); every /platform endpoint re-checks it.

@@ -1,6 +1,6 @@
 # Deploy the API to Azure Container Apps
 
-The web app stays on Vercel. Production deploys of the web app run from GitHub Actions after CI ([deploy the web app](runbooks/deploy-web.md)). This pipeline rolls the six API containers.
+The web app stays on Vercel. Production deploys of the web app run from GitHub Actions after CI ([deploy the web app](runbooks/deploy-web.md)). This pipeline rolls the seven API containers.
 
 | App | Image | Ingress |
 |---|---|---|
@@ -10,6 +10,7 @@ The web app stays on Vercel. Production deploys of the web app run from GitHub A
 | `ca-hms-scheduling` | `hms-scheduling` | internal |
 | `ca-hms-billing` | `hms-billing` | internal |
 | `ca-hms-inventory` | `hms-inventory` | internal |
+| `ca-hms-privacy` | `hms-privacy` | internal |
 
 Resource group `rg-medicore-hms-dev`, Central India. Registry `acrmedicorehmsdev` (admin user disabled). Every app pulls `acrmedicorehmsdev.azurecr.io/hms-<svc>:sha-<full 40-character commit sha>`, not GHCR. Patients uses its existing identity with AcrPull. Scheduling uses its system-assigned identity with AcrPull. The deploy does not change those bindings.
 
@@ -22,9 +23,9 @@ ACR Basic is a paid SKU (about $0.17 per day). Container Apps stay on the consum
 1. Push to `main`.
 2. The `CI` workflow passes.
 3. `Deploy to Azure Container Apps` starts. A newer push cancels a deploy that has not finished. An emergency dispatch waits, so it does not cut off a rollback.
-4. Path filters pick the images to build. `backend/platform`, `backend/shared`, `Directory.Build.props`, `Directory.Packages.props`, `global.json`, a backend `packages.lock.json`, and `.dockerignore` build all six. So do `.github/scripts/aca-rollout.sh`, `.github/scripts/service_changes.py`, `.github/scripts/aca-live-tags.sh`, and this deploy workflow. Otherwise only the service whose host or module changed is built. An app whose running image tag is not `sha-<this commit>` is included as well, so a container left on an older sha is rebuilt. Web, SQL, and the legacy gateway do not by themselves select an image. A blank `workflow_dispatch` uses that same plan. An explicit service or tag does not.
+4. Path filters pick the images to build. `backend/platform`, `backend/shared`, `Directory.Build.props`, `Directory.Packages.props`, `global.json`, a backend `packages.lock.json`, and `.dockerignore` build all seven. So do `.github/scripts/aca-rollout.sh`, `.github/scripts/service_changes.py`, `.github/scripts/aca-live-tags.sh`, and this deploy workflow. Otherwise only the service whose host or module changed is built. An app whose running image tag is not `sha-<this commit>` is included as well, so a container left on an older sha is rebuilt. Web, SQL, and the legacy gateway do not by themselves select an image. A blank `workflow_dispatch` uses that same plan. An explicit service or tag does not.
 5. The image jobs run in parallel, push to ACR, and reuse Docker layer cache (`type=gha`).
-6. Each changed app is switched to multiple revision mode. The new revision is created from the `sha-` tag. Traffic moves to it only after the revision exists. A service the live edge already lists is polled through the public edge (`/health/live`, and `/health/ready` for that service). A service the live edge does not list yet is not polled there: the old edge would report it missing until this rollout publishes the edge. That container is proved on its own revision first (ingress target port 8080, HTTP probes on `/health/live` and `/health/ready`). The edge revision in the same rollout sets every cluster address, including `ReverseProxy__Clusters__billing__Destinations__primary__Address=http://ca-hms-billing/` and `ReverseProxy__Clusters__inventory__Destinations__primary__Address=http://ca-hms-inventory/`. Those addresses are not left as a hand-edited revision. After that edge revision has traffic, `/health/ready` must list the new service. A deploy that adds a service and does not include the edge is refused.
+6. Each changed app is switched to multiple revision mode. The new revision is created from the `sha-` tag. Traffic moves to it only after the revision exists. A service the live edge already lists is polled through the public edge (`/health/live`, and `/health/ready` for that service). A service the live edge does not list yet is not polled there: the old edge would report it missing until this rollout publishes the edge. That container is proved on its own revision first (ingress target port 8080, HTTP probes on `/health/live` and `/health/ready`). The edge revision in the same rollout sets every cluster address, including `ReverseProxy__Clusters__billing__Destinations__primary__Address=http://ca-hms-billing/` and `ReverseProxy__Clusters__inventory__Destinations__primary__Address=http://ca-hms-inventory/` and `ReverseProxy__Clusters__privacy__Destinations__primary__Address=http://ca-hms-privacy/`. Those addresses are not left as a hand-edited revision. After that edge revision has traffic, `/health/ready` must list the new service. A deploy that adds a service and does not include the edge is refused.
 7. A smoke check then calls `GET /api/v1/public/invites/<64 zeros>`. That route is anonymous and read-only. Success is **404 from the identity service** (unknown token). The gateway's own "no such route" 404 fails the deploy. Nothing is written.
 8. If health or smoke fails, traffic goes back to the previous revision, the new revision is deactivated, and the job fails. Every app shifted in that run is restored, edge last.
 
@@ -33,6 +34,8 @@ ACR Basic is a paid SKU (about $0.17 per day). Container Apps stay on the consum
 The identity database login `hms_identity_login` lives in the existing secret `hms-db`. The workflow never writes that secret and does not replace `ConnectionStrings__HmsDatabase`. Identity runs with `minReplicas` 1. A rollout that does not already see 1 stops instead of changing the scale. Other apps keep the replica counts they already have.
 
 `ca-hms-inventory` must exist in `rg-medicore-hms-dev` before a merge that adds it reaches `main`. Live tags fail closed when any app in the deploy order is missing, and the rollout does not create apps. Create it with internal ingress, target port 8080, and HTTP probes on `/health/live` and `/health/ready`, pulling `hms-inventory` with an ACR identity. Create the hosted login `hms_inventory_login` (`LOGIN NOINHERIT`) out of band with a generated password, then `GRANT hms_svc_inventory TO hms_inventory_login`. Set the ACA secret `hms-db` on `ca-hms-inventory` only to the Npgsql connection string for that login (pool, `No Reset On Close=true`, same shape as the other services). Set `ConnectionStrings__HmsDatabase=secretref:hms-db` and `Database__SessionRole=hms_svc_inventory`. The workflow never writes `hms-db`. There is no new GitHub Actions secret and no new Key Vault resource when the password stays in that per-app secret. The local throwaway password in `appsettings.json` is for local and CI databases only.
+
+`ca-hms-privacy` has the same rule. Create it before this service is on `main`. Steps are in [the privacy container app runbook](runbooks/privacy-container-app.md). The rollout does not create the app. The edge revision sets `ReverseProxy__Clusters__privacy__Destinations__primary__Address=http://ca-hms-privacy/`; `appsettings.json` keeps `http://localhost:8106/` for local runs, the same way the other clusters do.
 
 ## One-time setup
 
@@ -90,7 +93,7 @@ az role assignment create --assignee-object-id "$SP_OBJECT_ID" --assignee-princi
 
 # Leave an app that already pulls from this registry on its current identity.
 # Patients keeps its existing identity. Scheduling keeps system. Both have AcrPull.
-for app in ca-hms-edge ca-hms-identity ca-hms-patients ca-hms-scheduling ca-hms-billing ca-hms-inventory; do
+for app in ca-hms-edge ca-hms-identity ca-hms-patients ca-hms-scheduling ca-hms-billing ca-hms-inventory ca-hms-privacy; do
   current=$(az containerapp show -g "$RG" -n "$app" \
     --query "properties.configuration.registries[?server=='${ACR_NAME}.azurecr.io'].identity | [0]" -o tsv)
   if [[ -n "$current" && "$current" != "None" ]]; then

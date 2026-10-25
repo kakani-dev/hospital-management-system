@@ -75,6 +75,12 @@ import type {
   StockItem,
   StockOnHandRow,
   StockStore,
+  ConsentChoice,
+  ConsentLink,
+  ConsentList,
+  PrivacyNotice,
+  PublicConsent,
+  RightsRequest,
   ClaimedInvite,
   CreateInviteLinkRequest,
   HospitalApproved,
@@ -667,6 +673,81 @@ export class ApiClient {
       this.request<StockOnHandRow[]>(
         `/api/v1/inventory/stock${qs({ storeId: params.storeId, itemId: params.itemId, lowStock: params.lowStock ? true : undefined })}`,
       ),
+  }
+
+  privacy = {
+    notices: () => this.request<PrivacyNotice[]>('/api/v1/privacy/consent-notices'),
+    currentNotice: (language = 'en') =>
+      this.request<PrivacyNotice>(`/api/v1/privacy/consent-notices/current${qs({ language })}`),
+    createNotice: (idempotencyKey: string, body: { language: string; title: string; body: string; purposes: string[] }) =>
+      this.request<PrivacyNotice>('/api/v1/privacy/consent-notices', {
+        method: 'POST',
+        body: JSON.stringify(body),
+        headers: { 'Idempotency-Key': idempotencyKey },
+      }),
+    publishNotice: (idempotencyKey: string, id: string) =>
+      this.request<PrivacyNotice>(`/api/v1/privacy/consent-notices/${encodeURIComponent(id)}/publish`, {
+        method: 'POST',
+        headers: { 'Idempotency-Key': idempotencyKey },
+      }),
+    consents: (patientId: string) =>
+      this.request<ConsentList>(`/api/v1/privacy/patients/${encodeURIComponent(patientId)}/consents`),
+    recordConsents: (idempotencyKey: string, patientId: string, body: {
+      noticeId: string
+      channel: string
+      givenBy: string
+      subjectIsMinor?: boolean
+      guardianName?: string
+      choices: ConsentChoice[]
+    }) =>
+      this.request<{ events: number; receiptQueued: boolean }>(`/api/v1/privacy/patients/${encodeURIComponent(patientId)}/consents`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+        headers: { 'Idempotency-Key': idempotencyKey },
+      }),
+    withdraw: (idempotencyKey: string, patientId: string, purpose: string) =>
+      this.request<{ withdrawn: boolean }>(`/api/v1/privacy/patients/${encodeURIComponent(patientId)}/consents/${encodeURIComponent(purpose)}/withdraw`, {
+        method: 'POST',
+        body: JSON.stringify({ channel: 'tablet' }),
+        headers: { 'Idempotency-Key': idempotencyKey },
+      }),
+    consentLink: (patientId: string) =>
+      this.request<ConsentLink>(`/api/v1/privacy/patients/${encodeURIComponent(patientId)}/consent-links`, { method: 'POST' }),
+    requests: (status?: string) => this.request<RightsRequest[]>(`/api/v1/privacy/rights-requests${qs({ status })}`),
+    createRequest: (idempotencyKey: string, body: { patientId: string; type: string; details: string; channel: string }) =>
+      this.request<RightsRequest>('/api/v1/privacy/rights-requests', {
+        method: 'POST',
+        body: JSON.stringify(body),
+        headers: { 'Idempotency-Key': idempotencyKey },
+      }),
+    verifyRequest: (id: string) =>
+      this.request<RightsRequest>(`/api/v1/privacy/rights-requests/${encodeURIComponent(id)}/verify`, { method: 'POST' }),
+    fulfilRequest: (id: string, response: string) =>
+      this.request<RightsRequest>(`/api/v1/privacy/rights-requests/${encodeURIComponent(id)}/fulfil`, {
+        method: 'POST',
+        body: JSON.stringify({ response }),
+      }),
+    closeRequest: (id: string, response: string) =>
+      this.request<RightsRequest>(`/api/v1/privacy/rights-requests/${encodeURIComponent(id)}/close`, {
+        method: 'POST',
+        body: JSON.stringify({ response }),
+      }),
+    approveErasure: (id: string) =>
+      this.request<RightsRequest>(`/api/v1/privacy/rights-requests/${encodeURIComponent(id)}/erasure-approvals`, { method: 'POST' }),
+    executeErasure: (idempotencyKey: string, id: string) =>
+      this.request<RightsRequest>(`/api/v1/privacy/rights-requests/${encodeURIComponent(id)}/execute-erasure`, {
+        method: 'POST',
+        headers: { 'Idempotency-Key': idempotencyKey },
+      }),
+    publicConsent: (token: string) =>
+      this.request<PublicConsent>(`/api/v1/privacy/public/consents/${encodeURIComponent(token)}`, { auth: false, retry: false }),
+    submitPublicConsent: (token: string, choices: ConsentChoice[]) =>
+      this.request<{ events: number; saved: boolean }>(`/api/v1/privacy/public/consents/${encodeURIComponent(token)}`, {
+        method: 'POST',
+        body: JSON.stringify({ choices }),
+        auth: false,
+        retry: false,
+      }),
   }
 }
 

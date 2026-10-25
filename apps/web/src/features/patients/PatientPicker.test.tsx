@@ -169,6 +169,43 @@ describe('PatientPicker combobox', () => {
     expect(calls.find((c) => c.method === 'POST' && c.path === '/api/v1/appointments')!.body).toMatchObject({ patientId: NEW.id, startsAt: slot.startsAt })
   })
 
+  it('booking: quick-register records the published notice above Save patient', async () => {
+    const { calls } = bookingRoutes(['tenant_admin'], {
+      'POST /api/v1/patients': () => json(NEW, 201),
+      'GET /api/v1/privacy/consent-notices/current': () =>
+        json({
+          noticeId: 'n-1',
+          version: 1,
+          language: 'en',
+          title: 'How this hospital uses health information',
+          body: 'Care and billing do not need a tick.',
+          contentSha256: 'a'.repeat(64),
+          publishedAt: '2026-10-25T00:00:00Z',
+          purposes: [{ code: 'reminders', label: 'Appointment and follow-up reminders', required: false }],
+        }),
+      'POST /api/v1/privacy/patients/aa000000-0000-4000-8000-000000000098/consents': () => json({ events: 1, receiptQueued: true }),
+    })
+    const user = userEvent.setup()
+    const form = await openBooking(user)
+    await user.type(within(form).getByLabelText('Find patient'), 'Lata Synthetic-New')
+    await user.click(await within(form).findByTestId('register-new-patient'))
+    const quick = within(form).getByTestId('quick-register')
+    const step = await within(quick).findByRole('group', { name: 'Optional uses' })
+    const save = within(quick).getByTestId('save-patient')
+    expect(step.compareDocumentPosition(save) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    await user.click(within(quick).getByRole('checkbox', { name: 'Appointment and follow-up reminders' }))
+    await user.click(save)
+    expect(await within(form).findByTestId('picked-patient')).toHaveTextContent('NEW-0098')
+    const posted = calls.find((c) => c.path === `/api/v1/privacy/patients/${NEW.id}/consents`)
+    expect(posted?.body).toMatchObject({
+      noticeId: 'n-1',
+      channel: 'tablet',
+      givenBy: 'self',
+      subjectIsMinor: false,
+      choices: [{ purposeCode: 'reminders', granted: true }],
+    })
+  })
+
   it('booking: a phone search pre-fills the hospital calling code (not a hardcoded +91), and "Save & book" registers and books in one action', async () => {
     const { calls } = bookingRoutes(['receptionist'], {
       'POST /api/v1/patients': () => json(NEW, 201),

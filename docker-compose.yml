@@ -2,7 +2,7 @@
 #   docker compose up --build
 # Web: http://localhost:8081   API (YARP edge, the single base URL): http://localhost:8080   DB: localhost:5432
 #
-# The edge is the only API port published. identity / patients / scheduling / billing / inventory listen on the compose
+# The edge is the only API port published. identity / patients / scheduling / billing / inventory / privacy listen on the compose
 # network only and answer 404 to anything without the shared X-Hms-Edge-Key (same as the internal
 # ingress in Azure Container Apps). Each service logs in with its own low-privilege role
 # (supabase/scripts/local-api-login-role.sql) and SET ROLE hms_svc_<service> (Database:SessionRole),
@@ -57,6 +57,7 @@ services:
       ReverseProxy__Clusters__scheduling__Destinations__primary__Address: "http://scheduling:8080/"
       ReverseProxy__Clusters__billing__Destinations__primary__Address: "http://billing:8080/"
       ReverseProxy__Clusters__inventory__Destinations__primary__Address: "http://inventory:8080/"
+      ReverseProxy__Clusters__privacy__Destinations__primary__Address: "http://privacy:8080/"
     ports:
       - "127.0.0.1:8080:8080"
     depends_on:
@@ -65,6 +66,7 @@ services:
       - scheduling
       - billing
       - inventory
+      - privacy
 
   # ------------------------------------------------------------- services (internal only) ----
   identity:
@@ -122,6 +124,17 @@ services:
     environment:
       <<: *service-env
       ConnectionStrings__HmsDatabase: "Host=postgres;Port=5432;Database=hms;Username=hms_inventory_login;Password=hms_inventory_local_only"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  privacy:
+    build:
+      context: .
+      dockerfile: backend/services/privacy/Dockerfile
+    environment:
+      <<: *service-env
+      ConnectionStrings__HmsDatabase: "Host=postgres;Port=5432;Database=hms;Username=hms_privacy_login;Password=hms_privacy_local_only"
     depends_on:
       postgres:
         condition: service_healthy

@@ -20,6 +20,7 @@
     <ProjectReference Include="../../modules/Appointments/Hms.Modules.Appointments/Hms.Modules.Appointments.csproj" />
     <ProjectReference Include="../../modules/Billing/Hms.Modules.Billing/Hms.Modules.Billing.csproj" />
     <ProjectReference Include="../../modules/Inventory/Hms.Modules.Inventory/Hms.Modules.Inventory.csproj" />
+    <ProjectReference Include="../../modules/Privacy/Hms.Modules.Privacy/Hms.Modules.Privacy.csproj" />
     <ProjectReference Include="../Hms.TestHost/Hms.TestHost.csproj" />
   </ItemGroup>
   <ItemGroup>
