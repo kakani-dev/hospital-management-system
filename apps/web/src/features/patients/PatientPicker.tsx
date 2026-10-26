@@ -68,7 +68,9 @@ export function PatientPicker({
   const typed = term.trim().length >= PATIENT_PICKER_MIN_CHARS
   // Inline mode: always offered as the last option once a term is typed; page mode: only on no match.
   // Only once results for this exact term are in, so a quick tap can't hit it instead of a match still loading.
-  const offerRegister = canRegister && typed && fresh && (onCreateNew ? true : items.length === 0)
+  // Search down: still offer it inline, so a new patient can be added without search.
+  const searchFailed = searching && debounced === term && results.isError
+  const offerRegister = canRegister && typed && (fresh || (!!onCreateNew && searchFailed)) && (onCreateNew ? true : items.length === 0)
   const optionCount = items.length + (offerRegister ? 1 : 0)
   const expanded = open && (typed || (recentMode && recentItems.length > 0))
   const optionId = (i: number) => `${listId}-opt-${i}`
@@ -99,6 +101,17 @@ export function PatientPicker({
 
   return (
     <div className="relative space-y-2">
+      {onCreateNew && canRegister && (
+        // Always visible in the booking drawer (no typing needed); uses whatever was typed as the prefill.
+        <button
+          type="button"
+          data-testid="add-new-patient-button"
+          className="float-right text-sm font-medium text-primary-600 hover:underline dark:text-primary-400"
+          onClick={registerNew}
+        >
+          + Add new patient
+        </button>
+      )}
       <Input
         id={inputId}
         label={label}
