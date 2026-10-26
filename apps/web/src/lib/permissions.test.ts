@@ -65,10 +65,14 @@ describe('can (RBAC matrix, ADR 0001)', () => {
     expect(allows(['queue.consult_own'], 'queue.advance')).toBe(true)
   })
 
-  it('tenant_admin holds every permission except the own-scoped variants; read-only roles see no patient data', () => {
+  it('tenant_admin holds every permission except the own-scoped variants and doctor-only clinical.write; read-only roles see no patient data', () => {
     const all = new Set(Object.values(ROLE_PERMISSIONS).flat())
     const admin = new Set(ROLE_PERMISSIONS.tenant_admin)
-    expect([...all].filter((p) => !admin.has(p)).every((p) => p.endsWith('_own'))).toBe(true)
+    expect([...all].filter((p) => !admin.has(p)).every((p) => p.endsWith('_own') || p === 'clinical.write')).toBe(true)
+    expect(Object.entries(ROLE_PERMISSIONS).filter(([, ps]) => ps.includes('clinical.write')).map(([r]) => r)).toEqual(['doctor'])
+    for (const r of ['billing', 'receptionist', 'accountant']) {
+      expect(ROLE_PERMISSIONS[r]!.some((p) => p.startsWith('clinical.'))).toBe(false)
+    }
     for (const r of ['viewer', 'pharmacist', 'lab_technician']) {
       expect(ROLE_PERMISSIONS[r]!.some((p) => p.startsWith('patients.') || p.startsWith('appointments.') || p.startsWith('queue.'))).toBe(false)
     }
