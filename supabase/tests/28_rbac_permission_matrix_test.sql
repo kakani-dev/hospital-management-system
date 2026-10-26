@@ -2,7 +2,7 @@
 begin;
 select tests.as_superuser();
 
-select tests.ok((select count(*) from identity.role_permissions where role = 'tenant_admin') = 40, 'tenant_admin holds all 40 tenant permissions (earnings adds one)');
+select tests.ok((select count(*) from identity.role_permissions where role = 'tenant_admin') = 41, 'tenant_admin holds all 41 tenant permissions (earnings and clinical.view add one each)');
 select tests.ok((select count(*) from identity.role_permissions where role = 'accountant') = 4
                 and exists (select 1 from identity.role_permissions where role = 'accountant' and permission = 'billing.earnings')
                 and not exists (select 1 from identity.role_permissions where role = 'accountant' and permission in ('billing.bill', 'billing.collect', 'billing.refund', 'billing.view')),
