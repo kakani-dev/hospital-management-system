@@ -227,4 +227,43 @@ describe('BillingPanel', () => {
     expect(await screen.findByText('OP consultation')).toBeInTheDocument()
     expect(calls.some((call) => call.method === 'POST' && call.path === '/api/v1/accounts')).toBe(false)
   })
+
+  it('shows why a cash collection failed when the request never reaches the server', async () => {
+    stubFetch({
+      'POST /api/v1/accounts': () => json(bill()),
+      'POST /api/v1/counter-sessions/ensure': () => json({ id: 'sess-1', businessDate: '2026-10-26', opened: false }),
+      'POST /api/v1/payments': () => {
+        throw new TypeError('Failed to fetch')
+      },
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<BillingPanel patientId="patient-1" branchId="branch-1" onBack={() => {}} />, {
+      auth: fakeAuthClient({ session: fakeSession() }),
+    })
+    await user.click(await screen.findByTestId('collect-cash'))
+    expect(await screen.findByText('The server could not be reached.')).toBeInTheDocument()
+    expect(screen.queryByText('The bill could not be updated. Try again.')).not.toBeInTheDocument()
+  })
+
+  it('shows the counter-session message when no session can be opened', async () => {
+    const calls = stubFetch({
+      'POST /api/v1/accounts': () => json(bill()),
+      'POST /api/v1/counter-sessions/ensure': () => json({ id: null }),
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<BillingPanel patientId="patient-1" branchId="branch-1" onBack={() => {}} />, {
+      auth: fakeAuthClient({ session: fakeSession() }),
+    })
+    await user.click(await screen.findByTestId('collect-cash'))
+    expect(await screen.findByText('Open a counter session before taking cash.')).toBeInTheDocument()
+    expect(calls.some((call) => call.path === '/api/v1/payments')).toBe(false)
+  })
+
+  it('labels the discount box so it is not an empty grey field', async () => {
+    stubFetch({ 'POST /api/v1/accounts': () => json(bill()) })
+    renderWithProviders(<BillingPanel patientId="patient-1" branchId="branch-1" onBack={() => {}} />, {
+      auth: fakeAuthClient({ session: fakeSession() }),
+    })
+    expect(await screen.findByPlaceholderText('Discount ₹')).toHaveAccessibleName('Discount rupees')
+  })
 })
