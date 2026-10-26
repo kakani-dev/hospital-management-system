@@ -83,7 +83,7 @@ public sealed class RbacMatrixInProcessTests(ApiFactory factory) : IClassFixture
     {
         var p = HmsPermissions.ByRole;
         Assert.True(HmsPermissions.All.All(p[HmsRoles.TenantAdmin].Contains)
-                    || HmsPermissions.All.Except(p[HmsRoles.TenantAdmin]).All(x => x.EndsWith("_own", StringComparison.Ordinal)),
+                    || HmsPermissions.All.Except(p[HmsRoles.TenantAdmin]).All(x => x.EndsWith("_own", StringComparison.Ordinal) || x == HmsPermissions.ClinicalWrite),
             "tenant_admin holds every tenant permission (own-scoped variants are covered by the full ones)");
         Assert.Contains(HmsPermissions.PatientsCreate, p[HmsRoles.Receptionist]);
         Assert.Contains(HmsPermissions.AppointmentsBook, p[HmsRoles.Receptionist]);
@@ -101,6 +101,13 @@ public sealed class RbacMatrixInProcessTests(ApiFactory factory) : IClassFixture
         }
 
         Assert.DoesNotContain(HmsPermissions.All, x => x.StartsWith("platform.", StringComparison.Ordinal));
+
+        // Clinical write is doctor-only (ADR 0003); billing and reception never see clinical notes.
+        Assert.Equal([HmsRoles.Doctor], p.Where(kv => kv.Value.Contains(HmsPermissions.ClinicalWrite)).Select(kv => kv.Key).ToArray());
+        foreach (var r in new[] { HmsRoles.Billing, HmsRoles.Receptionist, HmsRoles.Accountant, HmsRoles.Pharmacist, HmsRoles.LabTechnician, HmsRoles.Viewer })
+        {
+            Assert.DoesNotContain(p[r], x => x.StartsWith("clinical.", StringComparison.Ordinal));
+        }
     }
 
     [Fact]
@@ -118,7 +125,8 @@ public sealed class RbacMatrixInProcessTests(ApiFactory factory) : IClassFixture
             + File.ReadAllText(Path.Combine(dir, "supabase", "migrations", "20261023120600_identity_billing_permissions.sql"))
             + File.ReadAllText(Path.Combine(dir, "supabase", "migrations", "20261023170100_identity_inventory_permissions.sql"))
             + File.ReadAllText(Path.Combine(dir, "supabase", "migrations", "20261025220600_identity_privacy_permissions.sql"))
-            + File.ReadAllText(Path.Combine(dir, "supabase", "migrations", "20261025250000_identity_accountant_role.sql"));
+            + File.ReadAllText(Path.Combine(dir, "supabase", "migrations", "20261025250000_identity_accountant_role.sql"))
+            + File.ReadAllText(Path.Combine(dir, "supabase", "migrations", "20261026090000_scheduling_clinical_consultations.sql"));
         var db = Regex.Matches(sql, @"\('([a-z_]+)', '([a-z_]+\.[a-z_]+)'\)")
             .Select(m => $"{m.Groups[1].Value}:{m.Groups[2].Value}").Order(StringComparer.Ordinal).ToList();
         var api = HmsPermissions.ByRole.SelectMany(kv => kv.Value.Select(v => $"{kv.Key}:{v}")).Order(StringComparer.Ordinal).ToList();
