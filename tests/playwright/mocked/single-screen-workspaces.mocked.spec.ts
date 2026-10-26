@@ -96,7 +96,7 @@ test('a new patient typed in the booking drawer warns about a duplicate on this 
   await page.getByRole('button', { name: 'Book appointment' }).click()
   const form = page.getByRole('form', { name: 'Book appointment' })
   await form.getByLabel('Find patient').fill('9845000001')
-  await form.getByRole('option', { name: /New patient/ }).click()
+  await form.getByRole('option', { name: /add new patient/i }).click()
   await expect(page.getByTestId('quick-register')).toBeVisible()
   await expect(page.getByTestId('duplicate-warning')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Save patient' })).toBeVisible()

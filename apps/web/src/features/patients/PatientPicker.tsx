@@ -245,7 +245,7 @@ export function PatientPicker({
               onMouseDown={(e) => e.preventDefault()}
               onClick={registerNew}
             >
-              {onCreateNew ? <>+ New patient “{term.trim()}”</> : <>No match: register new patient “{term.trim()}” (Alt+N)</>}
+              {onCreateNew ? <>+ Add new patient “{term.trim()}”</> : <>No match: register new patient “{term.trim()}” (Alt+N)</>}
             </li>
           )}
         </ul>

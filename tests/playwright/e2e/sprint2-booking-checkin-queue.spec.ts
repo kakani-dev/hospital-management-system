@@ -202,7 +202,7 @@ test.describe('Booking drawer quick-register (full stack)', () => {
     await firstSlot.click()
     await form.getByLabel('Find patient').fill(`Quick ${lastName}`)
     await form.getByTestId('register-new-patient').click()
-    const quick = form.getByTestId('quick-register')
+    const quick = page.getByTestId('quick-register')
     // The term has digits (unique suffix), so it is treated as MRN-like and pre-fills nothing.
     await quick.getByLabel('First name').fill('Quick')
     await quick.getByLabel('Last name').fill(lastName)
