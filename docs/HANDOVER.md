@@ -2,7 +2,7 @@
 
 Full version (with Notion-only links): [Notion: Start here: team handover](https://app.notion.com/p/404ead9eb8a881a2b075c7963ecc3e93)
 
-_Last verified: 25 Oct 2026, ~11 PM IST, main at `05b32c5`._
+_Last verified: 26 Oct 2026 IST, main at the PR #99 release._
 
 ## What MediCore is
 A multi-tenant Hospital Management System for Indian hospitals (tenants) and their branches: patients, scheduling and queue, OP billing with GST, pharmacy/inventory, DPDP privacy, earnings and CA dashboards. **Demo only, synthetic data only.**
@@ -61,9 +61,11 @@ npm run e2e     # Playwright (mock auth)
 - **Supabase:** dashboard project settings (API keys, DB password, Auth hooks).
 - **Vercel:** project env vars (`VITE_*` public config only).
 
-## Current state (25 Oct 2026)
-- Live: main `05b32c5`, release [v2026.10.25](https://github.com/kakani-dev/hospital-management-system/releases/tag/v2026.10.25). 73 migrations, head `20261025280100`. Outbox dispatcher ON.
-- In progress: UPI/bank/card-terminal account mapping ([#63](https://github.com/kakani-dev/hospital-management-system/issues/63)); live end-to-end QA walkthrough.
+## Current state (26 Oct 2026)
+- Live: main at the PR #99 release (after PR #94, `9933d7e`), after release [v2026.10.25](https://github.com/kakani-dev/hospital-management-system/releases/tag/v2026.10.25). 74 migrations, head `20261025290000`. Outbox dispatcher ON.
+- Done: UPI/bank/card-terminal account mapping ([#63](https://github.com/kakani-dev/hospital-management-system/issues/63), PR #94).
+- In progress: live end-to-end QA walkthrough.
+- New bug: slot ending at 00:00 IST offered then rejected; CI flakes just before midnight ([#98](https://github.com/kakani-dev/hospital-management-system/issues/98)).
 - Open issues: https://github.com/kakani-dev/hospital-management-system/issues
 - **Known risks:** free tiers (ACA scale-to-zero cold starts, Supabase limits); ACA secrets inline, no Key Vault (#68); leaked-password protection off (#69); 10 test gaps (#70–#79); Refund button status unconfirmed (#81).
-- **Next priorities:** #63 UPI mapping, QA findings, test gaps #70/#71 (refund guards, OP billing E2E), day-end close beyond cash (#65), GL/Tally export (#62), appointment reminders (#59).
+- **Next priorities:** QA findings, #98 midnight slot bug, test gaps #70/#71 (refund guards, OP billing E2E), day-end close beyond cash (#65), GL/Tally export (#62), appointment reminders (#59).
