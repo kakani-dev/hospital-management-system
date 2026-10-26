@@ -230,7 +230,12 @@ describe('BillingPanel', () => {
 
   it('shows why a cash collection failed when the request never reaches the server', async () => {
     stubFetch({
-      'POST /api/v1/accounts': () => json(bill()),
+      'GET /api/v1/accounts/patient-1/summary': () => json({
+        patientId: 'patient-1',
+        advancePaise: 0,
+        bills: [{ id: 'bill-1', accountId: 'acct-1', branchId: 'branch-1', billNo: null, status: 'draft', billKind: 'final', totalPaise: 50000, duePaise: 50000 }],
+      }),
+      'GET /api/v1/bills/bill-1': () => json(bill()),
       'POST /api/v1/counter-sessions/ensure': () => json({ id: 'sess-1', businessDate: '2026-10-26', opened: false }),
       'POST /api/v1/payments': () => {
         throw new TypeError('Failed to fetch')
@@ -247,7 +252,12 @@ describe('BillingPanel', () => {
 
   it('shows the counter-session message when no session can be opened', async () => {
     const calls = stubFetch({
-      'POST /api/v1/accounts': () => json(bill()),
+      'GET /api/v1/accounts/patient-1/summary': () => json({
+        patientId: 'patient-1',
+        advancePaise: 0,
+        bills: [{ id: 'bill-1', accountId: 'acct-1', branchId: 'branch-1', billNo: null, status: 'draft', billKind: 'final', totalPaise: 50000, duePaise: 50000 }],
+      }),
+      'GET /api/v1/bills/bill-1': () => json(bill()),
       'POST /api/v1/counter-sessions/ensure': () => json({ id: null }),
     })
     const user = userEvent.setup()
@@ -260,7 +270,14 @@ describe('BillingPanel', () => {
   })
 
   it('labels the discount box so it is not an empty grey field', async () => {
-    stubFetch({ 'POST /api/v1/accounts': () => json(bill()) })
+    stubFetch({
+      'GET /api/v1/accounts/patient-1/summary': () => json({
+        patientId: 'patient-1',
+        advancePaise: 0,
+        bills: [{ id: 'bill-1', accountId: 'acct-1', branchId: 'branch-1', billNo: null, status: 'draft', billKind: 'final', totalPaise: 50000, duePaise: 50000 }],
+      }),
+      'GET /api/v1/bills/bill-1': () => json(bill()),
+    })
     renderWithProviders(<BillingPanel patientId="patient-1" branchId="branch-1" onBack={() => {}} />, {
       auth: fakeAuthClient({ session: fakeSession() }),
     })
