@@ -388,7 +388,8 @@ export function BookingPanel({
                 setPatient(created)
                 setQuick(null)
                 if (action === 'book') void submit(created)
-                else setFocusConfirm((n) => n + 1)
+                // after the add drawer's own focus-restore (Headless UI) so Enter books
+                else setTimeout(() => setFocusConfirm((n) => n + 1), 0)
               },
               onUseExisting: (match) => {
                 setQuick(null)
