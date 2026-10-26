@@ -96,10 +96,17 @@ public sealed class BillingApiTests(HmsApiFactory factory) : IClassFixture<HmsAp
         Assert.Equal(HttpStatusCode.OK, (await Post(admin, $"/api/v1/bills/{billId}/lines", new { code = "CONSULT" })).Status);
         Assert.Equal(HttpStatusCode.OK, (await Post(admin, $"/api/v1/bills/{billId}/finalize", new { })).Status);
 
+        var unconfigured = await Post(admin, $"/api/v1/bills/{billId}/payment-links", new { channel = "qr" });
+        Assert.Equal(HttpStatusCode.OK, unconfigured.Status);
+        Assert.Equal(JsonValueKind.Null, unconfigured.Body.GetProperty("upiUri").ValueKind);
+        Assert.False(unconfigured.Body.GetProperty("upiConfigured").GetBoolean());
+
+        var vpa = await Post(admin, "/api/v1/payment-accounts", new { branchId = Main, mode = "upi", label = "Front desk", vpa = "alpha.main@okaxis" });
+        Assert.Equal(HttpStatusCode.OK, vpa.Status);
         var link = await Post(admin, $"/api/v1/bills/{billId}/payment-links", new { channel = "qr" });
         Assert.Equal(HttpStatusCode.OK, link.Status);
         var order = link.Body.GetProperty("providerOrderId").GetString()!;
-        Assert.Contains("upi://pay", link.Body.GetProperty("upiUri").GetString());
+        Assert.Contains("upi://pay?pa=alpha.main%40okaxis", link.Body.GetProperty("upiUri").GetString());
         var path = link.Body.GetProperty("path").GetString()!;
 
         using var anon = factory.CreateClient();
@@ -107,7 +114,7 @@ public sealed class BillingApiTests(HmsApiFactory factory) : IClassFixture<HmsAp
         Assert.Equal(HttpStatusCode.OK, receipt.StatusCode);
         Assert.Equal(50000, (await Read(receipt)).GetProperty("duePaise").GetInt64());
 
-        Assert.Contains("sandbox", link.Body.GetProperty("upiUri").GetString(), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("sandbox", link.Body.GetProperty("upiUri").GetString(), StringComparison.OrdinalIgnoreCase);
         var eventId = Guid.NewGuid().ToString("N");
         var body = JsonSerializer.Serialize(new { eventId, providerOrderId = order, status = "paid", amountPaise = 50000, tenantId = Guid.NewGuid() });
         using var missing = new HttpRequestMessage(HttpMethod.Post, "/api/v1/billing-public/webhooks/stub")

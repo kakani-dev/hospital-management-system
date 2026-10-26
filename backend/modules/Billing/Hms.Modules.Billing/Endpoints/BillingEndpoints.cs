@@ -67,6 +67,21 @@ public static class BillingEndpoints
                 "select billing.set_branch_profile(@t::uuid, @br::uuid, @j::jsonb)::text", ct,
                 ("br", branchId), ("j", body.GetRawText())));
 
+        // Per-branch bank / UPI / card accounts (#63). Admin-only writes; tenant comes from the session.
+        var payAccount = api.MapGroup("/payment-accounts").WithTags("Billing").RequireTenant().WithDbTransaction<BillingDbContext>();
+        payAccount.MapGet("/", (Guid branchId, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
+            Exec(db, tenant, HmsPermissions.BillingView, "select billing.payment_accounts(@t::uuid, @br::uuid)::text", ct, ("br", branchId)));
+        payAccount.MapPost("/", (JsonElement body, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
+            body.TryGetProperty("branchId", out var b) && b.TryGetGuid(out var branchId)
+                ? Exec(db, tenant, HmsPermissions.BillingPricelistManage, "select billing.add_payment_account(@t::uuid, @br::uuid, @j::jsonb)::text", ct,
+                    ("br", branchId), ("j", body.GetRawText()))
+                : Task.FromResult<IResult>(HmsProblems.BadRequest(HmsProblems.Codes.InvalidParameter, "branchId must be a UUID.")));
+        payAccount.MapPut("/{id:guid}", (Guid id, JsonElement body, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
+            Exec(db, tenant, HmsPermissions.BillingPricelistManage, "select billing.update_payment_account(@t::uuid, @i::uuid, @j::jsonb)::text", ct,
+                ("i", id), ("j", body.GetRawText())));
+        payAccount.MapDelete("/{id:guid}", (Guid id, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
+            Exec(db, tenant, HmsPermissions.BillingPricelistManage, "select billing.delete_payment_account(@t::uuid, @i::uuid)::text", ct, ("i", id)));
+
         api.MapGet("/price", ResolvePriceAsync).WithTags("Billing").RequireTenant().WithDbTransaction<BillingDbContext>();
 
         var accounts = api.MapGroup("/accounts").WithTags("Billing").RequireTenant().WithDbTransaction<BillingDbContext>();
@@ -140,6 +155,13 @@ public static class BillingEndpoints
         sessions.MapPost("/{id:guid}/reconcile", (Guid id, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
             Exec(db, tenant, HmsPermissions.BillingCounterReconcile, "select billing.reconcile_session(@t::uuid, @s::uuid)::text", ct, ("s", id)));
 
+        api.MapGet("/billing-reports/day-end/accounts", (Guid branchId, DateOnly date, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
+            Exec(db, tenant, HmsPermissions.BillingView, "select billing.day_end_accounts(@t::uuid, @b::uuid, @d::date)::text", ct, ("b", branchId), ("d", date)))
+            .WithTags("Billing").RequireTenant().WithDbTransaction<BillingDbContext>();
+        api.MapGet("/billing-reports/accounts", (DateOnly from, DateOnly to, Guid? branchId, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
+            Exec(db, tenant, HmsPermissions.BillingEarnings, "select billing.account_register(@t::uuid, @f::date, @to::date, @b::uuid)::text", ct,
+                ("f", from), ("to", to), ("b", branchId)))
+            .WithTags("Billing").RequireTenant().WithDbTransaction<BillingDbContext>();
         api.MapGet("/billing-reports/day-end", (Guid branchId, DateOnly date, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
             Exec(db, tenant, HmsPermissions.BillingView, "select billing.day_end(@t::uuid, @b::uuid, @d::date)::text", ct, ("b", branchId), ("d", date)))
             .WithTags("Billing").RequireTenant().WithDbTransaction<BillingDbContext>();
@@ -190,7 +212,12 @@ public static class BillingEndpoints
         var channel = node["channel"]?.GetValue<string>() ?? "link";
         var bill = await RawSql.ScalarAsync(db, "select billing.bill_document(@t::uuid, @b::uuid)::text", ct, ("t", tenant.TenantId), ("b", id));
         var due = JsonNode.Parse(bill?.ToString() ?? "{}")?["duePaise"]?.GetValue<long>() ?? 0;
-        node["upiUri"] = provider.UpiUri(due, node["providerOrderId"]?.GetValue<string>() ?? "");
+        // The QR pays the branch's default VPA. No VPA configured: no QR rather than a stub payee.
+        var payeeJson = await RawSql.ScalarAsync(db, "select billing.bill_upi_payee(@t::uuid, @b::uuid)::text", ct, ("t", tenant.TenantId), ("b", id));
+        var payee = payeeJson is null ? null : JsonNode.Parse(payeeJson.ToString()!);
+        var vpa = payee?["vpa"]?.GetValue<string>();
+        node["upiConfigured"] = vpa is not null;
+        node["upiUri"] = vpa is null ? null : provider.UpiUri(due, node["providerOrderId"]?.GetValue<string>() ?? "", vpa, payee?["payeeName"]?.GetValue<string>());
         if (channel is "whatsapp" or "sms")
         {
             var destination = body.TryGetProperty("destination", out var dest) ? dest.GetString() ?? "" : "";

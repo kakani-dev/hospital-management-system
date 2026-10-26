@@ -15,6 +15,7 @@ import type { Branch, CreateBranchRequest, UpdateBranchRequest } from '../../lib
 import { useAdminBranches, useCreateBranch, useCurrentTenant, useDeleteBranch, useRestoreBranch, useUpdateBranch } from '../../lib/api/hooks'
 import { ApiError, apiClient, fieldErrors } from '../../lib/api/client'
 import { Drawer } from '@tailux/components/shared/Drawer'
+import { PaymentAccountsSection } from './PaymentAccountsSection'
 import { branchEditSchema, branchSchema, type BranchEditValues, type BranchFormValues } from './adminSchemas'
 
 /** A new branch follows the hospital zone; the override starts at the workstation zone or Asia/Kolkata. */
@@ -362,6 +363,7 @@ export function BranchesPage({
               await patchBranch(editing, body, `${body.name ?? editing.name} saved.`)
             }}
           />
+          <PaymentAccountsSection branchId={editing.id} />
         </Drawer>
       )}
       <ConfirmDialog
