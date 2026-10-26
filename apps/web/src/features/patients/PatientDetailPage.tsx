@@ -21,6 +21,7 @@ import { FOLLOW_UP_STATUSES, followUpRouteState } from '../scheduling/followUp'
 import { dateInZone, formatDayLabel, formatTime } from '../../lib/dates'
 import { useBranchToday, useBranchZonedResolver } from './useBranchZonedResolver'
 import { WhatsappFields } from './WhatsappFields'
+import { PatientConsultations } from '../clinical/PatientConsultations'
 import { PatientPicker } from './PatientPicker'
 
 export function PatientDetailPage() {
@@ -114,6 +115,7 @@ export function PatientDetailPage() {
           )}
         </Card>
       )}
+      {!deleted && has('clinical.view') && <PatientConsultations patientId={p.id} />}
       {!deleted && <VisitHistory patient={p} deskBranchId={deskBranchId} canBookFollowUp={has('appointments.bookFollowUp')} />}
     </div>
   )

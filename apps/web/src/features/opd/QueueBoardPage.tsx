@@ -19,6 +19,7 @@ import { QUEUE_TRANSITIONS, type QueueEntry, type QueueStatus } from '../../lib/
 import { rolesAtBranch, useCurrentContext } from '../tenancy/useCurrentContext'
 import { useBranchSelection } from '../tenancy/useBranchSelection'
 import { BranchNotice } from '../tenancy/BranchNotice'
+import { StartConsultationButton } from '../clinical/StartConsultationButton'
 
 const COLUMNS: { status: QueueStatus; title: string }[] = [
   { status: 'waiting', title: 'Waiting' },
@@ -51,6 +52,7 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
   const canBook = can(branchRoles, 'appointments.book')
   // doctors: follow-ups of their own appointment visits only (the server checks ownership)
   const canFollowUpOwn = can(branchRoles, 'appointments.bookFollowUp')
+  const canConsult = can(branchRoles, 'clinical.write')
 
   const entries = [...(queue.data ?? [])].sort((a, b) => a.tokenNo - b.tokenNo)
   const cancelledCount = entries.filter((e) => e.status === 'cancelled').length
@@ -205,6 +207,9 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
                           >
                             Book follow-up
                           </button>
+                        )}
+                        {canConsult && p && e.status === 'in_consultation' && (
+                          <StartConsultationButton queueEntryId={e.id} tokenNo={e.tokenNo} onError={(message) => setError({ message, retry: null })} />
                         )}
                         {allowed(e.status).length > 0 && (
                           <div className="mt-2 flex gap-2">

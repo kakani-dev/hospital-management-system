@@ -1362,3 +1362,60 @@ export interface RightsRequest {
 export interface PublicConsent extends PrivacyNotice {
   purposes: PrivacyPurpose[]
 }
+
+export type FoodTiming = 'before_food' | 'after_food' | 'with_food' | 'any'
+
+export interface PrescriptionLine {
+  lineNo?: number
+  medicineName: string
+  inventoryItemId?: string | null
+  strength: string | null
+  dose: string | null
+  frequency: string
+  durationDays: number | null
+  route: string | null
+  foodTiming: FoodTiming | null
+  instructions: string | null
+}
+
+export type ConsultationStatus = 'draft' | 'finalized'
+
+/** OPD consultation (clinical v1). Finalized rows are immutable; a correction is a new version. */
+export interface Consultation {
+  id: string
+  branchId: string
+  patientId: string
+  practitionerId: string
+  practitionerName: string
+  queueEntryId: string | null
+  appointmentId: string | null
+  rootId: string
+  version: number
+  supersedesId: string | null
+  isLatest: boolean
+  status: ConsultationStatus
+  chiefComplaint: string | null
+  notes: string | null
+  diagnosisText: string | null
+  diagnosisCode: string | null
+  followUpDate: string | null
+  advice: string | null
+  finalizedOn: string | null
+  rowVersion: number
+  createdOn: string
+  updatedOn: string
+  lines: PrescriptionLine[]
+}
+
+export type SaveConsultationRequest = Pick<Consultation, 'chiefComplaint' | 'notes' | 'diagnosisText' | 'diagnosisCode' | 'followUpDate' | 'advice'> & {
+  rowVersion: number
+  lines: PrescriptionLine[]
+}
+
+export interface ConsultationPrint extends Consultation {
+  branch: { name: string; address: string | null } | null
+  tenantName: string
+  timeZone: string | null
+  doctor: { name: string; registrationNumber: string | null; council: string | null; qualifications: string | null } | null
+  patient: { mrn: string; name: string; dateOfBirth: string | null; sex: string | null } | null
+}
