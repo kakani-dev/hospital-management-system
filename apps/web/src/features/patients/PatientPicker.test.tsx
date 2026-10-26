@@ -272,6 +272,27 @@ describe('PatientPicker combobox', () => {
     await user.type(box, 'Nobody Here')
     await screen.findByText('No matching patients.')
     expect(screen.queryByTestId('register-new-patient')).toBeNull()
+    expect(screen.queryByTestId('add-new-patient-button')).toBeNull()
+  })
+
+  it('inline mode: "+ Add new patient" button is visible before typing and opens a blank form', async () => {
+    routes(['tenant_admin'], { 'POST /api/v1/patients/search': () => page([]) })
+    const user = userEvent.setup()
+    const onCreateNew = vi.fn()
+    renderWithProviders(<PatientPicker value={null} onChange={() => {}} onCreateNew={onCreateNew} />, { path: '/', auth: fakeAuthClient({ session: fakeSession() }) })
+    await user.click(await screen.findByTestId('add-new-patient-button'))
+    expect(onCreateNew).toHaveBeenCalledWith('')
+  })
+
+  it('inline mode: when search fails the add option is still offered with the typed text', async () => {
+    routes(['tenant_admin'], { 'POST /api/v1/patients/search': () => json({ title: 'down' }, 500) })
+    const user = userEvent.setup()
+    const onCreateNew = vi.fn()
+    renderWithProviders(<PatientPicker value={null} onChange={() => {}} onCreateNew={onCreateNew} />, { path: '/', auth: fakeAuthClient({ session: fakeSession() }) })
+    await user.type(await screen.findByRole('combobox', { name: 'Find patient' }), 'Zz Down')
+    await screen.findByText('Patient search is unavailable.', {}, { timeout: 5000 })
+    await user.click(await screen.findByTestId('register-new-patient'))
+    expect(onCreateNew).toHaveBeenCalledWith('Zz Down')
   })
 })
 
