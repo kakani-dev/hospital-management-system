@@ -13,6 +13,7 @@ import { formatPaise } from '../billing/money'
 import { ApiError, apiClient, fieldErrors, problemCode } from '../../lib/api/client'
 import { addDays, formatDayLabel, formatTime, zonedTimeToInstant } from '../../lib/dates'
 import type { Appointment, PatientSummary, Practitioner, Slot } from '../../lib/api/types'
+import { Drawer } from '@tailux/components/shared/Drawer'
 import { PatientPicker } from '../patients/PatientPicker'
 import { RegisterPatientPage } from '../patients/RegisterPatientPage'
 import { useRegistrationConsent } from '../privacy/registrationConsent'
@@ -372,7 +373,9 @@ export function BookingPanel({
             <span data-testid="follow-up-link">Follow-up: linked to the earlier visit.</span>
           </Alert>
         )}
-        {quick ? (
+        {quick && (
+          // Stacked drawer over the booking drawer: the shared register form; booking state stays underneath.
+          <Drawer open onClose={() => setQuick(null)} title="Add new patient" closeLabel="Close add patient" testId="add-patient-drawer" className="max-w-xl!">
           <RegisterPatientPage
             consent={consent.slot}
             afterSave={consent.record}
@@ -399,7 +402,8 @@ export function BookingPanel({
               },
             }}
           />
-        ) : (
+          </Drawer>
+        )}
           <PatientPicker
             value={patient}
             onChange={(p) => {
@@ -412,7 +416,6 @@ export function BookingPanel({
             onCreateNew={(term) => setQuick({ prefill: prefillFromTerm(term, countryCode) })}
             registerReturn={{ to: `${location.pathname}${location.search}`, state: { booking: { practitionerId: selectedPractitionerId, date, slot: chosen } satisfies BookingDraft } }}
           />
-        )}
         <FormField
           label={overrideHours ? 'Reason for booking outside working hours' : 'Reason (optional)'}
           required={overrideHours}

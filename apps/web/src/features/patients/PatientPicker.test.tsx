@@ -147,7 +147,7 @@ describe('PatientPicker combobox', () => {
     const form = await openBooking(user)
     await user.type(within(form).getByLabelText('Find patient'), 'Lata Synthetic-New')
     const option = await within(form).findByTestId('register-new-patient')
-    expect(option).toHaveTextContent('+ New patient “Lata Synthetic-New”')
+    expect(option).toHaveTextContent('+ Add new patient “Lata Synthetic-New”')
     await user.click(option)
 
     const quick = within(form).getByTestId('quick-register')
