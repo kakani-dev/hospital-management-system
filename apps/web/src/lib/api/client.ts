@@ -101,6 +101,9 @@ import type {
   PlatformCreateTenantRequest,
   PlatformTenant,
   PlatformTenantDetail,
+  Consultation,
+  ConsultationPrint,
+  SaveConsultationRequest,
 } from './types'
 import { resilience as defaultResilience, type ResilienceConfig } from '../config'
 import { beginPending, type PendingHandle } from './pending'
@@ -748,6 +751,24 @@ export class ApiClient {
       this.request<StockOnHandRow[]>(
         `/api/v1/inventory/stock${qs({ storeId: params.storeId, itemId: params.itemId, lowStock: params.lowStock ? true : undefined })}`,
       ),
+  }
+
+  /** Clinical v1 (scheduling service). Writes: doctor only; the tenant comes from the session. */
+  consultations = {
+    /** Idempotent: an open draft for the same queue entry/appointment is returned again. 409 if not checked in. */
+    start: (body: { queueEntryId?: string; appointmentId?: string }) =>
+      this.request<Consultation>('/api/v1/consultations', { method: 'POST', body: JSON.stringify(body) }),
+    get: (id: string) => this.request<Consultation>(`/api/v1/consultations/${encodeURIComponent(id)}`),
+    /** 409 when the rowVersion is stale (edited elsewhere) or the record is finalized; 400 for an invalid line. */
+    save: (id: string, body: SaveConsultationRequest) =>
+      this.request<Consultation>(`/api/v1/consultations/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
+    finalize: (id: string, rowVersion: number) =>
+      this.request<Consultation>(`/api/v1/consultations/${encodeURIComponent(id)}/finalize`, { method: 'POST', body: JSON.stringify({ rowVersion }) }),
+    /** New draft version that supersedes a finalized one. */
+    revise: (id: string) => this.request<Consultation>(`/api/v1/consultations/${encodeURIComponent(id)}/revisions`, { method: 'POST' }),
+    /** 409 for a draft: only finalized prescriptions print. */
+    print: (id: string) => this.request<ConsultationPrint>(`/api/v1/consultations/${encodeURIComponent(id)}/print`),
+    forPatient: (patientId: string) => this.request<Consultation[]>(`/api/v1/consultations${qs({ patientId })}`),
   }
 
   privacy = {

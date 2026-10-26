@@ -99,6 +99,10 @@ const CAPABILITIES = {
   'privacy.fulfil': ['privacy.fulfil'],
   'privacy.erase': ['privacy.erase'],
   'privacy.desk': ['privacy.request', 'privacy.fulfil', 'privacy.erase'],
+  /** Read consultations and prescriptions (clinicians, tenant admin). Billing never sees notes. */
+  'clinical.view': ['clinical.view'],
+  /** Write, finalize and revise: doctors only; the server also requires the treating doctor. */
+  'clinical.write': ['clinical.write'],
 } as const satisfies Record<string, readonly Permission[]>
 
 export type Capability = keyof typeof CAPABILITIES

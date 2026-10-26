@@ -28,6 +28,12 @@ const AppointmentCalendarPage = lazy(() =>
     default: m.AppointmentCalendarPage,
   })),
 );
+const ConsultationPage = lazy(() =>
+  import("./features/clinical/ConsultationPage").then((m) => ({ default: m.ConsultationPage })),
+);
+const ConsultationPrintPage = lazy(() =>
+  import("./features/clinical/ConsultationPrintPage").then((m) => ({ default: m.ConsultationPrintPage })),
+);
 const MyDayPage = lazy(() =>
   import("./features/scheduling/MyDayPage").then((m) => ({ default: m.MyDayPage })),
 );
@@ -180,6 +186,10 @@ export function App() {
                 </Lazy>
               }
             />
+          </Route>
+          <Route element={<RequireCapability capability="clinical.view" />}>
+            <Route path="consultations/:consultationId" element={<Lazy><ConsultationPage /></Lazy>} />
+            <Route path="consultations/:consultationId/print" element={<Lazy><ConsultationPrintPage /></Lazy>} />
           </Route>
           <Route element={<RequireCapability capability="queue.view" />}>
             <Route
