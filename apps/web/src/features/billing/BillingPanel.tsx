@@ -14,6 +14,8 @@ const UpiQr = lazy(() => import('./UpiQr').then((m) => ({ default: m.UpiQr })))
 
 function problemText(error: unknown): string {
   if (error instanceof ApiError) return error.problem?.detail || error.problem?.title || error.message
+  // Transport failures (offline, CORS-blocked preflight) and local guards carry a readable message.
+  if (error instanceof Error && error.message) return error.message
   return 'The bill could not be updated. Try again.'
 }
 
@@ -230,6 +232,7 @@ export function BillingPanel({
             <span className="sr-only">Discount rupees</span>
             <input
               aria-label="Discount rupees"
+              placeholder="Discount ₹"
               inputMode="decimal"
               className="w-24 rounded-lg border border-gray-300 px-2 py-2 dark:border-dark-500 dark:bg-dark-700"
               value={discountRupees}
