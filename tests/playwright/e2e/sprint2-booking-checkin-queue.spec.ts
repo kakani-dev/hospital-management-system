@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
+import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test'
 import { bearer, ids, signIn, tokenFor, unique, users } from './helpers'
 
 /**
@@ -34,6 +34,25 @@ interface QueueEntry {
   status: string
 }
 
+/** Schedule window the fixtures create (branch-local, must not cross midnight). */
+const SCHEDULE_END_MINUTES = 23 * 60 + 55
+const toMinutes = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5))
+
+/**
+ * First offered slot whose booked visit (start + the visit type's duration, not the slot length)
+ * still ends inside the working window. The slot list offers every free 5-minute start, but the
+ * booking ends at start + visit-type duration, and the API rejects visits that overrun the
+ * schedule (outside_working_hours). Late in the branch-local evening the first slots don't fit.
+ */
+async function firstFittingSlot(slotList: Locator, visitMinutes: number) {
+  const labels = slotList.locator('label')
+  await expect(labels.first()).toBeVisible()
+  const times = (await labels.allInnerTexts()).map((t) => t.trim())
+  const index = times.findIndex((t) => /^\d{2}:\d{2}$/.test(t) && toMinutes(t) + visitMinutes <= SCHEDULE_END_MINUTES)
+  expect(index, `a slot that fits a ${visitMinutes}-minute visit (offered: ${times.join(', ')})`).toBeGreaterThanOrEqual(0)
+  return { slot: labels.nth(index), time: times[index]! }
+}
+
 const nav = (page: Page, name: string) => page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name, exact: true })
 
 /** Branch-local calendar date (YYYY-MM-DD), ISO weekday (1 = Mon) and minutes since midnight. */
@@ -64,8 +83,17 @@ async function setUp(request: APIRequestContext) {
   const main = branches.find((b) => b.id === ids.alphaMain)
   expect(main, 'Alpha Main branch').toBeTruthy()
   const now = branchNow(main!.timezone)
+  // The booking lasts the visit type's duration, so size the same-day room by the longest one.
+  const types = (await (await request.get(`/api/v1/visit-types?branchId=${ids.alphaMain}`, { headers: admin })).json()) as {
+    effectiveDurationMinutes: number
+  }[]
+  const visitMinutes = Math.max(15, ...types.map((t) => t.effectiveDurationMinutes))
   // Slots are only offered in the future and schedules can't cross midnight (contract §2.2/2.3).
-  test.skip(now.minutes > 23 * 60 + 40, 'too close to branch-local midnight for a same-day slot')
+  // Need: the next 5-minute slot, then two back-to-back visits (booking + follow-up) before the window ends.
+  test.skip(
+    now.minutes + 10 + 2 * visitMinutes > SCHEDULE_END_MINUTES,
+    `too close to branch-local midnight for two same-day ${visitMinutes}-minute visits`,
+  )
 
   const practitionerResponse = await request.post('/api/v1/practitioners', {
     headers: admin,
@@ -81,7 +109,7 @@ async function setUp(request: APIRequestContext) {
       branchId: ids.alphaMain,
       weekday: now.weekday,
       startTime: '00:00',
-      endTime: '23:55',
+      endTime: `${String(Math.floor(SCHEDULE_END_MINUTES / 60)).padStart(2, '0')}:${String(SCHEDULE_END_MINUTES % 60).padStart(2, '0')}`,
       slotMinutes: 5,
       validFrom: now.date,
       validTo: now.date,
@@ -98,12 +126,12 @@ async function setUp(request: APIRequestContext) {
   expect(patientResponse.status()).toBe(201)
   const patient = (await patientResponse.json()) as Patient
 
-  return { reception, practitioner, patient, today: now.date, timeZone: main!.timezone }
+  return { reception, practitioner, patient, today: now.date, timeZone: main!.timezone, visitMinutes }
 }
 
 test.describe('Sprint 2: book -> check in -> OPD queue', () => {
   test('receptionist books today, checks the patient in and finds them on the queue board', async ({ page, request }) => {
-    const { reception, practitioner, patient, today } = await setUp(request)
+    const { reception, practitioner, patient, today, visitMinutes } = await setUp(request)
     const fullName = `${patient.firstName} ${patient.lastName}`
 
     await signIn(page, users.alphaReception)
@@ -118,10 +146,7 @@ test.describe('Sprint 2: book -> check in -> OPD queue', () => {
     await form.getByLabel('Find patient').fill(patient.lastName)
     await form.getByTestId('patient-option').filter({ hasText: patient.lastName }).click()
 
-    const firstSlot = form.getByTestId('slot-list').locator('label').first()
-    await expect(firstSlot).toBeVisible()
-    const slotTime = (await firstSlot.innerText()).trim()
-    expect(slotTime).toMatch(/^\d{2}:\d{2}$/)
+    const { slot: firstSlot, time: slotTime } = await firstFittingSlot(form.getByTestId('slot-list'), visitMinutes)
     await firstSlot.click()
 
     const booked = page.waitForResponse((r) => r.url().endsWith('/api/v1/appointments') && r.request().method() === 'POST')
@@ -177,8 +202,7 @@ test.describe('Sprint 2: book -> check in -> OPD queue', () => {
     const fu = page.getByRole('form', { name: 'Book appointment' })
     await expect(fu.getByLabel('Practitioner')).toHaveValue(practitioner.id)
     await expect(fu).toContainText(`${patient.lastName}, ${patient.firstName}`)
-    const fuSlot = fu.getByTestId('slot-list').locator('label').first()
-    await expect(fuSlot).toBeVisible()
+    const { slot: fuSlot } = await firstFittingSlot(fu.getByTestId('slot-list'), visitMinutes)
     await fuSlot.click()
     const fuBooked = page.waitForResponse((r) => r.url().endsWith('/api/v1/appointments') && r.request().method() === 'POST')
     await fu.getByRole('button', { name: 'Confirm booking' }).click()
@@ -190,7 +214,7 @@ test.describe('Sprint 2: book -> check in -> OPD queue', () => {
 
 test.describe('Booking drawer quick-register (full stack)', () => {
   test('receptionist creates a Zz- patient inline from "+ New patient" and books it with Save & book', async ({ page, request }) => {
-    const { practitioner, today } = await setUp(request)
+    const { practitioner, today, visitMinutes } = await setUp(request)
     const lastName = `Zz-Quick-${unique('QR')}`
     await signIn(page, users.alphaReception)
     await nav(page, 'Appointments').click()
@@ -198,7 +222,7 @@ test.describe('Booking drawer quick-register (full stack)', () => {
     const form = page.getByRole('form', { name: 'Book appointment' })
     await form.getByLabel('Practitioner').selectOption(practitioner.id)
     await form.getByLabel('Appointment date').fill(today)
-    const firstSlot = form.getByTestId('slot-list').locator('label').first()
+    const { slot: firstSlot } = await firstFittingSlot(form.getByTestId('slot-list'), visitMinutes)
     await firstSlot.click()
     await form.getByLabel('Find patient').fill(`Quick ${lastName}`)
     await form.getByTestId('register-new-patient').click()
