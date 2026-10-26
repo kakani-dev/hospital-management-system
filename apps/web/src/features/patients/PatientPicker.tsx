@@ -1,3 +1,4 @@
+import { Button } from '../../components/ui/Button'
 import { useId, useState, type Ref } from 'react'
 import { useNavigate } from 'react-router'
 import clsx from 'clsx'
@@ -103,14 +104,14 @@ export function PatientPicker({
     <div className="relative space-y-2">
       {onCreateNew && canRegister && (
         // Always visible in the booking drawer (no typing needed); uses whatever was typed as the prefill.
-        <button
-          type="button"
+        <Button
+          variant="ghost"
           data-testid="add-new-patient-button"
-          className="float-right text-sm font-medium text-primary-600 hover:underline dark:text-primary-400"
+          className="float-right"
           onClick={registerNew}
         >
           + Add new patient
-        </button>
+        </Button>
       )}
       <Input
         id={inputId}
