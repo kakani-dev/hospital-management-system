@@ -141,6 +141,49 @@ public sealed class EdgeGatewayTests(HmsApiFactory factory) : IClassFixture<HmsA
         }
     }
 
+    [Theory]
+    [InlineData("/api/v1/payments")]
+    [InlineData("/api/v1/stock/receipts")]
+    [InlineData("/api/v1/privacy/consents")]
+    public async Task Cors_preflight_allows_the_idempotency_key_header(string path)
+    {
+        if (Target != SystemTarget.Edge)
+        {
+            return;
+        }
+
+        // Cash collection, stock receipts and consents send Idempotency-Key; without it in the
+        // allow-list the browser drops the POST before it reaches the edge (#cash-collection).
+        using var client = factory.CreateClient();
+        using var preflight = new HttpRequestMessage(HttpMethod.Options, path);
+        preflight.Headers.Add("Origin", Prod);
+        preflight.Headers.Add("Access-Control-Request-Method", "POST");
+        preflight.Headers.Add("Access-Control-Request-Headers", "authorization,content-type,idempotency-key");
+        var response = await client.SendAsync(preflight);
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal(Prod, response.Headers.GetValues("Access-Control-Allow-Origin").Single());
+        var allowed = string.Join(",", response.Headers.GetValues("Access-Control-Allow-Headers"));
+        Assert.Contains("Idempotency-Key", allowed, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Cors_preflight_still_rejects_unlisted_headers()
+    {
+        if (Target != SystemTarget.Edge)
+        {
+            return;
+        }
+
+        using var client = factory.CreateClient();
+        using var preflight = new HttpRequestMessage(HttpMethod.Options, "/api/v1/payments");
+        preflight.Headers.Add("Origin", Prod);
+        preflight.Headers.Add("Access-Control-Request-Method", "POST");
+        preflight.Headers.Add("Access-Control-Request-Headers", "x-hms-tenant");
+        var response = await client.SendAsync(preflight);
+        var allowed = response.Headers.TryGetValues("Access-Control-Allow-Headers", out var v) ? string.Join(",", v) : "";
+        Assert.DoesNotContain("X-Hms-Tenant", allowed, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public async Task Edge_generated_401_carries_cors_and_exposes_the_spa_headers()
     {

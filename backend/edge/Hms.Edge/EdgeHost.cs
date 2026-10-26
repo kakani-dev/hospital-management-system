@@ -45,7 +45,7 @@ public static partial class EdgeHost
         services.AddCors(o => o.AddPolicy(CorsPolicy, p => p
             .SetIsOriginAllowed(EdgeCors.Allowed(configuration))
             .WithMethods("GET", "POST", "PUT", "PATCH", "DELETE")
-            .WithHeaders("Authorization", "Content-Type", "apikey", "x-client-info", RequestIdMiddleware.Header, "traceparent")
+            .WithHeaders("Authorization", "Content-Type", "apikey", "x-client-info", "Idempotency-Key", RequestIdMiddleware.Header, "traceparent")
             .WithExposedHeaders(ExposedHeaders)
             .SetPreflightMaxAge(TimeSpan.FromSeconds(configuration.GetValue("Cors:PreflightMaxAgeSeconds", 600)))));
 
