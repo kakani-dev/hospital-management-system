@@ -1,0 +1,111 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import userEvent from '@testing-library/user-event'
+import { screen, waitFor, within } from '@testing-library/react'
+import { App } from '../../App'
+import { ROLE_PERMISSIONS } from '../../lib/permissions'
+import { ALPHA_MAIN, fakeAuthClient, fakeSession, json, meFor, meWithRoles, renderWithProviders, stubFetch } from '../../test/fakes'
+
+afterEach(() => vi.unstubAllGlobals())
+
+const store = { id: 'st-ph', code: 'STR-0002', branchId: ALPHA_MAIN, name: 'Zz-QA OP Pharmacy', storeKind: 'op_pharmacy', drugLicenceNo: 'DL-1', licenceValidTo: '2099-01-01', isActive: true }
+const ward = { ...store, id: 'st-ward', name: 'Ward', storeKind: 'ward' }
+const queue = [
+  { id: 'rx-1', branchId: ALPHA_MAIN, patientId: 'p1', patientName: 'Ravi Synthetic-Alpha', patientMrn: 'ALP-0002', doctorName: 'Dr Zz-QA', finalizedOn: '2026-10-27T04:00:00Z', lineCount: 2, status: 'pending' },
+  { id: 'rx-2', branchId: ALPHA_MAIN, patientId: 'p2', patientName: 'Kiran Synthetic-Alpha', patientMrn: 'MRN-1001', doctorName: 'Dr Zz-QA', finalizedOn: '2026-10-27T05:00:00Z', lineCount: 1, status: 'partial' },
+]
+const line = (lineNo: number, extra: object) => ({
+  id: `l${lineNo}`, lineNo, medicineName: lineNo === 1 ? 'Amoxicillin' : 'Paracetamol', strength: null, dose: '1 cap', frequency: '1-0-1',
+  durationDays: 5, route: null, foodTiming: null, instructions: null, inventoryItemId: 'it-1', dispensedBase: 0, complete: false, availableBase: 56, ...extra,
+})
+const rx = {
+  id: 'rx-1', branchId: ALPHA_MAIN, patientId: 'p1', patientName: 'Ravi Synthetic-Alpha', patientMrn: 'ALP-0002', practitionerId: 'pr', doctorName: 'Dr Zz-QA',
+  finalizedOn: '2026-10-27T04:00:00Z', version: 1, diagnosisText: null, superseded: false, status: 'pending',
+  lines: [line(1, {}), line(2, { inventoryItemId: null, availableBase: null })], dispenses: [],
+}
+const after = {
+  ...rx, status: 'partial',
+  lines: [line(1, { dispensedBase: 10, availableBase: 46 }), line(2, { inventoryItemId: null, availableBase: null })],
+  dispenses: [{ id: 'd1', storeId: store.id, dispensedBy: 'u', createdOn: '2026-10-27T06:00:00Z', note: null,
+    lines: [{ prescriptionLineId: 'l1', itemId: 'it-1', brandName: 'Zz-QA Amoxy', batchId: 'b1', batchNo: 'SOON', expiryDate: '2030-01-31', qtyBase: 10, completesLine: false }] }],
+}
+
+function stub(role: string, dispense: () => Response = () => json(after)) {
+  return stubFetch({
+    'GET /api/v1/me': () => json({ ...meFor({ roles: [role] }), permissions: [...(ROLE_PERMISSIONS[role] ?? [])] }),
+    'GET /api/v1/branches': () => json([{ id: ALPHA_MAIN, code: 'MAIN', name: 'Alpha Main', timezone: 'Asia/Kolkata', isActive: true }]),
+    'GET /api/v1/inventory/pharmacy/queue': () => json(queue),
+    'GET /api/v1/inventory/pharmacy/prescriptions/rx-1': () => json(rx),
+    'GET /api/v1/inventory/stores': () => json([store, ward]),
+    'GET /api/v1/inventory/items': () => json({ items: [], uoms: [] }),
+    'POST /api/v1/inventory/pharmacy/dispenses': dispense,
+    'GET /health/live': () => json({ status: 'Healthy' }),
+  })
+}
+
+describe('Pharmacy dispensing', () => {
+  it('shows the pharmacist the queue oldest first with patient, doctor and status', async () => {
+    stub('pharmacist')
+    renderWithProviders(<App />, { path: '/pharmacy/dispense', auth: fakeAuthClient({ session: fakeSession() }) })
+    const rows = await screen.findAllByTestId('pharmacy-queue-row')
+    expect(rows).toHaveLength(2)
+    expect(rows[0]).toHaveTextContent('Ravi Synthetic-Alpha')
+    expect(rows[0]).toHaveTextContent('ALP-0002')
+    expect(rows[0]).toHaveTextContent('Dr Zz-QA')
+    expect(within(rows[0]!).getByTestId('rx-status')).toHaveTextContent('Pending')
+    expect(within(rows[1]!).getByTestId('rx-status')).toHaveTextContent('Partly dispensed')
+    expect(screen.getByRole('link', { name: 'Prescriptions to dispense' })).toBeInTheDocument()
+  })
+
+  it('dispenses part of a line with an idempotency key and never sends a tenant id', async () => {
+    const user = userEvent.setup()
+    const calls = stub('pharmacist')
+    renderWithProviders(<App />, { path: '/pharmacy/dispense/rx-1', auth: fakeAuthClient({ session: fakeSession() }) })
+    await screen.findByTestId('pharmacy-dispense-page')
+    await waitFor(() => expect(screen.getByTestId('dispense-store')).toHaveValue(store.id))
+    expect(within(screen.getByTestId('dispense-store')).queryByText('Ward')).not.toBeInTheDocument()
+    await user.type(screen.getByLabelText('Quantity for line 1'), '10')
+    await user.click(within(screen.getAllByTestId('rx-line')[0]!).getByTestId('rx-line-complete'))
+    await user.click(screen.getByTestId('dispense-submit'))
+    expect(await screen.findByText(/Some medicines are still open/)).toBeInTheDocument()
+    const posted = calls.find((c) => c.method === 'POST' && c.path === '/api/v1/inventory/pharmacy/dispenses')
+    expect(posted?.headers.get('Idempotency-Key')).toMatch(/^[0-9a-f-]{36}$/i)
+    expect(posted?.body).toEqual({ consultationId: 'rx-1', storeId: store.id, lines: [{ lineNo: 1, qtyBase: 10, complete: false }] })
+    expect(JSON.stringify(posted?.body)).not.toMatch(/tenant/i)
+    expect(await screen.findByTestId('rx-dispenses')).toHaveTextContent('batch SOON')
+  })
+
+  it('asks for a quantity and for an item on an unlinked line', async () => {
+    const user = userEvent.setup()
+    const calls = stub('pharmacist')
+    renderWithProviders(<App />, { path: '/pharmacy/dispense/rx-1', auth: fakeAuthClient({ session: fakeSession() }) })
+    await screen.findByTestId('pharmacy-dispense-page')
+    await waitFor(() => expect(screen.getByTestId('dispense-store')).toHaveValue(store.id))
+    await user.click(screen.getByTestId('dispense-submit'))
+    expect(await screen.findByText('Enter a quantity for at least one medicine.')).toBeInTheDocument()
+    await user.type(screen.getByLabelText('Quantity for line 2'), '4')
+    await user.click(screen.getByTestId('dispense-submit'))
+    expect(await screen.findByText('Line 2: choose the stock item to give.')).toBeInTheDocument()
+    expect(calls.some((c) => c.method === 'POST')).toBe(false)
+  })
+
+  it('shows the server refusal for a stock-out', async () => {
+    const user = userEvent.setup()
+    stub('pharmacist', () => json({ title: 'Conflict', status: 409, detail: 'Not enough stock: only 56 in stock.' }, 409))
+    renderWithProviders(<App />, { path: '/pharmacy/dispense/rx-1', auth: fakeAuthClient({ session: fakeSession() }) })
+    await screen.findByTestId('pharmacy-dispense-page')
+    await waitFor(() => expect(screen.getByTestId('dispense-store')).toHaveValue(store.id))
+    await user.type(screen.getByLabelText('Quantity for line 1'), '57')
+    await user.click(screen.getByTestId('dispense-submit'))
+    expect(await screen.findByText(/only 56 in stock/)).toBeInTheDocument()
+  })
+
+  it('keeps the queue off the menu for a receptionist', async () => {
+    stubFetch({
+      'GET /api/v1/me': () => json({ ...meWithRoles(['receptionist']), permissions: [...ROLE_PERMISSIONS.receptionist!] }),
+      'GET /health/live': () => json({ status: 'Healthy' }),
+    })
+    renderWithProviders(<App />, { path: '/', auth: fakeAuthClient({ session: fakeSession() }) })
+    await screen.findByRole('link', { name: 'Dashboard' })
+    expect(screen.queryByRole('link', { name: 'Prescriptions to dispense' })).not.toBeInTheDocument()
+  })
+})

@@ -8,6 +8,8 @@ namespace Hms.IntegrationTests;
 
 /// <summary>Consultation + prescription v1 through the edge: lifecycle, concurrency, roles, tenancy, print.</summary>
 [Trait("Category", "Database")]
+// Shares the Beta doctor practitioner row (registration number is toggled in a test), so never run in parallel.
+[Collection("BetaDoctorPractitioner")]
 public sealed class ConsultationApiTests(HmsApiFactory factory) : IClassFixture<HmsApiFactory>
 {
     private static readonly Guid BetaDoctorPractitioner = Guid.Parse("c2222222-0000-4000-8000-000000000001");

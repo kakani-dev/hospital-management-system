@@ -46,6 +46,8 @@ export type Permission =
   | 'inventory.catalog'
   | 'inventory.opening'
   | 'inventory.approve'
+  | 'pharmacy.view'
+  | 'pharmacy.dispense'
   | 'privacy.view'
   | 'privacy.consent'
   | 'privacy.notice'
@@ -92,6 +94,10 @@ const CAPABILITIES = {
   'stock.edit': ['inventory.catalog'],
   'stock.open': ['inventory.opening'],
   'stock.approve': ['inventory.approve'],
+  /** Prescriptions-to-dispense queue and detail (pharmacist, tenant admin). */
+  'pharmacy.view': ['pharmacy.view'],
+  /** Dispense stock against a finalized prescription. */
+  'pharmacy.dispense': ['pharmacy.dispense'],
   'privacy.view': ['privacy.view'],
   'privacy.consent': ['privacy.consent'],
   'privacy.notice': ['privacy.notice'],
@@ -116,7 +122,7 @@ export const ROLE_PERMISSIONS: Record<string, readonly Permission[]> = {
     'appointments.view', 'appointments.book', 'appointments.reschedule', 'appointments.cancel', 'appointments.check_in', 'appointments.no_show',
     'appointments.override_hours', 'queue.view', 'queue.manage',
     'billing.view', 'billing.bill', 'billing.collect', 'billing.discount_request', 'billing.approve', 'billing.refund', 'billing.earnings', 'billing.counter_reconcile', 'billing.pricelist_manage',
-    'inventory.view', 'inventory.catalog', 'inventory.opening', 'inventory.approve',
+    'inventory.view', 'inventory.catalog', 'inventory.opening', 'inventory.approve', 'pharmacy.view', 'pharmacy.dispense',
     'privacy.view', 'privacy.consent', 'privacy.notice', 'privacy.request', 'privacy.fulfil', 'privacy.erase',
     'clinical.view',
   ],
@@ -131,7 +137,7 @@ export const ROLE_PERMISSIONS: Record<string, readonly Permission[]> = {
   doctor: [...READ_ONLY_OPS, 'patients.view', 'appointments.view', 'appointments.book_followup_own', 'appointments.no_show_own', 'queue.view', 'queue.consult_own', 'privacy.view', 'clinical.view', 'clinical.write'],
   billing: [...READ_ONLY_OPS, 'patients.view', 'appointments.view', 'billing.view', 'billing.bill', 'billing.collect', 'billing.discount_request', 'billing.refund', 'billing.earnings'],
   accountant: [...READ_ONLY_OPS, 'billing.earnings'],
-  pharmacist: [...READ_ONLY_OPS, 'inventory.view'],
+  pharmacist: [...READ_ONLY_OPS, 'inventory.view', 'pharmacy.view', 'pharmacy.dispense'],
   lab_technician: READ_ONLY_OPS,
   viewer: READ_ONLY_OPS,
 }
