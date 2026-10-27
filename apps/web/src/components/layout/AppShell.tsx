@@ -135,6 +135,9 @@ export function AppShell() {
       childs: operatorOnly
         ? []
         : [
+            ...(has('pharmacy.view')
+              ? [{ id: 'pharmacy-dispense', path: '/pharmacy/dispense', title: 'Prescriptions to dispense', Icon: ClipboardDocumentCheckIcon }]
+              : []),
             ...(has('stock.view') ? [{ id: 'stock', path: '/stock', title: 'Stock', Icon: ArchiveBoxIcon }] : []),
             ...(has('privacy.desk') ? [{ id: 'data-requests', path: '/compliance/requests', title: 'Data requests', Icon: ClipboardDocumentListIcon }] : []),
           ],

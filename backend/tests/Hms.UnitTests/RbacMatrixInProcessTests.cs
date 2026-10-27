@@ -108,6 +108,12 @@ public sealed class RbacMatrixInProcessTests(ApiFactory factory) : IClassFixture
         {
             Assert.DoesNotContain(p[r], x => x.StartsWith("clinical.", StringComparison.Ordinal));
         }
+
+        // Dispensing (#106) is pharmacist + tenant admin only.
+        Assert.Equal([HmsRoles.Pharmacist, HmsRoles.TenantAdmin],
+            p.Where(kv => kv.Value.Contains(HmsPermissions.PharmacyDispense)).Select(kv => kv.Key).Order(StringComparer.Ordinal).ToArray());
+        Assert.Equal([HmsRoles.Pharmacist, HmsRoles.TenantAdmin],
+            p.Where(kv => kv.Value.Contains(HmsPermissions.PharmacyView)).Select(kv => kv.Key).Order(StringComparer.Ordinal).ToArray());
     }
 
     [Fact]
@@ -126,7 +132,8 @@ public sealed class RbacMatrixInProcessTests(ApiFactory factory) : IClassFixture
             + File.ReadAllText(Path.Combine(dir, "supabase", "migrations", "20261023170100_identity_inventory_permissions.sql"))
             + File.ReadAllText(Path.Combine(dir, "supabase", "migrations", "20261025220600_identity_privacy_permissions.sql"))
             + File.ReadAllText(Path.Combine(dir, "supabase", "migrations", "20261025250000_identity_accountant_role.sql"))
-            + File.ReadAllText(Path.Combine(dir, "supabase", "migrations", "20261026090000_scheduling_clinical_consultations.sql"));
+            + File.ReadAllText(Path.Combine(dir, "supabase", "migrations", "20261026090000_scheduling_clinical_consultations.sql"))
+            + File.ReadAllText(Path.Combine(dir, "supabase", "migrations", "20261027150000_inventory_pharmacy_dispense.sql"));
         var db = Regex.Matches(sql, @"\('([a-z_]+)', '([a-z_]+\.[a-z_]+)'\)")
             .Select(m => $"{m.Groups[1].Value}:{m.Groups[2].Value}").Order(StringComparer.Ordinal).ToList();
         var api = HmsPermissions.ByRole.SelectMany(kv => kv.Value.Select(v => $"{kv.Key}:{v}")).Order(StringComparer.Ordinal).ToList();

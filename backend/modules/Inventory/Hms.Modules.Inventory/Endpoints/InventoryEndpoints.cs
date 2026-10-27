@@ -48,6 +48,18 @@ public static class InventoryEndpoints
             Exec(db, tenant, HmsPermissions.InventoryView,
                 "select inventory.fefo_pick_v1(@t::uuid, @s::uuid, @i::uuid, @q::bigint)::text", ct,
                 ("s", storeId), ("i", itemId), ("q", qty)));
+
+        // #106 pharmacy dispensing (ADR 0004: the pharmacy schema lives in the inventory service). The tenant
+        // always comes from the server-resolved context; branch scope is enforced again in the database.
+        root.MapGet("/pharmacy/queue", (Guid? branchId, string? status, InventoryDbContext db, ITenantContext tenant, CancellationToken ct) =>
+            Exec(db, tenant, HmsPermissions.PharmacyView,
+                "select pharmacy.list_queue(@t::uuid, @br::uuid, @st::text)::text", ct,
+                ("br", branchId), ("st", status)));
+        root.MapGet("/pharmacy/prescriptions/{id:guid}", (Guid id, Guid? storeId, InventoryDbContext db, ITenantContext tenant, CancellationToken ct) =>
+            Exec(db, tenant, HmsPermissions.PharmacyView,
+                "select pharmacy.get_prescription(@t::uuid, @id::uuid, @s::uuid)::text", ct,
+                ("id", id), ("s", storeId)));
+        root.MapPost("/pharmacy/dispenses", PostDispenseAsync);
         return api;
     }
 
@@ -71,6 +83,24 @@ public static class InventoryEndpoints
 
         return await Exec(db, tenant, HmsPermissions.InventoryOpening,
             "select inventory.post_opening_stock(@t::uuid, @k::uuid, @b::jsonb)::text", ct,
+            ("k", key), ("b", body.GetRawText()));
+    }
+
+    private static Task<IResult> PostDispenseAsync(
+        HttpRequest request, JsonElement body, InventoryDbContext db, ITenantContext tenant, CancellationToken ct)
+    {
+        if (!request.Headers.TryGetValue("Idempotency-Key", out var raw) || !Guid.TryParse(raw, out var key))
+        {
+            return Task.FromResult<IResult>(HmsProblems.BadRequest(HmsProblems.Codes.InvalidParameter, "Idempotency-Key must be a UUID."));
+        }
+
+        if (body.ValueKind != JsonValueKind.Object)
+        {
+            return Task.FromResult<IResult>(HmsProblems.BadRequest(HmsProblems.Codes.InvalidParameter, "Body must be a JSON object."));
+        }
+
+        return Exec(db, tenant, HmsPermissions.PharmacyDispense,
+            "select pharmacy.dispense(@t::uuid, @k::uuid, @b::jsonb)::text", ct,
             ("k", key), ("b", body.GetRawText()));
     }
 
