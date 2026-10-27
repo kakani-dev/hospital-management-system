@@ -66,6 +66,25 @@ public static class ConsultationEndpoints
             Exec(db, tenant, HmsPermissions.ClinicalView,
                 "select clinical.patient_consultations(@t::uuid, @p::uuid)::text", ct, ("p", patientId)));
 
+        // Vitals (#104): nurse/doctor record against a visit; history per patient or per visit. Under
+        // /consultations so the edge routes it to scheduling. Range rules live in clinical.record_vitals.
+        g.MapPost("/vitals", (JsonElement body, AppointmentsDbContext db, ITenantContext tenant, CancellationToken ct) =>
+        {
+            if (body.ValueKind != JsonValueKind.Object
+                || !body.TryGetProperty("queueEntryId", out var q) || q.ValueKind != JsonValueKind.String || !q.TryGetGuid(out var queueEntryId))
+            {
+                return Task.FromResult<IResult>(HmsProblems.BadRequest(HmsProblems.Codes.InvalidParameter, "queueEntryId is required."));
+            }
+
+            return Exec(db, tenant, HmsPermissions.ClinicalVitals,
+                "select clinical.record_vitals(@t::uuid, @q::uuid, @b::jsonb)::text", ct,
+                ("q", queueEntryId), ("b", body.GetRawText()));
+        });
+
+        g.MapGet("/vitals", (Guid? patientId, Guid? queueEntryId, AppointmentsDbContext db, ITenantContext tenant, CancellationToken ct) =>
+            Exec(db, tenant, HmsPermissions.ClinicalView,
+                "select clinical.list_vitals(@t::uuid, @p::uuid, @q::uuid)::text", ct, ("p", patientId), ("q", queueEntryId)));
+
         return api;
     }
 

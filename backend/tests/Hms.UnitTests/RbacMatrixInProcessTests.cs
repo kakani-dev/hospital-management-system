@@ -104,6 +104,7 @@ public sealed class RbacMatrixInProcessTests(ApiFactory factory) : IClassFixture
 
         // Clinical write is doctor-only (ADR 0003); billing and reception never see clinical notes.
         Assert.Equal([HmsRoles.Doctor], p.Where(kv => kv.Value.Contains(HmsPermissions.ClinicalWrite)).Select(kv => kv.Key).ToArray());
+        Assert.Equal([HmsRoles.TenantAdmin, HmsRoles.Nurse, HmsRoles.Doctor], p.Where(kv => kv.Value.Contains(HmsPermissions.ClinicalVitals)).Select(kv => kv.Key).ToArray());
         foreach (var r in new[] { HmsRoles.Billing, HmsRoles.Receptionist, HmsRoles.Accountant, HmsRoles.Pharmacist, HmsRoles.LabTechnician, HmsRoles.Viewer })
         {
             Assert.DoesNotContain(p[r], x => x.StartsWith("clinical.", StringComparison.Ordinal));
@@ -133,7 +134,8 @@ public sealed class RbacMatrixInProcessTests(ApiFactory factory) : IClassFixture
             + File.ReadAllText(Path.Combine(dir, "supabase", "migrations", "20261025220600_identity_privacy_permissions.sql"))
             + File.ReadAllText(Path.Combine(dir, "supabase", "migrations", "20261025250000_identity_accountant_role.sql"))
             + File.ReadAllText(Path.Combine(dir, "supabase", "migrations", "20261026090000_scheduling_clinical_consultations.sql"))
-            + File.ReadAllText(Path.Combine(dir, "supabase", "migrations", "20261027150000_inventory_pharmacy_dispense.sql"));
+            + File.ReadAllText(Path.Combine(dir, "supabase", "migrations", "20261027150000_inventory_pharmacy_dispense.sql"))
+            + File.ReadAllText(Path.Combine(dir, "supabase", "migrations", "20261027160000_scheduling_clinical_vitals.sql"));
         var db = Regex.Matches(sql, @"\('([a-z_]+)', '([a-z_]+\.[a-z_]+)'\)")
             .Select(m => $"{m.Groups[1].Value}:{m.Groups[2].Value}").Order(StringComparer.Ordinal).ToList();
         var api = HmsPermissions.ByRole.SelectMany(kv => kv.Value.Select(v => $"{kv.Key}:{v}")).Order(StringComparer.Ordinal).ToList();

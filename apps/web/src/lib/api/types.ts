@@ -1424,6 +1424,46 @@ export interface ConsultationPrint extends Consultation {
   patient: { mrn: string; name: string; dateOfBirth: string | null; sex: string | null } | null
 }
 
+/** #104 triage vitals for one visit. Units: mmHg, /min, °C, kg, cm, %. */
+export type VitalsField = 'systolic' | 'diastolic' | 'pulse' | 'temperature' | 'spo2' | 'respRate'
+export interface VitalsFlag {
+  field: VitalsField
+  level: 'high' | 'low' | 'critical'
+}
+export interface Vitals {
+  id: string
+  patientId: string
+  queueEntryId: string
+  branchId: string
+  recordedOn: string
+  recordedBy: string
+  systolic: number | null
+  diastolic: number | null
+  pulse: number | null
+  temperatureC: number | null
+  weightKg: number | null
+  heightCm: number | null
+  bmi: number | null
+  spo2: number | null
+  respRate: number | null
+  note: string | null
+  flags: VitalsFlag[]
+}
+export interface RecordVitalsRequest {
+  queueEntryId: string
+  /** Double-submit key: the same clientId returns the first reading. */
+  clientId: string
+  systolic?: number
+  diastolic?: number
+  pulse?: number
+  temperatureC?: number
+  weightKg?: number
+  heightCm?: number
+  spo2?: number
+  respRate?: number
+  note?: string
+}
+
 /** #106 pharmacy dispensing (inventory service, ADR 0004). */
 export type RxDispenseStatus = 'pending' | 'partial' | 'dispensed'
 
