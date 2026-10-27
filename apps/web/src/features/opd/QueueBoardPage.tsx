@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Card } from '../../components/ui/Card'
 import { Illustration } from '../../components/ui/Illustration'
 import { LoadingBlock } from '../../components/ui/LoadingBlock'
@@ -14,7 +14,8 @@ import { transientWriteMessage } from '../../lib/api/errors'
 import { RetryAlert } from '../../components/ui/RetryAlert'
 import { formatDayLabel, formatTime, localToday } from '../../lib/dates'
 import { can } from '../../lib/permissions'
-import { ApiError, problemCode } from '../../lib/api/client'
+import { ApiError, apiClient, problemCode } from '../../lib/api/client'
+import { formatPaise } from '../billing/money'
 import { QUEUE_TRANSITIONS, type QueueEntry, type QueueStatus } from '../../lib/api/types'
 import { rolesAtBranch, useCurrentContext } from '../tenancy/useCurrentContext'
 import { useBranchSelection } from '../tenancy/useBranchSelection'
@@ -259,7 +260,7 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
                               openPatient({ id: p.id, mrn: p.mrn, firstName: p.firstName, lastName: p.lastName }, { mode: 'bill' })
                             }
                           >
-                            Collect
+                            <CollectLabel patientId={p.id} branchId={branchId} />
                           </Button>
                         )}
                         {canVitals && vitalsFor === e.id && <VitalsPanel queueEntryId={e.id} canRecord />}
@@ -331,4 +332,18 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
       )}
     </div>
   )
+}
+
+/** "Collect ₹X" when the patient has an open bill due at this branch (#180). Shares the bill panel's cache. */
+function CollectLabel({ patientId, branchId }: { patientId: string; branchId: string | null }) {
+  const summary = useQuery({
+    queryKey: ['billing', 'summary', patientId, branchId],
+    retry: false,
+    staleTime: 30_000,
+    queryFn: () => apiClient.billing.summary(patientId),
+  })
+  const due = (summary.data?.bills ?? [])
+    .filter((bill) => bill.status === 'draft' && bill.billKind === 'final' && bill.branchId === branchId)
+    .reduce((sum, bill) => sum + Math.max(bill.duePaise, 0), 0)
+  return <span data-testid="queue-row-collect-amount">{due > 0 ? `Collect ${formatPaise(due)}` : 'Collect'}</span>
 }
