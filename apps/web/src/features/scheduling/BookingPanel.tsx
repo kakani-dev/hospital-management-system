@@ -8,6 +8,7 @@ import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
 import { SelectField } from '../../components/ui/SelectField'
 import { FormField } from '../../components/ui/FormField'
+import { slotLengthFor } from './slotLength'
 import { useBookingVisitTypes, useCreateAppointment, useSchedules, useSlots, useSlotsInRange, useTenantCountryCode, useVisitSuggestion } from '../../lib/api/hooks'
 import { formatPaise } from '../billing/money'
 import { ApiError, apiClient, fieldErrors, problemCode } from '../../lib/api/client'
@@ -77,7 +78,6 @@ export function BookingPanel({
   // A follow-up can name a doctor who is not bookable at this desk. Leave them unset once the list is known.
   const selectedPractitionerId =
     practitionersStatus === 'ready' && practitionerId && !practitioners.some((p) => p.id === practitionerId) ? '' : practitionerId
-  const selectedSlot = selectedPractitionerId ? slot : null
   const [patient, setPatient] = useState<PatientSummary | null>(initial?.patient ?? null)
   const [reason, setReason] = useState('')
   const [parentAppointmentId, setParentAppointmentId] = useState(initial?.parentAppointmentId)
@@ -100,12 +100,20 @@ export function BookingPanel({
   useEffect(() => {
     if (initial?.patient) confirmRef.current?.focus()
   }, [initial?.patient])
-  const slots = useSlots(branchId, selectedPractitionerId, date)
+  const visitTypes = useBookingVisitTypes(branchId)
+  const types = visitTypes.data ?? []
+  // Slots are offered for the visit length: the chosen type, or before a choice the longest type, so a
+  // suggested shorter type always fits too. No visit-type master: one schedule slot (server default).
+  const slotMinutes = slotLengthFor(types, visitChoice)
+  const slots = useSlots(branchId, selectedPractitionerId, date, slotMinutes)
+  // A picked slot that the live list no longer offers (another visit type, or just booked) is dropped.
+  const slotStillOffered = !slot || !slots.data || slots.isPlaceholderData || slots.isFetching || slots.data.some((s) => s.startsAt === slot.startsAt)
+  const selectedSlot = selectedPractitionerId && slotStillOffered ? slot : null
   const dayEmpty = !!selectedPractitionerId && slots.data?.length === 0 && !slots.isPending && !slots.isFetching && !slots.isPlaceholderData && !overrideHours
   const schedules = useSchedules(dayEmpty ? branchId : null)
   const lookAheadFrom = dayEmpty ? addDays(date, 1) : ''
   const lookAheadTo = dayEmpty ? addDays(date, 31) : ''
-  const ahead = useSlotsInRange(branchId, selectedPractitionerId, lookAheadFrom, lookAheadTo, dayEmpty)
+  const ahead = useSlotsInRange(branchId, selectedPractitionerId, lookAheadFrom, lookAheadTo, dayEmpty, slotMinutes)
   const emptyReason = !dayEmpty
     ? undefined
     : !schedules.data
@@ -126,8 +134,6 @@ export function BookingPanel({
         })()
       : null
   const chosen = overrideHours ? overrideSlot : (selectedSlot ?? suggested)
-  const visitTypes = useBookingVisitTypes(branchId)
-  const types = visitTypes.data ?? []
   const suggestion = useVisitSuggestion(types.length ? branchId : null, selectedPractitionerId, patient?.id ?? '', chosen?.startsAt ?? '')
   const visitTypeId = visitChoice ?? suggestion.data?.visitTypeId ?? ''
   const selectedType = types.find((t) => t.id === visitTypeId)

@@ -11,7 +11,9 @@ public sealed record FreeSlot(Guid PractitionerId, Guid BranchId, DateTimeOffset
 /// </summary>
 public interface IAppointmentFunctions
 {
-    Task<IReadOnlyList<FreeSlot>> AvailableSlotsAsync(Guid tenantId, Guid branchId, DateOnly fromDate, DateOnly toDate, Guid? practitionerId, CancellationToken ct);
+    /// <summary>Free future starts. With <paramref name="durationMinutes"/>, only starts where the whole visit fits the
+    /// working window and overlaps no booking; the slot then ends at start + duration. Null keeps one schedule slot.</summary>
+    Task<IReadOnlyList<FreeSlot>> AvailableSlotsAsync(Guid tenantId, Guid branchId, DateOnly fromDate, DateOnly toDate, Guid? practitionerId, int? durationMinutes, CancellationToken ct);
 
     /// <summary><c>appointment.check_in</c> for a booked appointment (D6).</summary>
     Task<IssuedToken> CheckInAsync(Guid tenantId, Guid branchId, Guid patientId, Guid appointmentId, CancellationToken ct);

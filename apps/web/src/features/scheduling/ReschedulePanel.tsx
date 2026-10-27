@@ -38,7 +38,9 @@ export function ReschedulePanel({
   const [slot, setSlot] = useState<Slot | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [retryable, setRetryable] = useState(false)
-  const slots = useSlots(appointment.branchId, practitionerId, date)
+  // Keep the visit's length: only offer starts where the whole visit fits the hours and no other booking.
+  const visitMinutes = Math.round((Date.parse(appointment.endsAt) - Date.parse(appointment.startsAt)) / 60_000)
+  const slots = useSlots(appointment.branchId, practitionerId, date, visitMinutes >= 5 && visitMinutes <= 480 ? visitMinutes : undefined)
   const reschedule = useRescheduleAppointment()
   // The current practitioner stays selectable even if no longer bookable here.
   const options = practitioners.some((p) => p.id === appointment.practitionerId)
