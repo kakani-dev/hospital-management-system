@@ -88,6 +88,8 @@ public static class HmsPermissions
         [HmsRoles.Nurse] = Set([.. ReadOnlyOps, PatientsView, AppointmentsView, AppointmentsBook, AppointmentsCheckIn, AppointmentsNoShow, QueueView, QueueManage, ClinicalView, ClinicalVitals]),
         [HmsRoles.Doctor] = Set([.. ReadOnlyOps, PatientsView, AppointmentsView, AppointmentsBookFollowUpOwn, AppointmentsNoShowOwn, QueueView, QueueConsultOwn, PrivacyView, ClinicalView, ClinicalWrite, ClinicalVitals]),
         [HmsRoles.Billing] = Set([.. ReadOnlyOps, PatientsView, AppointmentsView,
+            // read-only queue so the cashier can Collect from a token row; no check-in, advance, cancel or close (queue.manage)
+            QueueView,
             BillingView, BillingBill, BillingCollect, BillingDiscountRequest, BillingRefund, BillingEarnings]),
         [HmsRoles.Pharmacist] = Set([.. ReadOnlyOps, InventoryView, PharmacyView, PharmacyDispense]),
         [HmsRoles.LabTechnician] = Set(ReadOnlyOps),

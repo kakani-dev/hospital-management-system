@@ -48,7 +48,7 @@ describe('QueueBoardPage', () => {
     expect(screen.getByTestId('queue-cancelled-count')).toHaveTextContent('1 token removed')
     await waitFor(() => expect(within(waiting).getByTestId('queue-entry')).toHaveTextContent('Synthetic-Alpha, Asha'))
     expect(within(waiting).getByTestId('queue-entry')).toHaveTextContent('Dr. Rao (synthetic) · walk-in')
-    // RBAC: front desk (queue.manage) may move tokens; billing no longer sees the queue at all
+    // RBAC: front desk (queue.manage) may move tokens; the billing role only reads it and collects
     expect(screen.getAllByRole('button', { name: /token 1/ }).length).toBeGreaterThan(0)
     const url = new URL(calls.find((c) => c.path === '/api/v1/queue')!.url, 'http://x')
     expect(Object.fromEntries(url.searchParams)).toEqual({ branchId: ALPHA_MAIN, date: today() })
@@ -101,6 +101,25 @@ describe('QueueBoardPage', () => {
     await user.click(await screen.findByRole('button', { name: 'Collect for token 1' }))
     expect(await screen.findByTestId('billing-panel-empty')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Bill' })).toBeInTheDocument()
+  })
+
+  it('the billing role sees the queue read-only and can only Collect from a row', async () => {
+    const calls = routes(['billing'], () => [entry('q1', 1, 'waiting'), entry('q2', 2, 'in_consultation'), entry('q3', 3, 'done')], {
+      [`GET /api/v1/patients/${PATIENT_ID}`]: () => json(patientDetail),
+      [`GET /api/v1/accounts/${PATIENT_ID}/summary`]: () => json({ patientId: PATIENT_ID, advancePaise: 0, bills: [] }),
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: '/queue', auth: fakeAuthClient({ session: fakeSession() }) })
+    await waitFor(() => expect(screen.getAllByTestId('queue-entry')).toHaveLength(3))
+    for (const name of [/^Call in token/, /^Mark done token/, /^Remove token/]) {
+      expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
+    }
+    expect(screen.queryByTestId('queue-close-day-button')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('queue-vitals-toggle')).not.toBeInTheDocument()
+    expect(screen.getAllByTestId('queue-row-collect')).toHaveLength(3)
+    await user.click(screen.getByRole('button', { name: 'Collect for token 1' }))
+    expect(await screen.findByTestId('billing-panel-empty')).toBeInTheDocument()
+    expect(calls.filter((c) => c.path.startsWith('/api/v1/queue') && c.method !== 'GET')).toEqual([])
   })
 
   it('the queue Collect amount comes from one branch query and shows with the queue (#180, #183)', async () => {

@@ -138,7 +138,7 @@ export const ROLE_PERMISSIONS: Record<string, readonly Permission[]> = {
   ],
   nurse: [...READ_ONLY_OPS, 'patients.view', 'appointments.view', 'appointments.book', 'appointments.check_in', 'appointments.no_show', 'queue.view', 'queue.manage', 'clinical.view', 'clinical.vitals'],
   doctor: [...READ_ONLY_OPS, 'patients.view', 'appointments.view', 'appointments.book_followup_own', 'appointments.no_show_own', 'queue.view', 'queue.consult_own', 'privacy.view', 'clinical.view', 'clinical.write', 'clinical.vitals'],
-  billing: [...READ_ONLY_OPS, 'patients.view', 'appointments.view', 'billing.view', 'billing.bill', 'billing.collect', 'billing.discount_request', 'billing.refund', 'billing.earnings'],
+  billing: [...READ_ONLY_OPS, 'patients.view', 'appointments.view', 'queue.view', 'billing.view', 'billing.bill', 'billing.collect', 'billing.discount_request', 'billing.refund', 'billing.earnings'],
   accountant: [...READ_ONLY_OPS, 'billing.earnings'],
   pharmacist: [...READ_ONLY_OPS, 'inventory.view', 'pharmacy.view', 'pharmacy.dispense'],
   lab_technician: READ_ONLY_OPS,

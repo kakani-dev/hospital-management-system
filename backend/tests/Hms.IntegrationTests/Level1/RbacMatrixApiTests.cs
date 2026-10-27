@@ -27,7 +27,7 @@ public sealed class RbacMatrixApiTests(HmsApiFactory factory) : IClassFixture<Hm
         ["nurse"] = ["patients.list", "appointments.list", "appointments.book", "appointments.check_in", "queue.board", "queue.walk_in", "practitioners.list"],
         // doctors reach booking only for a follow-up of an earlier visit (an empty body is 400, a fresh booking 403: BusinessRulesApiTests)
         ["doctor"] = ["patients.list", "appointments.list", "appointments.book", "queue.board", "practitioners.list"],
-        ["billing"] = ["patients.list", "appointments.list", "practitioners.list"],
+        ["billing"] = ["patients.list", "appointments.list", "queue.board", "practitioners.list"],
         ["pharmacist"] = ["practitioners.list"],
         ["lab_technician"] = ["practitioners.list"],
         ["viewer"] = ["practitioners.list"],

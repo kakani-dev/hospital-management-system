@@ -15,6 +15,12 @@ describe('can (RBAC matrix, ADR 0001)', () => {
     expect(can(['receptionist'], 'appointments.overrideHours')).toBe(false)
     expect(can(['billing'], 'appointments.book')).toBe(false)
     expect(can(['billing'], 'appointments.view')).toBe(true)
+    // read-only queue + Collect; never check in, advance, remove or close
+    expect(can(['billing'], 'queue.view')).toBe(true)
+    expect(can(['billing'], 'queue.checkIn')).toBe(false)
+    expect(can(['billing'], 'queue.advance')).toBe(false)
+    expect(can(['billing'], 'queue.cancel')).toBe(false)
+    expect(can(['billing'], 'billing.bill')).toBe(true)
     expect(can(['receptionist'], 'queue.checkIn')).toBe(true)
     expect(can(['nurse'], 'queue.checkIn')).toBe(true)
     expect(can(['doctor'], 'queue.checkIn')).toBe(false)

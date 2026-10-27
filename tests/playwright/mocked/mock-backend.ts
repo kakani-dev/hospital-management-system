@@ -1052,7 +1052,7 @@ export class MockBackend {
     // RBAC (ADR 0001): patient create/edit and booking/reschedule/cancel = front office only
     const REG_WRITE = ['tenant_admin', 'receptionist']
     const NO_SHOW = ['tenant_admin', 'receptionist', 'nurse', 'doctor']
-    const QUEUE_READ = ['tenant_admin', 'doctor', 'nurse', 'receptionist']
+    const QUEUE_READ = ['tenant_admin', 'doctor', 'nurse', 'receptionist', 'billing'] // billing reads the queue to collect (#182)
     const FRONT_DESK = ['tenant_admin', 'receptionist', 'nurse']
     const has = (allowed: string[], held: string[] = roles) => held.some((r) => allowed.includes(r))
     const problem = (status: number, code?: string, extra: Record<string, unknown> = {}) => reply(status, { title: code ?? 'Error', status, ...(code ? { code } : {}), ...extra }, tenant)
