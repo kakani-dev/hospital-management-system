@@ -209,6 +209,22 @@ describe('finalize and revise', () => {
     expect(screen.getByRole('link', { name: 'Print prescription' })).toHaveAttribute('href', `/consultations/${CID}/print`)
   })
 
+  it('finalize refused for a missing registration number shows the reason and keeps the draft (#128)', async () => {
+    stubFetch({
+      ...base(['doctor']),
+      [`GET /api/v1/consultations/${CID}`]: () => json(consultation()),
+      [`PUT /api/v1/consultations/${CID}`]: () => json(consultation({ rowVersion: 4 })),
+      [`POST /api/v1/consultations/${CID}/finalize`]: () =>
+        problem(400, 'add your council registration number (Administration > Practitioners) before finalizing; it must be printed on the prescription'),
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: `/consultations/${CID}`, auth: auth() })
+    await user.click(await screen.findByRole('button', { name: 'Finalize' }))
+    await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Finalize' }))
+    expect(await screen.findByText(/add your council registration number/)).toBeInTheDocument()
+    expect(screen.getByTestId('consultation-status')).toHaveTextContent('Draft')
+  })
+
   it('revise creates a new draft version and opens it', async () => {
     const calls = stubFetch({
       ...base(['doctor']),
@@ -276,7 +292,48 @@ describe('print view', () => {
     expect(screen.getByTestId('print-doctor')).toHaveTextContent('Dr. Rao (synthetic)')
     expect(screen.getByTestId('print-doctor')).toHaveTextContent('Reg. no. KMC-00000 (Synthetic Council)')
     expect(screen.getByTestId('print-patient')).toHaveTextContent('MRN ALP-0001')
+    expect(screen.getByTestId('print-patient-age-sex')).toHaveTextContent('Age — · Female')
+    expect(screen.queryByTestId('print-missing-reg')).not.toBeInTheDocument()
     expect(within(sheet).getByTestId('prescription-table')).toHaveTextContent('Paracetamol 500 mg')
+  })
+
+  it('shows patient age on the prescription date and sex (#128)', async () => {
+    stubFetch({
+      ...base(['doctor']),
+      [`GET /api/v1/consultations/${CID}/print`]: () =>
+        json({
+          ...finalized(),
+          branch: { name: 'Alpha Main (synthetic)', address: null },
+          tenantName: 'Demo Alpha Hospital',
+          timeZone: 'Asia/Kolkata',
+          doctor: { name: 'Dr. Rao (synthetic)', registrationNumber: 'KMC-00000', council: null, qualifications: null },
+          // finalized on 2026-10-26: 36 the day before the 37th birthday
+          patient: { mrn: 'ALP-0001', name: 'Asha Synthetic-Alpha', dateOfBirth: '1989-10-27', sex: 'male' },
+        }),
+    })
+    renderWithProviders(<App />, { path: `/consultations/${CID}/print`, auth: auth() })
+    expect(await screen.findByTestId('print-patient-age-sex')).toHaveTextContent('36 y · Male')
+    expect(screen.getByTestId('print-doctor-reg')).toHaveTextContent('Reg. no. KMC-00000')
+    expect(screen.getByTestId('print-doctor-reg')).not.toHaveTextContent('(')
+  })
+
+  it('an older prescription without a registration number shows "—" and an on-screen warning only (#128)', async () => {
+    stubFetch({
+      ...base(['doctor']),
+      [`GET /api/v1/consultations/${CID}/print`]: () =>
+        json({
+          ...finalized(),
+          branch: null,
+          tenantName: 'Demo Alpha Hospital',
+          timeZone: 'Asia/Kolkata',
+          doctor: { name: 'Dr. Rao (synthetic)', registrationNumber: null, council: null, qualifications: null },
+          patient: { mrn: 'ALP-0001', name: 'Asha Synthetic-Alpha', dateOfBirth: null, sex: 'unknown' },
+        }),
+    })
+    renderWithProviders(<App />, { path: `/consultations/${CID}/print`, auth: auth() })
+    expect(await screen.findByTestId('print-doctor-reg')).toHaveTextContent('Reg. no. —')
+    expect(screen.getByTestId('print-missing-reg')).toHaveClass('print:hidden')
+    expect(screen.getByTestId('print-patient-age-sex')).toHaveTextContent('Age — · Sex —')
   })
 
   it('printing a draft (409) is refused with an explanation', async () => {
