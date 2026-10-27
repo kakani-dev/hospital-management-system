@@ -13,6 +13,7 @@ You cannot register or edit patients, reschedule or cancel appointments, or open
 See [Signing in](README.md#signing-in-all-roles).
 
 ## Daily tasks
+- **Record vitals**: in **OPD queue** press **Vitals** under a waiting token → BP, pulse, temperature, SpO2, respiratory rate, weight, height → **Save vitals**. High BP is flagged; impossible values (e.g. SpO2 above 100) are rejected.
 - **Check patients in**: **Check-in** → today's appointments, or **Issue walk-in token**. Same steps as [Reception](reception.md#check-in-and-token).
 - **Run the queue**: **OPD queue** → **Call in**, **Mark done**, **Remove**. The day closes automatically after midnight (branch time).
 - **Book**: **Appointments → Book appointment** → practitioner, visit type, date, start time → **Confirm booking**.

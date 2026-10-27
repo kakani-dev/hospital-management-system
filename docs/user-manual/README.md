@@ -12,6 +12,16 @@ Plain-language guides for hospital staff, one per role. Every screen, menu and b
 | accountant | [Accountant (CA)](accountant.md) |
 | pharmacist, lab technician, viewer, platform operator | [Other roles](other-roles.md) |
 
+## What's new (27 Oct 2026)
+- **One-screen Collect** from the OPD queue: [Billing](billing.md#collect-from-the-queue).
+- **Billing staff** can open the OPD queue to collect (read-only otherwise).
+- **Receipts** show hospital + GSTIN, patient + MRN, bill and receipt numbers, lines, payment mode and who collected.
+- **Earnings by category** (Consultations, Procedures, Lab, Other).
+- **Free follow-ups**: book as **Follow-up**; same doctor within 7 days, 1 free visit.
+- **Registration number** required on prescriptions: [Doctor](doctor.md).
+- **Vitals** for nurses and doctors; **pharmacy dispense** against prescriptions (soonest expiry first).
+- **Refunds** are recorded instantly; Refund now sits under **More** on the bill.
+
 There is no separate "owner" role: the hospital owner uses the **tenant admin** role.
 
 ## Signing in (all roles)

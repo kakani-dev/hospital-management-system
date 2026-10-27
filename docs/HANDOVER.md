@@ -2,7 +2,7 @@
 
 Full version (with Notion-only links): [Notion: Start here: team handover](https://app.notion.com/p/404ead9eb8a881a2b075c7963ecc3e93)
 
-_Last verified: 26 Oct 2026 IST, main at the PR #99 release._
+_Last verified: 27 Oct 2026 IST, main at `a4496cf` (PR #185 release)._
 
 ## What MediCore is
 A multi-tenant Hospital Management System for Indian hospitals (tenants) and their branches: patients, scheduling and queue, OP billing with GST, pharmacy/inventory, DPDP privacy, earnings and CA dashboards. **Demo only, synthetic data only.**
@@ -61,11 +61,12 @@ npm run e2e     # Playwright (mock auth)
 - **Supabase:** dashboard project settings (API keys, DB password, Auth hooks).
 - **Vercel:** project env vars (`VITE_*` public config only).
 
-## Current state (26 Oct 2026)
-- Live: main at the PR #99 release (after PR #94, `9933d7e`), after release [v2026.10.25](https://github.com/kakani-dev/hospital-management-system/releases/tag/v2026.10.25). 74 migrations, head `20261025290000`. Outbox dispatcher ON.
-- Done: UPI/bank/card-terminal account mapping ([#63](https://github.com/kakani-dev/hospital-management-system/issues/63), PR #94).
-- In progress: live end-to-end QA walkthrough.
-- New bug: slot ending at 00:00 IST offered then rejected; CI flakes just before midnight ([#98](https://github.com/kakani-dev/hospital-management-system/issues/98)).
-- Open issues: https://github.com/kakani-dev/hospital-management-system/issues
-- **Known risks:** free tiers (ACA scale-to-zero cold starts, Supabase limits); ACA secrets inline, no Key Vault (#68); leaked-password protection off (#69); 10 test gaps (#70–#79); Refund button status unconfirmed (#81).
-- **Next priorities:** QA findings, #98 midnight slot bug, test gaps #70/#71 (refund guards, OP billing E2E), day-end close beyond cash (#65), GL/Tally export (#62), appointment reminders (#59).
+## Current state (27 Oct 2026, 19:50 IST)
+- **Live:** main `a4496cf` (PR #185) on all 7 ACA apps and Vercel. Migrations: 91 files, head `20261027200000` (recorded versions match file names). Outbox dispatcher ON.
+- **Released today:** #151-#153, #155 (discount cap), #156 (prescription print), #157 (instant refunds), #159 (smaller Add new patient), #162 (free follow-ups: Follow-up visit type, same doctor, 7 days, limit 1), #160 (vitals, #104), #163 (pharmacy dispense queue, FEFO, #106 PR1), #177 (no stray ₹500 consult, doctor's fee, walk-ins billed), #178 (split tenders, advances, receipt numbers, whole quantities), #179 (one-screen Collect), #181/#184 (same-tab receipt print, full receipt contents), #182 (billing role queue access to collect), #185 (earnings by category, #176). Doctors need a registration number to finalize a prescription.
+- **Board:** [GitHub Project 2](https://github.com/users/kakani-dev/projects/2): Status, Sprint, Priority, Severity, Module, Phase. Milestones: Sprint 5/6/7, Phase 1-4, Release 1.0.
+- **QA logins:** demo hospital role logins (qa.billing, qa.accountant, qa.nurse, qa.pharmacist, ...); passwords are kept outside the repo on the operator box, never in git, issues, Notion or chat.
+- **Open bugs (Sprint 6, in order):** billing [#124](https://github.com/kakani-dev/hospital-management-system/issues/124), [#125](https://github.com/kakani-dev/hospital-management-system/issues/125), [#126](https://github.com/kakani-dev/hospital-management-system/issues/126), [#81](https://github.com/kakani-dev/hospital-management-system/issues/81); privacy [#129](https://github.com/kakani-dev/hospital-management-system/issues/129); error messages / validation #146-#149, #109, #111, #113; rate limits #91, #150; menu #114.
+- **Paused:** pharmacy #106 PR2 (walk-in/OTC sale) and PR3 (GST pharmacy bill). Backlog: #158 delete hospital with all data, Dependabot #88.
+- **Known risks:** free tiers (ACA cold starts, Supabase limits); ACA secrets inline (#68); leaked-password protection off (#69); test gaps #70-#79; non-required "DB prototype on Supabase stack" CI job fails on 47/56 `is_deleted` guard tests (pre-existing).
+- **Next priorities:** bug-only mode: the Sprint 6 bug list above, then resume pharmacy PR2/PR3 when approved.

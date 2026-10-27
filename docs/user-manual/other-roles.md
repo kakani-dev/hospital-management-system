@@ -3,6 +3,8 @@
 ## Pharmacist
 Menus: **Dashboard, Schedules, Stock**. **Stock** ("Medicines and supplies, the places they are kept, and what is on the shelf") lets a pharmacist view items, stores and stock on hand. Adding items, stores and opening stock, and approving stock, are admin-only today.
 
+**Prescriptions to dispense** lists doctors' prescriptions as pending, partial or dispensed. Open one and dispense: stock with the soonest expiry goes out first, expired stock is skipped, and you cannot dispense more than is in stock. Walk-in (OTC) sales and the GST pharmacy bill are not available yet.
+
 ## Lab technician and viewer
 Menus: **Dashboard** and **Schedules** only (read-only). There are no lab screens yet.
 

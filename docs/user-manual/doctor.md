@@ -25,6 +25,8 @@ See [Signing in](README.md#signing-in-all-roles).
 1. **OPD queue**: your waiting tokens appear under **Waiting**.
 2. Press **Call in** to start the consultation (moves to **In consultation**).
 3. Press **Mark done** when finished.
+   - Vitals recorded by the nurse appear with their history.
+   - To finalize and print a prescription, your **Registration number** must be on file (Administration → Practitioners). It prints on the prescription.
 4. To see the patient again, press **Book follow-up** on the token or visit, pick a slot and confirm.
 
 ![OPD queue](img/doctor_queue.png)
