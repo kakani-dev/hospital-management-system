@@ -20,7 +20,7 @@ See [Signing in](README.md#signing-in-all-roles). Pick your counter's branch in 
 ![Bills](img/billing_billing_bills.png)
 
 ### Work a bill
-A consultation bill is raised automatically at check-in. On the bill:
+A consultation bill is raised automatically at check-in, for booked appointments and walk-in tokens alike. The consultation line carries the visit's doctor and that doctor's fee. If the patient has no open bill today, the billing panel shows **Add consultation** and **Other services**; nothing is billed until you pick one. On the bill:
 1. **Add a service**: **Find a service** (dressing, certificate, lab…), choose it. The rate comes from the branch or hospital price list.
 2. GST is worked out from the service category. Set **Place of supply** on the bill page and **Save place of supply** if the patient is from another state.
 3. **Request discount**: enter **Discount rupees**. Above the limit you see "This discount is above the limit. Someone else has to approve it."

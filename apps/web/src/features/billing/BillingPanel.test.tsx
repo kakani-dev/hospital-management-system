@@ -51,9 +51,10 @@ describe('BillingPanel', () => {
     renderWithProviders(<BillingPanel patientId="patient-1" branchId="branch-1" onBack={() => {}} />, {
       auth: fakeAuthClient({ session: fakeSession() }),
     })
+    await userEvent.setup().click(await screen.findByTestId('billing-panel-add-consult'))
     expect(await screen.findByText('OP consultation')).toBeInTheDocument()
     expect(screen.getByTestId('bill-total')).toHaveTextContent('₹500.00')
-    expect(screen.getByTestId('collect-cash')).toHaveFocus()
+    expect(await screen.findByTestId('collect-cash')).toBeInTheDocument()
     expect(screen.getByTestId('finalize-bill')).toHaveTextContent('Close bill')
   })
 
@@ -85,6 +86,7 @@ describe('BillingPanel', () => {
     renderWithProviders(<BillingPanel patientId="patient-1" branchId="branch-1" onBack={() => {}} />, {
       auth: fakeAuthClient({ session: fakeSession() }),
     })
+    await userEvent.setup().click(await screen.findByTestId('billing-panel-add-consult'))
     await screen.findByText('OP consultation')
     await user.type(screen.getByLabelText('Find a service'), 'dress')
     expect(await screen.findByRole('option', { name: /Wound dressing/ })).toBeInTheDocument()
@@ -166,6 +168,7 @@ describe('BillingPanel', () => {
     renderWithProviders(<BillingPanel patientId="patient-1" branchId="branch-1" onBack={() => {}} />, {
       auth: fakeAuthClient({ session: fakeSession() }),
     })
+    await userEvent.setup().click(await screen.findByTestId('billing-panel-add-consult'))
     await user.click(await screen.findByTestId('collect-cash'))
     expect(await screen.findByText('Collected. Add anything else, then close the bill.')).toBeInTheDocument()
     expect(screen.queryByTestId('paid-status')).not.toBeInTheDocument()
@@ -206,10 +209,54 @@ describe('BillingPanel', () => {
     renderWithProviders(<BillingPanel patientId="patient-1" branchId="branch-1" onBack={() => {}} />, {
       auth: fakeAuthClient({ session: fakeSession() }),
     })
+    await userEvent.setup().click(await screen.findByTestId('billing-panel-add-consult'))
     await user.click(await screen.findByTestId('apply-advance'))
     expect(await screen.findByTestId('bill-due')).toHaveTextContent('₹300.00')
     const applied = calls.find((call) => call.path === '/api/v1/bills/bill-1/advances')
     expect(applied?.body).toEqual({ amountPaise: 20000 })
+  })
+
+  it('does not open a bill or add a consultation on its own (#164)', async () => {
+    const calls = stubFetch({
+      'GET /api/v1/accounts/patient-1/summary': () => json({ patientId: 'patient-1', advancePaise: 0, bills: [] }),
+    })
+    renderWithProviders(<BillingPanel patientId="patient-1" branchId="branch-1" onBack={() => {}} />, {
+      auth: fakeAuthClient({ session: fakeSession() }),
+    })
+    expect(await screen.findByTestId('billing-panel-empty')).toBeInTheDocument()
+    expect(screen.getByTestId('billing-panel-add-consult')).toBeInTheDocument()
+    expect(calls.some((call) => call.method === 'POST')).toBe(false)
+  })
+
+  it('opens an empty bill for other services without a consultation line (#164)', async () => {
+    const calls = stubFetch({
+      'GET /api/v1/accounts/patient-1/summary': () => json({ patientId: 'patient-1', advancePaise: 0, bills: [] }),
+      'POST /api/v1/accounts': () => json(bill({ lines: [], totalPaise: 0, duePaise: 0, netPaise: 0, exactPaise: 0 })),
+      'GET /api/v1/service-items': () => json([]),
+      'GET /api/v1/practitioners': () => json([]),
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<BillingPanel patientId="patient-1" branchId="branch-1" onBack={() => {}} />, {
+      auth: fakeAuthClient({ session: fakeSession() }),
+    })
+    await user.click(await screen.findByTestId('billing-panel-other-services'))
+    expect(await screen.findByLabelText('Find a service')).toBeInTheDocument()
+    expect(calls.some((call) => call.path === '/api/v1/bills/bill-1/lines')).toBe(false)
+  })
+
+  it('adds CONSULT without a doctor so the server picks the visit doctor (#165)', async () => {
+    const calls = stubFetch({
+      'GET /api/v1/accounts/patient-1/summary': () => json({ patientId: 'patient-1', advancePaise: 0, bills: [] }),
+      'POST /api/v1/accounts': () => json(bill({ lines: [], totalPaise: 0, duePaise: 0, netPaise: 0, exactPaise: 0 })),
+      'POST /api/v1/bills/bill-1/lines': () => json(bill()),
+    })
+    renderWithProviders(<BillingPanel patientId="patient-1" branchId="branch-1" onBack={() => {}} />, {
+      auth: fakeAuthClient({ session: fakeSession() }),
+    })
+    await userEvent.setup().click(await screen.findByTestId('billing-panel-add-consult'))
+    expect(await screen.findByText('OP consultation')).toBeInTheDocument()
+    const added = calls.find((call) => call.path === '/api/v1/bills/bill-1/lines')
+    expect(added?.body).toEqual({ code: 'CONSULT' })
   })
 
   it('reuses the check-in draft instead of opening another bill', async () => {

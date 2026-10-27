@@ -90,6 +90,10 @@ public static class BillingEndpoints
         accounts.MapPost("/from-appointment", (JsonElement body, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
             Exec(db, tenant, HmsPermissions.BillingBill, "select billing.ensure_draft(@t::uuid, @a::uuid)::text", ct,
                 ("a", body.GetProperty("appointmentId").GetGuid())));
+        // Walk-in tokens (#169): the server reads the queue entry; tenant comes from the request context.
+        accounts.MapPost("/from-queue-entry", (JsonElement body, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
+            Exec(db, tenant, HmsPermissions.BillingBill, "select billing.ensure_walk_in_draft(@t::uuid, @q::uuid)::text", ct,
+                ("q", body.GetProperty("queueEntryId").GetGuid())));
         accounts.MapGet("/{patientId:guid}/summary", (Guid patientId, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
             Exec(db, tenant, HmsPermissions.BillingView, "select billing.patient_summary(@t::uuid, @p::uuid)::text", ct, ("p", patientId)));
 

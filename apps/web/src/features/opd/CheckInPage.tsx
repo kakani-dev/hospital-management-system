@@ -82,6 +82,8 @@ export function CheckInPage() {
     setIssued({ result, name })
     if (canBill && result.entry?.appointmentId) {
       void apiClient.billing.ensureDraft(result.entry.appointmentId).catch(() => undefined)
+    } else if (canBill && result.queueEntryId) {
+      void apiClient.billing.ensureWalkInDraft(result.queueEntryId).catch(() => undefined)
     }
   }
 

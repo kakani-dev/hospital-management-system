@@ -97,6 +97,7 @@ describe('CheckInPage', () => {
     const calls = routes(['receptionist'], {
       'POST /api/v1/patients/search': () => json({ items: [patientDetail], page: 1, pageSize: 25, totalCount: 1 }),
       'POST /api/v1/queue/walk-in': () => json({ queueEntryId: 'q2', tokenNo: 8, queueDate: '2026-10-09', entry: entry({ id: 'q2', tokenNo: 8, appointmentId: null }) }, 201),
+      'POST /api/v1/accounts/from-queue-entry': () => json({ id: 'bill-2', accountId: 'acct-2', patientId: PATIENT_ID, branchId: ALPHA_MAIN, status: 'draft', billKind: 'final', payerType: 'self', lines: [], discounts: [], netPaise: 0, taxPaise: 0, discountPaise: 0, exactPaise: 0, roundOffPaise: 0, totalPaise: 0, duePaise: 0 }),
     })
     const user = userEvent.setup()
     renderWithProviders(<App />, { path: '/reception/check-in', auth: fakeAuthClient({ session: fakeSession() }) })
@@ -113,6 +114,9 @@ describe('CheckInPage', () => {
 
     expect(await screen.findByTestId('token-number')).toHaveTextContent('8')
     expect(calls.find((c) => c.path === '/api/v1/queue/walk-in')!.body).toEqual({ branchId: ALPHA_MAIN, patientId: PATIENT_ID, practitionerId: DR_RAO })
+    // #169: a walk-in opens its consult draft by queue entry (the server reads tenant, doctor and fee)
+    await waitFor(() => expect(calls.filter((c) => c.path === '/api/v1/accounts/from-queue-entry').map((c) => c.body)).toEqual([{ queueEntryId: 'q2' }]))
+    expect(calls.some((c) => c.path === '/api/v1/accounts/from-appointment')).toBe(false)
   })
 
   it('hides check-in actions where the role is not held at the selected branch; doctors cannot open the page', async () => {

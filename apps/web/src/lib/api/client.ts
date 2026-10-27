@@ -682,6 +682,9 @@ export class ApiClient {
       this.request<PriceImportResult>('/api/v1/price-lists/import', { method: 'POST', body: JSON.stringify(body) }),
     ensureDraft: (appointmentId: string) =>
       this.request<BillDocument>('/api/v1/accounts/from-appointment', { method: 'POST', body: JSON.stringify({ appointmentId }) }),
+    /** Walk-in token with no appointment: opens (or returns) its consult draft. */
+    ensureWalkInDraft: (queueEntryId: string) =>
+      this.request<BillDocument>('/api/v1/accounts/from-queue-entry', { method: 'POST', body: JSON.stringify({ queueEntryId }) }),
     list: (params: { status?: string; branchId?: string; from?: string; to?: string } = {}) =>
       this.request<BillListItem[]>(`/api/v1/bills${qs(params)}`),
     finalize: (id: string) => this.request<BillDocument>(`/api/v1/bills/${encodeURIComponent(id)}/finalize`, { method: 'POST' }),
