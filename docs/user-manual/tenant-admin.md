@@ -87,6 +87,7 @@ You can leave and finish later; the wizard opens again the next time you sign in
 - **Privacy notices**: write a **New draft** notice in English, Hindi, Tamil or Telugu, **Save draft**, and see **Versions**.
 - **Data requests**: patient privacy requests (correction, nomination, erasure): **Verify identity**, **Fulfil**, **Approve erasure**, **Execute erasure**, **Close**.
 - **Stock**: items, stores and opening stock (see [Other roles](other-roles.md)).
+- **OPD queue → Close today early**: only when a branch must stop OPD before midnight (for example an emergency closure). Type a reason (3–500 characters) and confirm **Expire waiting tokens**; the reason is kept with the closed tokens. Otherwise the day closes by itself after midnight branch time.
 - Everything reception and billing staff do is also open to you: see [Reception](reception.md) and [Billing](billing.md).
 
 ## Common errors
@@ -98,6 +99,7 @@ You can leave and finish later; the wizard opens again the next time you sign in
 | These hours overlap another active schedule of this practitioner … | Change the times or end the other schedule. |
 | That price overlaps an existing effective period. | Set an end date on the old price first. |
 | You cannot change your own membership. | Ask another tenant admin. |
+| A queue day cannot be closed before it ends in the branch time zone. | Today has not ended at that branch. Use **Close today early** with a reason, or let it close after midnight. |
 
 ## FAQ
 - **Is there an "owner" role?** No. The owner signs in as a tenant admin.

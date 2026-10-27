@@ -628,7 +628,7 @@ export function useUpdateQueueStatus() {
 export function useCloseQueueDay() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (body: { branchId: string; date: string }) => apiClient.queue.closeDay(body),
+    mutationFn: (body: { branchId: string; date: string; reason?: string }) => apiClient.queue.closeDay(body),
     onSettled: () => invalidateQueueAndAppointments(qc),
   })
 }

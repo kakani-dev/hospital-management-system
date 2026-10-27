@@ -60,7 +60,7 @@ In **Appointments**, open the booking:
 ### OPD queue
 **OPD queue** (Alt+Q) shows **Waiting**, **In consultation**, **Done** and **Closed**, refreshing every 10 seconds.
 - **Call in** sends the next token to the doctor; **Mark done** finishes; **Remove** takes a token off.
-- At the end of the day press **Close the day**, then confirm **Expire waiting tokens**.
+- The queue closes by itself after midnight in the branch's time zone: tokens still waiting move to **Closed**. You cannot close today's queue early; the board shows *Today's queue closes automatically after midnight (branch time)*. Ask a hospital admin if the branch must close early.
 
 ![OPD queue](img/reception_queue.png)
 

@@ -162,7 +162,9 @@ public sealed record WalkInRequest(Guid BranchId, Guid PatientId, Guid? Practiti
 
 public sealed record UpdateQueueStatusRequest(string? Status);
 
-public sealed record CloseQueueDayRequest(Guid BranchId, DateOnly? Date);
+/// <param name="Date">Branch-local day to close (default today). Must have ended, unless an admin gives a reason.</param>
+/// <param name="Reason">Hospital admins only: why today's queue is closed before the day ends (3-500 characters).</param>
+public sealed record CloseQueueDayRequest(Guid BranchId, DateOnly? Date, string? Reason = null);
 
 public sealed record CloseQueueDayResult(Guid BranchId, DateOnly QueueDate, int ExpiredCount);
 

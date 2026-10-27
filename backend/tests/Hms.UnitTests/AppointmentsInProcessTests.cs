@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Hms.SharedKernel.Tenancy;
 using static Hms.UnitTests.InProcessApiTests;
 
 namespace Hms.UnitTests;
@@ -119,9 +120,48 @@ public sealed class AppointmentsInProcessTests(ApiFactory factory) : IClassFixtu
 
         Assert.Equal(HttpStatusCode.Forbidden, (await lab.PostAsJsonAsync("/api/v1/queue/close-day", new { branchId = Main })).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await admin.PostAsJsonAsync("/api/v1/queue/close-day", new { branchId = Main, date = "2099-01-01" })).StatusCode);
-        var closed = await admin.PostAsJsonAsync("/api/v1/queue/close-day", new { branchId = Main });
-        Assert.Equal(HttpStatusCode.OK, closed.StatusCode);
-        Assert.Equal(2, (await closed.Content.ReadFromJsonAsync<CloseQueueDay>())!.ExpiredCount);
+        var ended = await admin.PostAsJsonAsync("/api/v1/queue/close-day", new { branchId = Main, date = "2026-10-06" });
+        Assert.Equal(HttpStatusCode.OK, ended.StatusCode);
+        Assert.Equal(2, (await ended.Content.ReadFromJsonAsync<CloseQueueDay>())!.ExpiredCount);
+    }
+
+    [Fact]
+    public async Task Closing_today_before_it_ends_needs_an_admin_and_a_reason()
+    {
+        // Now = 2026-10-07 01:30 at Main (Asia/Kolkata): "today" there has not ended yet (#142, QUE-007).
+        using var admin = factory.ClientAs(Admin);
+        using var reception = factory.ClientAs(RoleUsers[HmsRoles.Receptionist]);
+
+        var noReason = await reception.PostAsJsonAsync("/api/v1/queue/close-day", new { branchId = Main });
+        Assert.Equal(HttpStatusCode.BadRequest, noReason.StatusCode);
+        Assert.Contains("cannot be closed before it ends in the branch time zone", await noReason.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+
+        var adminNoReason = await admin.PostAsJsonAsync("/api/v1/queue/close-day", new { branchId = Main, date = "2026-10-07" });
+        Assert.Equal(HttpStatusCode.BadRequest, adminNoReason.StatusCode);
+
+        var blank = await admin.PostAsJsonAsync("/api/v1/queue/close-day", new { branchId = Main, reason = "   " });
+        Assert.Equal(HttpStatusCode.BadRequest, blank.StatusCode);
+
+        var tooShort = await admin.PostAsJsonAsync("/api/v1/queue/close-day", new { branchId = Main, reason = "no" });
+        Assert.Equal(HttpStatusCode.BadRequest, tooShort.StatusCode);
+        Assert.Contains("reason", await tooShort.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
+
+        var tooLong = await admin.PostAsJsonAsync("/api/v1/queue/close-day", new { branchId = Main, reason = new string('x', 501) });
+        Assert.Equal(HttpStatusCode.BadRequest, tooLong.StatusCode);
+
+        var receptionWithReason = await reception.PostAsJsonAsync("/api/v1/queue/close-day", new { branchId = Main, reason = "Zz-QA power cut" });
+        Assert.Equal(HttpStatusCode.Forbidden, receptionWithReason.StatusCode);
+
+        var future = await admin.PostAsJsonAsync("/api/v1/queue/close-day", new { branchId = Main, date = "2026-10-08", reason = "Zz-QA future" });
+        Assert.Equal(HttpStatusCode.BadRequest, future.StatusCode);
+
+        var early = await admin.PostAsJsonAsync("/api/v1/queue/close-day", new { branchId = Main, reason = "Zz-QA emergency closure" });
+        Assert.Equal(HttpStatusCode.OK, early.StatusCode);
+        var result = (await early.Content.ReadFromJsonAsync<CloseQueueDay>())!;
+        Assert.Equal(new DateOnly(2026, 10, 7), result.QueueDate);
+
+        var receptionEnded = await reception.PostAsJsonAsync("/api/v1/queue/close-day", new { branchId = Main, date = "2026-10-06" });
+        Assert.Equal(HttpStatusCode.OK, receptionEnded.StatusCode);
     }
 
     private sealed record CloseQueueDay(Guid BranchId, DateOnly QueueDate, int ExpiredCount);
