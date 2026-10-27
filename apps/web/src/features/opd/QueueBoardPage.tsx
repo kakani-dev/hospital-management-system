@@ -43,12 +43,17 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
   const update = useUpdateQueueStatus()
   const closeDay = useCloseQueueDay()
   const [confirmClose, setConfirmClose] = useState(false)
+  const [closeReason, setCloseReason] = useState('')
+  const [reasonError, setReasonError] = useState<string | null>(null)
   const [error, setError] = useState<{ message: string; retry: (() => void) | null } | null>(null)
   const saving = usePendingMutationIds<QueueStatusChange>(mutationKeys.queueStatus, (v) => v.id)
   const branchRoles = rolesAtBranch(me.data, branchId)
   const canAdvance = can(branchRoles, 'queue.advance')
   const canCancel = can(branchRoles, 'queue.cancel')
+  // #142 / QUE-007: today cannot be closed before it ends in the branch zone; the end-of-day job
+  // closes it after branch-local midnight. Only a hospital admin may close it early, with a reason.
   const canCloseDay = can(branchRoles, 'queue.cancel')
+  const canCloseEarly = canCloseDay && branchRoles.includes('tenant_admin')
   const canBook = can(branchRoles, 'appointments.book')
   // doctors: follow-ups of their own appointment visits only (the server checks ownership)
   const canFollowUpOwn = can(branchRoles, 'appointments.bookFollowUp')
@@ -60,10 +65,17 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
 
   const close = async () => {
     if (!branchId) return
+    const reason = closeReason.trim()
+    if (reason.length < 3 || reason.length > 500) {
+      setReasonError('Give a reason of 3 to 500 characters for closing before the day ends.')
+      return
+    }
+    setReasonError(null)
     setError(null)
     try {
-      const result = await closeDay.mutateAsync({ branchId, date: today })
+      const result = await closeDay.mutateAsync({ branchId, date: today, reason })
       setConfirmClose(false)
+      setCloseReason('')
       setError({
         message:
           result.expiredCount === 0
@@ -109,10 +121,23 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <h1 className="text-xl font-semibold text-gray-800 dark:text-dark-50">OPD queue</h1>
-        {canCloseDay && branchId && (
-          <Button variant="secondary" disabled={closeDay.isPending || !timeZoneReady} onClick={() => setConfirmClose(true)}>
-            Close the day
+        {canCloseEarly && branchId && (
+          <Button
+            variant="secondary"
+            data-testid="queue-close-day-button"
+            disabled={closeDay.isPending || !timeZoneReady}
+            onClick={() => {
+              setReasonError(null)
+              setConfirmClose(true)
+            }}
+          >
+            Close today early
           </Button>
+        )}
+        {canCloseDay && !canCloseEarly && branchId && (
+          <p className="text-sm text-gray-600 dark:text-dark-200" data-testid="queue-auto-close-hint">
+            Today&apos;s queue closes automatically after midnight (branch time). Only a hospital admin can close it early.
+          </p>
         )}
         <p className="text-sm text-gray-600 dark:text-dark-200" data-testid="queue-updated">
           {formatDayLabel(today)} · {queue.dataUpdatedAt ? `updated ${formatTime(new Date(queue.dataUpdatedAt), timeZone)}` : 'loading'} · refreshes
@@ -238,10 +263,13 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
       </div>
       <ConfirmDialog
         open={confirmClose}
-        title="Close the queue for today?"
+        title="Close today's queue before the day ends?"
         confirmLabel="Expire waiting tokens"
         busy={closeDay.isPending}
-        onCancel={() => setConfirmClose(false)}
+        onCancel={() => {
+          setConfirmClose(false)
+          setReasonError(null)
+        }}
         onConfirm={() => void close()}
       >
         <p>
@@ -249,6 +277,22 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
             ? 'No tokens are waiting. Tokens already with a doctor stay as they are.'
             : `${waitingCount} waiting token${waitingCount === 1 ? '' : 's'} will be marked closed for this branch's day. Tokens already with a doctor stay as they are.`}
         </p>
+        <p className="mt-2">The day has not ended yet in the branch time zone. The reason is kept with the closed tokens.</p>
+        <label className="mt-3 block text-sm font-medium">
+          Reason for closing early
+          <textarea
+            className="mt-1 min-h-20 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-dark-500 dark:bg-dark-700"
+            data-testid="queue-close-reason"
+            value={closeReason}
+            maxLength={500}
+            onChange={(event) => setCloseReason(event.target.value)}
+          />
+        </label>
+        {reasonError && (
+          <p className="mt-1 text-sm text-red-600" role="alert" data-testid="queue-close-reason-error">
+            {reasonError}
+          </p>
+        )}
       </ConfirmDialog>
       {cancelledCount > 0 && (
         <p className="text-sm text-gray-600 dark:text-dark-200" data-testid="queue-cancelled-count">

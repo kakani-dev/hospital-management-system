@@ -652,7 +652,7 @@ export class ApiClient {
     updateStatus: (id: string, body: UpdateQueueStatusRequest) =>
       this.request<QueueEntry>(`/api/v1/queue/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
     /** Expire tokens still waiting on that branch-local day (default today). A future day is 400. */
-    closeDay: (body: { branchId: string; date?: string }) =>
+    closeDay: (body: { branchId: string; date?: string; reason?: string }) =>
       this.request<CloseQueueDayResult>('/api/v1/queue/close-day', { method: 'POST', body: JSON.stringify(body) }),
   }
 

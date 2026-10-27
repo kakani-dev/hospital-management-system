@@ -121,10 +121,18 @@ describe('QueueBoardPage', () => {
     expect(calls.filter((c) => c.path === '/api/v1/queue').length).toBeGreaterThan(1)
   })
 
-  it('closes the day and moves waiting tokens to closed', async () => {
+  it('front desk cannot close today early and sees the automatic close note (#142)', async () => {
+    const calls = routes(['receptionist'], () => [entry('q1', 1, 'waiting')])
+    renderWithProviders(<App />, { path: '/queue', auth: fakeAuthClient({ session: fakeSession() }) })
+    expect(await screen.findByTestId('queue-auto-close-hint')).toHaveTextContent('closes automatically after midnight')
+    expect(screen.queryByTestId('queue-close-day-button')).not.toBeInTheDocument()
+    expect(calls.find((c) => c.path === '/api/v1/queue/close-day')).toBeUndefined()
+  })
+
+  it('an admin closes today early only with a reason, and waiting tokens move to closed', async () => {
     let closed = false
     const calls = routes(
-      ['receptionist'],
+      ['tenant_admin'],
       () => (closed ? [entry('q1', 1, 'expired'), entry('q2', 2, 'in_consultation')] : [entry('q1', 1, 'waiting'), entry('q2', 2, 'in_consultation')]),
       {
         'POST /api/v1/queue/close-day': () => {
@@ -135,12 +143,32 @@ describe('QueueBoardPage', () => {
     )
     const user = userEvent.setup()
     renderWithProviders(<App />, { path: '/queue', auth: fakeAuthClient({ session: fakeSession() }) })
-    await user.click(await screen.findByRole('button', { name: 'Close the day' }))
+    await user.click(await screen.findByTestId('queue-close-day-button'))
+    expect(screen.queryByTestId('queue-auto-close-hint')).not.toBeInTheDocument()
+    // no reason: blocked in the dialog, nothing sent
     await user.click(await screen.findByRole('button', { name: 'Expire waiting tokens' }))
+    expect(await screen.findByTestId('queue-close-reason-error')).toHaveTextContent('3 to 500 characters')
+    expect(calls.find((c) => c.path === '/api/v1/queue/close-day')).toBeUndefined()
+
+    await user.type(screen.getByTestId('queue-close-reason'), '  Zz-QA emergency closure ')
+    await user.click(screen.getByRole('button', { name: 'Expire waiting tokens' }))
     expect(await screen.findByText(/1 waiting token expired/)).toBeInTheDocument()
     const closedColumn = await screen.findByTestId('queue-expired')
     expect(within(closedColumn).getByTestId('queue-entry')).toHaveAttribute('data-token', '1')
     expect(within(screen.getByTestId('queue-in_consultation')).getByTestId('queue-entry')).toHaveAttribute('data-token', '2')
-    expect(calls.find((c) => c.path === '/api/v1/queue/close-day')?.body).toEqual({ branchId: ALPHA_MAIN, date: today() })
+    expect(calls.find((c) => c.path === '/api/v1/queue/close-day')?.body).toEqual({ branchId: ALPHA_MAIN, date: today(), reason: 'Zz-QA emergency closure' })
+  })
+
+  it('shows the server message when the early close is refused', async () => {
+    routes(['tenant_admin'], () => [entry('q1', 1, 'waiting')], {
+      'POST /api/v1/queue/close-day': () =>
+        json({ status: 400, title: 'Validation failed', detail: 'A queue day cannot be closed before it ends in the branch time zone.' }, 400),
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: '/queue', auth: fakeAuthClient({ session: fakeSession() }) })
+    await user.click(await screen.findByTestId('queue-close-day-button'))
+    await user.type(screen.getByTestId('queue-close-reason'), 'Zz-QA power cut')
+    await user.click(screen.getByRole('button', { name: 'Expire waiting tokens' }))
+    expect(await screen.findByText(/cannot be closed before it ends in the branch time zone/)).toBeInTheDocument()
   })
 })

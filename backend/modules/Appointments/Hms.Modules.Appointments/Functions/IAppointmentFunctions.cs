@@ -27,6 +27,7 @@ public interface IAppointmentFunctions
 
     Task SetQueueStatusAsync(Guid queueEntryId, string status, CancellationToken ct);
 
-    /// <summary><c>appointment.close_queue_day</c>: waiting tokens on that branch-local day become expired.</summary>
-    Task<int> CloseQueueDayAsync(Guid tenantId, Guid branchId, DateOnly queueDate, CancellationToken ct);
+    /// <summary><c>appointment.close_queue_day_v2</c>: waiting tokens on that branch-local day become expired.
+    /// Today needs an admin and <paramref name="reason"/> (early close, #142).</summary>
+    Task<int> CloseQueueDayAsync(Guid tenantId, Guid branchId, DateOnly queueDate, string? reason, CancellationToken ct);
 }

@@ -23,6 +23,6 @@ internal sealed class UnavailableAppointmentFunctions : IAppointmentFunctions
     public Task SetQueueStatusAsync(Guid queueEntryId, string status, CancellationToken ct) =>
         throw new FakeDbException("P0002", "queue entry not found");
 
-    public Task<int> CloseQueueDayAsync(Guid tenantId, Guid branchId, DateOnly queueDate, CancellationToken ct) =>
+    public Task<int> CloseQueueDayAsync(Guid tenantId, Guid branchId, DateOnly queueDate, string? reason, CancellationToken ct) =>
         Task.FromResult(2);
 }

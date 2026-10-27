@@ -26,7 +26,7 @@ public static class QueueEndpoints
             .WithSummary("Queue for one branch and branch-local day (default today), ordered by token.");
         group.MapPost("/walk-in", WalkInAsync).WithName("CheckInWalkIn");
         group.MapPost("/close-day", CloseDayAsync).WithName("CloseQueueDay")
-            .WithSummary("Expire waiting tokens for one branch-local day (default today). A future day is rejected.");
+            .WithSummary("Expire waiting tokens for a branch-local day that has ended. Today only for a hospital admin with a reason; a future day is rejected.");
         group.MapPatch("/{id:guid}", SetStatusAsync).WithName("SetQueueStatus");
         return api;
     }
@@ -125,6 +125,9 @@ public static class QueueEndpoints
             $"/api/v1/queue/{token.QueueEntryId}", new CheckInResultDto(token.QueueEntryId, token.TokenNo, token.QueueDate, entry));
     }
 
+    private const string DayNotEnded = "A queue day cannot be closed before it ends in the branch time zone.";
+    private const int EarlyCloseReasonMinLength = 3;
+
     private static async Task<Results<Ok<CloseQueueDayResult>, ValidationProblem, ProblemHttpResult>> CloseDayAsync(
         CloseQueueDayRequest request, AppointmentsDbContext db, ITenantContext tenant, IAppointmentFunctions functions, TimeProvider clock, CancellationToken ct)
     {
@@ -144,19 +147,48 @@ public static class QueueEndpoints
         }
 
         var tz = tenant.TimeZoneFor(request.BranchId);
-        var day = request.Date ?? BranchTime.Today(clock, tz);
-        if (day > BranchTime.Today(clock, tz))
+        var today = BranchTime.Today(clock, tz);
+        var day = request.Date ?? today;
+        var reason = string.IsNullOrWhiteSpace(request.Reason) ? null : request.Reason.Trim();
+        if (day > today)
         {
             return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
-                ["date"] = ["A queue day cannot be closed before it ends in the branch time zone."],
+                ["date"] = [DayNotEnded],
             });
+        }
+
+        if (reason is { Length: < EarlyCloseReasonMinLength or > AppointmentEndpoints.ReasonMaxLength })
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["reason"] = [$"The reason for closing early must be {EarlyCloseReasonMinLength} to {AppointmentEndpoints.ReasonMaxLength} characters."],
+            });
+        }
+
+        // #142 / QUE-007: today has not ended in the branch zone. Only a hospital admin may close it
+        // early (emergency closure, branch shutting early), and only with a reason. Otherwise the
+        // pg_cron end-of-day close expires the day's waiting tokens after branch-local midnight.
+        if (day == today)
+        {
+            if (reason is null)
+            {
+                return TypedResults.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["date"] = [DayNotEnded + " Only a hospital admin can close it early, with a reason."],
+                });
+            }
+
+            if (!tenant.HasRoleAtBranch(request.BranchId, HmsRoles.TenantAdmin))
+            {
+                return HmsProblems.Forbidden("Only a hospital admin can close the queue before the day ends.");
+            }
         }
 
         int expired;
         try
         {
-            expired = await functions.CloseQueueDayAsync(tenant.TenantId, request.BranchId, day, ct);
+            expired = await functions.CloseQueueDayAsync(tenant.TenantId, request.BranchId, day, day == today ? reason : null, ct);
         }
         catch (Exception ex) when (HmsProblems.FromDatabase(ex) is { } problem)
         {

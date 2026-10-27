@@ -83,8 +83,8 @@ Source of truth is shared with the Notion database [Test Cases](https://app.noti
 - Preconditions: Today
 - Steps: Close queue day before midnight branch time
 - Test data: —
-- Expected: "A queue day cannot be closed before it ends in the branch time zone."
-- Rule / code: `20261025220100_scheduling_queue_day_end_close.sql`
+- Expected: "A queue day cannot be closed before it ends in the branch time zone." (400). A hospital admin may close today early only with a reason of 3–500 characters (other roles with a reason: 403); the reason is kept on the expired tokens. A future day is always refused. After branch-local midnight the end-of-day job closes the day.
+- Rule / code: `20261027100300_scheduling_queue_day_early_close.sql` (#142), `QueueEndpoints.CloseDayAsync`
 
 ## QUE-008
 
