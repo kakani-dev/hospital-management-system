@@ -8,6 +8,8 @@ namespace Hms.IntegrationTests;
 
 /// <summary>#106 PR1: pharmacist queue, prescription detail and FEFO dispensing through the edge (inventory service).</summary>
 [Trait("Category", "Database")]
+// Shares the Beta doctor practitioner row (registration number is toggled in a test), so never run in parallel.
+[Collection("BetaDoctorPractitioner")]
 public sealed class PharmacyDispenseApiTests(HmsApiFactory factory) : IClassFixture<HmsApiFactory>
 {
     private static readonly Guid BetaDoctorPractitioner = Guid.Parse("c2222222-0000-4000-8000-000000000001");
@@ -109,7 +111,7 @@ public sealed class PharmacyDispenseApiTests(HmsApiFactory factory) : IClassFixt
         {
             await conn.OpenAsync();
             await using var reg = new NpgsqlCommand(
-                "update appointment.practitioners set registration_number = coalesce(registration_number, 'NMC/2000001') where id = @id", conn);
+                "update appointment.practitioners set registration_number = coalesce(nullif(btrim(registration_number), ''), 'NMC/2000001') where id = @id", conn);
             reg.Parameters.AddWithValue("id", BetaDoctorPractitioner);
             await reg.ExecuteNonQueryAsync();
         }
