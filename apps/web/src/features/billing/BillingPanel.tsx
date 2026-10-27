@@ -107,9 +107,11 @@ export function BillingPanel({
         })
         if (!('lines' in result)) {
           setNotice('This discount is above the limit. Someone else has to approve it.')
+          setDiscountRupees('')
           return { bill: shown }
         }
         setNotice(null)
+        setDiscountRupees('')
         return { bill: result }
       }
       if (action === 'cash') {
@@ -198,6 +200,12 @@ export function BillingPanel({
         <ServiceAdder billId={shown.id} onAdded={(next) => setOverride({ generation, bill: next })} />
       )}
       <TaxSplit bill={shown} />
+      {shown.discountPaise > 0 && (
+        <p className="flex items-baseline justify-between text-sm" data-testid="billing-panel-discount">
+          <span>Discount</span>
+          <span className="font-mono">−{formatPaise(shown.discountPaise)}</span>
+        </p>
+      )}
       <p className="flex items-baseline justify-between text-base font-medium">
         <span>Total</span>
         <span className="font-mono" data-testid="bill-total">{formatPaise(shown.totalPaise)}</span>
@@ -231,8 +239,9 @@ export function BillingPanel({
           </Button>
           <label className="flex items-center gap-2 text-sm">
             <span className="sr-only">Discount rupees</span>
-            <input data-testid="billing-drawer-discount-rupees"
+            <input
               aria-label="Discount rupees"
+              data-testid="billing-panel-discount-input"
               placeholder="Discount ₹"
               inputMode="decimal"
               className="w-24 rounded-lg border border-gray-300 px-2 py-2 dark:border-dark-500 dark:bg-dark-700"
@@ -240,7 +249,12 @@ export function BillingPanel({
               onChange={(e) => setDiscountRupees(e.target.value)}
             />
           </label>
-          <Button variant="secondary" onClick={() => run.mutate('discount')} disabled={run.isPending || !discountRupees}>
+          <Button
+            variant="secondary"
+            data-testid="billing-panel-discount-submit"
+            onClick={() => { if (!run.isPending) run.mutate('discount') }}
+            disabled={run.isPending || !(Number(discountRupees) > 0)}
+          >
             Request discount
           </Button>
         </div>
