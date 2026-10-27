@@ -5,6 +5,9 @@
 -- The report now uses the same rule: the bill's snapshot GSTIN, else the branch's GSTIN,
 -- else UNREGISTERED. Only this one expression changes; the function body is otherwise a copy
 -- of 20261025250300_billing_earnings.sql. CREATE OR REPLACE keeps the owner and grants.
+set local lock_timeout = '5s';
+set local statement_timeout = '120s';
+
 create or replace function billing.earnings_report(
   p_tenant_id uuid, p_from date, p_to date, p_branch_id uuid, p_grain text, p_fy integer, p_quarter integer)
 returns jsonb
