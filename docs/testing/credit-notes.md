@@ -49,3 +49,13 @@ Source of truth is shared with the Notion database [Test Cases](https://app.noti
 - Test data: —
 - Expected: "a paid line is locked; refund the receipt or issue a credit note"
 - Rule / code: `billing_open_bill_payments.sql`
+
+## CRN-005
+
+**Bad credit note line gets its own message** · P2 · negative · Role: billing
+
+- Preconditions: Finalized bill, line qty 3
+- Steps: Issue credit notes with: no `lineId`; a malformed `lineId`; a line from another bill; quantity `"abc"`, 0 or -1; the same line twice for more than is left; a fully credited line. Then `billLineId` (alias of `lineId`) qty 1, and a line with no quantity
+- Test data: Synthetic bill only
+- Expected: 400 with, in order: "each credit note line needs a lineId (the bill line to credit)", "lineId must be the id of a line on this bill", "credit note line not found on this bill", "credit quantity must be a number", "credit quantity must be more than zero", "credit quantity exceeds the amount not already credited", "this line is already fully credited". `billLineId` credits the line; no quantity credits everything left (#144)
+- Rule / code: `20261027100100_billing_credit_note_line_validation.sql`, `supabase/tests/49_credit_note_line_validation_test.sql`
