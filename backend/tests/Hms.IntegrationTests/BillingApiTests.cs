@@ -290,6 +290,32 @@ public sealed class BillingApiTests(HmsApiFactory factory) : IClassFixture<HmsAp
         Assert.Equal("42501", privilege.SqlState);
     }
 
+    [Fact]
+    public async Task Same_discount_twice_is_idempotent_and_total_discount_is_capped_at_the_subtotal()
+    {
+        // #154
+        using var admin = factory.ClientAs(AlphaAdmin, AlphaTenant, Main);
+        var opened = await Post(admin, "/api/v1/accounts", new { patientId = AlphaPatientId, branchId = Main });
+        Assert.Equal(HttpStatusCode.OK, opened.Status);
+        var billId = Guid.Parse(opened.Body.GetProperty("id").GetString()!);
+        Assert.Equal(HttpStatusCode.OK, (await Post(admin, $"/api/v1/bills/{billId}/lines", new { code = "CONSULT" })).Status);
+        var before = (await Get(admin, $"/api/v1/bills/{billId}")).Body.GetProperty("exactPaise").GetInt64();
+
+        var body = new { kind = "flat_paise", value = 100, reasonCode = "Zz-QA courtesy" };
+        var first = await Post(admin, $"/api/v1/bills/{billId}/discounts", body);
+        Assert.Equal(HttpStatusCode.OK, first.Status);
+        var second = await Post(admin, $"/api/v1/bills/{billId}/discounts", body);
+        Assert.Equal(HttpStatusCode.OK, second.Status);
+        Assert.Equal(first.Body.GetProperty("approvalId").GetString(), second.Body.GetProperty("approvalId").GetString());
+        Assert.True(second.Body.GetProperty("duplicate").GetBoolean());
+        var after = (await Get(admin, $"/api/v1/bills/{billId}")).Body;
+        Assert.True(after.GetProperty("exactPaise").GetInt64() >= before - 100, "the repeat must not discount the bill a second time");
+
+        var over = await Post(admin, $"/api/v1/bills/{billId}/discounts", new { kind = "flat_paise", value = before, reasonCode = "Zz-QA staff" });
+        Assert.Equal(HttpStatusCode.BadRequest, over.Status);
+        Assert.Contains("total discounts would exceed the bill", over.Body.GetRawText());
+    }
+
     private static async Task<(HttpStatusCode Status, JsonElement Body)> Post(HttpClient client, string path, object body)
     {
         var response = await client.PostAsJsonAsync(path, body);
