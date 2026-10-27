@@ -33,7 +33,7 @@ export function DayEndPage() {
       <h1 className="text-xl font-semibold text-gray-800 dark:text-dark-50">Day end</h1>
       <label className="block text-sm">
         Business date
-        <input
+        <input data-testid="billing-day-end-date"
           type="date"
           aria-label="Business date"
           className="mt-1 rounded-lg border border-gray-300 px-3 py-2 dark:border-dark-500 dark:bg-dark-700"
