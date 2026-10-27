@@ -47,6 +47,34 @@ describe('DataTable (Tailux table on TanStack)', () => {
     rerender(<DataTable data={[]} columns={columns} caption="t" empty="No patients" emptyTestId="empty" />)
     expect(screen.getByTestId('empty')).toHaveTextContent('No patients')
   })
+
+  it('derives module-screen-element test ids from testId (table, rows, kebab-case cells, empty)', () => {
+    const cols: ColumnDef<Row, unknown>[] = [
+      { id: 'mrn', accessorKey: 'mrn', header: 'MRN' },
+      { id: 'fullName', accessorKey: 'name', header: 'Name' },
+      { id: 'due date', accessorFn: () => 'x', header: 'Due' },
+    ]
+    const { rerender } = render(<DataTable data={rows} columns={cols} caption="t" empty="None" testId="patients-list" />)
+    expect(screen.getByTestId('patients-list')).toContainElement(screen.getByRole('table'))
+    expect(screen.getAllByTestId('patients-list-row')).toHaveLength(2)
+    expect(screen.getAllByTestId('patients-list-cell-mrn').map((c) => c.textContent)).toEqual(['B-2', 'A-1'])
+    expect(screen.getAllByTestId('patients-list-cell-full-name')).toHaveLength(2)
+    expect(screen.getAllByTestId('patients-list-cell-due-date')).toHaveLength(2)
+
+    // Explicit row props / empty id still win over the derived ones.
+    rerender(<DataTable data={rows} columns={cols} caption="t" empty="None" testId="patients-list" getRowProps={() => ({ 'data-testid': 'custom-row' })} />)
+    expect(screen.getAllByTestId('custom-row')).toHaveLength(2)
+    expect(screen.queryByTestId('patients-list-row')).not.toBeInTheDocument()
+    rerender(<DataTable data={[]} columns={cols} caption="t" empty="No patients" testId="patients-list" />)
+    expect(screen.getByTestId('patients-list-empty')).toHaveTextContent('No patients')
+    rerender(<DataTable data={[]} columns={cols} caption="t" empty="No patients" testId="patients-list" emptyTestId="empty" />)
+    expect(screen.getByTestId('empty')).toBeInTheDocument()
+  })
+
+  it('renders no test ids when testId is not given', () => {
+    const { container } = render(<DataTable data={rows} columns={columns} caption="t" empty="None" />)
+    expect(container.querySelector('[data-testid]')).toBeNull()
+  })
 })
 
 describe('ServerPagination', () => {

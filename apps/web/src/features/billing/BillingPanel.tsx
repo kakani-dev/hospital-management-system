@@ -8,6 +8,7 @@ import { LoadingBlock } from '../../components/ui/LoadingBlock'
 import { ApiError, apiClient } from '../../lib/api/client'
 import type { BillDocument, Receipt, ServiceItem } from '../../lib/api/types'
 import { useDebouncedValue } from '../../lib/useDebouncedValue'
+import { UNNUMBERED_BILL, billStatusLabel } from './billStatus'
 import { formatPaise, parseRupeesToPaise, rupeesToPaise } from './money'
 
 const UpiQr = lazy(() => import('./UpiQr').then((m) => ({ default: m.UpiQr })))
@@ -106,9 +107,11 @@ export function BillingPanel({
         })
         if (!('lines' in result)) {
           setNotice('This discount is above the limit. Someone else has to approve it.')
+          setDiscountRupees('')
           return { bill: shown }
         }
         setNotice(null)
+        setDiscountRupees('')
         return { bill: result }
       }
       if (action === 'cash') {
@@ -168,8 +171,8 @@ export function BillingPanel({
   const paid = shown.status === 'finalized' && shown.duePaise <= 0
   return (
     <div className="space-y-4" data-testid="billing-drawer">
-      <p className="text-sm text-gray-500 dark:text-dark-300">
-        {shown.billNo ?? 'Draft'} · {shown.status === 'draft' ? 'Not finalized' : shown.status}
+      <p className="text-sm text-gray-500 dark:text-dark-300" data-testid="billing-drawer-bill-status">
+        {shown.billNo ?? UNNUMBERED_BILL} · {billStatusLabel(shown.status)}
       </p>
       <ul className="divide-y divide-gray-200 dark:divide-dark-500">
         {shown.lines.map((line) => (
@@ -197,6 +200,12 @@ export function BillingPanel({
         <ServiceAdder billId={shown.id} onAdded={(next) => setOverride({ generation, bill: next })} />
       )}
       <TaxSplit bill={shown} />
+      {shown.discountPaise > 0 && (
+        <p className="flex items-baseline justify-between text-sm" data-testid="billing-panel-discount">
+          <span>Discount</span>
+          <span className="font-mono">−{formatPaise(shown.discountPaise)}</span>
+        </p>
+      )}
       <p className="flex items-baseline justify-between text-base font-medium">
         <span>Total</span>
         <span className="font-mono" data-testid="bill-total">{formatPaise(shown.totalPaise)}</span>
@@ -232,6 +241,7 @@ export function BillingPanel({
             <span className="sr-only">Discount rupees</span>
             <input
               aria-label="Discount rupees"
+              data-testid="billing-panel-discount-input"
               placeholder="Discount ₹"
               inputMode="decimal"
               className="w-24 rounded-lg border border-gray-300 px-2 py-2 dark:border-dark-500 dark:bg-dark-700"
@@ -239,7 +249,12 @@ export function BillingPanel({
               onChange={(e) => setDiscountRupees(e.target.value)}
             />
           </label>
-          <Button variant="secondary" onClick={() => run.mutate('discount')} disabled={run.isPending || !discountRupees}>
+          <Button
+            variant="secondary"
+            data-testid="billing-panel-discount-submit"
+            onClick={() => { if (!run.isPending) run.mutate('discount') }}
+            disabled={run.isPending || !(Number(discountRupees) > 0)}
+          >
             Request discount
           </Button>
         </div>
@@ -280,7 +295,7 @@ export function BillingPanel({
             >
               <label className="block text-sm">
                 Phone
-                <input
+                <input data-testid="billing-drawer-share-phone"
                   aria-label="Phone"
                   className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-dark-500 dark:bg-dark-700"
                   value={phone}
@@ -348,7 +363,7 @@ function ServiceAdder({ billId, onAdded }: { billId: string; onAdded: (bill: Bil
     >
       <label className="block text-sm">
         Find a service
-        <input
+        <input data-testid="billing-drawer-service-search"
           aria-label="Find a service"
           role="combobox"
           aria-expanded={items.length > 0}
@@ -379,7 +394,7 @@ function ServiceAdder({ billId, onAdded }: { billId: string; onAdded: (bill: Bil
       {armed && (
         <label className="block text-sm">
           Rate for
-          <select
+          <select data-testid="billing-drawer-rate-for"
             aria-label="Rate for"
             className="mt-1 min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-dark-500 dark:bg-dark-700"
             value={rateFor}
@@ -486,7 +501,7 @@ export function RefundBox({
       {open.length > 1 && (
         <label className="block text-sm">
           Receipt
-          <select className="mt-1 w-full rounded-lg border border-gray-300 px-2 py-2 dark:border-dark-500 dark:bg-dark-700" value={selected.id} onChange={(event) => setPaymentId(event.target.value)}>
+          <select data-testid="billing-drawer-refund-payment" className="mt-1 w-full rounded-lg border border-gray-300 px-2 py-2 dark:border-dark-500 dark:bg-dark-700" value={selected.id} onChange={(event) => setPaymentId(event.target.value)}>
             {open.map((payment) => (
               <option key={payment.id} value={payment.id}>
                 {payment.receiptNo ?? payment.mode} · {formatPaise(payment.amountPaise - payment.refundedPaise)} left
@@ -497,7 +512,7 @@ export function RefundBox({
       )}
       <label className="block text-sm">
         Amount (rupees)
-        <input
+        <input data-testid="billing-drawer-refund-rupees"
           aria-label="Refund rupees"
           inputMode="decimal"
           className="mt-1 w-32 rounded-lg border border-gray-300 px-2 py-2 dark:border-dark-500 dark:bg-dark-700"

@@ -52,12 +52,14 @@ public sealed class BillingEarningsApiTests(HmsApiFactory factory) : IClassFixtu
         Assert.Equal(HttpStatusCode.OK, csv.StatusCode);
         Assert.Contains("text/csv", csv.Content.Headers.ContentType?.ToString());
         Assert.Contains("Invoice number", await csv.Content.ReadAsStringAsync());
+        Assert.Equal($"earnings-sales-{today:yyyy-MM-dd}-{today:yyyy-MM-dd}.csv", csv.Content.Headers.ContentDisposition?.FileNameStar ?? csv.Content.Headers.ContentDisposition?.FileName?.Trim('"'));
 
         var sheet = await admin.GetAsync($"/api/v1/billing-reports/earnings/export?from={today:yyyy-MM-dd}&to={today:yyyy-MM-dd}&format=xlsx&section=sales");
         Assert.Equal(HttpStatusCode.OK, sheet.StatusCode);
         var bytes = await sheet.Content.ReadAsByteArrayAsync();
         Assert.Equal((byte)'P', bytes[0]);
         Assert.Equal((byte)'K', bytes[1]);
+        Assert.Equal($"earnings-sales-{today:yyyy-MM-dd}-{today:yyyy-MM-dd}.xlsx", sheet.Content.Headers.ContentDisposition?.FileNameStar ?? sheet.Content.Headers.ContentDisposition?.FileName?.Trim('"'));
     }
 
     private static string? Header(HttpResponseMessage response, string name) =>

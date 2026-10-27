@@ -202,6 +202,7 @@ public sealed class EdgeGatewayTests(HmsApiFactory factory) : IClassFixture<HmsA
         Assert.Contains("X-Hms-Tenant", exposed, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("X-Request-Id", exposed, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Retry-After", exposed, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Content-Disposition", exposed, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

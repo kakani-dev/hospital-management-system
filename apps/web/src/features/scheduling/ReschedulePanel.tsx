@@ -101,7 +101,7 @@ export function ReschedulePanel({
       <p className="text-sm text-gray-700 dark:text-dark-100" data-testid="reschedule-current">
         {patientName}: now {formatDayLabel(current)} at {formatTime(appointment.startsAt, timeZone)}
       </p>
-      <SelectField
+      <SelectField data-testid="scheduling-reschedule-practitioner"
         label="Practitioner"
         value={practitionerId}
         onChange={(e) => {
@@ -116,7 +116,7 @@ export function ReschedulePanel({
           </option>
         ))}
       </SelectField>
-      <FormField
+      <FormField data-testid="scheduling-reschedule-date"
         label="New date"
         type="date"
         min={minDate}

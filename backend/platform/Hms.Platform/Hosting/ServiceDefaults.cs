@@ -64,8 +64,8 @@ public static class ServiceDefaults
             .WithOrigins(allowedOrigins)
             .WithMethods("GET", "POST", "PUT", "PATCH", "DELETE")
             .WithHeaders("Authorization", "Content-Type", "apikey", "x-client-info")
-            // Let the SPA read the resolved tenant (M3 option b); custom headers are hidden from JS otherwise.
-            .WithExposedHeaders(HmsHeaders.Tenant)));
+            // Let the SPA read the resolved tenant (M3 option b) and export file names; other headers are hidden from JS cross-origin.
+            .WithExposedHeaders(HmsHeaders.Tenant, "Content-Disposition")));
 
         services.Configure<ForwardedHeadersOptions>(o =>
         {
