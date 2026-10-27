@@ -61,7 +61,7 @@ export function BillDetailPage() {
         >
           <label className="text-sm">
             Place of supply
-            <input
+            <input data-testid="billing-bill-detail-place-of-supply"
               aria-label="Place of supply"
               maxLength={2}
               className="mt-1 block w-20 rounded-lg border border-gray-300 px-2 py-2 dark:border-dark-500 dark:bg-dark-700"

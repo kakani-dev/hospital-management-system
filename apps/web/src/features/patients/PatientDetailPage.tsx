@@ -462,7 +462,7 @@ function MergePatientButton({ patient }: { patient: PatientDetail }) {
         </p>
         <div className="mt-3 space-y-3">
           <PatientPicker value={duplicate} onChange={setDuplicate} label="Duplicate chart" />
-          <FormField label="Reason" maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />
+          <FormField data-testid="patients-detail-merge-reason" label="Reason" maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />
         </div>
       </ConfirmDialog>
     </>
@@ -512,7 +512,7 @@ function DeletePatientButton({ patient }: { patient: PatientDetail }) {
           kept for the audit trail (soft delete) and a tenant admin can restore it.
         </p>
         <div className="mt-3">
-          <FormField label="Reason (optional)" maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />
+          <FormField data-testid="patients-detail-delete-reason" label="Reason (optional)" maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />
         </div>
       </ConfirmDialog>
     </>

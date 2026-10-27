@@ -246,7 +246,7 @@ function WalkInCard({
             Choose a patient first.
           </p>
         )}
-        <SelectField label="Doctor (optional)" value={practitionerId} onChange={(e) => setPractitionerId(e.target.value)}>
+        <SelectField data-testid="opd-check-in-practitioner" label="Doctor (optional)" value={practitionerId} onChange={(e) => setPractitionerId(e.target.value)}>
           <option value="">Any doctor</option>
           {practitioners.map((p) => (
             <option key={p.id} value={p.id}>

@@ -23,7 +23,7 @@ export function MyDayPage() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <h1 className="text-xl font-semibold text-gray-800 dark:text-dark-50">My day</h1>
-        <FormField label="Date" type="date" value={day} onChange={(e) => setDate(e.target.value)} />
+        <FormField data-testid="scheduling-my-day-date" label="Date" type="date" value={day} onChange={(e) => setDate(e.target.value)} />
       </div>
       {mine.isError && <Alert tone="error">Could not load your day.</Alert>}
       {mine.data && !mine.data.practitionerId && <Alert tone="info">Your login is not linked to a practitioner.</Alert>}
