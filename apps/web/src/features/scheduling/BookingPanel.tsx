@@ -252,7 +252,7 @@ export function BookingPanel({
       }}
     >
       <div className="space-y-4">
-        <SelectField
+        <SelectField data-testid="scheduling-booking-practitioner"
           label="Practitioner"
           value={selectedPractitionerId}
           disabled={noPractitioners || practitionersStatus !== 'ready'}
@@ -274,7 +274,7 @@ export function BookingPanel({
           ))}
         </SelectField>
         {types.length > 0 && (
-          <SelectField
+          <SelectField data-testid="scheduling-booking-visit-type"
             label="Visit type"
             value={visitTypeId}
             onChange={(e) => setVisitChoice(e.target.value)}
@@ -315,7 +315,7 @@ export function BookingPanel({
             </Alert>
           </div>
         )}
-        <FormField
+        <FormField data-testid="scheduling-booking-date"
           label="Appointment date"
           type="date"
           min={minDate}
@@ -339,7 +339,7 @@ export function BookingPanel({
           />
         )}
         {overrideHours ? (
-          <FormField
+          <FormField data-testid="scheduling-booking-override-time"
             label="Start time"
             type="time"
             value={overrideTime}
@@ -423,7 +423,7 @@ export function BookingPanel({
             onCreateNew={(term) => setQuick({ prefill: prefillFromTerm(term, countryCode) })}
             registerReturn={{ to: `${location.pathname}${location.search}`, state: { booking: { practitionerId: selectedPractitionerId, date, slot: chosen } satisfies BookingDraft } }}
           />
-        <FormField
+        <FormField data-testid="scheduling-booking-reason"
           label={overrideHours ? 'Reason for booking outside working hours' : 'Reason (optional)'}
           required={overrideHours}
           maxLength={500}

@@ -21,7 +21,7 @@ public static partial class EdgeHost
     public const string CorsPolicy = "hms-web";
 
     /// <summary>Response headers the SPA must be able to read cross-origin.</summary>
-    public static readonly string[] ExposedHeaders = ["X-Hms-Tenant", RequestIdMiddleware.Header, "Retry-After"];
+    public static readonly string[] ExposedHeaders = ["X-Hms-Tenant", RequestIdMiddleware.Header, "Retry-After", "Content-Disposition"];
 
     public static WebApplicationBuilder AddHmsEdge(this WebApplicationBuilder builder)
     {

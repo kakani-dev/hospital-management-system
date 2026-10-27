@@ -63,7 +63,7 @@ export function SlotPicker({
               key={s.startsAt}
               className={`cursor-pointer rounded border px-2 py-1 text-sm font-mono ${checked ? 'border-primary-600 dark:border-primary-400 bg-primary-50 dark:bg-primary-500/15' : 'border-gray-300 dark:border-dark-450'}`}
             >
-              <input type="radio" name={group} className="sr-only" checked={checked} disabled={slots.isPlaceholderData} onChange={() => onChange(s)} />
+              <input data-testid="scheduling-booking-slot-option" type="radio" name={group} className="sr-only" checked={checked} disabled={slots.isPlaceholderData} onChange={() => onChange(s)} />
               {formatTime(s.startsAt, timeZone)}
             </label>
           )

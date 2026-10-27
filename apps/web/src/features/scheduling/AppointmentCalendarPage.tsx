@@ -142,7 +142,7 @@ export function AppointmentCalendarPage() {
         <BranchPicker branches={branches} value={branchId} onChange={setBranchId} />
         <div className="w-60">
           {scopedDoctor ? (
-            <SelectField label="Practitioner" value={ownPractitioner?.id ?? ''} onChange={() => {}} disabled>
+            <SelectField data-testid="scheduling-calendar-own-practitioner" label="Practitioner" value={ownPractitioner?.id ?? ''} onChange={() => {}} disabled>
               {ownPractitioner ? (
                 <option value={ownPractitioner.id}>{ownPractitioner.displayName}</option>
               ) : (
@@ -150,7 +150,7 @@ export function AppointmentCalendarPage() {
               )}
             </SelectField>
           ) : (
-            <SelectField label="Practitioner" value={practitionerFilter} onChange={(e) => setPractitionerFilter(e.target.value)}>
+            <SelectField data-testid="scheduling-calendar-practitioner-filter" label="Practitioner" value={practitionerFilter} onChange={(e) => setPractitionerFilter(e.target.value)}>
               <option value="">All practitioners</option>
               {bookable.map((p) => (
                 <option key={p.id} value={p.id}>
@@ -161,7 +161,7 @@ export function AppointmentCalendarPage() {
           )}
         </div>
         <div className="w-48">
-          <SelectField label="Status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as AppointmentStatus | '')}>
+          <SelectField data-testid="scheduling-calendar-status-filter" label="Status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as AppointmentStatus | '')}>
             <option value="">All statuses</option>
             {APPOINTMENT_STATUSES.map((st) => (
               <option key={st} value={st}>
@@ -171,7 +171,7 @@ export function AppointmentCalendarPage() {
           </SelectField>
         </div>
         <div className="w-64">
-          <FormField label="Find patient" type="search" placeholder="Name, MRN or reason" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <FormField data-testid="scheduling-calendar-patient-search" label="Find patient" type="search" placeholder="Name, MRN or reason" value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
       </div>
       <CalendarToolbar
@@ -291,7 +291,7 @@ export function AppointmentCalendarPage() {
               {cancelling.patientName} · {formatDayLabel(dateInZone(cancelling.appointment.startsAt, timeZone))}{' '}
               {formatTime(cancelling.appointment.startsAt, timeZone)} with {practitionerName(cancelling.appointment.practitionerId)}.
             </p>
-            <Textarea
+            <Textarea data-testid="scheduling-calendar-cancel-reason"
               label="Reason (optional)"
               rows={2}
               value={cancelReason}

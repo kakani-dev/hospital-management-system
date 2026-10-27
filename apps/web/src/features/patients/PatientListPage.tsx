@@ -225,6 +225,7 @@ export function PatientListPage() {
             data={rows}
             columns={columns}
             caption="Patients in the current hospital"
+            testId="patients-list"
             isLoading={patients.isPending}
             isStale={patients.isPlaceholderData}
             isFetching={patients.isFetching}

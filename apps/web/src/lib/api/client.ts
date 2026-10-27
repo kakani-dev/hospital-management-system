@@ -302,7 +302,7 @@ export class ApiClient {
   }
 
   /** File download. Does not parse JSON. The server name comes from Content-Disposition. */
-  async download(path: string): Promise<{ blob: Blob; filename: string }> {
+  async download(path: string, fallbackName = 'download'): Promise<{ blob: Blob; filename: string }> {
     const headers = new Headers()
     const token = await this.getAccessToken?.()
     if (token) headers.set('Authorization', `Bearer ${token}`)
@@ -317,9 +317,7 @@ export class ApiClient {
       throw new ApiError(response.status, problem)
     }
     const blob = await response.blob()
-    const disposition = response.headers.get('Content-Disposition') ?? ''
-    const match = /filename="([^"]+)"/.exec(disposition)
-    return { blob, filename: match?.[1] ?? 'earnings.csv' }
+    return { blob, filename: filenameFromDisposition(response.headers.get('Content-Disposition')) ?? fallbackName }
   }
 
   private async attempt<T>(path: string, options: RequestOptions, method: string, isRead: boolean): Promise<T> {
@@ -730,7 +728,7 @@ export class ApiClient {
     earnings: (query: Record<string, string | undefined>) =>
       this.request<EarningsReport>(`/api/v1/billing-reports/earnings${qs(query)}`),
     earningsExport: (query: Record<string, string | undefined>) =>
-      this.download(`/api/v1/billing-reports/earnings/export${qs(query)}`),
+      this.download(`/api/v1/billing-reports/earnings/export${qs(query)}`, earningsExportName(query)),
     reconcile: (sessionId: string) =>
       this.request<{ id: string; status: string }>(`/api/v1/counter-sessions/${encodeURIComponent(sessionId)}/reconcile`, { method: 'POST' }),
     publicLink: (token: string) =>
@@ -900,4 +898,35 @@ export function problemCode(error: unknown): string | null {
 
 export function httpStatus(error: unknown): number | null {
   return error instanceof ApiError ? error.status : null
+}
+
+/**
+ * File name from a Content-Disposition header. Prefers RFC 5987 `filename*=UTF-8''…` (what ASP.NET sends
+ * alongside `filename=`), then quoted or bare `filename=`. Path separators are stripped. Null when absent.
+ */
+export function filenameFromDisposition(header: string | null): string | null {
+  if (!header) return null
+  const star = /filename\*\s*=\s*([^']*)'[^']*'([^;]+)/i.exec(header)
+  let name: string | null = null
+  if (star?.[2]) {
+    try {
+      name = decodeURIComponent(star[2].trim().replace(/^"|"$/g, ''))
+    } catch {
+      name = null
+    }
+  }
+  if (!name) {
+    const plain = /filename\s*=\s*(?:"([^"]*)"|([^;]+))/i.exec(header)
+    name = (plain?.[1] ?? plain?.[2] ?? '').trim() || null
+  }
+  const safe = name?.replace(/[\\/]/g, '_').trim()
+  return safe ? safe : null
+}
+
+/** Same name the API sends, used when the header can't be read: earnings-{section|accounts}-{period}.{csv|xlsx}. */
+export function earningsExportName(query: Record<string, string | undefined>): string {
+  const format = query.format === 'xlsx' ? 'xlsx' : 'csv'
+  const section = query.section ?? (format === 'xlsx' ? 'accounts' : 'report')
+  const period = query.fy ? `FY${query.fy}${query.quarter ? `-Q${query.quarter}` : ''}` : [query.from, query.to].filter(Boolean).join('-')
+  return `earnings-${section}${period ? `-${period}` : ''}.${format}`
 }

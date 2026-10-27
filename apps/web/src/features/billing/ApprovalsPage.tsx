@@ -49,7 +49,7 @@ export function ApprovalsPage() {
       >
         <label className="block text-sm">
           Maker-checker above (rupees)
-          <input
+          <input data-testid="billing-approvals-maker-checker-rupees"
             aria-label="Maker-checker above (rupees)"
             inputMode="decimal"
             className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-dark-500 dark:bg-dark-700"
@@ -60,7 +60,7 @@ export function ApprovalsPage() {
         </label>
         <label className="block text-sm">
           Cancel refund (%)
-          <input
+          <input data-testid="billing-approvals-cancel-refund-percent"
             aria-label="Cancel refund percent"
             inputMode="decimal"
             className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-dark-500 dark:bg-dark-700"
@@ -71,7 +71,7 @@ export function ApprovalsPage() {
         </label>
         <label className="block text-sm">
           No-show refund (%)
-          <input
+          <input data-testid="billing-approvals-no-show-refund-percent"
             aria-label="No-show refund percent"
             inputMode="decimal"
             className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-dark-500 dark:bg-dark-700"
@@ -98,7 +98,7 @@ export function ApprovalsPage() {
             <p className="font-mono text-lg">{item.amountPaise != null ? formatPaise(item.amountPaise) : '—'}</p>
             <label className="mt-3 block text-sm">
               Note
-              <input
+              <input data-testid="billing-approvals-note"
                 aria-label={`Note for ${item.action}`}
                 className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-3 text-base dark:border-dark-500 dark:bg-dark-700"
                 value={note}

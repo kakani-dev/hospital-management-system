@@ -283,4 +283,64 @@ describe('BillingPanel', () => {
     })
     expect(await screen.findByPlaceholderText('Discount ₹')).toHaveAccessibleName('Discount rupees')
   })
+
+  const summary = () => json({
+    patientId: 'patient-1',
+    advancePaise: 0,
+    bills: [{ id: 'bill-1', accountId: 'acct-1', branchId: 'branch-1', billNo: null, status: 'draft', billKind: 'final', totalPaise: 50000, duePaise: 50000 }],
+  })
+
+  it('clears the discount box after success, shows the discount line and cannot apply twice', async () => {
+    const user = userEvent.setup()
+    const calls = stubFetch({
+      'GET /api/v1/accounts/patient-1/summary': summary,
+      'GET /api/v1/bills/bill-1': () => json(bill()),
+      'POST /api/v1/bills/bill-1/discounts': () => json(bill({ discountPaise: 2000, totalPaise: 48000, duePaise: 48000 })),
+    })
+    renderWithProviders(<BillingPanel patientId="patient-1" branchId="branch-1" onBack={() => {}} />, {
+      auth: fakeAuthClient({ session: fakeSession() }),
+    })
+    const input = await screen.findByTestId('billing-panel-discount-input')
+    expect(screen.queryByTestId('billing-panel-discount')).toBeNull()
+    await user.type(input, '20')
+    await user.click(screen.getByTestId('billing-panel-discount-submit'))
+    expect(await screen.findByTestId('billing-panel-discount')).toHaveTextContent('20.00')
+    expect(input).toHaveValue('')
+    expect(screen.getByTestId('billing-panel-discount-submit')).toBeDisabled()
+    await user.click(screen.getByTestId('billing-panel-discount-submit'))
+    expect(calls.filter((call) => call.path.endsWith('/discounts'))).toHaveLength(1)
+  })
+
+  it('clears the discount box when the discount goes for approval', async () => {
+    const user = userEvent.setup()
+    stubFetch({
+      'GET /api/v1/accounts/patient-1/summary': summary,
+      'GET /api/v1/bills/bill-1': () => json(bill()),
+      'POST /api/v1/bills/bill-1/discounts': () => json({ approvalId: 'ap-1', status: 'pending' }),
+    })
+    renderWithProviders(<BillingPanel patientId="patient-1" branchId="branch-1" onBack={() => {}} />, {
+      auth: fakeAuthClient({ session: fakeSession() }),
+    })
+    const input = await screen.findByTestId('billing-panel-discount-input')
+    await user.type(input, '900')
+    await user.click(screen.getByTestId('billing-panel-discount-submit'))
+    expect(await screen.findByText(/Someone else has to approve it/)).toBeInTheDocument()
+    expect(input).toHaveValue('')
+  })
+
+  it('does not allow a zero or non-numeric discount', async () => {
+    const user = userEvent.setup()
+    stubFetch({
+      'GET /api/v1/accounts/patient-1/summary': summary,
+      'GET /api/v1/bills/bill-1': () => json(bill()),
+    })
+    renderWithProviders(<BillingPanel patientId="patient-1" branchId="branch-1" onBack={() => {}} />, {
+      auth: fakeAuthClient({ session: fakeSession() }),
+    })
+    const input = await screen.findByTestId('billing-panel-discount-input')
+    await user.type(input, '0')
+    expect(screen.getByTestId('billing-panel-discount-submit')).toBeDisabled()
+    await user.clear(input); await user.type(input, 'abc')
+    expect(screen.getByTestId('billing-panel-discount-submit')).toBeDisabled()
+  })
 })
