@@ -5,7 +5,7 @@ import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
 import { LoadingBlock } from '../../components/ui/LoadingBlock'
 import { ApiError, apiClient } from '../../lib/api/client'
-import type { EarningsCard, EarningsMove, EarningsReport } from '../../lib/api/types'
+import type { EarningsCard, EarningsCategory, EarningsCategoryKey, EarningsMove, EarningsReport } from '../../lib/api/types'
 import { localToday } from '../../lib/dates'
 import { useBranchTimeZones } from '../../lib/useBranchTimeZone'
 import { useCurrentContext } from '../tenancy/useCurrentContext'
@@ -208,6 +208,7 @@ function Overview({
           <rect key={point.bucket} x={i * 24 + 4} y={76 - (point.grossBilledPaise / max) * 72} width="16" height={(point.grossBilledPaise / max) * 72} className="fill-primary-600" />
         ))}
       </svg>
+      <CategorySplit categories={report.categories} />
       <div className="grid gap-4 lg:grid-cols-2">
         <SimpleTable title="Ageing" rows={[
           ['0–30', formatPaise(report.ageing.b0To30Paise)],
@@ -325,6 +326,34 @@ function Kpi({ label, amount, text, move, hint, testId }: { label: string; amoun
       {move && <div className="text-xs">{move.direction === 'new' ? 'new' : `${arrow(move.direction)} ${move.pct ?? ''}${move.pct == null ? '' : '%'}`}</div>}
       {hint && <div className="text-xs text-gray-500">{hint}</div>}
     </div>
+  )
+}
+
+const CATEGORY_LABEL: Record<EarningsCategoryKey, string> = { consult: 'Consultations', procedure: 'Procedures', lab: 'Lab', other: 'Other' }
+const CATEGORY_ORDER: EarningsCategoryKey[] = ['consult', 'procedure', 'lab', 'other']
+
+/** #176: earnings split by category. Always four rows; a missing category (or an older cached report) shows 0. */
+function CategorySplit({ categories }: { categories?: EarningsCategory[] }) {
+  const byKey = new Map((categories ?? []).map((c) => [c.category, c]))
+  return (
+    <section data-testid="earnings-categories" aria-label="Earnings by category">
+      <h2 className="mb-2 font-medium">By category</h2>
+      <table className="w-full text-left text-sm">
+        <thead className="sr-only"><tr><th>Category</th><th>Revenue</th><th>Share</th></tr></thead>
+        <tbody>
+          {CATEGORY_ORDER.map((key) => {
+            const c = byKey.get(key)
+            return (
+              <tr key={key} data-testid={`earnings-category-${key}`}>
+                <td className="py-1">{CATEGORY_LABEL[key]}</td>
+                <td className="py-1 text-right" data-testid={`earnings-category-${key}-amount`}>{formatPaise(c?.revenuePaise ?? 0)}</td>
+                <td className="w-16 py-1 text-right text-gray-600" data-testid={`earnings-category-${key}-share`}>{c?.sharePct ?? 0}%</td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </section>
   )
 }
 

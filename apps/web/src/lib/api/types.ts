@@ -1027,6 +1027,9 @@ export interface EarningsBranch {
   direction: EarningsMove['direction']
 }
 
+export type EarningsCategoryKey = 'consult' | 'procedure' | 'lab' | 'other'
+export interface EarningsCategory { category: EarningsCategoryKey; revenuePaise: number; lineCount: number; sharePct: number }
+
 export interface EarningsReport {
   from: string
   to: string
@@ -1042,6 +1045,8 @@ export interface EarningsReport {
   doctors: { practitionerId: string; name: string; rank: number; revenuePaise: number; visits: number }[]
   services: { serviceItemId: string; name: string; code: string; sac: string; revenuePaise: number; sharePct: number }[]
   paymentModes: { mode: string; collectedPaise: number; refundsPaise: number; sharePct: number }[]
+  /** #176: revenue by category, always consult, procedure, lab, other. Optional: a cached report from before #176 has none. */
+  categories?: EarningsCategory[]
   ageing: { b0To30Paise: number; b31To60Paise: number; b61To90Paise: number; b90PlusPaise: number }
   topBottom: { topBranch: string | null; bottomBranch: string | null; topDoctor: string | null; bottomDoctor: string | null }
   insights: string[]

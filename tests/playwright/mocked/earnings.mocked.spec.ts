@@ -27,6 +27,8 @@ test('receptionist is kept out, and an accountant can read, drill in and export'
 
   await page.goto('/billing/earnings?from=2026-04-01&to=2026-04-30')
   await expect(page.getByTestId('earnings-gross')).toBeVisible()
+  await expect(page.getByTestId('earnings-categories')).toBeVisible() // #176
+  for (const key of ['consult', 'procedure', 'lab', 'other']) await expect(page.getByTestId(`earnings-category-${key}`)).toBeVisible()
   await expect(page.getByTestId('earnings-insight')).toHaveText('Alpha Main Campus revenue down 12% vs last month')
   await page.getByRole('button', { name: /Alpha Main Campus/ }).click()
   await expect(page).toHaveURL(new RegExp(`branch=${ids.alphaMain}`))

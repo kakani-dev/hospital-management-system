@@ -29,6 +29,17 @@ select tests.ok(
   'only the billing service role can execute the earnings report');
 
 select tests.ok(
+  (select not has_function_privilege('anon', oid, 'execute') and not has_function_privilege('authenticated', oid, 'execute')
+   from pg_proc where oid = 'billing.earnings_report_base(uuid,date,date,uuid,text,integer,integer)'::regprocedure),
+  '#176: the inner report function is not callable by anon or authenticated');
+
+select tests.ok(
+  billing.earnings_category_bucket('consultation') = 'consult' and billing.earnings_category_bucket('procedure') = 'procedure'
+  and billing.earnings_category_bucket('lab') = 'lab' and billing.earnings_category_bucket('imaging') = 'other'
+  and billing.earnings_category_bucket('consumable') = 'other' and billing.earnings_category_bucket(null) = 'other',
+  '#176: consultation, procedure and lab map to their own bucket; imaging, consumables and unlinked lines are other');
+
+select tests.ok(
   not has_table_privilege('anon', 'billing.earnings_line_v', 'select')
   and not has_table_privilege('authenticated', 'billing.earnings_line_v', 'select')
   and has_table_privilege('hms_svc_billing', 'billing.earnings_line_v', 'select'),
@@ -324,6 +335,19 @@ begin
     v_report -> 'insights' @> '["Dr. Alpha General (synthetic) leads doctor revenue"]'::jsonb
     and v_report -> 'insights' @> '["Dr. Visiting Consultant (synthetic) has the lowest doctor revenue"]'::jsonb,
     'two doctors are ranked from the bills');
+  -- #176: earnings split by category
+  perform tests.ok(
+    (select jsonb_agg(c ->> 'category') from jsonb_array_elements(v_report -> 'categories') c) = '["consult","procedure","lab","other"]'::jsonb,
+    '#176: categories always list consult, procedure, lab, other in that order');
+  perform tests.ok(
+    (select sum((c ->> 'revenuePaise')::bigint) from jsonb_array_elements(v_report -> 'categories') c)
+      = (select sum((x ->> 'revenuePaise')::bigint) from jsonb_array_elements(v_report -> 'services') x),
+    '#176: category totals add up to the services total (same basis, credit notes excluded)');
+  perform tests.ok(
+    (select (c ->> 'revenuePaise')::bigint from jsonb_array_elements(v_report -> 'categories') c where c ->> 'category' = 'procedure') > 0
+    and (select (c ->> 'revenuePaise')::bigint from jsonb_array_elements(v_report -> 'categories') c where c ->> 'category' = 'consult') = 0
+    and (select (c ->> 'sharePct')::numeric from jsonb_array_elements(v_report -> 'categories') c where c ->> 'category' = 'procedure') = 100,
+    '#176: procedure lines land in procedure (100%); an empty category is 0, not missing');
 
   perform tests.as_superuser();
   insert into billing.approval_request (

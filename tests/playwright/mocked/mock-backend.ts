@@ -386,6 +386,7 @@ function earningsReport() {
     }],
     trend: [{ bucket: '2026-04-01', grossBilledPaise: 1038400, collectedPaise: 1038400, netEarningsPaise: 1038400 }],
     doctors: [], services: [], paymentModes: [],
+    categories: [{ category: 'consult', revenuePaise: 0, lineCount: 0, sharePct: 0 }, { category: 'procedure', revenuePaise: 0, lineCount: 0, sharePct: 0 }, { category: 'lab', revenuePaise: 0, lineCount: 0, sharePct: 0 }, { category: 'other', revenuePaise: 0, lineCount: 0, sharePct: 0 }],
     ageing: { b0To30Paise: 0, b31To60Paise: 0, b61To90Paise: 0, b90PlusPaise: 0 },
     topBottom: { topBranch: null, bottomBranch: null, topDoctor: null, bottomDoctor: null },
     insights: ['Alpha Main Campus revenue down 12% vs last month'],
