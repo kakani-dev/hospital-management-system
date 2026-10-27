@@ -44,7 +44,7 @@ describe('ReceiptPage (#183)', () => {
     expect(screen.getByTestId('billing-receipt-bill-total')).toHaveTextContent('₹700.00')
     expect(screen.getByTestId('billing-receipt-amount')).toHaveTextContent('₹700.00')
     expect(screen.getByTestId('billing-receipt-tenders')).toHaveTextContent('Mode: Cash')
-    expect(screen.getByTestId('billing-receipt-collector')).toHaveTextContent(me.email)
+    expect(screen.getByTestId('billing-receipt-collector')).toHaveTextContent(me.email!)
     expect(screen.getByTestId('receipt')).toHaveAttribute('data-print-area')
     await waitFor(() => expect(print).toHaveBeenCalledTimes(1))
   })
