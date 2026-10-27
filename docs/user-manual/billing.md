@@ -50,6 +50,7 @@ A consultation bill is raised automatically at check-in, for booked appointments
 
 ### Earnings
 You can open **Earnings** too. See [Accountant](accountant.md).
+The **Earnings by category** panel splits service revenue into Consultations, Procedures, Lab and Other (pharmacy, consumables and anything uncategorised), with each one's share. Credit notes are not counted.
 
 ## Common errors
 | Message | Meaning |

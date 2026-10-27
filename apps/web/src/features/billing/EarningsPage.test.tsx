@@ -115,4 +115,42 @@ describe('Earnings page', () => {
     await vi.waitFor(() => expect(saved).toEqual([name]))
     click.mockRestore()
   })
+  it('#176: splits earnings by category (consult, procedure, lab, other) and shows 0 for an older report without categories', async () => {
+    const me = () => json(meFor({ timeZone: 'Asia/Kolkata', accessibleBranches: [{ id: ALPHA_MAIN, name: 'Alpha Main Campus', timeZone: 'Asia/Kolkata' }] }))
+    stubFetch({
+      'GET /api/v1/me': me,
+      'GET /api/v1/billing-reports/earnings': () => json({
+        ...report,
+        categories: [
+          { category: 'consult', revenuePaise: 50000, lineCount: 1, sharePct: 50 },
+          { category: 'procedure', revenuePaise: 30000, lineCount: 1, sharePct: 30 },
+          { category: 'lab', revenuePaise: 20000, lineCount: 2, sharePct: 20 },
+          { category: 'other', revenuePaise: 0, lineCount: 0, sharePct: 0 },
+        ],
+      }),
+    })
+    const view = renderWithProviders(<EarningsPage />, {
+      path: '/billing/earnings?from=2026-04-01&to=2026-04-30&tab=overview',
+      auth: fakeAuthClient({ session: fakeSession() }),
+    })
+    expect(await screen.findByTestId('earnings-categories')).toBeInTheDocument()
+    expect(screen.getByTestId('earnings-category-consult')).toHaveTextContent('Consultations')
+    expect(screen.getByTestId('earnings-category-consult-amount')).toHaveTextContent('₹500.00')
+    expect(screen.getByTestId('earnings-category-procedure-amount')).toHaveTextContent('₹300.00')
+    expect(screen.getByTestId('earnings-category-lab-amount')).toHaveTextContent('₹200.00')
+    expect(screen.getByTestId('earnings-category-lab-share')).toHaveTextContent('20%')
+    expect(screen.getByTestId('earnings-category-other-amount')).toHaveTextContent('₹0.00')
+    view.unmount()
+
+    vi.unstubAllGlobals()
+    stubFetch({ 'GET /api/v1/me': me, 'GET /api/v1/billing-reports/earnings': () => json(report) })
+    renderWithProviders(<EarningsPage />, {
+      path: '/billing/earnings?from=2026-04-01&to=2026-04-30&tab=overview',
+      auth: fakeAuthClient({ session: fakeSession() }),
+    })
+    expect(await screen.findByTestId('earnings-categories')).toBeInTheDocument()
+    for (const key of ['consult', 'procedure', 'lab', 'other']) {
+      expect(screen.getByTestId(`earnings-category-${key}-amount`)).toHaveTextContent('₹0.00')
+    }
+  })
 })
