@@ -358,8 +358,30 @@ begin
   perform tests.ok(
     exists (select 1 from jsonb_array_elements(v_report -> 'sales') s where (s ->> 'invoiceNumber') = (select bill_no from billing.bill where id = v_jan))
     and not exists (select 1 from jsonb_array_elements(v_report -> 'sales') s where (s ->> 'invoiceNumber') = (select bill_no from billing.bill where id = v_feb))
-    and exists (select 1 from jsonb_array_elements(v_report -> 'sales') s where s ->> 'gstin' = 'UNREGISTERED'),
-    '31 Jan 18:29 UTC is still 31 Jan in IST, and a blank GSTIN is UNREGISTERED');
+    and exists (select 1 from jsonb_array_elements(v_report -> 'sales') s
+                where (s ->> 'invoiceNumber') = (select bill_no from billing.bill where id = v_jan) and s ->> 'gstin' = '36AABCU9603R1ZM'),
+    '31 Jan 18:29 UTC is still 31 Jan in IST, and a bill without a GSTIN snapshot reports the branch GSTIN (#92)');
+  perform tests.ok(
+    exists (select 1 from jsonb_array_elements(v_report -> 'gstr1') g where g ->> 'gstin' = '36AABCU9603R1ZM' and g ->> 'month' = '2026-01')
+    and not exists (select 1 from jsonb_array_elements(v_report -> 'gstr1') g where g ->> 'gstin' = 'UNREGISTERED'),
+    'GSTR-1 summary groups the unsnapshotted bill under the branch GSTIN, not UNREGISTERED (#92)');
+  perform tests.ok(
+    (billing.bill_document(v_tenant, v_jan) -> 'supplier' ->> 'gstin') = '36AABCU9603R1ZM',
+    'the bill document and the report agree on the GSTIN (#92)');
+
+  perform tests.as_superuser();
+  update billing.branch_profile set gstin = null where tenant_id = v_tenant and branch_id = v_main;
+  perform tests.billing_as(v_admin);
+  v_report := billing.earnings_report(v_tenant, date '2026-01-31', date '2026-02-01', null, 'day', null, null);
+  perform tests.ok(
+    exists (select 1 from jsonb_array_elements(v_report -> 'sales') s
+            where (s ->> 'invoiceNumber') = (select bill_no from billing.bill where id = v_jan) and s ->> 'gstin' = 'UNREGISTERED')
+    and exists (select 1 from jsonb_array_elements(v_report -> 'sales') s
+            where (s ->> 'invoiceNumber') = (select bill_no from billing.bill where id = v_feb) and s ->> 'gstin' = '36AABCU9603R1ZM'),
+    'no snapshot and no branch GSTIN is UNREGISTERED; a bill snapshot wins over the branch profile (#92)');
+  perform tests.as_superuser();
+  update billing.branch_profile set gstin = '36AABCU9603R1ZM' where tenant_id = v_tenant and branch_id = v_main;
+  perform tests.billing_as(v_admin);
   v_report := billing.earnings_report(v_tenant, date '2026-02-01', date '2026-02-01', null, 'day', null, null);
   perform tests.ok(
     exists (select 1 from jsonb_array_elements(v_report -> 'sales') s where (s ->> 'invoiceNumber') = (select bill_no from billing.bill where id = v_feb))

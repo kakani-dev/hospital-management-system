@@ -246,9 +246,9 @@ function Accounts({ report }: { report: EarningsReport }) {
             </thead>
             <tbody>
               {report.gstr1.map((row, i) => (
-                <tr key={i}>
-                  <td className="px-2 py-1">{String(row.gstin)}</td>
-                  <td className="px-2 py-1">{String(row.month)}</td>
+                <tr key={i} data-testid="billing-earnings-gst-row">
+                  <td className="px-2 py-1" data-testid="billing-earnings-gst-gstin">{String(row.gstin)}</td>
+                  <td className="px-2 py-1" data-testid="billing-earnings-gst-month">{String(row.month)}</td>
                   <td className="px-2 py-1">{formatPaise(Number(row.b2cTaxablePaise))}</td>
                   <td className="px-2 py-1">{formatPaise(Number(row.b2bTaxablePaise))}</td>
                   <td className="px-2 py-1">{formatPaise(Number(row.b2cCgstPaise) + Number(row.b2bCgstPaise))}</td>
