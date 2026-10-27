@@ -7,6 +7,9 @@
 -- package, other, or an unlinked line) -> other. Same basis as 'services':
 -- net + tax of finalised lines, credit notes excluded, same period and branch focus.
 
+set local lock_timeout = '5s';
+set local statement_timeout = '120s';
+
 alter function billing.earnings_report(uuid, date, date, uuid, text, integer, integer)
   rename to earnings_report_base;
 revoke all on function billing.earnings_report_base(uuid, date, date, uuid, text, integer, integer) from public, anon, authenticated;
