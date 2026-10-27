@@ -88,6 +88,8 @@ describe('Earnings page', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Accounts' }))
     expect(await screen.findByTestId('gst-summary')).toHaveTextContent('UNREGISTERED')
+    expect(screen.getAllByTestId('billing-earnings-gst-row')).toHaveLength(report.gstr1.length)
+    expect(screen.getAllByTestId('billing-earnings-gst-gstin').map((c) => c.textContent)).toEqual(report.gstr1.map((g) => String(g.gstin)))
     expect(screen.getByTestId('sales-register')).toHaveTextContent('Meera Synthetic-Alpha')
     fireEvent.click(screen.getByRole('button', { name: 'Sales register CSV' }))
     await vi.waitFor(() => {
