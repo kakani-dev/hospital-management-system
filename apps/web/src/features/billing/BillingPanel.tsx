@@ -239,7 +239,7 @@ export function BillingPanel({
           </Button>
           <label className="flex items-center gap-2 text-sm">
             <span className="sr-only">Discount rupees</span>
-            <input data-testid="billing-drawer-discount-rupees"
+            <input
               aria-label="Discount rupees"
               data-testid="billing-panel-discount-input"
               placeholder="Discount ₹"
