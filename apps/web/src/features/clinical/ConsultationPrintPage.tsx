@@ -4,8 +4,17 @@ import { Button } from '../../components/ui/Button'
 import { LoadingBlock } from '../../components/ui/LoadingBlock'
 import { ApiError } from '../../lib/api/client'
 import { formatDayLabel } from '../../lib/dates'
+import { ageOn } from '../patients/patientLabel'
 import { useConsultationPrint } from './consultationApi'
 import { ConsultationSummary } from './ConsultationPage'
+
+const SEX_LABEL: Record<string, string> = { female: 'Female', male: 'Male', other: 'Other' }
+
+/** "36 y · Female". Age is on the prescription date; unknown values print as "—" (#128). */
+function ageSexLabel(dateOfBirth: string | null | undefined, sex: string | null | undefined, onDate: string): string {
+  const age = ageOn(dateOfBirth ?? null, onDate)
+  return `${age ?? 'Age —'} · ${(sex && SEX_LABEL[sex]) || 'Sex —'}`
+}
 
 /** Printable prescription. The server refuses drafts (409), so a draft never reaches paper. */
 export function ConsultationPrintPage() {
@@ -32,8 +41,17 @@ export function ConsultationPrintPage() {
     )
   }
   const p = print.data
+  const onDate = (p.finalizedOn ?? new Date().toISOString()).slice(0, 10)
+  const regNo = p.doctor?.registrationNumber?.trim() || null
   return (
     <article className="mx-auto max-w-3xl space-y-4 bg-white p-6 text-gray-900" data-testid="prescription-print">
+      {!regNo && (
+        <div className="print:hidden" data-testid="print-missing-reg">
+          <Alert tone="warning">
+            This prescription has no doctor registration number, which an Indian prescription must show. Ask an admin to add it under Administration → Practitioners; new prescriptions can't be finalized without it.
+          </Alert>
+        </div>
+      )}
       <header className="border-b border-gray-300 pb-3">
         <p className="text-lg font-semibold">{p.branch?.name ?? p.tenantName}</p>
         {p.branch?.address && <p className="text-sm">{p.branch.address}</p>}
@@ -42,13 +60,14 @@ export function ConsultationPrintPage() {
         <div data-testid="print-doctor">
           <p className="font-semibold">{p.doctor?.name ?? p.practitionerName}</p>
           {p.doctor?.qualifications && <p>{p.doctor.qualifications}</p>}
-          <p>
-            Reg. no. {p.doctor?.registrationNumber ?? '—'}
+          <p data-testid="print-doctor-reg">
+            Reg. no. {regNo ?? '—'}
             {p.doctor?.council ? ` (${p.doctor.council})` : ''}
           </p>
         </div>
         <div data-testid="print-patient" className="text-right">
           <p className="font-semibold">{p.patient?.name}</p>
+          <p data-testid="print-patient-age-sex">{ageSexLabel(p.patient?.dateOfBirth, p.patient?.sex, onDate)}</p>
           <p>MRN {p.patient?.mrn}</p>
           {p.finalizedOn && <p>Date {formatDayLabel(p.finalizedOn.slice(0, 10))}</p>}
           <p>Version {p.version}</p>
