@@ -30,6 +30,7 @@ export function DataTable<T>({
   isFetching = false,
   empty,
   emptyTestId,
+  testId,
   getRowId,
   getRowProps,
   dense = false,
@@ -44,6 +45,12 @@ export function DataTable<T>({
   isFetching?: boolean
   empty: ReactNode
   emptyTestId?: string
+  /**
+   * Stable test id base, module-screen-element (e.g. `patients-list`). The table gets `<testId>`,
+   * each row `<testId>-row`, each cell `<testId>-cell-<column-id>` and the empty cell `<testId>-empty`.
+   * `getRowProps` / `emptyTestId` still win when given.
+   */
+  testId?: string
   getRowId?: (row: T, index: number) => string
   getRowProps?: (row: Row<T>) => HTMLAttributes<HTMLTableRowElement> & { [k: `data-${string}`]: string | undefined }
   dense?: boolean
@@ -70,7 +77,7 @@ export function DataTable<T>({
   const cellBg = clsx('relative bg-white', cardSkin === 'shadow' ? 'dark:bg-dark-700' : 'dark:bg-dark-900')
 
   return (
-    <div className="table-wrapper relative min-w-full overflow-x-auto">
+    <div className="table-wrapper relative min-w-full overflow-x-auto" data-testid={testId}>
       <Table hoverable dense={dense} className="w-full text-left rtl:text-right">
         <caption className="sr-only">{caption}</caption>
         <THead>
@@ -118,16 +125,18 @@ export function DataTable<T>({
               <Tr
                 key={row.id}
                 className={clsx('relative border-y border-transparent border-b-gray-200 dark:border-b-dark-500', rowClass)}
+                data-testid={testId ? `${testId}-row` : undefined}
                 {...rowProps}
               >
                 {row.getVisibleCells().map((cell) => {
                   const content = flexRender(cell.column.columnDef.cell, cell.getContext())
+                  const cellTestId = testId ? `${testId}-cell-${kebab(cell.column.id)}` : undefined
                   return cell.column.id === rowHeader ? (
-                    <Th key={cell.id} scope="row" className={clsx(cellBg, 'font-normal normal-case')}>
+                    <Th key={cell.id} scope="row" className={clsx(cellBg, 'font-normal normal-case')} data-testid={cellTestId}>
                       {content}
                     </Th>
                   ) : (
-                    <Td key={cell.id} className={cellBg}>
+                    <Td key={cell.id} className={cellBg} data-testid={cellTestId}>
                       {content}
                     </Td>
                   )
@@ -137,7 +146,7 @@ export function DataTable<T>({
           })}
           {!isLoading && data.length === 0 && (
             <Tr>
-              <Td colSpan={colCount} className={clsx(cellBg, 'py-6 text-center text-gray-500 dark:text-dark-300')} data-testid={emptyTestId}>
+              <Td colSpan={colCount} className={clsx(cellBg, 'py-6 text-center text-gray-500 dark:text-dark-300')} data-testid={emptyTestId ?? (testId ? `${testId}-empty` : undefined)}>
                 {empty}
               </Td>
             </Tr>
@@ -146,4 +155,9 @@ export function DataTable<T>({
       </Table>
     </div>
   )
+}
+
+/** `visitType` / `bill_no` / `Due date` → `visit-type` / `bill-no` / `due-date`. */
+function kebab(id: string) {
+  return id.replace(/([a-z0-9])([A-Z])/g, '$1-$2').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase()
 }

@@ -136,21 +136,21 @@ function Editor({ consultation: c }: { consultation: Consultation }) {
       {message && <Alert tone={message.tone}>{message.text}</Alert>}
       <Card title="Assessment">
         <div className="grid gap-4 sm:grid-cols-2">
-          <Textarea label="Chief complaint" rows={2} value={draft.chiefComplaint ?? ''} onChange={(e) => set('chiefComplaint', blank(e.target.value))} />
-          <Textarea label="Notes" rows={2} value={draft.notes ?? ''} onChange={(e) => set('notes', blank(e.target.value))} />
-          <FormField label="Diagnosis" value={draft.diagnosisText ?? ''} onChange={(e) => set('diagnosisText', blank(e.target.value))} />
-          <FormField label="Diagnosis code (optional)" hint="e.g. ICD-10" value={draft.diagnosisCode ?? ''} onChange={(e) => set('diagnosisCode', blank(e.target.value))} />
+          <Textarea data-testid="clinical-consultation-chief-complaint" label="Chief complaint" rows={2} value={draft.chiefComplaint ?? ''} onChange={(e) => set('chiefComplaint', blank(e.target.value))} />
+          <Textarea data-testid="clinical-consultation-notes" label="Notes" rows={2} value={draft.notes ?? ''} onChange={(e) => set('notes', blank(e.target.value))} />
+          <FormField data-testid="clinical-consultation-diagnosis" label="Diagnosis" value={draft.diagnosisText ?? ''} onChange={(e) => set('diagnosisText', blank(e.target.value))} />
+          <FormField data-testid="clinical-consultation-diagnosis-code" label="Diagnosis code (optional)" hint="e.g. ICD-10" value={draft.diagnosisCode ?? ''} onChange={(e) => set('diagnosisCode', blank(e.target.value))} />
         </div>
       </Card>
       <Card title="Prescription">
         <ol className="space-y-4" data-testid="prescription-lines">
           {draft.lines.map((l, i) => (
             <li key={i} className="grid gap-3 rounded border border-gray-200 p-3 sm:grid-cols-4 dark:border-dark-500" aria-label={`Line ${i + 1}`}>
-              <FormField label={`Medicine ${i + 1}`} value={l.medicineName} error={errors[`line-${i}-medicineName`]} onChange={(e) => setLine(i, { medicineName: e.target.value })} />
-              <FormField label="Strength" value={l.strength ?? ''} onChange={(e) => setLine(i, { strength: blank(e.target.value) })} />
-              <FormField label="Dose" value={l.dose ?? ''} onChange={(e) => setLine(i, { dose: blank(e.target.value) })} />
-              <FormField label="Frequency" hint="e.g. 1-0-1" value={l.frequency} error={errors[`line-${i}-frequency`]} onChange={(e) => setLine(i, { frequency: e.target.value })} />
-              <FormField
+              <FormField data-testid="clinical-prescription-medicine-name" label={`Medicine ${i + 1}`} value={l.medicineName} error={errors[`line-${i}-medicineName`]} onChange={(e) => setLine(i, { medicineName: e.target.value })} />
+              <FormField data-testid="clinical-prescription-strength" label="Strength" value={l.strength ?? ''} onChange={(e) => setLine(i, { strength: blank(e.target.value) })} />
+              <FormField data-testid="clinical-prescription-dose" label="Dose" value={l.dose ?? ''} onChange={(e) => setLine(i, { dose: blank(e.target.value) })} />
+              <FormField data-testid="clinical-prescription-frequency" label="Frequency" hint="e.g. 1-0-1" value={l.frequency} error={errors[`line-${i}-frequency`]} onChange={(e) => setLine(i, { frequency: e.target.value })} />
+              <FormField data-testid="clinical-prescription-duration-days"
                 label="Duration (days)"
                 type="number"
                 min={1}
@@ -159,8 +159,8 @@ function Editor({ consultation: c }: { consultation: Consultation }) {
                 error={errors[`line-${i}-durationDays`]}
                 onChange={(e) => setLine(i, { durationDays: e.target.value === '' ? null : Number(e.target.value) })}
               />
-              <FormField label="Route" hint="e.g. oral" value={l.route ?? ''} onChange={(e) => setLine(i, { route: blank(e.target.value) })} />
-              <SelectField label="Food" value={l.foodTiming ?? ''} onChange={(e) => setLine(i, { foodTiming: (e.target.value || null) as FoodTiming | null })}>
+              <FormField data-testid="clinical-prescription-route" label="Route" hint="e.g. oral" value={l.route ?? ''} onChange={(e) => setLine(i, { route: blank(e.target.value) })} />
+              <SelectField data-testid="clinical-prescription-food-timing" label="Food" value={l.foodTiming ?? ''} onChange={(e) => setLine(i, { foodTiming: (e.target.value || null) as FoodTiming | null })}>
                 <option value="">—</option>
                 {Object.entries(FOOD_LABEL).map(([v, label]) => (
                   <option key={v} value={v}>
@@ -168,7 +168,7 @@ function Editor({ consultation: c }: { consultation: Consultation }) {
                   </option>
                 ))}
               </SelectField>
-              <FormField label="Instructions" value={l.instructions ?? ''} onChange={(e) => setLine(i, { instructions: blank(e.target.value) })} />
+              <FormField data-testid="clinical-prescription-instructions" label="Instructions" value={l.instructions ?? ''} onChange={(e) => setLine(i, { instructions: blank(e.target.value) })} />
               <div className="sm:col-span-4">
                 <Button variant="ghost" className="px-2 py-1 text-xs" aria-label={`Remove line ${i + 1}`} onClick={() => set('lines', draft.lines.filter((_, j) => j !== i))}>
                   Remove
@@ -183,8 +183,8 @@ function Editor({ consultation: c }: { consultation: Consultation }) {
       </Card>
       <Card title="Follow-up">
         <div className="grid gap-4 sm:grid-cols-2">
-          <FormField label="Follow-up date" type="date" value={draft.followUpDate ?? ''} onChange={(e) => set('followUpDate', blank(e.target.value))} />
-          <Textarea label="Advice" rows={2} value={draft.advice ?? ''} onChange={(e) => set('advice', blank(e.target.value))} />
+          <FormField data-testid="clinical-consultation-follow-up-date" label="Follow-up date" type="date" value={draft.followUpDate ?? ''} onChange={(e) => set('followUpDate', blank(e.target.value))} />
+          <Textarea data-testid="clinical-consultation-advice" label="Advice" rows={2} value={draft.advice ?? ''} onChange={(e) => set('advice', blank(e.target.value))} />
         </div>
       </Card>
       <div className="flex flex-wrap gap-2">
