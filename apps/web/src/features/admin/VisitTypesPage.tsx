@@ -16,7 +16,7 @@ export function VisitTypesPage() {
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const save = async (id: string, fee: string, minutes: string, days: string, branchFee: string, active: boolean) => {
+  const save = async (id: string, fee: string, minutes: string, days: string, followFee: string, freeLimit: string, branchFee: string, active: boolean) => {
     setMessage(null)
     setError(null)
     const defaultFeePaise = parseRupeesToPaise(fee)
@@ -28,6 +28,16 @@ export function VisitTypesPage() {
     }
     if (followUpValidDays != null && (!Number.isInteger(followUpValidDays) || followUpValidDays < 0 || followUpValidDays > 366)) {
       setError('Follow-up window is 0 to 366 days, or blank for none.')
+      return
+    }
+    const followUpFeePaise = followFee.trim() === '' ? null : parseRupeesToPaise(followFee)
+    if (followFee.trim() && followUpFeePaise == null) {
+      setError('Follow-up fee must be a rupee amount (0 for free), or blank for the normal fee.')
+      return
+    }
+    const followUpFreeLimit = freeLimit.trim() === '' ? null : Number(freeLimit)
+    if (followUpFreeLimit != null && (!Number.isInteger(followUpFreeLimit) || followUpFreeLimit < 0 || followUpFreeLimit > 50)) {
+      setError('Free follow-ups is 0 to 50, or blank for no limit.')
       return
     }
     const branchFeePaise = branchFee.trim() ? parseRupeesToPaise(branchFee) : null
@@ -42,6 +52,8 @@ export function VisitTypesPage() {
           defaultFeePaise,
           durationMinutes,
           ...(followUpValidDays == null ? { clearFollowUpWindow: true } : { followUpValidDays }),
+          ...(followUpFeePaise == null ? { clearFollowUpFee: true } : { followUpFeePaise }),
+          ...(followUpFreeLimit == null ? { clearFollowUpFreeLimit: true } : { followUpFreeLimit }),
           isActive: active,
         },
       })
@@ -70,12 +82,14 @@ export function VisitTypesPage() {
             onSubmit={(e) => {
               e.preventDefault()
               const data = new FormData(e.currentTarget)
-              void save(type.id, String(data.get('fee') ?? ''), String(data.get('minutes') ?? ''), String(data.get('days') ?? ''), String(data.get('branchFee') ?? ''), data.get('active') === 'on')
+              void save(type.id, String(data.get('fee') ?? ''), String(data.get('minutes') ?? ''), String(data.get('days') ?? ''), String(data.get('followFee') ?? ''), String(data.get('freeLimit') ?? ''), String(data.get('branchFee') ?? ''), data.get('active') === 'on')
             }}
           >
             <FormField label="Fee (rupees)" name="fee" defaultValue={String(type.defaultFeePaise / 100)} hint={formatPaise(type.effectiveFeePaise)} />
             <FormField label="Minutes" name="minutes" defaultValue={String(type.durationMinutes)} />
-            <FormField label="Follow-up days" name="days" defaultValue={type.followUpValidDays ?? ''} hint="Blank means no window. 0 means none." />
+            <FormField label="Follow-up days" name="days" defaultValue={type.followUpValidDays ?? ''} hint="Blank means no window. 0 means none." data-testid="admin-visittypes-followup-days" />
+            <FormField label="Follow-up fee (rupees)" name="followFee" defaultValue={type.followUpFeePaise == null ? '' : String(type.followUpFeePaise / 100)} hint="0 means free. Blank means the normal fee." data-testid="admin-visittypes-followup-fee" />
+            <FormField label="Free follow-ups" name="freeLimit" defaultValue={type.followUpFreeLimit === undefined ? '1' : (type.followUpFreeLimit ?? '')} hint="How many follow-ups in the window get that fee. Blank means no limit." data-testid="admin-visittypes-free-limit" />
             {activeBranchId && <FormField label="This branch fee (rupees)" name="branchFee" hint="Blank keeps the hospital fee. Filled replaces it at this branch." />}
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" name="active" defaultChecked={type.isActive} />

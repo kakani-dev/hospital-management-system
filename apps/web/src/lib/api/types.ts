@@ -467,6 +467,8 @@ export interface VisitType {
   durationMinutes: number
   followUpValidDays: number | null
   followUpFeePaise: number | null
+  /** Free or reduced follow-ups allowed per window (default 1). Null = no limit. */
+  followUpFreeLimit?: number | null
   sortOrder: number
   isActive: boolean
   effectiveFeePaise: number
@@ -791,6 +793,8 @@ export interface BillLine {
   sgstPaise?: number
   igstPaise?: number
   practitionerId: Guid | null
+  /** Printed under the line, e.g. "Free follow-up (within 7 days of 1 Oct 2026)". */
+  note?: string | null
   /** True when money already taken covers this line. Derived, not stored. */
   locked?: boolean
 }

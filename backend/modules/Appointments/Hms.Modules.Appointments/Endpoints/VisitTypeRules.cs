@@ -1,3 +1,4 @@
+using System.Globalization;
 using Hms.Modules.Appointments.Domain;
 
 namespace Hms.Modules.Appointments.Endpoints;
@@ -12,20 +13,29 @@ public static class VisitTypeRules
     public const string FollowUpCode = "follow_up";
     public const string NewConsultCode = "new_consult";
     public const long MaxFeePaise = 10_000_000_000;
+    public const short DefaultFreeFollowUps = 1;
+    public const short MaxFreeFollowUps = 50;
 
     public readonly record struct Snapshot(
-        Guid Id, string Code, string Name, long DefaultFeePaise, short DurationMinutes, short? FollowUpValidDays, long? FollowUpFeePaise);
+        Guid Id, string Code, string Name, long DefaultFeePaise, short DurationMinutes, short? FollowUpValidDays, long? FollowUpFeePaise,
+        short? FollowUpFreeLimit = null);
 
     public readonly record struct OverrideSnapshot(long? FeePaise, short? DurationMinutes, short? FollowUpValidDays, long? FollowUpFeePaise);
 
     public readonly record struct Effective(
-        Guid Id, string Code, string Name, long FeePaise, short DurationMinutes, short? FollowUpValidDays, long? FollowUpFeePaise);
+        Guid Id, string Code, string Name, long FeePaise, short DurationMinutes, short? FollowUpValidDays, long? FollowUpFeePaise,
+        short? FollowUpFreeLimit = null);
 
-    /// <summary>Entitlement copied onto the earlier visit at booking. Later edits of the visit type do not change it.</summary>
-    public readonly record struct Prior(Guid AppointmentId, DateOnly LocalDate, short? GrantedDays, long? GrantedFeePaise);
+    /// <summary>Entitlement copied onto the earlier visit at booking. Later edits of the visit type do not change it.
+    /// GrantedLimit null is no limit; UsedCount is live bookings that already used this visit's free or reduced fee.</summary>
+    public readonly record struct Prior(
+        Guid AppointmentId, DateOnly LocalDate, short? GrantedDays, long? GrantedFeePaise, short? GrantedLimit = null, int UsedCount = 0);
+
+    /// <summary>Fee for one booking. EntitlementId is the earlier visit whose free or reduced follow-up it used; Note goes on the bill.</summary>
+    public readonly record struct Quote(long FeePaise, Guid? EntitlementId, string? Note);
 
     public static Snapshot From(VisitType type) =>
-        new(type.Id, type.Code, type.Name, type.DefaultFeePaise, type.DurationMinutes, type.FollowUpValidDays, type.FollowUpFeePaise);
+        new(type.Id, type.Code, type.Name, type.DefaultFeePaise, type.DurationMinutes, type.FollowUpValidDays, type.FollowUpFeePaise, type.FollowUpFreeLimit);
 
     public static OverrideSnapshot From(VisitTypeOverride row) =>
         new(row.FeePaise, row.DurationMinutes, row.FollowUpValidDays, row.FollowUpFeePaise);
@@ -37,7 +47,8 @@ public static class VisitTypeRules
         branch?.FeePaise ?? type.DefaultFeePaise,
         branch?.DurationMinutes ?? type.DurationMinutes,
         branch is { FollowUpValidDays: { } days } ? days : type.FollowUpValidDays,
-        branch is { FollowUpFeePaise: { } fee } ? fee : type.FollowUpFeePaise);
+        branch is { FollowUpFeePaise: { } fee } ? fee : type.FollowUpFeePaise,
+        type.FollowUpFreeLimit);
 
     public static bool WithinWindow(Prior prior, DateOnly bookingDate)
     {
@@ -50,14 +61,32 @@ public static class VisitTypeRules
         return elapsed >= 0 && elapsed <= prior.GrantedDays.Value;
     }
 
-    public static long FeeFor(Effective selected, Prior? prior, DateOnly bookingDate)
+    /// <summary>Inside the window and the free or reduced follow-up count is not used up.</summary>
+    public static bool Entitled(Prior prior, DateOnly bookingDate) =>
+        WithinWindow(prior, bookingDate)
+        && prior.GrantedLimit is not <= 0
+        && (prior.GrantedLimit is null || prior.UsedCount < prior.GrantedLimit.Value);
+
+    public static long FeeFor(Effective selected, Prior? prior, DateOnly bookingDate) =>
+        QuoteFor(selected, prior, bookingDate).FeePaise;
+
+    /// <summary>
+    /// A Follow-up inside the prior visit's window, with a free or reduced fee left, uses that fee and records the
+    /// earlier visit so the count can be enforced. After the window (or once used up) the Follow-up type fee applies.
+    /// Only the consultation line changes; labs and medicines are billed as usual.
+    /// </summary>
+    public static Quote QuoteFor(Effective selected, Prior? prior, DateOnly bookingDate)
     {
-        if (selected.Code == FollowUpCode && prior is { } earlier && WithinWindow(earlier, bookingDate))
+        if (selected.Code == FollowUpCode && prior is { GrantedFeePaise: { } granted } earlier && Entitled(earlier, bookingDate))
         {
-            return earlier.GrantedFeePaise ?? selected.FeePaise;
+            var day = earlier.LocalDate.ToString("d MMM yyyy", CultureInfo.InvariantCulture);
+            var note = granted == 0
+                ? $"Free follow-up (within {earlier.GrantedDays} days of {day})"
+                : $"Reduced follow-up fee (within {earlier.GrantedDays} days of {day})";
+            return new Quote(granted, earlier.AppointmentId, note);
         }
 
-        return selected.FeePaise;
+        return new Quote(selected.FeePaise, null, null);
     }
 
     /// <summary>Follow-up when the same doctor was seen inside the prior visit's window; otherwise New consult.</summary>
@@ -73,10 +102,14 @@ public static class VisitTypeRules
 
         if (followUp.Id != Guid.Empty && prior is { } earlier && WithinWindow(earlier, bookingDate))
         {
-            var fee = earlier.GrantedFeePaise ?? followUp.FeePaise;
-            var suggested = followUp with { FeePaise = fee };
-            return (suggested, true, earlier.AppointmentId,
-                $"Saw this doctor within {earlier.GrantedDays} days, so Follow-up is suggested.");
+            var quote = QuoteFor(followUp, earlier, bookingDate);
+            var suggested = followUp with { FeePaise = quote.FeePaise };
+            var reason = quote.Note is { } note
+                ? $"Saw this doctor within {earlier.GrantedDays} days, so Follow-up is suggested. {note}."
+                : earlier.GrantedFeePaise is not null
+                    ? $"Saw this doctor within {earlier.GrantedDays} days, but the free follow-up was already used, so the Follow-up fee applies."
+                    : $"Saw this doctor within {earlier.GrantedDays} days, so Follow-up is suggested.";
+            return (suggested, true, earlier.AppointmentId, reason);
         }
 
         return (fresh, false, null, null);
@@ -107,6 +140,8 @@ public static class VisitTypeRules
     public static bool ValidFee(long? paise) => paise is null or >= 0 and <= MaxFeePaise;
 
     public static bool ValidDuration(int? minutes) => minutes is null || minutes is >= 5 and <= 240;
+
+    public static bool ValidFreeLimit(int? count) => count is null || count is >= 0 and <= MaxFreeFollowUps;
 
     public static bool ValidWindow(int? days) => days is null || days is >= 0 and <= 366;
 

@@ -241,3 +241,43 @@ Source of truth is shared with the Notion database [Test Cases](https://app.noti
 - Test data: —
 - Expected: 5 defaults: new consult, follow-up, review, emergency, teleconsult
 - Rule / code: `ensure_default_visit_types`
+
+## APT-021
+
+**Second follow-up in the window is charged** · P1 · functional · Role: receptionist
+
+- Preconditions: New consult D (7 days, free, 1 free follow-up); one follow-up at D+2 used it
+- Steps: Book another Follow-up with the same doctor at D+4
+- Test data: Synthetic patient
+- Expected: ₹200 normal fee; no bill note; the suggestion says the free follow-up is already used
+- Rule / code: `VisitTypeRules.QuoteFor, LatestPriorAsync`
+
+## APT-022
+
+**Cancelled free follow-up gives the slot back** · P2 · functional · Role: receptionist
+
+- Preconditions: APT-021 preconditions
+- Steps: Cancel the D+2 follow-up, then book a Follow-up at D+5
+- Test data: Synthetic patient
+- Expected: ₹0; cancelled and no-show follow-ups do not count
+- Rule / code: `LatestPriorAsync used count`
+
+## APT-023
+
+**Free follow-up note on the bill; other services charged** · P1 · functional · Role: billing
+
+- Preconditions: A ₹0 follow-up checked in
+- Steps: Open the draft bill and add a lab test
+- Test data: Synthetic lab ₹300
+- Expected: CONSULT ₹0 with "Free follow-up (within 7 days of <date>)"; lab line ₹300 with no note
+- Rule / code: `billing.ensure_draft, appointment_consultation_fee_v2, 54_free_followup_bill_note_test.sql`
+
+## APT-024
+
+**Admin edits follow-up fee and free count** · P2 · functional · Role: tenant_admin
+
+- Preconditions: Any visit type
+- Steps: Admin > Visit types: set Follow-up fee and Free follow-ups (0-50, blank = no limit)
+- Test data: —
+- Expected: Saved; 51 is rejected; next booking uses the new values, old bookings keep their snapshot
+- Rule / code: `VisitTypesPage, ValidFreeLimit`
