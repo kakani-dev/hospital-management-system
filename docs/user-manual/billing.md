@@ -1,9 +1,11 @@
 # Billing / cashier
 
 ## What you can and cannot do
-Menus: **Dashboard, Patients, Appointments, Schedules, Bills, Day end, Earnings**.
+Menus: **Dashboard, OPD queue, Patients, Appointments, Schedules, Bills, Day end, Earnings**.
 
 You can view patients and appointments; open bills, add services, close bills, take cash/UPI/payment links, apply advances, request discounts and record refunds; see Day end and the Earnings dashboard.
+
+In **OPD queue** you can see tokens and press **Collect ₹X**, but not check in, change tokens or close the day.
 
 You cannot: approve discounts or refunds above the limit (**Approvals** is admin-only), reconcile a counter, register patients, check in, or use administration screens.
 
@@ -13,6 +15,13 @@ You cannot: approve discounts or refunds above the limit (**Approvals** is admin
 See [Signing in](README.md#signing-in-all-roles). Pick your counter's branch in the top bar.
 
 ## Daily tasks
+
+### Collect from the queue
+1. **OPD queue** → press **Collect ₹X** on the patient's row. The Collect screen shows the patient's name, MRN and doctor at the top.
+2. To add a service, type its name and a quantity, e.g. `ecg 2`. Quantities are whole numbers.
+3. Pick **Cash**, **UPI**, **Card** or **Split**. For cash, enter the amount received; the change due is shown. For split, enter each part.
+4. Press **Enter** (or **Collect**): payment is recorded, the bill is closed and the receipt prints in the same tab.
+5. The receipt shows hospital name and GSTIN, patient and MRN, bill no, receipt no, date, lines, total, paid, payment mode and who collected.
 
 ### Find a bill
 **Bills**: filter by **Bill status** (Any, Draft, Finalized, Cancelled draft) and **From**/**To** dates. Click a bill to open it.
@@ -34,7 +43,8 @@ A consultation bill is raised automatically at check-in, for booked appointments
 ![A finalized bill](img/billing_paid_bill.png)
 
 ### Refunds and credit notes
-1. Open the finalized bill. In **Refund**, pick the receipt, enter **Refund rupees**, press **Refund**.
+Refunds are recorded instantly (within your limit).
+1. Open the finalized bill. Open **⋯ More → Refund**. In **Refund**, pick the receipt, enter **Refund rupees**, press **Refund**.
 2. HMS shows "Refund R… Credit note CN…". A credit note is created automatically when needed.
 3. If it needs a second person you see "This refund needs someone else to approve it." An admin approves it in **Approvals**.
 

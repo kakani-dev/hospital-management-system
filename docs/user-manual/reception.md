@@ -33,6 +33,8 @@ Before saving, HMS checks for existing patients:
 ![Patients](img/reception_patients.png)
 
 ### Book an appointment (with a visit type)
+**Free follow-up**: book the visit type **Follow-up**. A follow-up with the same doctor within 7 days of the paid visit is free (₹0, the reason prints on the bill), limit 1; the next one is charged the visit type fee.
+
 1. **Appointments → Book appointment** (Alt+K).
 2. Pick the patient, **Practitioner**, **Visit type**, **Appointment date** and a free **Start time**. Add an optional reason.
 3. Press **Confirm booking**.
@@ -58,6 +60,8 @@ In **Appointments**, open the booking:
 ![Reception check-in](img/reception_check_in.png)
 
 ### OPD queue
+Press **Collect ₹X** on a row to take payment on one screen; see [Billing](billing.md#collect-from-the-queue).
+
 **OPD queue** (Alt+Q) shows **Waiting**, **In consultation**, **Done** and **Closed**, refreshing every 10 seconds.
 - **Call in** sends the next token to the doctor; **Mark done** finishes; **Remove** takes a token off.
 - The queue closes by itself after midnight in the branch's time zone: tokens still waiting move to **Closed**. You cannot close today's queue early; the board shows *Today's queue closes automatically after midnight (branch time)*. Ask a hospital admin if the branch must close early.
