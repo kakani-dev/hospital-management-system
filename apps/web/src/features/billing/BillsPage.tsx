@@ -6,6 +6,7 @@ import { DataTable, type ColumnDef } from '../../components/table/DataTable'
 import { ApiError, apiClient } from '../../lib/api/client'
 import type { BillListItem } from '../../lib/api/types'
 import { useBranchSelection } from '../tenancy/useBranchSelection'
+import { BILL_STATUS_LABELS, UNNUMBERED_BILL, billStatusLabel } from './billStatus'
 import { formatPaise } from './money'
 
 const columns: ColumnDef<BillListItem, unknown>[] = [
@@ -14,11 +15,11 @@ const columns: ColumnDef<BillListItem, unknown>[] = [
     accessorKey: 'billNo',
     cell: ({ row }) => (
       <Link className="text-primary-600 underline" to={`/billing/bills/${row.original.id}`}>
-        {row.original.billNo ?? 'Draft'}
+        {row.original.billNo ?? UNNUMBERED_BILL}
       </Link>
     ),
   },
-  { header: 'Status', accessorKey: 'status' },
+  { header: 'Status', accessorKey: 'status', cell: ({ row }) => billStatusLabel(row.original.status) },
   {
     header: 'Total',
     accessorKey: 'totalPaise',
@@ -51,9 +52,9 @@ export function BillsPage() {
           Status
           <select aria-label="Bill status" className="mt-1 block rounded-lg border border-gray-300 px-2 py-2 dark:border-dark-500 dark:bg-dark-700" value={status} onChange={(event) => setStatus(event.target.value)}>
             <option value="">Any</option>
-            <option value="draft">Draft</option>
-            <option value="finalized">Finalized</option>
-            <option value="cancelled_draft">Cancelled draft</option>
+            {Object.entries(BILL_STATUS_LABELS).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
           </select>
         </label>
         <label className="text-sm">
