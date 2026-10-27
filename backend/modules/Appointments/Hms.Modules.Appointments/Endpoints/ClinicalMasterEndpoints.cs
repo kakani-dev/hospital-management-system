@@ -185,7 +185,7 @@ public static class ClinicalMasterEndpoints
             return HmsProblems.Forbidden("Only tenant admins can edit visit types.");
         }
 
-        var errors = ValidateType(request.Code, request.Name, request.DefaultFeePaise, request.DurationMinutes, request.FollowUpValidDays, request.FollowUpFeePaise, creating: true);
+        var errors = ValidateType(request.Code, request.Name, request.DefaultFeePaise, request.DurationMinutes, request.FollowUpValidDays, request.FollowUpFeePaise, creating: true, request.FollowUpFreeLimit);
         if (errors.Count > 0)
         {
             return TypedResults.ValidationProblem(errors);
@@ -199,6 +199,7 @@ public static class ClinicalMasterEndpoints
             DurationMinutes = (short)request.DurationMinutes!.Value,
             FollowUpValidDays = request.FollowUpValidDays is { } d ? (short)d : null,
             FollowUpFeePaise = request.FollowUpFeePaise,
+            FollowUpFreeLimit = request.FollowUpFreeLimit is { } n ? (short)n : VisitTypeRules.DefaultFreeFollowUps,
             SortOrder = (short)(request.SortOrder ?? 100),
         };
         db.VisitTypes.Add(row);
@@ -228,7 +229,7 @@ public static class ClinicalMasterEndpoints
             return HmsProblems.NotFound("Visit type not found.");
         }
 
-        var errors = ValidateType(null, request.Name, request.DefaultFeePaise, request.DurationMinutes, request.FollowUpValidDays, request.FollowUpFeePaise, creating: false);
+        var errors = ValidateType(null, request.Name, request.DefaultFeePaise, request.DurationMinutes, request.FollowUpValidDays, request.FollowUpFeePaise, creating: false, request.FollowUpFreeLimit);
         if (errors.Count > 0)
         {
             return TypedResults.ValidationProblem(errors);
@@ -265,6 +266,15 @@ public static class ClinicalMasterEndpoints
         else if (request.FollowUpFeePaise is { } followFee)
         {
             row.FollowUpFeePaise = followFee;
+        }
+
+        if (request.ClearFollowUpFreeLimit == true)
+        {
+            row.FollowUpFreeLimit = null;
+        }
+        else if (request.FollowUpFreeLimit is { } limit)
+        {
+            row.FollowUpFreeLimit = (short)limit;
         }
 
         if (request.IsActive is { } active)
@@ -394,7 +404,7 @@ public static class ClinicalMasterEndpoints
     }
 
     private static Dictionary<string, string[]> ValidateType(
-        string? code, string? name, long? fee, int? duration, int? window, long? followFee, bool creating)
+        string? code, string? name, long? fee, int? duration, int? window, long? followFee, bool creating, int? freeLimit = null)
     {
         var errors = new Dictionary<string, string[]>();
         if (creating && !VisitTypeRules.ValidCode(code?.Trim().ToLowerInvariant()))
@@ -427,19 +437,26 @@ public static class ClinicalMasterEndpoints
             errors["followUpFeePaise"] = ["Follow-up fee must be zero or a positive number of paise."];
         }
 
+        if (!VisitTypeRules.ValidFreeLimit(freeLimit))
+        {
+            errors["followUpFreeLimit"] = [$"Free follow-ups must be 0 to {VisitTypeRules.MaxFreeFollowUps}, or cleared for no limit."];
+        }
+
         return errors;
     }
 
     private static VisitTypeDto ToDto(VisitTypeResolver.Loaded row) => new(
         row.Type.Id, row.Type.Code, row.Type.Name, row.Type.DefaultFeePaise, row.Type.DurationMinutes,
         row.Type.FollowUpValidDays, row.Type.FollowUpFeePaise, row.Type.SortOrder, row.Type.IsActive,
-        row.Effective.FeePaise, row.Effective.DurationMinutes, row.Effective.FollowUpValidDays, row.Effective.FollowUpFeePaise);
+        row.Effective.FeePaise, row.Effective.DurationMinutes, row.Effective.FollowUpValidDays, row.Effective.FollowUpFeePaise,
+        row.Type.FollowUpFreeLimit);
 
     private static VisitTypeDto ToDto(VisitType row)
     {
         var effective = VisitTypeRules.Apply(VisitTypeRules.From(row), null);
         return new(row.Id, row.Code, row.Name, row.DefaultFeePaise, row.DurationMinutes, row.FollowUpValidDays, row.FollowUpFeePaise,
-            row.SortOrder, row.IsActive, effective.FeePaise, effective.DurationMinutes, effective.FollowUpValidDays, effective.FollowUpFeePaise);
+            row.SortOrder, row.IsActive, effective.FeePaise, effective.DurationMinutes, effective.FollowUpValidDays, effective.FollowUpFeePaise,
+            row.FollowUpFreeLimit);
     }
 }
 
@@ -505,18 +522,25 @@ internal static class VisitTypeResolver
                     || a.Status == AppointmentStatus.Completed
                     || (a.Status == AppointmentStatus.Booked && a.StartsAt < now)))
             .OrderByDescending(a => a.StartsAt)
-            .Select(a => new { a.Id, a.StartsAt, a.BranchId, a.GrantedFollowUpDays, a.GrantedFollowUpFeePaise })
+            .Select(a => new { a.Id, a.StartsAt, a.BranchId, a.GrantedFollowUpDays, a.GrantedFollowUpFeePaise, a.GrantedFollowUpLimit })
             .FirstOrDefaultAsync(ct);
         if (prior is null)
         {
             return null;
         }
 
+        // Cancelled and no-show follow-ups give the free follow-up back.
+        var used = await db.Appointments.AsNoTracking()
+            .CountAsync(a => a.FollowUpEntitlementId == prior.Id
+                && a.Status != AppointmentStatus.Cancelled && a.Status != AppointmentStatus.NoShow, ct);
+
         return new VisitTypeRules.Prior(
             prior.Id,
             BranchTime.LocalDate(prior.StartsAt, tenant.TimeZoneFor(prior.BranchId)),
             prior.GrantedFollowUpDays,
-            prior.GrantedFollowUpFeePaise);
+            prior.GrantedFollowUpFeePaise,
+            prior.GrantedFollowUpLimit,
+            used);
     }
 
     public static async Task<(ResolvedVisit? Visit, ValidationProblem? Problem)> TryResolveAsync(
@@ -532,15 +556,19 @@ internal static class VisitTypeResolver
 
         var prior = await LatestPriorAsync(db, tenant, practitionerId, patientId, startsAt, now, ct);
         var bookingDate = BranchTime.LocalDate(startsAt, tenant.TimeZoneFor(branchId));
-        var fee = VisitTypeRules.FeeFor(selected.Effective, prior, bookingDate);
+        var quote = VisitTypeRules.QuoteFor(selected.Effective, prior, bookingDate);
         return (new ResolvedVisit(
             selected.Type.Id,
             startsAt.AddMinutes(selected.Effective.DurationMinutes),
-            fee,
+            quote.FeePaise,
             selected.Effective.FollowUpValidDays,
-            selected.Effective.FollowUpFeePaise), null);
+            selected.Effective.FollowUpFeePaise,
+            selected.Effective.FollowUpFreeLimit,
+            quote.EntitlementId,
+            quote.Note), null);
     }
 }
 
 internal readonly record struct ResolvedVisit(
-    Guid VisitTypeId, DateTimeOffset EndsAt, long FeePaise, short? GrantedFollowUpDays, long? GrantedFollowUpFeePaise);
+    Guid VisitTypeId, DateTimeOffset EndsAt, long FeePaise, short? GrantedFollowUpDays, long? GrantedFollowUpFeePaise,
+    short? GrantedFollowUpLimit, Guid? FollowUpEntitlementId, string? FeeNote);

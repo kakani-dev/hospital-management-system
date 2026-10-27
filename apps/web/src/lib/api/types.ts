@@ -467,6 +467,8 @@ export interface VisitType {
   durationMinutes: number
   followUpValidDays: number | null
   followUpFeePaise: number | null
+  /** Free or reduced follow-ups allowed per window (default 1). Null = no limit. */
+  followUpFreeLimit?: number | null
   sortOrder: number
   isActive: boolean
   effectiveFeePaise: number
@@ -791,6 +793,8 @@ export interface BillLine {
   sgstPaise?: number
   igstPaise?: number
   practitionerId: Guid | null
+  /** Printed under the line, e.g. "Free follow-up (within 7 days of 1 Oct 2026)". */
+  note?: string | null
   /** True when money already taken covers this line. Derived, not stored. */
   locked?: boolean
 }
@@ -1458,4 +1462,69 @@ export interface RecordVitalsRequest {
   spo2?: number
   respRate?: number
   note?: string
+}
+
+/** #106 pharmacy dispensing (inventory service, ADR 0004). */
+export type RxDispenseStatus = 'pending' | 'partial' | 'dispensed'
+
+export interface PharmacyQueueRow {
+  id: Guid
+  branchId: Guid
+  patientId: Guid
+  patientName: string
+  patientMrn: string
+  doctorName: string
+  finalizedOn: string
+  lineCount: number
+  status: RxDispenseStatus
+}
+
+export interface PharmacyRxLine {
+  id: Guid
+  lineNo: number
+  medicineName: string
+  strength: string | null
+  dose: string
+  frequency: string
+  durationDays: number
+  route: string | null
+  foodTiming: string | null
+  instructions: string | null
+  inventoryItemId: Guid | null
+  dispensedBase: number
+  complete: boolean
+  availableBase: number | null
+}
+
+export interface PharmacyDispenseRecord {
+  id: Guid
+  storeId: Guid
+  dispensedBy: Guid
+  createdOn: string
+  note: string | null
+  lines: { prescriptionLineId: Guid; itemId: Guid; brandName: string; batchId: Guid; batchNo: string; expiryDate: string; qtyBase: number; completesLine: boolean }[]
+}
+
+export interface PharmacyPrescription {
+  id: Guid
+  branchId: Guid
+  patientId: Guid
+  patientName: string
+  patientMrn: string
+  practitionerId: Guid
+  doctorName: string
+  finalizedOn: string
+  version: number
+  diagnosisText: string | null
+  superseded: boolean
+  status: RxDispenseStatus
+  lines: PharmacyRxLine[]
+  dispenses: PharmacyDispenseRecord[]
+}
+
+export interface DispenseRequest {
+  consultationId: Guid
+  storeId: Guid
+  note?: string
+  lines: { lineNo: number; itemId?: Guid; qtyBase: number; complete: boolean }[]
 }

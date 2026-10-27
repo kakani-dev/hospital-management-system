@@ -520,7 +520,7 @@ export function useCreateDepartment() {
 export function useUpdateVisitType() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, body }: { id: string; body: { name?: string; defaultFeePaise?: number; durationMinutes?: number; followUpValidDays?: number | null; clearFollowUpWindow?: boolean; followUpFeePaise?: number | null; clearFollowUpFee?: boolean; isActive?: boolean } }) =>
+    mutationFn: ({ id, body }: { id: string; body: { name?: string; defaultFeePaise?: number; durationMinutes?: number; followUpValidDays?: number | null; clearFollowUpWindow?: boolean; followUpFeePaise?: number | null; clearFollowUpFee?: boolean; followUpFreeLimit?: number | null; clearFollowUpFreeLimit?: boolean; isActive?: boolean } }) =>
       apiClient.visitTypes.update(id, body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['visit-types'] }),
   })

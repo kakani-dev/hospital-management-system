@@ -50,6 +50,10 @@ public static class HmsPermissions
     public const string InventoryCatalog = "inventory.catalog";
     public const string InventoryOpening = "inventory.opening";
     public const string InventoryApprove = "inventory.approve";
+    /// <summary>See the "Prescriptions to dispense" queue and a prescription's dispense state (#106).</summary>
+    public const string PharmacyView = "pharmacy.view";
+    /// <summary>Dispense a finalized prescription from a licensed pharmacy store (FEFO stock deduction).</summary>
+    public const string PharmacyDispense = "pharmacy.dispense";
     public const string PrivacyView = "privacy.view";
     public const string PrivacyConsent = "privacy.consent";
     public const string PrivacyNotice = "privacy.notice";
@@ -72,7 +76,7 @@ public static class HmsPermissions
             AppointmentsOverrideHours, QueueView, QueueManage,
             BillingView, BillingBill, BillingCollect, BillingDiscountRequest, BillingApprove, BillingRefund, BillingEarnings,
             BillingCounterReconcile, BillingPricelistManage,
-            InventoryView, InventoryCatalog, InventoryOpening, InventoryApprove,
+            InventoryView, InventoryCatalog, InventoryOpening, InventoryApprove, PharmacyView, PharmacyDispense,
             PrivacyView, PrivacyConsent, PrivacyNotice, PrivacyRequest, PrivacyFulfil, PrivacyErase,
             ClinicalView, ClinicalVitals),
         [HmsRoles.Receptionist] = Set([.. ReadOnlyOps,
@@ -85,7 +89,7 @@ public static class HmsPermissions
         [HmsRoles.Doctor] = Set([.. ReadOnlyOps, PatientsView, AppointmentsView, AppointmentsBookFollowUpOwn, AppointmentsNoShowOwn, QueueView, QueueConsultOwn, PrivacyView, ClinicalView, ClinicalWrite, ClinicalVitals]),
         [HmsRoles.Billing] = Set([.. ReadOnlyOps, PatientsView, AppointmentsView,
             BillingView, BillingBill, BillingCollect, BillingDiscountRequest, BillingRefund, BillingEarnings]),
-        [HmsRoles.Pharmacist] = Set([.. ReadOnlyOps, InventoryView]),
+        [HmsRoles.Pharmacist] = Set([.. ReadOnlyOps, InventoryView, PharmacyView, PharmacyDispense]),
         [HmsRoles.LabTechnician] = Set(ReadOnlyOps),
         [HmsRoles.Viewer] = Set(ReadOnlyOps),
         [HmsRoles.Accountant] = Set([.. ReadOnlyOps, BillingEarnings]),

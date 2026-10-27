@@ -104,6 +104,12 @@ const SetupWizardPage = lazy(() =>
 const StockPage = lazy(() =>
   import("./features/stock/StockPage").then((m) => ({ default: m.StockPage })),
 );
+const PharmacyQueuePage = lazy(() =>
+  import("./features/pharmacy/PharmacyQueuePage").then((m) => ({ default: m.PharmacyQueuePage })),
+);
+const DispensePage = lazy(() =>
+  import("./features/pharmacy/DispensePage").then((m) => ({ default: m.DispensePage })),
+);
 const NoticesPage = lazy(() =>
   import("./features/privacy/NoticesPage").then((m) => ({ default: m.NoticesPage })),
 );
@@ -215,6 +221,10 @@ export function App() {
           </Route>
           <Route element={<RequireCapability capability="stock.view" />}>
             <Route path="stock" element={<Lazy><StockPage /></Lazy>} />
+          </Route>
+          <Route element={<RequireCapability capability="pharmacy.view" />}>
+            <Route path="pharmacy/dispense" element={<Lazy><PharmacyQueuePage /></Lazy>} />
+            <Route path="pharmacy/dispense/:id" element={<Lazy><DispensePage /></Lazy>} />
           </Route>
           <Route element={<RequireCapability capability="privacy.view" />}>
             <Route path="privacy" element={<Lazy><PatientPrivacyPage /></Lazy>} />

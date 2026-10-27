@@ -83,6 +83,9 @@ import type {
   StockCatalog,
   StockItem,
   StockOnHandRow,
+  PharmacyQueueRow,
+  PharmacyPrescription,
+  DispenseRequest,
   StockStore,
   ConsentChoice,
   ConsentLink,
@@ -613,7 +616,7 @@ export class ApiClient {
     list: (branchId?: string) => this.request<VisitType[]>(`/api/v1/visit-types${qs({ branchId })}`),
     suggestion: (params: { branchId: string; practitionerId: string; patientId: string; startsAt: string }) =>
       this.request<VisitSuggestion>(`/api/v1/visit-types/suggestion${qs(params)}`),
-    update: (id: string, body: { name?: string; defaultFeePaise?: number; durationMinutes?: number; followUpValidDays?: number | null; clearFollowUpWindow?: boolean; followUpFeePaise?: number | null; clearFollowUpFee?: boolean; isActive?: boolean }) =>
+    update: (id: string, body: { name?: string; defaultFeePaise?: number; durationMinutes?: number; followUpValidDays?: number | null; clearFollowUpWindow?: boolean; followUpFeePaise?: number | null; clearFollowUpFee?: boolean; followUpFreeLimit?: number | null; clearFollowUpFreeLimit?: boolean; isActive?: boolean }) =>
       this.request<VisitType>(`/api/v1/visit-types/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
     upsertOverride: (id: string, body: { branchId: string; feePaise?: number | null; durationMinutes?: number | null; followUpValidDays?: number | null; followUpFeePaise?: number | null }) =>
       this.request<unknown>(`/api/v1/visit-types/${encodeURIComponent(id)}/overrides`, { method: 'POST', body: JSON.stringify(body) }),
@@ -754,6 +757,20 @@ export class ApiClient {
       this.request<StockOnHandRow[]>(
         `/api/v1/inventory/stock${qs({ storeId: params.storeId, itemId: params.itemId, lowStock: params.lowStock ? true : undefined })}`,
       ),
+  }
+
+  /** Pharmacy dispensing (#106). Tenant and branch scope are enforced by the server. */
+  pharmacy = {
+    queue: (params: { branchId?: string; status?: string } = {}) =>
+      this.request<PharmacyQueueRow[]>(`/api/v1/inventory/pharmacy/queue${qs({ branchId: params.branchId, status: params.status })}`),
+    prescription: (id: string, storeId?: string) =>
+      this.request<PharmacyPrescription>(`/api/v1/inventory/pharmacy/prescriptions/${encodeURIComponent(id)}${qs({ storeId })}`),
+    dispense: (idempotencyKey: string, body: DispenseRequest) =>
+      this.request<PharmacyPrescription>('/api/v1/inventory/pharmacy/dispenses', {
+        method: 'POST',
+        body: JSON.stringify(body),
+        headers: { 'Idempotency-Key': idempotencyKey },
+      }),
   }
 
   /** Clinical v1 (scheduling service). Writes: doctor only; the tenant comes from the session. */

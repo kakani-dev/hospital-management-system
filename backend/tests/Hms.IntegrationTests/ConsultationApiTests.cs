@@ -8,6 +8,8 @@ namespace Hms.IntegrationTests;
 
 /// <summary>Consultation + prescription v1 through the edge: lifecycle, concurrency, roles, tenancy, print.</summary>
 [Trait("Category", "Database")]
+// Shares the Beta doctor practitioner row (registration number is toggled in a test), so never run in parallel.
+[Collection("BetaDoctorPractitioner")]
 public sealed class ConsultationApiTests(HmsApiFactory factory) : IClassFixture<HmsApiFactory>
 {
     private static readonly Guid BetaDoctorPractitioner = Guid.Parse("c2222222-0000-4000-8000-000000000001");
@@ -16,6 +18,7 @@ public sealed class ConsultationApiTests(HmsApiFactory factory) : IClassFixture<
     [Fact]
     public async Task Doctor_drafts_finalizes_prints_and_corrects_a_prescription()
     {
+        await SetRegistrationAsync("NMC/2000001", "National Medical Commission (synthetic)");
         var queueEntryId = await CheckInAsync("waiting");
         using var doctor = factory.ClientAs(BetaDoctor, Beta);
 
@@ -59,6 +62,9 @@ public sealed class ConsultationApiTests(HmsApiFactory factory) : IClassFixture<
         var print = await Send(doctor, HttpMethod.Get, $"/api/v1/consultations/{id}/print", null);
         Assert.Equal(HttpStatusCode.OK, print.Status);
         Assert.False(string.IsNullOrEmpty(print.Body.GetProperty("patient").GetProperty("mrn").GetString()));
+        Assert.Equal("NMC/2000001", print.Body.GetProperty("doctor").GetProperty("registrationNumber").GetString());
+        Assert.True(print.Body.GetProperty("patient").TryGetProperty("sex", out _));
+        Assert.True(print.Body.GetProperty("patient").TryGetProperty("dateOfBirth", out _));
 
         var revision = await Send(doctor, HttpMethod.Post, $"/api/v1/consultations/{id}/revisions", new { });
         Assert.Equal(2, revision.Body.GetProperty("version").GetInt32());
@@ -72,6 +78,33 @@ public sealed class ConsultationApiTests(HmsApiFactory factory) : IClassFixture<
 
         using var alpha = factory.ClientAs(AlphaAdmin, Alpha, AlphaMain);
         Assert.Equal(HttpStatusCode.NotFound, (await alpha.GetAsync($"/api/v1/consultations/{id}")).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_doctor_without_a_registration_number_cannot_finalize_a_prescription()
+    {
+        await SetRegistrationAsync(null, null);
+        try
+        {
+            var queueEntryId = await CheckInAsync("waiting");
+            using var doctor = factory.ClientAs(BetaDoctor, Beta);
+            var id = (await Send(doctor, HttpMethod.Post, "/api/v1/consultations", new { queueEntryId })).Body.GetProperty("id").GetString()!;
+            var saved = await Send(doctor, HttpMethod.Put, $"/api/v1/consultations/{id}", new { rowVersion = 1, chiefComplaint = "Cough (synthetic)" });
+            var rv = saved.Body.GetProperty("rowVersion").GetInt32();
+
+            var refused = await Send(doctor, HttpMethod.Post, $"/api/v1/consultations/{id}/finalize", new { rowVersion = rv });
+            Assert.Equal(HttpStatusCode.BadRequest, refused.Status);
+            Assert.Contains("registration number", refused.Body.GetProperty("detail").GetString());
+            Assert.Equal("draft", (await Send(doctor, HttpMethod.Get, $"/api/v1/consultations/{id}", null)).Body.GetProperty("status").GetString());
+
+            await SetRegistrationAsync("NMC/2000001", null);
+            var ok = await Send(doctor, HttpMethod.Post, $"/api/v1/consultations/{id}/finalize", new { rowVersion = rv });
+            Assert.Equal(HttpStatusCode.OK, ok.Status);
+        }
+        finally
+        {
+            await SetRegistrationAsync("NMC/2000001", "National Medical Commission (synthetic)");
+        }
     }
 
     [Fact]
@@ -119,6 +152,18 @@ public sealed class ConsultationApiTests(HmsApiFactory factory) : IClassFixture<
         using var reception = factory.ClientAs(AlphaReception, Alpha, AlphaMain);
         Assert.Equal(HttpStatusCode.Forbidden, (await Send(reception, HttpMethod.Post, "/api/v1/consultations/vitals", new { queueEntryId, pulse = 70 })).Status);
         Assert.Equal(HttpStatusCode.Forbidden, (await reception.GetAsync($"/api/v1/consultations/vitals?patientId={BetaPatient2}")).StatusCode);
+    }
+
+    private static async Task SetRegistrationAsync(string? registrationNumber, string? council)
+    {
+        await using var conn = new NpgsqlConnection(AdminConnection);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(
+            "update appointment.practitioners set registration_number = @r, council_name = @c where id = @id", conn);
+        cmd.Parameters.AddWithValue("r", (object?)registrationNumber ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("c", (object?)council ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("id", BetaDoctorPractitioner);
+        await cmd.ExecuteNonQueryAsync();
     }
 
     private static async Task<Guid> CheckInAsync(string status)

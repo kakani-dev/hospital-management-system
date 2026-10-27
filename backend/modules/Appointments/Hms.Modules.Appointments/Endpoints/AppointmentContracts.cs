@@ -36,15 +36,16 @@ public sealed record UpdateDepartmentRequest(string? Name, bool? IsActive);
 
 public sealed record VisitTypeDto(
     Guid Id, string Code, string Name, long DefaultFeePaise, int DurationMinutes, int? FollowUpValidDays, long? FollowUpFeePaise,
-    int SortOrder, bool IsActive, long EffectiveFeePaise, int EffectiveDurationMinutes, int? EffectiveFollowUpValidDays, long? EffectiveFollowUpFeePaise);
+    int SortOrder, bool IsActive, long EffectiveFeePaise, int EffectiveDurationMinutes, int? EffectiveFollowUpValidDays, long? EffectiveFollowUpFeePaise,
+    int? FollowUpFreeLimit);
 
 public sealed record CreateVisitTypeRequest(
-    string? Code, string? Name, long? DefaultFeePaise, int? DurationMinutes, int? FollowUpValidDays, long? FollowUpFeePaise, int? SortOrder);
+    string? Code, string? Name, long? DefaultFeePaise, int? DurationMinutes, int? FollowUpValidDays, long? FollowUpFeePaise, int? SortOrder, int? FollowUpFreeLimit = null);
 
 /// <summary>Absent = unchanged. clearFollowUpWindow / clearFollowUpFee remove the entitlement or the reduced fee.</summary>
 public sealed record UpdateVisitTypeRequest(
     string? Name, long? DefaultFeePaise, int? DurationMinutes, int? FollowUpValidDays, bool? ClearFollowUpWindow,
-    long? FollowUpFeePaise, bool? ClearFollowUpFee, bool? IsActive);
+    long? FollowUpFeePaise, bool? ClearFollowUpFee, bool? IsActive, int? FollowUpFreeLimit = null, bool? ClearFollowUpFreeLimit = null);
 
 public sealed record VisitTypeOverrideDto(
     Guid Id, Guid VisitTypeId, Guid BranchId, long? FeePaise, int? DurationMinutes, int? FollowUpValidDays, long? FollowUpFeePaise)
@@ -121,12 +122,14 @@ public sealed record AppointmentDto(
     Guid Id, Guid BranchId, Guid PractitionerId, Guid PatientId, DateTimeOffset StartsAt, DateTimeOffset EndsAt, string Status,
     string? Reason, string? CancelReason, DateTimeOffset? CheckedInAt, DateTimeOffset? StartedAt, DateTimeOffset? CompletedAt,
     DateTimeOffset? CancelledAt, DateTimeOffset CreatedOn, DateTimeOffset UpdatedOn, PatientRefDto? Patient,
-    Guid? ParentAppointmentId = null, bool HoursOverride = false, Guid? VisitTypeId = null, long? ConsultationFeePaise = null)
+    Guid? ParentAppointmentId = null, bool HoursOverride = false, Guid? VisitTypeId = null, long? ConsultationFeePaise = null,
+    string? ConsultationFeeNote = null, Guid? FollowUpEntitlementId = null)
 {
     public static AppointmentDto From(Appointment a, PatientRef? patient) => new(
         a.Id, a.BranchId, a.PractitionerId, a.PatientId, a.StartsAt.ToUniversalTime(), a.EndsAt.ToUniversalTime(), a.Status, a.Reason, a.CancelReason,
         a.CheckedInAt, a.StartedAt, a.CompletedAt, a.CancelledAt, a.CreatedOn, a.UpdatedOn, PatientRefDto.From(patient),
-        a.ParentAppointmentId, a.HoursOverride, a.VisitTypeId, a.ConsultationFeePaise);
+        a.ParentAppointmentId, a.HoursOverride, a.VisitTypeId, a.ConsultationFeePaise,
+        a.ConsultationFeeNote, a.FollowUpEntitlementId);
 }
 
 /// <summary>Embedded patient; null when the caller cannot read the patient (RLS) or it is soft-deleted.</summary>

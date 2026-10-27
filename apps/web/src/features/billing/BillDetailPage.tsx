@@ -44,6 +44,7 @@ export function BillDetailPage() {
             <span>{line.name}</span>
             {line.sacHsnCode && <span className="ml-2 text-gray-500">SAC {line.sacHsnCode}</span>}
             <span className="float-right font-mono">{formatPaise(line.netPaise + line.taxPaise)}</span>
+            {line.note && <p data-testid="billing-bill-line-note" className="text-xs text-gray-500">{line.note}</p>}
           </li>
         ))}
       </ul>

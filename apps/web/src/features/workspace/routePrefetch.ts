@@ -16,6 +16,7 @@ const loaders: Record<string, () => Promise<unknown>> = {
   '/billing/day-end': () => import('../billing/DayEndPage'),
   '/billing/earnings': () => import('../billing/EarningsPage'),
   '/stock': () => import('../stock/StockPage'),
+  '/pharmacy/dispense': () => import('../pharmacy/PharmacyQueuePage'),
   '/privacy': () => import('../privacy/PatientPrivacyPage'),
   '/compliance/requests': () => import('../privacy/RequestsPage'),
   '/admin/privacy-notices': () => import('../privacy/NoticesPage'),
