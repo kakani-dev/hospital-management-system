@@ -145,7 +145,7 @@ export function CheckInPage() {
           </div>
         )}
         {issued && canBill && branchId && issued.result.entry?.patientId && (
-          <BillingPanel focusCollect={false} patientId={issued.result.entry.patientId} branchId={branchId} onBack={() => setIssued(null)} />
+          <BillingPanel focusCollect={false} patientId={issued.result.entry.patientId} patient={issued.result.entry.patient ?? undefined} branchId={branchId} onBack={() => setIssued(null)} />
         )}
       </div>
       {failure &&

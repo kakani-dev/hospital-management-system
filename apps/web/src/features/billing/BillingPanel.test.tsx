@@ -91,9 +91,10 @@ describe('BillingPanel', () => {
     await user.type(screen.getByLabelText('Find a service'), 'dress')
     expect(await screen.findByRole('option', { name: /Wound dressing/ })).toBeInTheDocument()
     await user.keyboard('{Enter}')
-    expect(await screen.findAllByTestId('bill-line')).toHaveLength(2)
+    await screen.findByText('Wound dressing', { selector: '[data-testid="bill-line"] *' })
+    expect(screen.getAllByTestId('bill-line')).toHaveLength(2)
     const added = calls.find((call) => call.method === 'POST' && call.path === '/api/v1/bills/bill-1/lines' && (call.body as { serviceItemId?: string }).serviceItemId)
-    expect(added?.body).toEqual({ serviceItemId: 'dress-1' })
+    expect(added?.body).toEqual({ serviceItemId: 'dress-1', quantity: 1 })
   })
 
   it('collects the consultation, then a procedure, on the same open bill', async () => {
@@ -169,6 +170,7 @@ describe('BillingPanel', () => {
       auth: fakeAuthClient({ session: fakeSession() }),
     })
     await userEvent.setup().click(await screen.findByTestId('billing-panel-add-consult'))
+    await user.click(await screen.findByTestId('billing-collect-close-after'))
     await user.click(await screen.findByTestId('collect-cash'))
     expect(await screen.findByText('Collected. Add anything else, then close the bill.')).toBeInTheDocument()
     expect(screen.queryByTestId('paid-status')).not.toBeInTheDocument()
@@ -342,7 +344,7 @@ describe('BillingPanel', () => {
       auth: fakeAuthClient({ session: fakeSession() }),
     })
     await user.click(await screen.findByTestId('collect-cash'))
-    expect(await screen.findByText('Open a counter session before taking cash.')).toBeInTheDocument()
+    expect(await screen.findByText('Open a counter session before taking money.')).toBeInTheDocument()
     expect(calls.some((call) => call.path === '/api/v1/payments')).toBe(false)
   })
 
@@ -419,5 +421,88 @@ describe('BillingPanel', () => {
     expect(screen.getByTestId('billing-panel-discount-submit')).toBeDisabled()
     await user.clear(input); await user.type(input, 'abc')
     expect(screen.getByTestId('billing-panel-discount-submit')).toBeDisabled()
+  })
+
+  it('shows the patient header, collects split payment on Enter, closes and prints (#172, #174)', async () => {
+    const open = vi.fn()
+    vi.stubGlobal('open', open)
+    const calls = stubFetch({
+      'GET /api/v1/patients/patient-1': () => json({ id: 'patient-1', mrn: 'MRN-ZZ1', firstName: 'Qa', lastName: 'Zz-Patient' }),
+      'GET /api/v1/practitioners': () => json([{ id: 'doc-1', displayName: 'Dr Zz-QA' }]),
+      'GET /api/v1/accounts/patient-1/summary': () => json({
+        patientId: 'patient-1',
+        advancePaise: 0,
+        bills: [{ id: 'bill-1', accountId: 'acct-1', branchId: 'branch-1', billNo: null, status: 'draft', billKind: 'final', totalPaise: 50000, duePaise: 50000 }],
+      }),
+      'GET /api/v1/bills/bill-1': () => json(calls.some((c) => c.path === '/api/v1/payments')
+        ? bill({ duePaise: 0, allocatedPaise: 50000, lines: [{ ...bill().lines[0]!, practitionerId: 'doc-1' }] })
+        : bill({ lines: [{ ...bill().lines[0]!, practitionerId: 'doc-1' }] })),
+      'POST /api/v1/counter-sessions/ensure': () => json({ id: 'sess-1', opened: false }),
+      'POST /api/v1/payments': () => json({ id: 'rcpt-9', receiptNo: 'R9', kind: 'payment', amountPaise: 50000, accountId: 'acct-1', counterSessionId: 'sess-1', tenders: [], allocations: [] }),
+      'POST /api/v1/bills/bill-1/finalize': () => json(bill({ status: 'finalized', billNo: 'B1', duePaise: 0, allocatedPaise: 50000 })),
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<BillingPanel patientId="patient-1" branchId="branch-1" onBack={() => {}} />, {
+      auth: fakeAuthClient({ session: fakeSession() }),
+    })
+    expect(await screen.findByTestId('billing-panel-patient-name')).toHaveTextContent('Zz-Patient, Qa')
+    expect(screen.getByTestId('billing-panel-patient-mrn')).toHaveTextContent('MRN-ZZ1')
+    expect(await screen.findByTestId('billing-panel-patient-doctor')).toHaveTextContent('Dr Zz-QA')
+    await user.click(await screen.findByTestId('billing-collect-mode-split'))
+    await user.type(screen.getByTestId('billing-collect-received'), '300{Enter}')
+    expect(await screen.findByTestId('paid-status')).toHaveTextContent('Paid')
+    const pay = calls.find((c) => c.path === '/api/v1/payments')
+    expect(pay?.body).toMatchObject({
+      tenders: [{ mode: 'cash', amountPaise: 30000 }, { mode: 'upi', amountPaise: 20000 }],
+      allocations: [{ billId: 'bill-1', amountPaise: 50000 }],
+    })
+    expect(calls.some((c) => c.path === '/api/v1/bills/bill-1/finalize')).toBe(true)
+    expect(open).toHaveBeenCalledWith('/billing/receipts/rcpt-9?print=1', '_blank', 'noopener')
+  })
+
+  it('shows change due for cash and records only the due', async () => {
+    stubFetch({
+      'GET /api/v1/accounts/patient-1/summary': () => json({
+        patientId: 'patient-1',
+        advancePaise: 0,
+        bills: [{ id: 'bill-1', accountId: 'acct-1', branchId: 'branch-1', billNo: null, status: 'draft', billKind: 'final', totalPaise: 50000, duePaise: 50000 }],
+      }),
+      'GET /api/v1/bills/bill-1': () => json(bill()),
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<BillingPanel patientId="patient-1" branchId="branch-1" onBack={() => {}} />, {
+      auth: fakeAuthClient({ session: fakeSession() }),
+    })
+    await user.type(await screen.findByTestId('billing-collect-received'), '2000')
+    expect(screen.getByTestId('billing-collect-change')).toHaveTextContent('₹1,500.00')
+    expect(screen.getByTestId('collect-cash')).toHaveTextContent('Collect ₹500.00')
+  })
+
+  it('adds a quantity typed after the service name ("ecg 2") (#173)', async () => {
+    const calls = stubFetch({
+      'GET /api/v1/accounts/patient-1/summary': () => json({
+        patientId: 'patient-1',
+        advancePaise: 0,
+        bills: [{ id: 'bill-1', accountId: 'acct-1', branchId: 'branch-1', billNo: null, status: 'draft', billKind: 'final', totalPaise: 50000, duePaise: 50000 }],
+      }),
+      'GET /api/v1/bills/bill-1': () => json(bill()),
+      'GET /api/v1/service-items': () => json([
+        { id: 'ecg-1', code: 'ECG', name: 'ECG', category: 'procedure', taxCodeId: 'tax-1', sacHsnCode: '9993', taxRateBp: 0, isExempt: true, isActive: true, isStockTracked: false, hospitalPricePaise: 20000 },
+      ]),
+      'GET /api/v1/practitioners': () => json([]),
+      'POST /api/v1/bills/bill-1/lines': () => json(bill()),
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<BillingPanel patientId="patient-1" branchId="branch-1" onBack={() => {}} />, {
+      auth: fakeAuthClient({ session: fakeSession() }),
+    })
+    await user.type(await screen.findByLabelText('Find a service'), 'ecg 2')
+    expect(await screen.findByRole('option', { name: /ECG/ })).toBeInTheDocument()
+    expect(screen.getByTestId('billing-drawer-service-qty')).toHaveValue('2')
+    await user.keyboard('{Enter}')
+    await vi.waitFor(() => expect(calls.some((c) => c.path === '/api/v1/bills/bill-1/lines')).toBe(true))
+    const added = calls.find((c) => c.path === '/api/v1/bills/bill-1/lines')
+    expect(added?.body).toEqual({ serviceItemId: 'ecg-1', quantity: 2 })
+    expect(calls.find((c) => c.path === '/api/v1/service-items')?.url).toContain('q=ecg')
   })
 })

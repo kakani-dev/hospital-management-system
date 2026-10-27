@@ -153,7 +153,7 @@ Source of truth is shared with the Notion database [Test Cases](https://app.noti
 **UPI QR uses placeholder** · P2 · edge · Role: billing
 
 - Preconditions: —
-- Steps: Show UPI QR
+- Steps: UPI QR
 - Test data: —
 - Expected: Known gap #63 until mapping ships
 - Rule / code: `GitHub #63`

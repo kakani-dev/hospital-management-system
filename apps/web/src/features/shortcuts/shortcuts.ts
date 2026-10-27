@@ -21,7 +21,7 @@ export const SHORTCUTS: Shortcut[] = [
   { id: 'walk-in', keys: 'Alt+W', description: 'Walk-in: focus the walk-in patient search', capability: 'queue.checkIn' },
   { id: 'queue', keys: 'Alt+Q', description: 'OPD queue board', capability: 'queue.view' },
   { id: 'book', keys: 'Alt+K', description: 'Book an appointment', capability: 'appointments.book' },
-  { id: 'bill', keys: 'Alt+B', description: 'OP consult bill for the open patient', capability: 'billing.bill' },
+  { id: 'bill', keys: 'Alt+B', description: 'Bill and collect for the open patient', capability: 'billing.bill' },
   { id: 'desk', keys: 'Alt+D', description: 'Hospital desk: invite staff and manage branches', capability: 'admin.members' },
   { id: 'help', keys: '?', description: 'Show this list' },
 ]

@@ -91,6 +91,25 @@ describe('QueueBoardPage', () => {
     expect(calls.filter((c) => c.method === 'PATCH').map((c) => c.body)).toEqual([{ status: 'in_consultation' }, { status: 'done' }])
   })
 
+  it('front desk sees Collect on each row and it opens the bill beside the queue (#175)', async () => {
+    routes(['receptionist'], () => [entry('q1', 1, 'done')], {
+      [`GET /api/v1/patients/${PATIENT_ID}`]: () => json(patientDetail),
+      [`GET /api/v1/accounts/${PATIENT_ID}/summary`]: () => json({ patientId: PATIENT_ID, advancePaise: 0, bills: [] }),
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: '/queue', auth: fakeAuthClient({ session: fakeSession() }) })
+    await user.click(await screen.findByRole('button', { name: 'Collect for token 1' }))
+    expect(await screen.findByTestId('billing-panel-empty')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Bill' })).toBeInTheDocument()
+  })
+
+  it('a doctor or nurse gets no Collect button', async () => {
+    routes(['nurse'], () => [entry('q1', 1, 'done')])
+    renderWithProviders(<App />, { path: '/queue', auth: fakeAuthClient({ session: fakeSession() }) })
+    await screen.findByTestId('queue-entry')
+    expect(screen.queryByTestId('queue-row-collect')).not.toBeInTheDocument()
+  })
+
   it('front desk can remove a waiting token; a 409 invalid_transition explains and refreshes', async () => {
     const calls = routes(['receptionist'], () => [entry('q1', 1, 'waiting')], {
       'PATCH /api/v1/queue/q1': () => json({ title: 'Conflict', status: 409, code: 'invalid_transition' }, 409),
