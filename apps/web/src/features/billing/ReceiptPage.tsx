@@ -1,5 +1,7 @@
-import { useParams } from 'react-router'
+import { useEffect } from 'react'
+import { useParams, useSearchParams } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
+import { Button } from '../../components/ui/Button'
 import { Alert } from '../../components/ui/Alert'
 import { Illustration } from '../../components/ui/Illustration'
 import { LoadingBlock } from '../../components/ui/LoadingBlock'
@@ -14,6 +16,11 @@ export function ReceiptPage() {
     queryFn: () => apiClient.billing.receipt(receiptId),
     enabled: !!receiptId,
   })
+  const [search] = useSearchParams()
+  const autoPrint = search.get('print') === '1'
+  useEffect(() => {
+    if (autoPrint && receipt.data) window.print()
+  }, [autoPrint, receipt.data])
   return (
     <div className="mx-auto max-w-lg space-y-4 p-4 sm:p-6">
       <h1 className="text-xl font-semibold text-gray-800 dark:text-dark-50">Receipt</h1>
@@ -32,6 +39,9 @@ export function ReceiptPage() {
               </li>
             ))}
           </ul>
+          <Button variant="secondary" className="h-8 px-3 print:hidden" data-testid="billing-receipt-print" onClick={() => window.print()}>
+            Print
+          </Button>
         </article>
       )}
     </div>

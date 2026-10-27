@@ -190,6 +190,10 @@ export function BillingPanel({
   }
 
   const paid = shown.status === 'finalized' && shown.duePaise <= 0
+  const payments = shown.payments ?? []
+  const lastReceipt = (receiptId ? payments.find((payment) => payment.id === receiptId) : undefined)
+    ?? payments[payments.length - 1]
+    ?? (receiptId ? { id: receiptId, receiptNo: null } : undefined)
   return (
     <div className="space-y-4" data-testid="billing-drawer">
       <p className="text-sm text-gray-500 dark:text-dark-300" data-testid="billing-drawer-bill-status">
@@ -246,12 +250,33 @@ export function BillingPanel({
         <div className="space-y-2 text-center">
           <Illustration name="tick" size={72} className="mx-auto" />
           <p className="font-medium" data-testid="paid-status">Paid</p>
-          {receiptId && (
-            <Link className="text-sm text-primary-600 underline" to={`/billing/receipts/${receiptId}`}>
-              View receipt
-            </Link>
+          {lastReceipt && (
+            <div className="flex items-center justify-center gap-3 text-sm">
+              {lastReceipt.receiptNo && <span className="font-mono" data-testid="billing-panel-receipt-no">{lastReceipt.receiptNo}</span>}
+              <Link className="text-primary-600 underline" data-testid="billing-panel-view-receipt" to={`/billing/receipts/${lastReceipt.id}`}>
+                View receipt
+              </Link>
+              <Link className="text-primary-600 underline" data-testid="billing-panel-print-receipt" to={`/billing/receipts/${lastReceipt.id}?print=1`}>
+                Print
+              </Link>
+            </div>
           )}
         </div>
+      )}
+      {(shown.payments?.length ?? 0) > 0 && (
+        <ul className="divide-y divide-gray-100 text-xs text-gray-600 dark:divide-dark-600 dark:text-dark-200" data-testid="billing-panel-payments">
+          {shown.payments!.map((payment) => (
+            <li key={payment.id} className="flex justify-between gap-2 py-1" data-testid="billing-panel-payment">
+              <span>
+                {payment.receiptNo ?? 'Receipt'} · {payment.kind === 'advance' ? 'Advance' : paymentModeText(payment)}
+                {payment.kind === 'advance' && payment.advanceBalancePaise != null && payment.advanceBalancePaise > 0 && (
+                  <span data-testid="billing-panel-payment-advance-left"> · {formatPaise(payment.advanceBalancePaise)} left</span>
+                )}
+              </span>
+              <span className="font-mono">{formatPaise(payment.appliedPaise ?? payment.amountPaise)}</span>
+            </li>
+          ))}
+        </ul>
       )}
       {shown.status === 'draft' && shown.duePaise === 0 && (
         <p className="text-sm text-gray-500">Collected. Add anything else, then close the bill.</p>
@@ -551,4 +576,11 @@ export function RefundBox({
       {refund.isError && <Alert tone="error">{problemText(refund.error)}</Alert>}
     </form>
   )
+}
+
+/** "cash", or "split: UPI ₹200 + cash ₹300" for a receipt with several tenders. */
+function paymentModeText(payment: { mode: string | null; tenders?: { mode: string; amountPaise: number }[] }) {
+  const tenders = payment.tenders ?? []
+  if (tenders.length > 1) return `Split: ${tenders.map((t) => `${t.mode.toUpperCase()} ${formatPaise(t.amountPaise)}`).join(' + ')}`
+  return (payment.mode ?? tenders[0]?.mode ?? '').toUpperCase()
 }

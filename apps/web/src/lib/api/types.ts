@@ -811,7 +811,14 @@ export interface BillPayment {
   receiptNo: string | null
   amountPaise: number
   refundedPaise: number
+  /** 'split' when the receipt has more than one tender. */
   mode: string | null
+  kind?: 'payment' | 'advance'
+  /** Amount of this receipt applied to this bill. */
+  appliedPaise?: number
+  /** Advance only: what is left to apply or refund. */
+  advanceBalancePaise?: number | null
+  tenders?: { mode: string; amountPaise: number }[]
 }
 
 export interface BillDiscount {
@@ -966,6 +973,8 @@ export interface EarningsMove {
 export interface EarningsCard {
   grossBilledPaise: number
   collectedPaise: number
+  /** Advances taken in the period; not counted in collection efficiency. */
+  advancesPaise?: number
   refundsPaise: number
   netEarningsPaise: number
   outstandingPaise: number

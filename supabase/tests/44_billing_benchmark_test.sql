@@ -286,6 +286,10 @@ begin
   perform billing.set_approval_settings(v_tenant, jsonb_build_object('makerCheckerThresholdPaise', 1000));
   perform billing.set_branch_profile(v_tenant, v_branch, jsonb_build_object('gstin', '36AABCU9603R1ZM', 'legalName', 'Alpha Hospital'));
   select id into v_item from billing.service_item where tenant_id = v_tenant and code = 'PROC18' and not is_deleted;
+  -- Fractional quantities are measured goods only (#167); the rounding checks use a consumable.
+  execute 'reset role';
+  update billing.service_item set category = 'consumable' where id = v_item;
+  execute 'set local role hms_svc_billing';
 
   v_split := billing.tax_split(5, 1800, '36', null);
   perform tests.ok((v_split ->> 'cgstPaise')::bigint = 3 and (v_split ->> 'sgstPaise')::bigint = 2
