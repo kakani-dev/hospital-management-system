@@ -944,6 +944,9 @@ export interface Receipt {
   allocations: { billId: Guid; amountPaise: number }[]
   creditNoteId?: Guid | null
   creditNoteNo?: string | null
+  /** Newer API (#183): when the money was received and the collecting user's id. */
+  receivedAt?: string | null
+  collectedBy?: Guid | null
 }
 
 export interface CashierSession {
