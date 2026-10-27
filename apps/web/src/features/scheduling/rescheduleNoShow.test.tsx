@@ -54,6 +54,10 @@ describe('Reschedule and no-show on the calendar', () => {
     await user.click(await within(drawer).findByText('11:00'))
     await user.click(within(drawer).getByRole('button', { name: 'Confirm new time' }))
     await screen.findByText(/^Moved Asha Synthetic-Alpha to .* at 11:00\.$/)
+    // Slots are asked for the visit's own length (09:30–09:45 → 15 minutes).
+    const slotCalls = calls.filter((c) => c.path === '/api/v1/slots')
+    expect(slotCalls.length).toBeGreaterThan(0)
+    for (const c of slotCalls) expect(new URL(c.url, 'http://localhost').searchParams.get('durationMinutes')).toBe('15')
     const posts = calls.filter((c) => c.method === 'POST').map((c) => c.body)
     // Same practitioner: practitionerId is omitted.
     expect(posts).toEqual([

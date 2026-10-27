@@ -8,7 +8,7 @@ namespace Hms.UnitTests;
 /// </summary>
 internal sealed class UnavailableAppointmentFunctions : IAppointmentFunctions
 {
-    public Task<IReadOnlyList<FreeSlot>> AvailableSlotsAsync(Guid tenantId, Guid branchId, DateOnly fromDate, DateOnly toDate, Guid? practitionerId, CancellationToken ct) =>
+    public Task<IReadOnlyList<FreeSlot>> AvailableSlotsAsync(Guid tenantId, Guid branchId, DateOnly fromDate, DateOnly toDate, Guid? practitionerId, int? durationMinutes, CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<FreeSlot>>([]);
 
     public Task<IssuedToken> CheckInAsync(Guid tenantId, Guid branchId, Guid patientId, Guid appointmentId, CancellationToken ct) =>
