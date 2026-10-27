@@ -619,8 +619,11 @@ export class ApiClient {
       this.request<unknown>(`/api/v1/visit-types/${encodeURIComponent(id)}/overrides`, { method: 'POST', body: JSON.stringify(body) }),
   }
 
-  /** Free, future slots; `from`/`to` are branch-local dates, inclusive, ≤ 31 days. */
-  slots = (params: { branchId: string; from: string; to: string; practitionerId?: string }) =>
+  /**
+   * Free, future slots; `from`/`to` are branch-local dates, inclusive, ≤ 31 days. With `durationMinutes`
+   * only starts where the whole visit fits the hours and no booking are returned, ending at start + duration.
+   */
+  slots = (params: { branchId: string; from: string; to: string; practitionerId?: string; durationMinutes?: number }) =>
     this.request<Slot[]>(`/api/v1/slots${qs(params)}`)
 
   appointments = {

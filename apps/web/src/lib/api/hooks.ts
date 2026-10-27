@@ -45,7 +45,8 @@ export const queryKeys = {
   branchPractitioners: (branchId: string) => ['practitioners', 'branch', branchId] as const,
   schedules: (branchId: string) => ['schedules', branchId] as const,
   appointments: (q: AppointmentQuery) => ['appointments', q] as const,
-  slots: (branchId: string, practitionerId: string, date: string) => ['appointments', 'slots', branchId, practitionerId, date] as const,
+  slots: (branchId: string, practitionerId: string, date: string, durationMinutes?: number) =>
+    ['appointments', 'slots', branchId, practitionerId, date, durationMinutes ?? 0] as const,
   queue: (branchId: string, date: string) => ['queue', branchId, date] as const,
   branches: ['branches'] as const,
   members: ['members'] as const,
@@ -432,19 +433,20 @@ export function usePatientVisits(patientId: string | null) {
 }
 
 /** Free slots across a branch-local date range (inclusive). Used to offer the next open day. */
-export function useSlotsInRange(branchId: string | null, practitionerId: string, from: string, to: string, enabled: boolean) {
+export function useSlotsInRange(branchId: string | null, practitionerId: string, from: string, to: string, enabled: boolean, durationMinutes?: number) {
   return useQuery({
-    queryKey: ['appointments', 'slots', branchId ?? '', practitionerId, from, to] as const,
-    queryFn: () => apiClient.slots({ branchId: branchId!, practitionerId, from, to }),
+    queryKey: ['appointments', 'slots', branchId ?? '', practitionerId, from, to, durationMinutes ?? 0] as const,
+    queryFn: () => apiClient.slots({ branchId: branchId!, practitionerId, from, to, ...(durationMinutes ? { durationMinutes } : {}) }),
     enabled: enabled && !!branchId && !!practitionerId && !!from && !!to,
     retry: false,
   })
 }
 
-export function useSlots(branchId: string | null, practitionerId: string, date: string) {
+/** `durationMinutes`: the visit length, so only starts where the whole visit fits are offered (absent: one slot). */
+export function useSlots(branchId: string | null, practitionerId: string, date: string, durationMinutes?: number) {
   return useQuery({
-    queryKey: queryKeys.slots(branchId ?? '', practitionerId, date),
-    queryFn: () => apiClient.slots({ branchId: branchId!, practitionerId, from: date, to: date }),
+    queryKey: queryKeys.slots(branchId ?? '', practitionerId, date, durationMinutes),
+    queryFn: () => apiClient.slots({ branchId: branchId!, practitionerId, from: date, to: date, ...(durationMinutes ? { durationMinutes } : {}) }),
     enabled: !!branchId && !!practitionerId && !!date,
     retry: false,
     placeholderData: keepPreviousIf<Slot[]>((prev) => prev[2] === (branchId ?? '') && prev[3] === practitionerId),

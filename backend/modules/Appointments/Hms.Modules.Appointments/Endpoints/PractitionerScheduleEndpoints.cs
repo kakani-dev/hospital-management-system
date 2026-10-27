@@ -18,6 +18,10 @@ public static class PractitionerScheduleEndpoints
 {
     internal const int MaxSlotRangeDays = 31;
 
+    // Visit length accepted by GET /slots?durationMinutes= (same 8-hour cap as a booking).
+    internal const int MinVisitMinutes = 5;
+    internal const int MaxVisitMinutes = 480;
+
     public static RouteGroupBuilder MapPractitionerScheduleEndpoints(this RouteGroupBuilder api)
     {
         var practitioners = api.MapGroup("/practitioners").WithTags("Practitioners").RequireTenant().WithDbTransaction<AppointmentsDbContext>();
@@ -589,7 +593,7 @@ public static class PractitionerScheduleEndpoints
 
     // --------------------------------------------------------------------- slots
     private static async Task<Results<Ok<List<SlotDto>>, ValidationProblem, ProblemHttpResult>> SlotsAsync(
-        Guid? branchId, DateOnly? from, DateOnly? to, DateOnly? date, Guid? practitionerId, AppointmentsDbContext db, ITenantContext tenant, TimeProvider clock,
+        Guid? branchId, DateOnly? from, DateOnly? to, DateOnly? date, Guid? practitionerId, int? durationMinutes, AppointmentsDbContext db, ITenantContext tenant, TimeProvider clock,
         IAppointmentFunctions functions, CancellationToken ct)
     {
         if (!tenant.Can(HmsPermissions.AppointmentsView))
@@ -615,6 +619,14 @@ public static class PractitionerScheduleEndpoints
             });
         }
 
+        if (durationMinutes is { } minutes && (minutes < MinVisitMinutes || minutes > MaxVisitMinutes))
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["durationMinutes"] = [$"durationMinutes must be {MinVisitMinutes} to {MaxVisitMinutes}."],
+            });
+        }
+
         var tz = tenant.TimeZoneFor(branch);
         var start = date ?? from ?? BranchTime.Today(clock, tz);
         var end = date ?? to ?? start;
@@ -625,7 +637,7 @@ public static class PractitionerScheduleEndpoints
 
         try
         {
-            var slots = await functions.AvailableSlotsAsync(tenant.TenantId, branch, start, end, practitionerId, ct);
+            var slots = await functions.AvailableSlotsAsync(tenant.TenantId, branch, start, end, practitionerId, durationMinutes, ct);
             return TypedResults.Ok(slots.Select(s => new SlotDto(s.PractitionerId, s.BranchId, s.SlotStart.ToUniversalTime(), s.SlotEnd.ToUniversalTime())).ToList());
         }
         catch (Exception ex) when (HmsProblems.FromDatabase(ex) is { } problem)
