@@ -83,6 +83,9 @@ import type {
   StockCatalog,
   StockItem,
   StockOnHandRow,
+  PharmacyQueueRow,
+  PharmacyPrescription,
+  DispenseRequest,
   StockStore,
   ConsentChoice,
   ConsentLink,
@@ -752,6 +755,20 @@ export class ApiClient {
       this.request<StockOnHandRow[]>(
         `/api/v1/inventory/stock${qs({ storeId: params.storeId, itemId: params.itemId, lowStock: params.lowStock ? true : undefined })}`,
       ),
+  }
+
+  /** Pharmacy dispensing (#106). Tenant and branch scope are enforced by the server. */
+  pharmacy = {
+    queue: (params: { branchId?: string; status?: string } = {}) =>
+      this.request<PharmacyQueueRow[]>(`/api/v1/inventory/pharmacy/queue${qs({ branchId: params.branchId, status: params.status })}`),
+    prescription: (id: string, storeId?: string) =>
+      this.request<PharmacyPrescription>(`/api/v1/inventory/pharmacy/prescriptions/${encodeURIComponent(id)}${qs({ storeId })}`),
+    dispense: (idempotencyKey: string, body: DispenseRequest) =>
+      this.request<PharmacyPrescription>('/api/v1/inventory/pharmacy/dispenses', {
+        method: 'POST',
+        body: JSON.stringify(body),
+        headers: { 'Idempotency-Key': idempotencyKey },
+      }),
   }
 
   /** Clinical v1 (scheduling service). Writes: doctor only; the tenant comes from the session. */

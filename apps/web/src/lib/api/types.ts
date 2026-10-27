@@ -1423,3 +1423,68 @@ export interface ConsultationPrint extends Consultation {
   doctor: { name: string; registrationNumber: string | null; council: string | null; qualifications: string | null } | null
   patient: { mrn: string; name: string; dateOfBirth: string | null; sex: string | null } | null
 }
+
+/** #106 pharmacy dispensing (inventory service, ADR 0004). */
+export type RxDispenseStatus = 'pending' | 'partial' | 'dispensed'
+
+export interface PharmacyQueueRow {
+  id: Guid
+  branchId: Guid
+  patientId: Guid
+  patientName: string
+  patientMrn: string
+  doctorName: string
+  finalizedOn: string
+  lineCount: number
+  status: RxDispenseStatus
+}
+
+export interface PharmacyRxLine {
+  id: Guid
+  lineNo: number
+  medicineName: string
+  strength: string | null
+  dose: string
+  frequency: string
+  durationDays: number
+  route: string | null
+  foodTiming: string | null
+  instructions: string | null
+  inventoryItemId: Guid | null
+  dispensedBase: number
+  complete: boolean
+  availableBase: number | null
+}
+
+export interface PharmacyDispenseRecord {
+  id: Guid
+  storeId: Guid
+  dispensedBy: Guid
+  createdOn: string
+  note: string | null
+  lines: { prescriptionLineId: Guid; itemId: Guid; brandName: string; batchId: Guid; batchNo: string; expiryDate: string; qtyBase: number; completesLine: boolean }[]
+}
+
+export interface PharmacyPrescription {
+  id: Guid
+  branchId: Guid
+  patientId: Guid
+  patientName: string
+  patientMrn: string
+  practitionerId: Guid
+  doctorName: string
+  finalizedOn: string
+  version: number
+  diagnosisText: string | null
+  superseded: boolean
+  status: RxDispenseStatus
+  lines: PharmacyRxLine[]
+  dispenses: PharmacyDispenseRecord[]
+}
+
+export interface DispenseRequest {
+  consultationId: Guid
+  storeId: Guid
+  note?: string
+  lines: { lineNo: number; itemId?: Guid; qtyBase: number; complete: boolean }[]
+}

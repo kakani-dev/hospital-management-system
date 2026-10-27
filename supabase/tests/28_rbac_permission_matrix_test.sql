@@ -2,7 +2,7 @@
 begin;
 select tests.as_superuser();
 
-select tests.ok((select count(*) from identity.role_permissions where role = 'tenant_admin') = 41, 'tenant_admin holds all 41 tenant permissions (earnings and clinical.view add one each)');
+select tests.ok((select count(*) from identity.role_permissions where role = 'tenant_admin') = 43, 'tenant_admin holds all 43 tenant permissions (earnings and clinical.view add one each; pharmacy.view and pharmacy.dispense add two)');
 select tests.ok((select count(*) from identity.role_permissions where role = 'accountant') = 4
                 and exists (select 1 from identity.role_permissions where role = 'accountant' and permission = 'billing.earnings')
                 and not exists (select 1 from identity.role_permissions where role = 'accountant' and permission in ('billing.bill', 'billing.collect', 'billing.refund', 'billing.view')),
@@ -11,9 +11,11 @@ select tests.ok(not exists (select 1 from identity.role_permissions where role i
                             and permission not in ('settings.view', 'branches.view', 'practitioners.view')),
   'viewer / lab_technician are read-only and see no patient data');
 select tests.ok(not exists (select 1 from identity.role_permissions where role = 'pharmacist'
-                            and permission not in ('settings.view', 'branches.view', 'practitioners.view', 'inventory.view'))
-                and exists (select 1 from identity.role_permissions where role = 'pharmacist' and permission = 'inventory.view'),
-  'pharmacist can look at stock and holds no other extra permission');
+                            and permission not in ('settings.view', 'branches.view', 'practitioners.view', 'inventory.view',
+                                               'pharmacy.view', 'pharmacy.dispense'))
+                and exists (select 1 from identity.role_permissions where role = 'pharmacist' and permission = 'inventory.view')
+                and exists (select 1 from identity.role_permissions where role = 'pharmacist' and permission = 'pharmacy.dispense'),
+  'pharmacist can look at stock and dispense, and holds no other extra permission');
 select tests.ok(not exists (select 1 from identity.role_permissions where role in ('doctor', 'nurse', 'billing')
                             and permission in ('patients.create', 'patients.edit', 'patients.delete')),
   'doctor / nurse / billing cannot create or edit patients');
