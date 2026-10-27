@@ -103,6 +103,27 @@ describe('QueueBoardPage', () => {
     expect(screen.getByRole('heading', { name: 'Bill' })).toBeInTheDocument()
   })
 
+  it('the queue Collect button shows the amount due at this branch (#180)', async () => {
+    routes(['receptionist'], () => [entry('q1', 1, 'waiting')], {
+      [`GET /api/v1/accounts/${PATIENT_ID}/summary`]: () => json({
+        patientId: PATIENT_ID,
+        advancePaise: 0,
+        bills: [{ id: 'b1', accountId: 'a1', branchId: ALPHA_MAIN, billNo: null, status: 'draft', billKind: 'final', totalPaise: 70000, duePaise: 70000 }],
+      }),
+    })
+    renderWithProviders(<App />, { path: '/queue', auth: fakeAuthClient({ session: fakeSession() }) })
+    expect(await screen.findByRole('button', { name: 'Collect for token 1' })).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTestId('queue-row-collect-amount')).toHaveTextContent('Collect ₹700.00'))
+  })
+
+  it('the queue Collect button says just Collect when nothing is due (#180)', async () => {
+    routes(['receptionist'], () => [entry('q1', 1, 'done')], {
+      [`GET /api/v1/accounts/${PATIENT_ID}/summary`]: () => json({ patientId: PATIENT_ID, advancePaise: 0, bills: [] }),
+    })
+    renderWithProviders(<App />, { path: '/queue', auth: fakeAuthClient({ session: fakeSession() }) })
+    await waitFor(() => expect(screen.getByTestId('queue-row-collect-amount')).toHaveTextContent(/^Collect$/))
+  })
+
   it('a doctor or nurse gets no Collect button', async () => {
     routes(['nurse'], () => [entry('q1', 1, 'done')])
     renderWithProviders(<App />, { path: '/queue', auth: fakeAuthClient({ session: fakeSession() }) })
