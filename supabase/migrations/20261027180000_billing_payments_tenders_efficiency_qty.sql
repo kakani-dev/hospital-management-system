@@ -1,4 +1,4 @@
--- cross-schema: approved (reads catalog.service_item.category for the whole-quantity rule; read-only)
+-- cross-schema: approved (bill_json reads identity.branch_bill_header_v, unchanged from the previous definition; read-only)
 -- #166: bill payments list each tender (split shows as 'split' plus a tenders array) and the
 --       amount applied to this bill; an advance also reports its remaining balance.
 -- #168: collection efficiency counts bill payments only (advances reported separately), capped at 100%.
