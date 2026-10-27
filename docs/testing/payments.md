@@ -59,8 +59,8 @@ Source of truth is shared with the Notion database [Test Cases](https://app.noti
 - Preconditions: Due ₹500
 - Steps: Pay ₹600 allocated
 - Test data: —
-- Expected: "allocations exceed the bill total"
-- Rule / code: `billing_commands.sql`
+- Expected: 400 "allocations exceed the bill total: ₹500.00 is due" (#143: was a 500)
+- Rule / code: `20261027100200_billing_payment_overpay_4xx.sql`, `supabase/tests/50_payment_overpay_test.sql`
 
 ## PAY-006
 
@@ -71,8 +71,8 @@ Source of truth is shared with the Notion database [Test Cases](https://app.noti
 - Preconditions: Fully paid
 - Steps: Pay again
 - Test data: —
-- Expected: "nothing is due on this bill"
-- Rule / code: `billing_commands.sql`
+- Expected: 400 "nothing is due on this bill" (#143: was a 500)
+- Rule / code: `20261027100200_billing_payment_overpay_4xx.sql`, `supabase/tests/50_payment_overpay_test.sql`
 
 ## PAY-007
 
