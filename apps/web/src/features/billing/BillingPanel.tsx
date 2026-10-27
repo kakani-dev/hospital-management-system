@@ -53,19 +53,19 @@ export function BillingPanel({
     queryFn: () => apiClient.billing.summary(patientId),
   })
 
+  const draftId = summary.data?.bills.find(
+    (item) => item.status === 'draft' && item.billKind === 'final' && item.branchId === branchId,
+  )?.id ?? null
   const consult = useQuery({
-    queryKey: ['billing', 'consult', patientId, branchId, generation],
+    queryKey: ['billing', 'consult', patientId, branchId, generation, generation === 0 ? draftId : null],
     retry: false,
     staleTime: Infinity,
     enabled: summary.isFetched,
     // #164: never open a bill or add a consultation on its own. Show today's draft, or let
     // the user choose. The server fills the doctor and fee for CONSULT (#165).
     queryFn: async (): Promise<BillDocument | null> => {
-      if (generation !== 0 || !summary.data) return null
-      const draft = summary.data.bills.find(
-        (item) => item.status === 'draft' && item.billKind === 'final' && item.branchId === branchId,
-      )
-      return draft ? apiClient.billing.bill(draft.id) : null
+      if (generation !== 0 || !draftId) return null
+      return apiClient.billing.bill(draftId)
     },
   })
 

@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { Illustration } from '../../components/ui/Illustration'
@@ -69,6 +70,7 @@ export function CheckInPage() {
   const todays = (appointments.data ?? []).filter((a) => a.status !== 'cancelled').sort((a, b) => a.startsAt.localeCompare(b.startsAt))
   const patient = usePatientRefs(todays)
   const checkIn = useCheckInAppointment()
+  const qc = useQueryClient()
   const walkIn = useWalkIn()
   const checkingIn = usePendingMutationIds<string>(mutationKeys.checkIn, (id) => id)
 
@@ -80,10 +82,12 @@ export function CheckInPage() {
   const onIssued = (result: CheckInResult, name: string) => {
     setFailure(null)
     setIssued({ result, name })
+    // The billing panel may load before the draft exists: refresh its summary once the draft is open.
+    const refresh = () => void qc.invalidateQueries({ queryKey: ['billing', 'summary'] })
     if (canBill && result.entry?.appointmentId) {
-      void apiClient.billing.ensureDraft(result.entry.appointmentId).catch(() => undefined)
+      void apiClient.billing.ensureDraft(result.entry.appointmentId).then(refresh, () => undefined)
     } else if (canBill && result.queueEntryId) {
-      void apiClient.billing.ensureWalkInDraft(result.queueEntryId).catch(() => undefined)
+      void apiClient.billing.ensureWalkInDraft(result.queueEntryId).then(refresh, () => undefined)
     }
   }
 

@@ -32,6 +32,8 @@ test('Alt+B raises an OP consult bill, then the UPI QR shows Paid', async ({ pag
   await expect(page.getByTestId('patient-context')).toBeVisible()
 
   await page.keyboard.press('Alt+KeyB')
+  // #164: nothing is billed until the user picks Add consultation
+  await page.getByTestId('billing-panel-add-consult').click()
   await expect(page.getByTestId('billing-drawer')).toBeVisible()
   await expect(page.getByText('OP consultation')).toBeVisible()
   await expect(page.getByTestId('bill-total')).toHaveText('₹500.00')
@@ -48,6 +50,7 @@ test('a payment link can be shared, and the public page opens the bill', async (
   await page.getByTestId('command-palette-input').fill('Asha')
   await page.getByTestId('command-patient').first().click()
   await page.getByTestId('context-op-consult').click()
+  await page.getByTestId('billing-panel-add-consult').click()
   await page.getByTestId('finalize-bill').click()
   await page.getByRole('button', { name: 'Share payment link' }).click()
   await page.getByLabel('Phone').fill('+919800000000')
