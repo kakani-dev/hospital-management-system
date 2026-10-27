@@ -96,4 +96,23 @@ describe('Earnings page', () => {
       expect(calls.some((c) => c.url.includes('section=sales') && c.url.includes('format=csv'))).toBe(true)
     })
   })
+
+  it.each([
+    ['billing-earnings-export-sales-csv', 'earnings-sales-2026-04.csv', 'text/csv'],
+    ['billing-earnings-export-all-xlsx', 'earnings-2026-27.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+  ])('%s saves the file under the server name %s (#90)', async (testId, name, type) => {
+    stubFetch({
+      'GET /api/v1/me': () => json(meFor({ timeZone: 'Asia/Kolkata', accessibleBranches: [{ id: ALPHA_MAIN, name: 'Alpha Main Campus', timeZone: 'Asia/Kolkata' }] })),
+      'GET /api/v1/billing-reports/earnings': () => json(report),
+      'GET /api/v1/billing-reports/earnings/export': () =>
+        new Response('x', { status: 200, headers: { 'Content-Type': type, 'Content-Disposition': `attachment; filename="${name}"` } }),
+    })
+    const saved: string[] = []
+    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: () => 'blob:x', revokeObjectURL: () => undefined }))
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) { saved.push(this.download) })
+    renderWithProviders(<Probe />, { path: '/billing/earnings?fy=2026&tab=accounts', auth: fakeAuthClient({ session: fakeSession() }) })
+    fireEvent.click(await screen.findByTestId(testId))
+    await vi.waitFor(() => expect(saved).toEqual([name]))
+    click.mockRestore()
+  })
 })

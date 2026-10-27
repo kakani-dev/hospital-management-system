@@ -289,8 +289,9 @@ function Accounts({ report }: { report: EarningsReport }) {
 
 function ExportButton({ report, section, label, format }: { report: EarningsReport; section?: string; label: string; format: 'csv' | 'xlsx' }) {
   return (
-      <Button
+    <Button
       variant="secondary"
+      data-testid={`billing-earnings-export-${section ?? 'all'}-${format}`}
       onClick={() => {
         void apiClient.billing.earningsExport({
           from: report.financialYear ? undefined : report.from,

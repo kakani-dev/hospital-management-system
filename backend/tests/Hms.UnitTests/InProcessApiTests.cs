@@ -184,7 +184,10 @@ public sealed class InProcessApiTests : IClassFixture<InProcessApiTests.ApiFacto
         using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/patients");
         request.Headers.Add("Origin", "http://localhost:5173");
         var response = await client.SendAsync(request);
-        Assert.Contains(HmsHeaders.Tenant, string.Join(",", response.Headers.GetValues("Access-Control-Expose-Headers")), StringComparison.OrdinalIgnoreCase);
+        var exposed = string.Join(",", response.Headers.GetValues("Access-Control-Expose-Headers"));
+        Assert.Contains(HmsHeaders.Tenant, exposed, StringComparison.OrdinalIgnoreCase);
+        // Export downloads take their file name from Content-Disposition (#90).
+        Assert.Contains("Content-Disposition", exposed, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
