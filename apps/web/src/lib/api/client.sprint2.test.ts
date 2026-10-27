@@ -64,9 +64,12 @@ describe('ApiClient — Sprint 2 scheduling and OPD', () => {
     expect(call(0).url).toBe('https://api.example.test/api/v1/practitioners?activeOnly=true')
     expect(call(1).url).toBe(`https://api.example.test/api/v1/schedules?branchId=${BRANCH}`)
     expect(call(2).url).toBe(`https://api.example.test/api/v1/slots?branchId=${BRANCH}&from=2026-10-09&to=2026-10-09&practitionerId=d1`)
+    // Visit-length aware slots: durationMinutes is sent only when given
+    await client.slots({ branchId: BRANCH, from: '2026-10-09', to: '2026-10-09', practitionerId: 'd1', durationMinutes: 30 })
+    expect(call(3).url).toBe(`https://api.example.test/api/v1/slots?branchId=${BRANCH}&from=2026-10-09&to=2026-10-09&practitionerId=d1&durationMinutes=30`)
     // API v2: practitioners working at a branch
     await client.practitioners.list({ branchId: BRANCH })
-    expect(call(3).url).toBe(`https://api.example.test/api/v1/practitioners?activeOnly=true&branchId=${BRANCH}`)
+    expect(call(4).url).toBe(`https://api.example.test/api/v1/practitioners?activeOnly=true&branchId=${BRANCH}`)
   })
 
   it('lists appointments by instant range (optional filters dropped when empty)', async () => {

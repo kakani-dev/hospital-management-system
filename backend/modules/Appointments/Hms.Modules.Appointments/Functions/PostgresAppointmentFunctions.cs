@@ -8,13 +8,13 @@ namespace Hms.Modules.Appointments.Functions;
 public sealed class PostgresAppointmentFunctions(AppointmentsDbContext db) : IAppointmentFunctions
 {
     public async Task<IReadOnlyList<FreeSlot>> AvailableSlotsAsync(
-        Guid tenantId, Guid branchId, DateOnly fromDate, DateOnly toDate, Guid? practitionerId, CancellationToken ct) =>
+        Guid tenantId, Guid branchId, DateOnly fromDate, DateOnly toDate, Guid? practitionerId, int? durationMinutes, CancellationToken ct) =>
         await RawSql.QueryAsync(
             db,
-            "select practitioner_id, branch_id, slot_start, slot_end from appointment.available_slots(@t::uuid, @b::uuid, @f::date, @to::date, @p::uuid)",
+            "select practitioner_id, branch_id, slot_start, slot_end from appointment.available_slots_v2(@t::uuid, @b::uuid, @f::date, @to::date, @p::uuid, @m::integer)",
             r => new FreeSlot(r.GetGuid(0), r.GetGuid(1), r.GetFieldValue<DateTimeOffset>(2), r.GetFieldValue<DateTimeOffset>(3)),
             ct,
-            ("t", tenantId), ("b", branchId), ("f", fromDate), ("to", toDate), ("p", practitionerId));
+            ("t", tenantId), ("b", branchId), ("f", fromDate), ("to", toDate), ("p", practitionerId), ("m", durationMinutes));
 
     public async Task<IssuedToken> CheckInAsync(Guid tenantId, Guid branchId, Guid patientId, Guid appointmentId, CancellationToken ct) =>
         (await RawSql.QueryAsync(
