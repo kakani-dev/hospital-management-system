@@ -122,6 +122,31 @@ describe('QueueBoardPage', () => {
     expect(calls.filter((c) => c.path.startsWith('/api/v1/queue') && c.method !== 'GET')).toEqual([])
   })
 
+  it('the queue Collect amount comes from one branch query and shows with the queue (#180, #183)', async () => {
+    const calls = routes(['receptionist'], () => [entry('q1', 1, 'waiting')], {
+      'GET /api/v1/bills': () => json([
+        { id: 'b1', billNo: null, status: 'draft', billKind: 'final', patientId: PATIENT_ID, branchId: ALPHA_MAIN, totalPaise: 70000, duePaise: 70000, createdOn: '2026-10-27T05:00:00Z' },
+        { id: 'b2', billNo: null, status: 'draft', billKind: 'final', patientId: 'other', branchId: ALPHA_MAIN, totalPaise: 100, duePaise: 100, createdOn: '2026-10-27T05:00:00Z' },
+      ]),
+    })
+    renderWithProviders(<App />, { path: '/queue', auth: fakeAuthClient({ session: fakeSession() }) })
+    expect(await screen.findByRole('button', { name: 'Collect for token 1' })).toBeInTheDocument()
+    // first paint of the row already carries the amount: no plain "Collect" flash
+    expect(screen.getByTestId('queue-row-collect-amount')).toHaveTextContent('Collect ₹700.00')
+    const url = new URL(calls.find((c) => c.path === '/api/v1/bills')!.url, 'http://x')
+    expect(Object.fromEntries(url.searchParams)).toEqual({ status: 'draft', branchId: ALPHA_MAIN })
+    expect(calls.some((c) => c.path.endsWith('/summary'))).toBe(false)
+  })
+
+
+  it('the queue Collect button says just Collect when nothing is due (#180)', async () => {
+    routes(['receptionist'], () => [entry('q1', 1, 'done')], {
+      [`GET /api/v1/accounts/${PATIENT_ID}/summary`]: () => json({ patientId: PATIENT_ID, advancePaise: 0, bills: [] }),
+    })
+    renderWithProviders(<App />, { path: '/queue', auth: fakeAuthClient({ session: fakeSession() }) })
+    await waitFor(() => expect(screen.getByTestId('queue-row-collect-amount')).toHaveTextContent(/^Collect$/))
+  })
+
   it('a doctor or nurse gets no Collect button', async () => {
     routes(['nurse'], () => [entry('q1', 1, 'done')])
     renderWithProviders(<App />, { path: '/queue', auth: fakeAuthClient({ session: fakeSession() }) })

@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
-import { Link } from 'react-router'
+import { Link, useNavigate } from 'react-router'
+import { useWorkspace } from '../workspace/WorkspaceProvider'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
@@ -42,6 +43,8 @@ export function BillingPanel({
   focusCollect?: boolean
 }) {
   const qc = useQueryClient()
+  const navigate = useNavigate()
+  const { closePatient } = useWorkspace()
   const [generation, setGeneration] = useState(0)
   const [override, setOverride] = useState<{ generation: number; bill: BillDocument } | null>(null)
   const [qr, setQr] = useState<string | null>(null)
@@ -97,6 +100,7 @@ export function BillingPanel({
     onSuccess: (next) => {
       setOverride({ generation, bill: next })
       void qc.invalidateQueries({ queryKey: ['billing', 'summary', patientId, branchId] })
+      void qc.invalidateQueries({ queryKey: ['billing', 'bills'] })
     },
   })
 
@@ -156,13 +160,15 @@ export function BillingPanel({
         setReceived('')
         setUpiPart('')
         setCardRef('')
+        let printReceipt: string | null = null
         let next = await apiClient.billing.bill(shown.id)
         // #172: Enter collects, closes and prints in one go when the bill is fully paid.
         if (closeAfter && next.status === 'draft' && next.duePaise <= 0) {
           next = await apiClient.billing.finalize(shown.id)
-          window.open(`/billing/receipts/${encodeURIComponent(receipt.id)}?print=1`, '_blank', 'noopener')
+          // #180: print in this tab. A new tab starts signed out (the session is per tab in sessionStorage).
+          printReceipt = receipt.id
         }
-        return { bill: next }
+        return { bill: next, printReceipt }
       }
       const session = await apiClient.billing.findSession(branchId).catch(() => null)
       const link = await apiClient.billing.paymentLink(shown.id, {
@@ -181,6 +187,12 @@ export function BillingPanel({
       setOverride({ generation, bill: result.bill })
       void qc.invalidateQueries({ queryKey: ['billing', 'bill', result.bill.id] })
       void qc.invalidateQueries({ queryKey: ['billing', 'summary', patientId, branchId] })
+      void qc.invalidateQueries({ queryKey: ['billing', 'bills'] })
+      if ('printReceipt' in result && result.printReceipt) {
+        // #183: close the Bill panel first so it is not printed over the receipt
+        closePatient()
+        void navigate(`/billing/receipts/${encodeURIComponent(result.printReceipt)}?print=1`)
+      }
     },
   })
 

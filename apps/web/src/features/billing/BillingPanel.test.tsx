@@ -4,6 +4,12 @@ import userEvent from '@testing-library/user-event'
 import { BillingPanel } from './BillingPanel'
 import { fakeAuthClient, fakeSession, json, renderWithProviders, stubFetch } from '../../test/fakes'
 import type { BillDocument } from '../../lib/api/types'
+import { useLocation } from 'react-router'
+
+function Where() {
+  const location = useLocation()
+  return <span data-testid="test-location">{location.pathname + location.search}</span>
+}
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -423,7 +429,7 @@ describe('BillingPanel', () => {
     expect(screen.getByTestId('billing-panel-discount-submit')).toBeDisabled()
   })
 
-  it('shows the patient header, collects split payment on Enter, closes and prints (#172, #174)', async () => {
+  it('shows the patient header, collects split payment on Enter, closes and prints in the same tab (#172, #174, #180)', async () => {
     const open = vi.fn()
     vi.stubGlobal('open', open)
     const calls = stubFetch({
@@ -442,7 +448,7 @@ describe('BillingPanel', () => {
       'POST /api/v1/bills/bill-1/finalize': () => json(bill({ status: 'finalized', billNo: 'B1', duePaise: 0, allocatedPaise: 50000 })),
     })
     const user = userEvent.setup()
-    renderWithProviders(<BillingPanel patientId="patient-1" branchId="branch-1" onBack={() => {}} />, {
+    renderWithProviders(<><BillingPanel patientId="patient-1" branchId="branch-1" onBack={() => {}} /><Where /></>, {
       auth: fakeAuthClient({ session: fakeSession() }),
     })
     expect(await screen.findByTestId('billing-panel-patient-name')).toHaveTextContent('Zz-Patient, Qa')
@@ -457,7 +463,9 @@ describe('BillingPanel', () => {
       allocations: [{ billId: 'bill-1', amountPaise: 50000 }],
     })
     expect(calls.some((c) => c.path === '/api/v1/bills/bill-1/finalize')).toBe(true)
-    expect(open).toHaveBeenCalledWith('/billing/receipts/rcpt-9?print=1', '_blank', 'noopener')
+    // #180: no new tab (it would start signed out); the receipt prints in this tab.
+    expect(await screen.findByTestId('test-location')).toHaveTextContent('/billing/receipts/rcpt-9?print=1')
+    expect(open).not.toHaveBeenCalled()
   })
 
   it('shows change due for cash and records only the due', async () => {
