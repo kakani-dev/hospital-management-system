@@ -5,6 +5,9 @@
 -- The report now uses the same rule: the bill's snapshot GSTIN, else the branch's GSTIN,
 -- else UNREGISTERED. Only this one expression changes; the function body is otherwise a copy
 -- of 20261025250300_billing_earnings.sql. CREATE OR REPLACE keeps the owner and grants.
+-- cross-schema: approved (unchanged from 20261025250300: billing calls identity.earnings_branches_v1,
+-- identity.branch_time_zone_v1, patient.party_label_v1 and appointment.practitioner_label_v1;
+-- br.gstin comes from identity.earnings_branches_v1. It does not read those tables.)
 set local lock_timeout = '5s';
 set local statement_timeout = '120s';
 
