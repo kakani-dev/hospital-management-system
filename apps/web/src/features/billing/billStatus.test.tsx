@@ -48,6 +48,8 @@ describe('Bill status shown once on list and detail (#108)', () => {
       expect(text).toContain(label)
       expect(countOf(text, /draft/gi)).toBe(label.toLowerCase().includes('draft') ? 1 : 0)
     }
+    expect(screen.getAllByTestId('billing-bills-row-status').map((c) => c.textContent)).toEqual(STATUSES.map(([, l]) => l))
+    for (const id of ['billing-bills-filter-status', 'billing-bills-filter-from', 'billing-bills-filter-to']) expect(screen.getByTestId(id)).toBeInTheDocument()
   })
 
   it.each(STATUSES)('detail page for %s shows "%s" once', async (status, label) => {
@@ -63,7 +65,8 @@ describe('Bill status shown once on list and detail (#108)', () => {
       { path: `/billing/bills/b-${status}`, auth: fakeAuthClient({ session: fakeSession() }) },
     )
     const detail = await screen.findByTestId('bill-detail')
-    expect(screen.getByTestId('bill-status')).toHaveTextContent(label)
+    expect(screen.getByTestId('billing-bill-detail-status')).toHaveTextContent(label)
+    expect(screen.getByTestId('billing-bill-detail-number')).toHaveTextContent(status === 'finalized' ? 'BLR/26/0001' : 'Bill · Not numbered')
     expect(countOf(detail.textContent ?? '', /draft/gi)).toBe(label.toLowerCase().includes('draft') ? 1 : 0)
   })
 })

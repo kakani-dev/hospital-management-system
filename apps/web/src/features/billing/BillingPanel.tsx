@@ -169,7 +169,7 @@ export function BillingPanel({
   const paid = shown.status === 'finalized' && shown.duePaise <= 0
   return (
     <div className="space-y-4" data-testid="billing-drawer">
-      <p className="text-sm text-gray-500 dark:text-dark-300">
+      <p className="text-sm text-gray-500 dark:text-dark-300" data-testid="billing-drawer-bill-status">
         {shown.billNo ?? UNNUMBERED_BILL} · {billStatusLabel(shown.status)}
       </p>
       <ul className="divide-y divide-gray-200 dark:divide-dark-500">
