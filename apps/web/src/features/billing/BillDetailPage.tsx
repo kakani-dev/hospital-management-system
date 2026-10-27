@@ -49,6 +49,9 @@ export function BillDetailPage() {
       <p data-testid="gst-components">
         CGST {formatPaise(doc.cgstPaise ?? 0)} · SGST {formatPaise(doc.sgstPaise ?? 0)} · IGST {formatPaise(doc.igstPaise ?? 0)}
       </p>
+      {doc.discountPaise > 0 && (
+        <p data-testid="billing-bill-discount">Discount −{formatPaise(doc.discountPaise)}</p>
+      )}
       <p className="font-medium">Total {formatPaise(doc.totalPaise)} · Due {formatPaise(doc.duePaise)}</p>
       {doc.status === 'draft' && (
         <form
