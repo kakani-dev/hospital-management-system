@@ -39,7 +39,7 @@ test('Alt+B raises an OP consult bill, then the UPI QR shows Paid', async ({ pag
   await expect(page.getByTestId('bill-total')).toHaveText('₹500.00')
 
   await page.getByTestId('finalize-bill').click()
-  await page.getByRole('button', { name: 'Show UPI QR' }).click()
+  await page.getByTestId('billing-collect-upi-qr').click()
   await expect(page.getByRole('img', { name: 'UPI payment QR' })).toBeVisible()
   await expect(page.getByTestId('paid-status')).toHaveText('Paid', { timeout: 10_000 })
 })
@@ -52,7 +52,7 @@ test('a payment link can be shared, and the public page opens the bill', async (
   await page.getByTestId('context-op-consult').click()
   await page.getByTestId('billing-panel-add-consult').click()
   await page.getByTestId('finalize-bill').click()
-  await page.getByRole('button', { name: 'Share payment link' }).click()
+  await page.getByTestId('billing-collect-share-link').click()
   await page.getByLabel('Phone').fill('+919800000000')
   await page.getByRole('button', { name: 'WhatsApp' }).click()
   await expect(page.getByText('Link queued')).toBeVisible()

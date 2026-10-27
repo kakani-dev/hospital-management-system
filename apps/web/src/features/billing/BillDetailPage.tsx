@@ -8,6 +8,7 @@ import { ApiError, apiClient } from '../../lib/api/client'
 import { formatPaise } from './money'
 import { UNNUMBERED_BILL, billStatusLabel } from './billStatus'
 import { RefundBox } from './BillingPanel'
+import { useWorkspace } from '../workspace/WorkspaceProvider'
 
 /** One bill: supplier GSTIN, tax split, place of supply, and a refund against a receipt. */
 export function BillDetailPage() {
@@ -20,6 +21,20 @@ export function BillDetailPage() {
     queryFn: () => apiClient.billing.bill(id),
     enabled: !!id,
   })
+  const { openPatient } = useWorkspace()
+  const [opening, setOpening] = useState(false)
+  // #171: add services and collect from the bill page via the one-screen Collect panel.
+  const openCollect = async (patientId: string) => {
+    setOpening(true)
+    try {
+      const p = await apiClient.patients.get(patientId)
+      openPatient({ id: p.id, mrn: p.mrn, firstName: p.firstName, lastName: p.lastName }, { mode: 'bill' })
+    } catch (error: unknown) {
+      setNotice(error instanceof ApiError ? error.message : 'Could not open the patient.')
+    } finally {
+      setOpening(false)
+    }
+  }
   const savePos = async () => {
     const next = await apiClient.billing.placeOfSupply(id, stateCode)
     qc.setQueryData(['billing', 'bill', id], next)
@@ -41,7 +56,7 @@ export function BillDetailPage() {
       <ul className="divide-y divide-gray-200 text-sm dark:divide-dark-500">
         {doc.lines.map((line) => (
           <li key={line.id} className="py-2">
-            <span>{line.name}</span>
+            <span>{line.name}{line.quantity !== 1 && <span className="text-gray-500"> × {line.quantity}</span>}</span>
             {line.sacHsnCode && <span className="ml-2 text-gray-500">SAC {line.sacHsnCode}</span>}
             <span className="float-right font-mono">{formatPaise(line.netPaise + line.taxPaise)}</span>
             {line.note && <p data-testid="billing-bill-line-note" className="text-xs text-gray-500">{line.note}</p>}
@@ -55,6 +70,11 @@ export function BillDetailPage() {
         <p data-testid="billing-bill-discount">Discount −{formatPaise(doc.discountPaise)}</p>
       )}
       <p className="font-medium">Total {formatPaise(doc.totalPaise)} · Due {formatPaise(doc.duePaise)}</p>
+      {(doc.status === 'draft' || doc.duePaise > 0) && (
+        <Button className="h-8 px-3" data-testid="billing-bill-detail-collect" disabled={opening} onClick={() => void openCollect(doc.patientId)}>
+          {doc.status === 'draft' ? 'Add services / collect' : `Collect ${formatPaise(doc.duePaise)}`}
+        </Button>
+      )}
       {doc.status === 'draft' && (
         <form
           className="flex flex-wrap items-end gap-2"

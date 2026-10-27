@@ -8,8 +8,10 @@ import { LoadingBlock } from '../../components/ui/LoadingBlock'
 import { ApiError, apiClient } from '../../lib/api/client'
 import type { BillDocument, Receipt, ServiceItem } from '../../lib/api/types'
 import { useDebouncedValue } from '../../lib/useDebouncedValue'
+import { usePractitioners } from '../../lib/api/hooks'
 import { UNNUMBERED_BILL, billStatusLabel } from './billStatus'
 import { formatPaise, parseRupeesToPaise, rupeesToPaise } from './money'
+import { type TenderMode, collectAmount, planTenders, splitQuantity, splitUpiHint } from './collect'
 
 const UpiQr = lazy(() => import('./UpiQr').then((m) => ({ default: m.UpiQr })))
 
@@ -21,7 +23,7 @@ function problemText(error: unknown): string {
 }
 
 /**
- * OP consult bill beside the open patient. Alt+B opens this panel. The consultation is
+ * Collect screen beside the open patient (name, MRN and doctor on top). Alt+B opens this panel. The consultation is
  * collected on the open bill, later items share that bill, and Close bill numbers it.
  */
 export function BillingPanel({
@@ -29,8 +31,11 @@ export function BillingPanel({
   branchId,
   onBack,
   focusCollect = true,
+  patient: known,
 }: {
   patientId: string
+  /** Name and MRN the caller already has; skips a patient fetch. */
+  patient?: { mrn: string; firstName: string; lastName: string }
   branchId: string
   onBack: () => void
   /** Check-in leaves focus on the token. The patient drawer still jumps to Collect. */
@@ -46,6 +51,21 @@ export function BillingPanel({
   const [discountRupees, setDiscountRupees] = useState('')
   const [receiptId, setReceiptId] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [mode, setMode] = useState<TenderMode>('cash')
+  const [received, setReceived] = useState('')
+  const [upiPart, setUpiPart] = useState('')
+  const [cardRef, setCardRef] = useState('')
+  const [closeAfter, setCloseAfter] = useState(true)
+  const [moreOpen, setMoreOpen] = useState(false)
+
+  const fetched = useQuery({
+    queryKey: ['patients', 'detail', patientId],
+    retry: false,
+    enabled: !known,
+    queryFn: () => apiClient.patients.get(patientId),
+  })
+  const patient = { data: known ?? fetched.data }
+  const practitioners = usePractitioners()
 
   const summary = useQuery({
     queryKey: ['billing', 'summary', patientId, branchId],
@@ -102,7 +122,7 @@ export function BillingPanel({
   })
 
   const run = useMutation({
-    mutationFn: async (action: 'finalize' | 'cash' | 'qr' | 'whatsapp' | 'sms' | 'discount') => {
+    mutationFn: async (action: 'finalize' | 'collect' | 'qr' | 'whatsapp' | 'sms' | 'discount') => {
       if (!shown) throw new Error('No bill')
       if (action === 'finalize') return { bill: await apiClient.billing.finalize(shown.id) }
       if (action === 'discount') {
@@ -120,18 +140,29 @@ export function BillingPanel({
         setDiscountRupees('')
         return { bill: result }
       }
-      if (action === 'cash') {
+      if (action === 'collect') {
+        const plan = planTenders(mode, shown.duePaise, received, upiPart, cardRef)
+        if ('error' in plan) throw new Error(plan.error)
         const session = await apiClient.billing.ensureSession(branchId)
-        if (!session.id) throw new Error('Open a counter session before taking cash.')
+        if (!session.id) throw new Error('Open a counter session before taking money.')
         const receipt = await apiClient.billing.pay(crypto.randomUUID(), {
           accountId: shown.accountId,
           kind: 'payment',
           counterSessionId: session.id,
-          tenders: [{ mode: 'cash', amountPaise: shown.duePaise }],
-          allocations: [{ billId: shown.id, amountPaise: shown.duePaise }],
+          tenders: plan.tenders,
+          allocations: [{ billId: shown.id, amountPaise: plan.totalPaise }],
         })
         setReceiptId(receipt.id)
-        return { bill: await apiClient.billing.bill(shown.id) }
+        setReceived('')
+        setUpiPart('')
+        setCardRef('')
+        let next = await apiClient.billing.bill(shown.id)
+        // #172: Enter collects, closes and prints in one go when the bill is fully paid.
+        if (closeAfter && next.status === 'draft' && next.duePaise <= 0) {
+          next = await apiClient.billing.finalize(shown.id)
+          window.open(`/billing/receipts/${encodeURIComponent(receipt.id)}?print=1`, '_blank', 'noopener')
+        }
+        return { bill: next }
       }
       const session = await apiClient.billing.findSession(branchId).catch(() => null)
       const link = await apiClient.billing.paymentLink(shown.id, {
@@ -190,12 +221,21 @@ export function BillingPanel({
   }
 
   const paid = shown.status === 'finalized' && shown.duePaise <= 0
+  const doctorId = shown.lines.find((line) => line.practitionerId)?.practitionerId ?? null
+  const doctorName = doctorId ? practitioners.data?.find((person) => person.id === doctorId)?.displayName ?? null : null
+  const receivedPaise = parseRupeesToPaise(received)
+  const changePaise = mode === 'cash' && receivedPaise != null && receivedPaise > shown.duePaise ? receivedPaise - shown.duePaise : 0
   const payments = shown.payments ?? []
   const lastReceipt = (receiptId ? payments.find((payment) => payment.id === receiptId) : undefined)
     ?? payments[payments.length - 1]
     ?? (receiptId ? { id: receiptId, receiptNo: null } : undefined)
   return (
     <div className="space-y-4" data-testid="billing-drawer">
+      <PatientHeader
+        name={patient.data ? `${patient.data.lastName}, ${patient.data.firstName}` : null}
+        mrn={patient.data?.mrn ?? null}
+        doctor={doctorName}
+      />
       <p className="text-sm text-gray-500 dark:text-dark-300" data-testid="billing-drawer-bill-status">
         {shown.billNo ?? UNNUMBERED_BILL} · {billStatusLabel(shown.status)}
       </p>
@@ -204,6 +244,7 @@ export function BillingPanel({
           <li key={line.id} data-testid="bill-line" className="flex items-baseline justify-between gap-3 py-2 text-sm">
             <span>
               {line.name}
+              {line.quantity !== 1 && <span className="text-gray-500" data-testid="billing-panel-line-qty"> × {line.quantity}</span>}
               {line.note && <span data-testid="billing-panel-line-note" className="block text-xs text-gray-500">{line.note}</span>}
             </span>
             <span className="flex items-center gap-3">
@@ -239,7 +280,6 @@ export function BillingPanel({
         <span className="font-mono" data-testid="bill-total">{formatPaise(shown.totalPaise)}</span>
       </p>
       {notice && <Alert tone="info">{notice}</Alert>}
-      <RefundBox bill={shown} onChanged={(next) => { if (next) setOverride({ generation, bill: next }) }} onNotice={setNotice} />
       {shown.roundOffPaise !== 0 && (
         <p className="text-xs text-gray-500">Round-off {formatPaise(shown.roundOffPaise)}</p>
       )}
@@ -321,11 +361,88 @@ export function BillingPanel({
               Apply advance {formatPaise(applicable)}
             </Button>
           )}
-          <div className="flex flex-wrap gap-2">
-            <Button data-testid="collect-cash" onClick={() => run.mutate('cash')} disabled={run.isPending}>Cash</Button>
-            <Button variant="secondary" onClick={() => run.mutate('qr')} disabled={run.isPending}>Show UPI QR</Button>
-            <Button variant="secondary" onClick={() => setShare(share === null ? '' : null)}>Share payment link</Button>
-          </div>
+          <form
+            className="space-y-2 rounded-lg border border-gray-200 p-3 dark:border-dark-500"
+            data-testid="billing-collect-form"
+            aria-label="Collect payment"
+            onSubmit={(event) => {
+              event.preventDefault()
+              if (!run.isPending) run.mutate('collect')
+            }}
+          >
+            <div className="flex flex-wrap gap-1" role="radiogroup" aria-label="Payment mode">
+              {TENDER_MODES.map((option) => (
+                <button
+                  key={option.mode}
+                  type="button"
+                  role="radio"
+                  aria-checked={mode === option.mode}
+                  data-testid={`billing-collect-mode-${option.mode}`}
+                  className={`h-8 rounded-full border px-3 text-xs font-medium ${mode === option.mode ? 'border-primary-600 bg-primary-600 text-white' : 'border-gray-300 text-gray-700 dark:border-dark-500 dark:text-dark-100'}`}
+                  onClick={() => setMode(option.mode)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="text-sm">
+                {mode === 'split' ? 'Cash ₹' : mode === 'cash' ? 'Received ₹' : 'Amount ₹'}
+                <input
+                  aria-label={mode === 'split' ? 'Cash rupees' : 'Amount received rupees'}
+                  data-testid="billing-collect-received"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  placeholder={(shown.duePaise / 100).toFixed(2)}
+                  className="mt-1 block w-28 rounded-lg border border-gray-300 px-2 py-1.5 dark:border-dark-500 dark:bg-dark-700"
+                  value={received}
+                  onChange={(event) => setReceived(event.target.value)}
+                />
+              </label>
+              {mode === 'split' && (
+                <label className="text-sm">
+                  UPI ₹
+                  <input
+                    aria-label="UPI rupees"
+                    data-testid="billing-collect-split-upi"
+                    inputMode="decimal"
+                    autoComplete="off"
+                    placeholder={splitUpiHint(shown.duePaise, received)}
+                    className="mt-1 block w-28 rounded-lg border border-gray-300 px-2 py-1.5 dark:border-dark-500 dark:bg-dark-700"
+                    value={upiPart}
+                    onChange={(event) => setUpiPart(event.target.value)}
+                  />
+                </label>
+              )}
+              {(mode === 'card' || mode === 'upi') && (
+                <label className="text-sm">
+                  {mode === 'card' ? 'Card ref (optional)' : 'UPI ref (optional)'}
+                  <input
+                    aria-label="Payment reference"
+                    data-testid="billing-collect-reference"
+                    autoComplete="off"
+                    className="mt-1 block w-36 rounded-lg border border-gray-300 px-2 py-1.5 dark:border-dark-500 dark:bg-dark-700"
+                    value={cardRef}
+                    onChange={(event) => setCardRef(event.target.value)}
+                  />
+                </label>
+              )}
+            </div>
+            {changePaise > 0 && (
+              <p className="text-sm font-medium" data-testid="billing-collect-change">Change due {formatPaise(changePaise)}</p>
+            )}
+            <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-dark-200">
+              <input type="checkbox" data-testid="billing-collect-close-after" checked={closeAfter} onChange={(event) => setCloseAfter(event.target.checked)} />
+              Close bill and print receipt when fully paid
+            </label>
+            <div className="flex flex-wrap gap-2">
+              <Button type="submit" className="h-8 px-3" data-testid="collect-cash" disabled={run.isPending}>
+                {run.isPending ? 'Collecting…' : `Collect ${formatPaise(collectAmount(mode, shown.duePaise, received, upiPart))}`}
+              </Button>
+              <Button type="button" variant="secondary" className="h-8 px-3" data-testid="billing-collect-upi-qr" onClick={() => run.mutate('qr')} disabled={run.isPending}>UPI QR</Button>
+              <Button type="button" variant="secondary" className="h-8 px-3" data-testid="billing-collect-share-link" onClick={() => setShare(share === null ? '' : null)}>Payment link</Button>
+            </div>
+          </form>
           {noUpi && <Alert tone="warning">This branch has no UPI ID set up. An admin can add one under Branches.</Alert>}
           {qr && (
             <div className="space-y-2">
@@ -361,6 +478,23 @@ export function BillingPanel({
           )}
         </div>
       )}
+      {(shown.payments ?? []).some((payment) => payment.amountPaise > payment.refundedPaise) && (
+        <div data-testid="billing-panel-more">
+          <Button
+            variant="ghost"
+            className="h-8 px-3"
+            aria-expanded={moreOpen}
+            aria-label="More bill actions"
+            data-testid="billing-panel-more-toggle"
+            onClick={() => setMoreOpen((open) => !open)}
+          >
+            ⋯ More
+          </Button>
+          {moreOpen && (
+            <RefundBox bill={shown} onChanged={(next) => { if (next) setOverride({ generation, bill: next }) }} onNotice={setNotice} />
+          )}
+        </div>
+      )}
       <div className="flex gap-2">
         <Button variant="ghost" onClick={onBack}>Back to the patient</Button>
         <Button variant="ghost" onClick={() => { setQr(null); setShare(null); setOverride(null); setGeneration((n) => n + 1) }}>
@@ -377,8 +511,11 @@ function ServiceAdder({ billId, onAdded }: { billId: string; onAdded: (bill: Bil
   const [active, setActive] = useState(0)
   const [rateFor, setRateFor] = useState('')
   const [armed, setArmed] = useState(false)
+  const [qty, setQty] = useState('1')
   const debounced = useDebouncedValue(q, 200)
-  const needle = debounced.trim()
+  // #173: "ecg 2" searches "ecg" and adds two.
+  const typed = splitQuantity(debounced)
+  const needle = typed.text
   const matches = useQuery({
     queryKey: ['billing', 'service-items', 'search', needle],
     queryFn: () => apiClient.billing.serviceItems({ q: needle }),
@@ -391,9 +528,14 @@ function ServiceAdder({ billId, onAdded }: { billId: string; onAdded: (bill: Bil
   })
   const add = useMutation({
     mutationFn: (item: ServiceItem) =>
-      apiClient.billing.addLine(billId, { serviceItemId: item.id, ...(rateFor ? { practitionerId: rateFor } : {}) }),
+      apiClient.billing.addLine(billId, {
+        serviceItemId: item.id,
+        quantity: typed.quantity ?? (Number(qty) > 0 ? Number(qty) : 1),
+        ...(rateFor ? { practitionerId: rateFor } : {}),
+      }),
     onSuccess: (bill) => {
       setQ('')
+      setQty('1')
       setActive(0)
       onAdded(bill)
     },
@@ -421,7 +563,7 @@ function ServiceAdder({ billId, onAdded }: { billId: string; onAdded: (bill: Bil
           type="search"
           autoComplete="off"
           className="mt-1 min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-dark-500 dark:bg-dark-700"
-          placeholder="Dressing, certificate, lab…"
+          placeholder="Dressing, ECG 2, lab…"
           value={q}
           onFocus={() => setArmed(true)}
           onChange={(event) => {
@@ -436,7 +578,29 @@ function ServiceAdder({ billId, onAdded }: { billId: string; onAdded: (bill: Bil
             } else if (event.key === 'ArrowUp') {
               event.preventDefault()
               setActive((index) => Math.max(index - 1, 0))
+            } else if (event.key === 'Enter') {
+              // Two text fields means the browser no longer submits on Enter by itself.
+              event.preventDefault()
+              if (highlighted && !add.isPending) add.mutate(highlighted)
             } else if (event.key === 'Escape') setQ('')
+          }}
+        />
+      </label>
+      <label className="flex items-center gap-2 text-sm">
+        Qty
+        <input
+          aria-label="Quantity"
+          data-testid="billing-drawer-service-qty"
+          inputMode="numeric"
+          className="w-16 rounded-lg border border-gray-300 px-2 py-1.5 dark:border-dark-500 dark:bg-dark-700"
+          value={typed.quantity != null ? String(typed.quantity) : qty}
+          disabled={typed.quantity != null}
+          onChange={(event) => setQty(event.target.value.replace(/[^0-9]/g, ''))}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault()
+              if (highlighted && !add.isPending) add.mutate(highlighted)
+            }
           }}
         />
       </label>
@@ -584,3 +748,24 @@ function paymentModeText(payment: { mode: string | null; tenders?: { mode: strin
   if (tenders.length > 1) return `Split: ${tenders.map((t) => `${t.mode.toUpperCase()} ${formatPaise(t.amountPaise)}`).join(' + ')}`
   return (payment.mode ?? tenders[0]?.mode ?? '').toUpperCase()
 }
+
+const TENDER_MODES: { mode: TenderMode; label: string }[] = [
+  { mode: 'cash', label: 'Cash' },
+  { mode: 'upi', label: 'UPI' },
+  { mode: 'card', label: 'Card' },
+  { mode: 'split', label: 'Cash + UPI' },
+]
+
+/** Patient name, MRN and doctor at the top so the cashier bills the right person (#174). */
+function PatientHeader({ name, mrn, doctor }: { name: string | null; mrn: string | null; doctor: string | null }) {
+  return (
+    <div className="rounded-lg bg-gray-50 px-3 py-2 dark:bg-dark-700" data-testid="billing-panel-patient">
+      <p className="font-medium" data-testid="billing-panel-patient-name">{name ?? 'Patient'}</p>
+      <p className="text-xs text-gray-600 dark:text-dark-200">
+        {mrn && <span data-testid="billing-panel-patient-mrn">MRN {mrn}</span>}
+        {doctor && <span data-testid="billing-panel-patient-doctor">{mrn ? ' · ' : ''}{doctor}</span>}
+      </p>
+    </div>
+  )
+}
+

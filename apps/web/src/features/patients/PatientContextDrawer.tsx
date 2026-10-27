@@ -126,14 +126,14 @@ export function PatientContextDrawer() {
     <Drawer
       open
       onClose={closePatient}
-      title={billing ? 'OP consult bill' : booking ? (followUp?.parentAppointmentId ? 'Book follow-up' : 'Book appointment') : `${patient.lastName}, ${patient.firstName}`}
+      title={billing ? 'Bill' : booking ? (followUp?.parentAppointmentId ? 'Book follow-up' : 'Book appointment') : `${patient.lastName}, ${patient.firstName}`}
       closeLabel="Close patient"
       testId="patient-context"
       className={booking || billing ? 'max-w-2xl!' : 'max-w-lg!'}
       footer={footer}
     >
       {billing && branchId ? (
-        <BillingPanel patientId={patient.id} branchId={branchId} onBack={() => setIntent({ mode: 'overview' })} />
+        <BillingPanel patientId={patient.id} patient={patient} branchId={branchId} onBack={() => setIntent({ mode: 'overview' })} />
       ) : booking && branchId ? (
         <BookingPanel
           key={followUp?.parentAppointmentId ? `fu-${patient.id}-${followUp.parentAppointmentId}` : `book-${patient.id}`}

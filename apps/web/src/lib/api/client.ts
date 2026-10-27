@@ -713,7 +713,7 @@ export class ApiClient {
       this.request<PaymentAccount>(`/api/v1/payment-accounts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     paymentLink: (id: string, body: { channel: 'qr' | 'whatsapp' | 'sms' | 'link'; destination?: string; counterSessionId?: string }) =>
       this.request<PaymentLink>(`/api/v1/bills/${encodeURIComponent(id)}/payment-links`, { method: 'POST', body: JSON.stringify(body) }),
-    pay: (idempotencyKey: string, body: { accountId: string; kind: 'payment'; counterSessionId?: string; tenders: { mode: string; amountPaise: number }[]; allocations: { billId: string; amountPaise: number }[] }) =>
+    pay: (idempotencyKey: string, body: { accountId: string; kind: 'payment'; counterSessionId?: string; tenders: { mode: string; amountPaise: number; reference?: string }[]; allocations: { billId: string; amountPaise: number }[] }) =>
       this.request<Receipt>('/api/v1/payments', {
         method: 'POST',
         body: JSON.stringify(body),

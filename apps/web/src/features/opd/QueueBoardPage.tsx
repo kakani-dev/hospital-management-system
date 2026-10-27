@@ -61,6 +61,7 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
   const canConsult = can(branchRoles, 'clinical.write')
   // #104: nurse (and doctor) record triage vitals from the queue
   const canVitals = can(branchRoles, 'clinical.vitals')
+  const canCollect = can(branchRoles, 'billing.bill')
   const [vitalsFor, setVitalsFor] = useState<string | null>(null)
 
   const entries = [...(queue.data ?? [])].sort((a, b) => a.tokenNo - b.tokenNo)
@@ -248,6 +249,18 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
                           >
                             {vitalsFor === e.id ? 'Hide vitals' : 'Vitals'}
                           </button>
+                        )}
+                        {canCollect && p && e.status !== 'cancelled' && (
+                          <Button
+                            className="mt-2 h-8 px-3 text-xs"
+                            data-testid="queue-row-collect"
+                            aria-label={`Collect for token ${e.tokenNo}`}
+                            onClick={() =>
+                              openPatient({ id: p.id, mrn: p.mrn, firstName: p.firstName, lastName: p.lastName }, { mode: 'bill' })
+                            }
+                          >
+                            Collect
+                          </Button>
                         )}
                         {canVitals && vitalsFor === e.id && <VitalsPanel queueEntryId={e.id} canRecord />}
                         {canConsult && p && e.status === 'in_consultation' && (

@@ -25,7 +25,7 @@ interface Action {
 
 const ACTIONS: Action[] = [
   { id: 'book', label: 'Book appointment', hint: 'Open the booking drawer', capability: 'appointments.book', run: 'book' },
-  { id: 'op-consult', label: 'OP consult bill', hint: 'Consultation on the open patient', capability: 'billing.bill', run: 'bill' },
+  { id: 'op-consult', label: 'Bill / collect', hint: 'Bill and collect for the open patient', capability: 'billing.bill', run: 'bill' },
   { id: 'check-in', label: 'Reception check-in', hint: 'Today’s appointments', capability: 'queue.checkIn', run: 'navigate', path: '/reception/check-in' },
   { id: 'queue', label: 'OPD queue', hint: 'Today’s tokens', capability: 'queue.view', run: 'navigate', path: '/queue' },
   { id: 'patients', label: 'Patients', hint: 'Search the registry', capability: 'patients.view', run: 'navigate', path: '/patients' },
