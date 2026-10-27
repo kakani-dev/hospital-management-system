@@ -103,6 +103,8 @@ import type {
   PlatformTenantDetail,
   Consultation,
   ConsultationPrint,
+  RecordVitalsRequest,
+  Vitals,
   SaveConsultationRequest,
 } from './types'
 import { resilience as defaultResilience, type ResilienceConfig } from '../config'
@@ -770,6 +772,11 @@ export class ApiClient {
     /** 409 for a draft: only finalized prescriptions print. */
     print: (id: string) => this.request<ConsultationPrint>(`/api/v1/consultations/${encodeURIComponent(id)}/print`),
     forPatient: (patientId: string) => this.request<Consultation[]>(`/api/v1/consultations${qs({ patientId })}`),
+    /** #104: 400 for an impossible value, 409 for a cancelled/no-show visit, 403 without clinical.vitals. */
+    recordVitals: (body: RecordVitalsRequest) =>
+      this.request<Vitals>('/api/v1/consultations/vitals', { method: 'POST', body: JSON.stringify(body) }),
+    /** Newest first; pass exactly one of patientId / queueEntryId. */
+    vitals: (by: { patientId: string } | { queueEntryId: string }) => this.request<Vitals[]>(`/api/v1/consultations/vitals${qs(by)}`),
   }
 
   privacy = {
