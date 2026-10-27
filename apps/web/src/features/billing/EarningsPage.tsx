@@ -182,7 +182,7 @@ function Overview({
       <p className="text-sm text-gray-500">{report.level === 'tenant' ? 'All branches' : 'One branch'} · {report.from} to {report.to}</p>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Kpi testId="earnings-gross" label="Gross billed" amount={focus.grossBilledPaise} move={focus.deltas.grossBilled} />
-        <Kpi label="Collected" amount={focus.collectedPaise} move={focus.deltas.collected} />
+        <Kpi testId="earnings-collected" label="Collected" amount={focus.collectedPaise} move={focus.deltas.collected} hint={focus.advancesPaise ? `Includes advances ${formatPaise(focus.advancesPaise)}` : undefined} />
         <Kpi label="Net earnings" amount={focus.netEarningsPaise} move={focus.deltas.netEarnings} />
         <Kpi label="Outstanding" amount={focus.outstandingPaise} />
         <Kpi label="Refunds" amount={focus.refundsPaise} move={focus.deltas.refunds} />

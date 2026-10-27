@@ -182,6 +182,8 @@ describe('BillingPanel', () => {
     expect(await screen.findByText('Collected. Add anything else, then close the bill.')).toBeInTheDocument()
     await user.click(screen.getByTestId('finalize-bill'))
     expect(await screen.findByTestId('paid-status')).toHaveTextContent('Paid')
+    expect(screen.getByTestId('billing-panel-view-receipt')).toHaveAttribute('href', expect.stringMatching(/^\/billing\/receipts\//))
+    expect(screen.getByTestId('billing-panel-print-receipt')).toHaveAttribute('href', expect.stringMatching(/\?print=1$/))
 
     const pays = calls.filter((call) => call.method === 'POST' && call.path === '/api/v1/payments')
     expect(pays).toHaveLength(2)
@@ -257,6 +259,34 @@ describe('BillingPanel', () => {
     expect(await screen.findByText('OP consultation')).toBeInTheDocument()
     const added = calls.find((call) => call.path === '/api/v1/bills/bill-1/lines')
     expect(added?.body).toEqual({ code: 'CONSULT' })
+  })
+
+  it('lists each tender of a split receipt and only the advance applied (#166)', async () => {
+    stubFetch({
+      'GET /api/v1/accounts/patient-1/summary': () => json({
+        patientId: 'patient-1',
+        advancePaise: 20000,
+        bills: [{ id: 'bill-9', accountId: 'acct-9', branchId: 'branch-1', billNo: null, status: 'draft', billKind: 'final', totalPaise: 50000, duePaise: 0 }],
+      }),
+      'GET /api/v1/bills/bill-9': () => json(bill({
+        id: 'bill-9', accountId: 'acct-9', duePaise: 0,
+        payments: [
+          { id: 'p1', receiptNo: 'R1', kind: 'payment', amountPaise: 20000, appliedPaise: 20000, refundedPaise: 0, mode: 'split',
+            tenders: [{ mode: 'cash', amountPaise: 12000 }, { mode: 'upi', amountPaise: 8000 }] },
+          { id: 'p2', receiptNo: 'R2', kind: 'advance', amountPaise: 50000, appliedPaise: 30000, advanceBalancePaise: 20000, refundedPaise: 0, mode: 'upi',
+            tenders: [{ mode: 'upi', amountPaise: 50000 }] },
+        ],
+      })),
+    })
+    renderWithProviders(<BillingPanel patientId="patient-1" branchId="branch-1" onBack={() => {}} />, {
+      auth: fakeAuthClient({ session: fakeSession() }),
+    })
+    const rows = await screen.findAllByTestId('billing-panel-payment')
+    expect(rows[0]).toHaveTextContent('Split: CASH ₹120.00 + UPI ₹80.00')
+    expect(rows[0]).toHaveTextContent('₹200.00')
+    expect(rows[1]).toHaveTextContent('Advance')
+    expect(rows[1]).toHaveTextContent('₹300.00')
+    expect(screen.getByTestId('billing-panel-payment-advance-left')).toHaveTextContent('₹200.00 left')
   })
 
   it('reuses the check-in draft instead of opening another bill', async () => {
