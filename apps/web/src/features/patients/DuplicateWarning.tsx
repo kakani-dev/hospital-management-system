@@ -83,7 +83,7 @@ export function DuplicateWarning({
         ))}
       </ul>
       {!hard && (
-        <FormField
+        <FormField data-testid="patients-register-duplicate-reason"
           label="Why this is a different person"
           value={reason}
           maxLength={500}

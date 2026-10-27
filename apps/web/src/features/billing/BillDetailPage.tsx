@@ -6,6 +6,7 @@ import { Button } from '../../components/ui/Button'
 import { LoadingBlock } from '../../components/ui/LoadingBlock'
 import { ApiError, apiClient } from '../../lib/api/client'
 import { formatPaise } from './money'
+import { UNNUMBERED_BILL, billStatusLabel } from './billStatus'
 import { RefundBox } from './BillingPanel'
 
 /** One bill: supplier GSTIN, tax split, place of supply, and a refund against a receipt. */
@@ -32,8 +33,8 @@ export function BillDetailPage() {
   return (
     <div className="mx-auto max-w-lg space-y-4 p-4 sm:p-6" data-testid="bill-detail">
       <p className="text-sm"><Link className="text-primary-600 underline" to="/billing/bills">Bills</Link></p>
-      <h1 className="text-xl font-semibold text-gray-800 dark:text-dark-50">{doc.billNo ?? 'Draft bill'}</h1>
-      <p className="text-sm text-gray-600 dark:text-dark-200">{doc.status}</p>
+      <h1 className="text-xl font-semibold text-gray-800 dark:text-dark-50" data-testid="billing-bill-detail-number">{doc.billNo ?? `Bill · ${UNNUMBERED_BILL}`}</h1>
+      <p className="text-sm text-gray-600 dark:text-dark-200" data-testid="billing-bill-detail-status">{billStatusLabel(doc.status)}</p>
       {doc.supplier?.name && <p>{doc.supplier.name}</p>}
       {doc.supplier?.address && <p className="text-sm">{doc.supplier.address}</p>}
       <p data-testid="bill-gstin">GSTIN {doc.supplier?.gstin ?? 'Not set'}</p>
@@ -63,7 +64,7 @@ export function BillDetailPage() {
         >
           <label className="text-sm">
             Place of supply
-            <input
+            <input data-testid="billing-bill-detail-place-of-supply"
               aria-label="Place of supply"
               maxLength={2}
               className="mt-1 block w-20 rounded-lg border border-gray-300 px-2 py-2 dark:border-dark-500 dark:bg-dark-700"
