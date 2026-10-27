@@ -13,6 +13,7 @@ import { ApiError, apiClient } from '../../lib/api/client'
 import type { Consultation, FoodTiming, PrescriptionLine } from '../../lib/api/types'
 import { FOOD_LABEL, emptyLine, toDraft, validateLines, type Draft } from './consultationModel'
 import { useCurrentContext } from '../tenancy/useCurrentContext'
+import { VitalsPanel } from './VitalsPanel'
 import {
   clinicalErrorMessage,
   consultationKeys,
@@ -48,6 +49,13 @@ export function ConsultationPage() {
   }
   const c = consultation.data
   return c.status === 'draft' && canWrite ? <Editor key={c.id} consultation={c} /> : <ReadOnly consultation={c} canWrite={canWrite} />
+}
+
+/** #104: the nurse's triage vitals for this visit; the doctor can add a reading too. */
+function ConsultationVitals({ c }: { c: Consultation }) {
+  const { has } = useCurrentContext()
+  if (!c.queueEntryId) return null
+  return <VitalsPanel queueEntryId={c.queueEntryId} canRecord={has('clinical.vitals')} />
 }
 
 function Header({ c }: { c: Consultation }) {
@@ -133,6 +141,7 @@ function Editor({ consultation: c }: { consultation: Consultation }) {
       }}
     >
       <Header c={c} />
+      <ConsultationVitals c={c} />
       {message && <Alert tone={message.tone}>{message.text}</Alert>}
       <Card title="Assessment">
         <div className="grid gap-4 sm:grid-cols-2">
@@ -210,6 +219,7 @@ function ReadOnly({ consultation: c, canWrite }: { consultation: Consultation; c
   return (
     <div className="max-w-4xl space-y-6">
       <Header c={c} />
+      <ConsultationVitals c={c} />
       {!finalized && <Alert tone="info">This is a draft. Only the treating doctor can edit it, and it cannot be printed until it is finalized.</Alert>}
       {finalized && !c.isLatest && <Alert tone="warning">A newer version of this prescription exists.</Alert>}
       {error && <Alert tone="error">{error}</Alert>}

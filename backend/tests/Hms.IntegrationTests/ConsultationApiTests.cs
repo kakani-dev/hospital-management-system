@@ -120,6 +120,40 @@ public sealed class ConsultationApiTests(HmsApiFactory factory) : IClassFixture<
         Assert.Equal(HttpStatusCode.NotFound, (await doctor.PostAsJsonAsync("/api/v1/consultations", new { queueEntryId = Guid.NewGuid() })).StatusCode);
     }
 
+    [Fact]
+    public async Task Vitals_are_validated_flagged_listed_and_tenant_scoped()
+    {
+        var queueEntryId = await CheckInAsync("waiting");
+        using var doctor = factory.ClientAs(BetaDoctor, Beta);
+        var clientId = Guid.NewGuid();
+
+        var ok = await Send(doctor, HttpMethod.Post, "/api/v1/consultations/vitals",
+            new { queueEntryId, clientId, systolic = 150, diastolic = 95, pulse = 72, spo2 = 98, temperatureC = 36.9 });
+        Assert.Equal(HttpStatusCode.OK, ok.Status);
+        Assert.Contains(ok.Body.GetProperty("flags").EnumerateArray(), f => f.GetProperty("field").GetString() == "systolic");
+        var again = await Send(doctor, HttpMethod.Post, "/api/v1/consultations/vitals", new { queueEntryId, clientId, pulse = 80 });
+        Assert.Equal(ok.Body.GetProperty("id").GetString(), again.Body.GetProperty("id").GetString());
+
+        Assert.Equal(HttpStatusCode.BadRequest, (await Send(doctor, HttpMethod.Post, "/api/v1/consultations/vitals", new { queueEntryId, spo2 = 101 })).Status);
+        Assert.Equal(HttpStatusCode.BadRequest, (await Send(doctor, HttpMethod.Post, "/api/v1/consultations/vitals", new { spo2 = 98 })).Status);
+        Assert.Equal(HttpStatusCode.Conflict, (await Send(doctor, HttpMethod.Post, "/api/v1/consultations/vitals",
+            new { queueEntryId = await CheckInAsync("cancelled"), pulse = 70 })).Status);
+
+        var history = await Send(doctor, HttpMethod.Get, $"/api/v1/consultations/vitals?patientId={BetaPatient2}", null);
+        Assert.Equal(HttpStatusCode.OK, history.Status);
+        Assert.Contains(history.Body.EnumerateArray(), v => v.GetProperty("id").GetString() == ok.Body.GetProperty("id").GetString());
+
+        // A tenant id never comes from the request: Alpha's admin cannot see or write Beta's visit.
+        using var alpha = factory.ClientAs(AlphaAdmin, Alpha, AlphaMain);
+        Assert.Equal(HttpStatusCode.NotFound, (await Send(alpha, HttpMethod.Post, "/api/v1/consultations/vitals", new { queueEntryId, pulse = 70 })).Status);
+        var alphaList = await Send(alpha, HttpMethod.Get, $"/api/v1/consultations/vitals?queueEntryId={queueEntryId}", null);
+        Assert.Equal(0, alphaList.Body.GetArrayLength());
+
+        using var reception = factory.ClientAs(AlphaReception, Alpha, AlphaMain);
+        Assert.Equal(HttpStatusCode.Forbidden, (await Send(reception, HttpMethod.Post, "/api/v1/consultations/vitals", new { queueEntryId, pulse = 70 })).Status);
+        Assert.Equal(HttpStatusCode.Forbidden, (await reception.GetAsync($"/api/v1/consultations/vitals?patientId={BetaPatient2}")).StatusCode);
+    }
+
     private static async Task SetRegistrationAsync(string? registrationNumber, string? council)
     {
         await using var conn = new NpgsqlConnection(AdminConnection);

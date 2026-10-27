@@ -56,6 +56,7 @@ export type Permission =
   | 'privacy.erase'
   | 'clinical.view'
   | 'clinical.write'
+  | 'clinical.vitals'
 
 /** UI capabilities (kept stable for the screens) -> the server permissions that grant them (any of). */
 const CAPABILITIES = {
@@ -109,6 +110,8 @@ const CAPABILITIES = {
   'clinical.view': ['clinical.view'],
   /** Write, finalize and revise: doctors only; the server also requires the treating doctor. */
   'clinical.write': ['clinical.write'],
+  /** Record triage vitals against a visit: nurse, doctor, tenant admin. */
+  'clinical.vitals': ['clinical.vitals'],
 } as const satisfies Record<string, readonly Permission[]>
 
 export type Capability = keyof typeof CAPABILITIES
@@ -124,7 +127,7 @@ export const ROLE_PERMISSIONS: Record<string, readonly Permission[]> = {
     'billing.view', 'billing.bill', 'billing.collect', 'billing.discount_request', 'billing.approve', 'billing.refund', 'billing.earnings', 'billing.counter_reconcile', 'billing.pricelist_manage',
     'inventory.view', 'inventory.catalog', 'inventory.opening', 'inventory.approve', 'pharmacy.view', 'pharmacy.dispense',
     'privacy.view', 'privacy.consent', 'privacy.notice', 'privacy.request', 'privacy.fulfil', 'privacy.erase',
-    'clinical.view',
+    'clinical.view', 'clinical.vitals',
   ],
   receptionist: [
     ...READ_ONLY_OPS, 'patients.view', 'patients.create', 'patients.edit', 'patients.delete',
@@ -133,8 +136,8 @@ export const ROLE_PERMISSIONS: Record<string, readonly Permission[]> = {
     'billing.view', 'billing.bill', 'billing.collect', 'billing.discount_request',
     'privacy.view', 'privacy.consent', 'privacy.request',
   ],
-  nurse: [...READ_ONLY_OPS, 'patients.view', 'appointments.view', 'appointments.book', 'appointments.check_in', 'appointments.no_show', 'queue.view', 'queue.manage', 'clinical.view'],
-  doctor: [...READ_ONLY_OPS, 'patients.view', 'appointments.view', 'appointments.book_followup_own', 'appointments.no_show_own', 'queue.view', 'queue.consult_own', 'privacy.view', 'clinical.view', 'clinical.write'],
+  nurse: [...READ_ONLY_OPS, 'patients.view', 'appointments.view', 'appointments.book', 'appointments.check_in', 'appointments.no_show', 'queue.view', 'queue.manage', 'clinical.view', 'clinical.vitals'],
+  doctor: [...READ_ONLY_OPS, 'patients.view', 'appointments.view', 'appointments.book_followup_own', 'appointments.no_show_own', 'queue.view', 'queue.consult_own', 'privacy.view', 'clinical.view', 'clinical.write', 'clinical.vitals'],
   billing: [...READ_ONLY_OPS, 'patients.view', 'appointments.view', 'billing.view', 'billing.bill', 'billing.collect', 'billing.discount_request', 'billing.refund', 'billing.earnings'],
   accountant: [...READ_ONLY_OPS, 'billing.earnings'],
   pharmacist: [...READ_ONLY_OPS, 'inventory.view', 'pharmacy.view', 'pharmacy.dispense'],

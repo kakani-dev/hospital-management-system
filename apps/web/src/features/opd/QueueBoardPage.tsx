@@ -20,6 +20,7 @@ import { rolesAtBranch, useCurrentContext } from '../tenancy/useCurrentContext'
 import { useBranchSelection } from '../tenancy/useBranchSelection'
 import { BranchNotice } from '../tenancy/BranchNotice'
 import { StartConsultationButton } from '../clinical/StartConsultationButton'
+import { VitalsPanel } from '../clinical/VitalsPanel'
 
 const COLUMNS: { status: QueueStatus; title: string }[] = [
   { status: 'waiting', title: 'Waiting' },
@@ -58,6 +59,9 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
   // doctors: follow-ups of their own appointment visits only (the server checks ownership)
   const canFollowUpOwn = can(branchRoles, 'appointments.bookFollowUp')
   const canConsult = can(branchRoles, 'clinical.write')
+  // #104: nurse (and doctor) record triage vitals from the queue
+  const canVitals = can(branchRoles, 'clinical.vitals')
+  const [vitalsFor, setVitalsFor] = useState<string | null>(null)
 
   const entries = [...(queue.data ?? [])].sort((a, b) => a.tokenNo - b.tokenNo)
   const cancelledCount = entries.filter((e) => e.status === 'cancelled').length
@@ -233,6 +237,19 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
                             Book follow-up
                           </button>
                         )}
+                        {canVitals && p && (e.status === 'waiting' || e.status === 'in_consultation') && (
+                          <button
+                            type="button"
+                            data-testid="queue-vitals-toggle"
+                            aria-expanded={vitalsFor === e.id}
+                            aria-label={`Vitals for token ${e.tokenNo}`}
+                            className="mt-2 block text-xs font-medium text-primary-600 underline dark:text-primary-400"
+                            onClick={() => setVitalsFor((cur) => (cur === e.id ? null : e.id))}
+                          >
+                            {vitalsFor === e.id ? 'Hide vitals' : 'Vitals'}
+                          </button>
+                        )}
+                        {canVitals && vitalsFor === e.id && <VitalsPanel queueEntryId={e.id} canRecord />}
                         {canConsult && p && e.status === 'in_consultation' && (
                           <StartConsultationButton queueEntryId={e.id} tokenNo={e.tokenNo} onError={(message) => setError({ message, retry: null })} />
                         )}
