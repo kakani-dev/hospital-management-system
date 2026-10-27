@@ -232,6 +232,58 @@ public sealed class VisitTypesNmcInProcessTests(ApiFactory factory) : IClassFixt
     }
 
     [Fact]
+    public async Task Only_the_allowed_free_follow_ups_are_free_and_a_cancelled_one_gives_it_back()
+    {
+        using var admin = AsAdmin();
+        var type = await CreateTypeAsync(admin, "lim" + Guid.NewGuid().ToString("N")[..6], 50_000, 30, 7, 0);
+        Assert.Equal(1, type.GetProperty("followUpFreeLimit").GetInt32());
+        var followUp = await FollowUpIdAsync(admin);
+        var doctor = await PractitionerAsync("Dr. Limit");
+        var patient = Guid.NewGuid();
+        var prior = await BookAsync(admin, Main, doctor, patient, new DateTimeOffset(2026, 10, 1, 4, 0, 0, TimeSpan.Zero), type.GetProperty("id").GetGuid());
+
+        var free = await BookAsync(admin, Main, doctor, patient, new DateTimeOffset(2026, 10, 3, 4, 0, 0, TimeSpan.Zero), followUp);
+        Assert.Equal(0, free.GetProperty("consultationFeePaise").GetInt64());
+        Assert.Equal("Free follow-up (within 7 days of 1 Oct 2026)", free.GetProperty("consultationFeeNote").GetString());
+        Assert.Equal(prior.GetProperty("id").GetGuid(), free.GetProperty("followUpEntitlementId").GetGuid());
+
+        var suggestion = await SuggestAsync(admin, Main, doctor, patient, new DateTimeOffset(2026, 10, 5, 4, 0, 0, TimeSpan.Zero));
+        Assert.Equal(20_000, suggestion.GetProperty("feePaise").GetInt64());
+        Assert.Contains("already used", suggestion.GetProperty("reason").GetString());
+        var charged = await BookAsync(admin, Main, doctor, patient, new DateTimeOffset(2026, 10, 5, 4, 0, 0, TimeSpan.Zero), followUp);
+        Assert.Equal(20_000, charged.GetProperty("consultationFeePaise").GetInt64());
+        Assert.Equal(JsonValueKind.Null, charged.GetProperty("consultationFeeNote").ValueKind);
+
+        var cancel = await admin.PostAsJsonAsync($"/api/v1/appointments/{free.GetProperty("id").GetGuid()}/cancel", new { reason = "synthetic" });
+        Assert.Equal(HttpStatusCode.OK, cancel.StatusCode);
+        var again = await BookAsync(admin, Main, doctor, patient, new DateTimeOffset(2026, 10, 6, 4, 0, 0, TimeSpan.Zero), followUp);
+        Assert.Equal(0, again.GetProperty("consultationFeePaise").GetInt64());
+    }
+
+    [Fact]
+    public async Task Admin_sets_the_free_follow_up_count_and_invalid_counts_are_rejected()
+    {
+        using var admin = AsAdmin();
+        var type = await CreateTypeAsync(admin, "cnt" + Guid.NewGuid().ToString("N")[..6], 50_000, 30, 7, 0);
+        var id = type.GetProperty("id").GetGuid();
+        var bad = await admin.PatchAsJsonAsync($"/api/v1/visit-types/{id}", new { followUpFreeLimit = 51 });
+        Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
+        var two = await admin.PatchAsJsonAsync($"/api/v1/visit-types/{id}", new { followUpFreeLimit = 2 });
+        Assert.Equal(2, (await two.Content.ReadFromJsonAsync<JsonElement>(Json)).GetProperty("followUpFreeLimit").GetInt32());
+        var none = await admin.PatchAsJsonAsync($"/api/v1/visit-types/{id}", new { clearFollowUpFreeLimit = true });
+        Assert.Equal(JsonValueKind.Null, (await none.Content.ReadFromJsonAsync<JsonElement>(Json)).GetProperty("followUpFreeLimit").ValueKind);
+
+        var followUp = await FollowUpIdAsync(admin);
+        Assert.Equal(HttpStatusCode.OK, (await admin.PatchAsJsonAsync($"/api/v1/visit-types/{id}", new { followUpFreeLimit = 2 })).StatusCode);
+        var doctor = await PractitionerAsync("Dr. Two Free");
+        var patient = Guid.NewGuid();
+        await BookAsync(admin, Main, doctor, patient, new DateTimeOffset(2026, 10, 1, 4, 0, 0, TimeSpan.Zero), id);
+        Assert.Equal(0, (await BookAsync(admin, Main, doctor, patient, new DateTimeOffset(2026, 10, 2, 4, 0, 0, TimeSpan.Zero), followUp)).GetProperty("consultationFeePaise").GetInt64());
+        Assert.Equal(0, (await BookAsync(admin, Main, doctor, patient, new DateTimeOffset(2026, 10, 3, 4, 0, 0, TimeSpan.Zero), followUp)).GetProperty("consultationFeePaise").GetInt64());
+        Assert.Equal(20_000, (await BookAsync(admin, Main, doctor, patient, new DateTimeOffset(2026, 10, 4, 4, 0, 0, TimeSpan.Zero), followUp)).GetProperty("consultationFeePaise").GetInt64());
+    }
+
+    [Fact]
     public async Task Ist_window_includes_the_last_local_day_and_excludes_the_next()
     {
         using var admin = AsAdmin();

@@ -274,6 +274,9 @@ public static class AppointmentEndpoints
             ConsultationFeePaise = visit?.FeePaise,
             GrantedFollowUpDays = visit?.GrantedFollowUpDays,
             GrantedFollowUpFeePaise = visit?.GrantedFollowUpFeePaise,
+            GrantedFollowUpLimit = visit?.GrantedFollowUpLimit,
+            FollowUpEntitlementId = visit?.FollowUpEntitlementId,
+            ConsultationFeeNote = visit?.FeeNote,
         };
         db.Appointments.Add(appointment);
         try

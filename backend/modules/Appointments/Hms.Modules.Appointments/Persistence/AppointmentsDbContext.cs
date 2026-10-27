@@ -101,6 +101,9 @@ public sealed class AppointmentsDbContext(DbContextOptions<AppointmentsDbContext
             ReadOnlyAfterInsert(e.Property(x => x.ConsultationFeePaise));
             ReadOnlyAfterInsert(e.Property(x => x.GrantedFollowUpDays));
             ReadOnlyAfterInsert(e.Property(x => x.GrantedFollowUpFeePaise));
+            ReadOnlyAfterInsert(e.Property(x => x.GrantedFollowUpLimit));
+            ReadOnlyAfterInsert(e.Property(x => x.FollowUpEntitlementId));
+            ReadOnlyAfterInsert(e.Property(x => x.ConsultationFeeNote));
             // lifecycle timestamps: owned by appointment.enforce_appointment_transition()
             DbOwned(e.Property(x => x.CheckedInAt));
             DbOwned(e.Property(x => x.StartedAt));

@@ -177,7 +177,10 @@ export function BillingPanel({
       <ul className="divide-y divide-gray-200 dark:divide-dark-500">
         {shown.lines.map((line) => (
           <li key={line.id} data-testid="bill-line" className="flex items-baseline justify-between gap-3 py-2 text-sm">
-            <span>{line.name}</span>
+            <span>
+              {line.name}
+              {line.note && <span data-testid="billing-panel-line-note" className="block text-xs text-gray-500">{line.note}</span>}
+            </span>
             <span className="flex items-center gap-3">
               <span className="font-mono">{formatPaise(line.netPaise + line.taxPaise)}</span>
               {line.locked && <span className="text-xs text-gray-500">Paid</span>}
