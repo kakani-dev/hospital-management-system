@@ -32,3 +32,11 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* #183: a page with a print area (receipt) prints only that area: no sidebar, header, banners or drawers. */
+@media print {
+  body:has([data-print-area]) * { visibility: hidden !important; }
+  body:has([data-print-area]) [data-print-area],
+  body:has([data-print-area]) [data-print-area] * { visibility: visible !important; }
+  body:has([data-print-area]) [data-print-area] { position: absolute; inset: 0 auto auto 0; width: 100%; margin: 0; padding: 12mm; }
+}

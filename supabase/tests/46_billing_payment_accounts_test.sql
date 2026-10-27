@@ -147,6 +147,9 @@ begin
     'deactivating the default promotes the next active account');
   perform tests.ok(billing.receipt_json(v_pay) -> 'tenders' -> 0 ->> 'paymentAccountId' = v_upi2 ->> 'id',
     'an old payment keeps its now-inactive account');
+  perform tests.ok(billing.receipt_json(v_pay) ->> 'receivedAt' is not null
+    and billing.receipt_json(v_pay) ->> 'collectedBy' = (select created_by::text from billing.payment where id = v_pay),
+    'the receipt carries when it was received and who collected it (#183)');
   perform tests.ok(exists (select 1 from jsonb_array_elements(billing.day_end_accounts(v_tenant, v_branch, billing.branch_day(v_branch)) -> 'accounts') a
     where a ->> 'paymentAccountId' = v_upi2 ->> 'id' and not (a ->> 'isActive')::boolean and (a ->> 'netPaise')::bigint = 5000),
     'day-end still shows the inactive account with its takings');

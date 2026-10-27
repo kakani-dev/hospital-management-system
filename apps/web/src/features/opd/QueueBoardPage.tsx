@@ -63,6 +63,20 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
   // #104: nurse (and doctor) record triage vitals from the queue
   const canVitals = can(branchRoles, 'clinical.vitals')
   const canCollect = can(branchRoles, 'billing.bill')
+  // one branch-wide query for the Collect amounts, shown together with the queue (no plain "Collect" flash)
+  const openBills = useQuery({
+    queryKey: ['billing', 'bills', 'draft', branchId, 'queue'],
+    queryFn: () => apiClient.billing.list({ status: 'draft', branchId: branchId! }),
+    enabled: canCollect && !!branchId,
+    retry: false,
+    refetchInterval: refreshMs,
+  })
+  const dueByPatient = new Map<string, number>()
+  for (const bill of openBills.data ?? []) {
+    if (bill.billKind !== 'final' || bill.branchId !== branchId) continue
+    dueByPatient.set(bill.patientId, (dueByPatient.get(bill.patientId) ?? 0) + Math.max(bill.duePaise ?? 0, 0))
+  }
+  const amountsPending = canCollect && !!branchId && openBills.isPending
   const [vitalsFor, setVitalsFor] = useState<string | null>(null)
 
   const entries = [...(queue.data ?? [])].sort((a, b) => a.tokenNo - b.tokenNo)
@@ -152,7 +166,7 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
       </div>
       <BranchPicker branches={branches} value={branchId} onChange={setBranchId} />
       <BranchNotice branchId={branchId} timeZoneMissing={timeZoneMissing} />
-      {queue.isPending && <LoadingBlock label="Loading the queue" />}
+      {(queue.isPending || (queue.data && amountsPending)) && <LoadingBlock label="Loading the queue" />}
       {queue.isError && (
         <Alert tone="warning">
           {queue.error instanceof ApiError && queue.error.status === 403 ? 'You cannot view the queue of this branch.' : 'The queue is unavailable right now.'}
@@ -166,13 +180,13 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
         ) : (
           <Alert tone="error">{error.message}</Alert>
         ))}
-      {queue.data && entries.length === 0 && (
+      {queue.data && !amountsPending && entries.length === 0 && (
         <div className="flex flex-col items-center gap-2 py-2 text-center">
           <Illustration name="clock" size={96} />
           <p className="text-sm text-gray-600 dark:text-dark-200">No tokens on the board yet.</p>
         </div>
       )}
-      <div className={`grid gap-4 md:grid-cols-2 xl:grid-cols-4 ${queue.isPlaceholderData ? 'opacity-60' : ''}`} aria-busy={queue.isFetching && !queue.data}>
+      <div className={`grid gap-4 md:grid-cols-2 xl:grid-cols-4 ${queue.isPlaceholderData ? 'opacity-60' : ''} ${amountsPending ? 'hidden' : ''}`} aria-busy={queue.isFetching && !queue.data}>
         {COLUMNS.map((col) => {
           const items = entries.filter((e) => e.status === col.status)
           return (
@@ -260,7 +274,7 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
                               openPatient({ id: p.id, mrn: p.mrn, firstName: p.firstName, lastName: p.lastName }, { mode: 'bill' })
                             }
                           >
-                            <CollectLabel patientId={p.id} branchId={branchId} />
+                            <CollectLabel duePaise={dueByPatient.get(p.id) ?? 0} />
                           </Button>
                         )}
                         {canVitals && vitalsFor === e.id && <VitalsPanel queueEntryId={e.id} canRecord />}
@@ -334,16 +348,7 @@ export function QueueBoardPage({ refreshMs = QUEUE_REFRESH_MS }: { refreshMs?: n
   )
 }
 
-/** "Collect ₹X" when the patient has an open bill due at this branch (#180). Shares the bill panel's cache. */
-function CollectLabel({ patientId, branchId }: { patientId: string; branchId: string | null }) {
-  const summary = useQuery({
-    queryKey: ['billing', 'summary', patientId, branchId],
-    retry: false,
-    staleTime: 30_000,
-    queryFn: () => apiClient.billing.summary(patientId),
-  })
-  const due = (summary.data?.bills ?? [])
-    .filter((bill) => bill.status === 'draft' && bill.billKind === 'final' && bill.branchId === branchId)
-    .reduce((sum, bill) => sum + Math.max(bill.duePaise, 0), 0)
-  return <span data-testid="queue-row-collect-amount">{due > 0 ? `Collect ${formatPaise(due)}` : 'Collect'}</span>
+/** "Collect ₹X" from the branch's open bills, loaded with the queue (#180, #183). */
+function CollectLabel({ duePaise }: { duePaise: number }) {
+  return <span data-testid="queue-row-collect-amount">{duePaise > 0 ? `Collect ${formatPaise(duePaise)}` : 'Collect'}</span>
 }

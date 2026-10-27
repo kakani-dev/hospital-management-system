@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
+import { useWorkspace } from '../workspace/WorkspaceProvider'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
@@ -43,6 +44,7 @@ export function BillingPanel({
 }) {
   const qc = useQueryClient()
   const navigate = useNavigate()
+  const { closePatient } = useWorkspace()
   const [generation, setGeneration] = useState(0)
   const [override, setOverride] = useState<{ generation: number; bill: BillDocument } | null>(null)
   const [qr, setQr] = useState<string | null>(null)
@@ -98,6 +100,7 @@ export function BillingPanel({
     onSuccess: (next) => {
       setOverride({ generation, bill: next })
       void qc.invalidateQueries({ queryKey: ['billing', 'summary', patientId, branchId] })
+      void qc.invalidateQueries({ queryKey: ['billing', 'bills'] })
     },
   })
 
@@ -184,7 +187,10 @@ export function BillingPanel({
       setOverride({ generation, bill: result.bill })
       void qc.invalidateQueries({ queryKey: ['billing', 'bill', result.bill.id] })
       void qc.invalidateQueries({ queryKey: ['billing', 'summary', patientId, branchId] })
+      void qc.invalidateQueries({ queryKey: ['billing', 'bills'] })
       if ('printReceipt' in result && result.printReceipt) {
+        // #183: close the Bill panel first so it is not printed over the receipt
+        closePatient()
         void navigate(`/billing/receipts/${encodeURIComponent(result.printReceipt)}?print=1`)
       }
     },

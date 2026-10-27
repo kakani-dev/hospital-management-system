@@ -103,18 +103,22 @@ describe('QueueBoardPage', () => {
     expect(screen.getByRole('heading', { name: 'Bill' })).toBeInTheDocument()
   })
 
-  it('the queue Collect button shows the amount due at this branch (#180)', async () => {
-    routes(['receptionist'], () => [entry('q1', 1, 'waiting')], {
-      [`GET /api/v1/accounts/${PATIENT_ID}/summary`]: () => json({
-        patientId: PATIENT_ID,
-        advancePaise: 0,
-        bills: [{ id: 'b1', accountId: 'a1', branchId: ALPHA_MAIN, billNo: null, status: 'draft', billKind: 'final', totalPaise: 70000, duePaise: 70000 }],
-      }),
+  it('the queue Collect amount comes from one branch query and shows with the queue (#180, #183)', async () => {
+    const calls = routes(['receptionist'], () => [entry('q1', 1, 'waiting')], {
+      'GET /api/v1/bills': () => json([
+        { id: 'b1', billNo: null, status: 'draft', billKind: 'final', patientId: PATIENT_ID, branchId: ALPHA_MAIN, totalPaise: 70000, duePaise: 70000, createdOn: '2026-10-27T05:00:00Z' },
+        { id: 'b2', billNo: null, status: 'draft', billKind: 'final', patientId: 'other', branchId: ALPHA_MAIN, totalPaise: 100, duePaise: 100, createdOn: '2026-10-27T05:00:00Z' },
+      ]),
     })
     renderWithProviders(<App />, { path: '/queue', auth: fakeAuthClient({ session: fakeSession() }) })
     expect(await screen.findByRole('button', { name: 'Collect for token 1' })).toBeInTheDocument()
-    await waitFor(() => expect(screen.getByTestId('queue-row-collect-amount')).toHaveTextContent('Collect ₹700.00'))
+    // first paint of the row already carries the amount: no plain "Collect" flash
+    expect(screen.getByTestId('queue-row-collect-amount')).toHaveTextContent('Collect ₹700.00')
+    const url = new URL(calls.find((c) => c.path === '/api/v1/bills')!.url, 'http://x')
+    expect(Object.fromEntries(url.searchParams)).toEqual({ status: 'draft', branchId: ALPHA_MAIN })
+    expect(calls.some((c) => c.path.endsWith('/summary'))).toBe(false)
   })
+
 
   it('the queue Collect button says just Collect when nothing is due (#180)', async () => {
     routes(['receptionist'], () => [entry('q1', 1, 'done')], {
