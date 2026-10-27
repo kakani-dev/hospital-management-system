@@ -8,6 +8,7 @@ import { LoadingBlock } from '../../components/ui/LoadingBlock'
 import { ApiError, apiClient } from '../../lib/api/client'
 import type { BillDocument, Receipt, ServiceItem } from '../../lib/api/types'
 import { useDebouncedValue } from '../../lib/useDebouncedValue'
+import { UNNUMBERED_BILL, billStatusLabel } from './billStatus'
 import { formatPaise, parseRupeesToPaise, rupeesToPaise } from './money'
 
 const UpiQr = lazy(() => import('./UpiQr').then((m) => ({ default: m.UpiQr })))
@@ -168,8 +169,8 @@ export function BillingPanel({
   const paid = shown.status === 'finalized' && shown.duePaise <= 0
   return (
     <div className="space-y-4" data-testid="billing-drawer">
-      <p className="text-sm text-gray-500 dark:text-dark-300">
-        {shown.billNo ?? 'Draft'} · {shown.status === 'draft' ? 'Not finalized' : shown.status}
+      <p className="text-sm text-gray-500 dark:text-dark-300" data-testid="billing-drawer-bill-status">
+        {shown.billNo ?? UNNUMBERED_BILL} · {billStatusLabel(shown.status)}
       </p>
       <ul className="divide-y divide-gray-200 dark:divide-dark-500">
         {shown.lines.map((line) => (
