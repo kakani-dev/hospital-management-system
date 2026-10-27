@@ -38,6 +38,8 @@ public sealed class VisitType : AuditableEntity, ITenantOwned
     public short DurationMinutes { get; set; }
     public short? FollowUpValidDays { get; set; }
     public long? FollowUpFeePaise { get; set; }
+    /// <summary>How many follow-ups at the free or reduced fee one visit of this type allows. Null is no limit.</summary>
+    public short? FollowUpFreeLimit { get; set; } = 1;
     public short SortOrder { get; set; }
     public bool IsActive { get; set; } = true;
 }
@@ -136,6 +138,12 @@ public sealed class Appointment : AuditableEntity, ITenantOwned
     public short? GrantedFollowUpDays { get; set; }
     /// <summary>Follow-up fee snapshotted at booking. Null means no special fee; 0 is free.</summary>
     public long? GrantedFollowUpFeePaise { get; set; }
+    /// <summary>Free or reduced follow-ups this visit allows, snapshotted at booking. Null is no limit.</summary>
+    public short? GrantedFollowUpLimit { get; set; }
+    /// <summary>The earlier visit whose free or reduced follow-up this booking used. Set on insert only.</summary>
+    public Guid? FollowUpEntitlementId { get; set; }
+    /// <summary>Bill note for a free or reduced follow-up, e.g. "Free follow-up (within 7 days of 20 Oct 2026)".</summary>
+    public string? ConsultationFeeNote { get; set; }
 }
 
 /// <summary>appointment.queue_entries: READ-ONLY for the API; written only by the check-in / queue RPCs.</summary>

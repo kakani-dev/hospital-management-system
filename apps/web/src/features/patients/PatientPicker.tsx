@@ -107,7 +107,8 @@ export function PatientPicker({
         <Button
           variant="ghost"
           data-testid="add-new-patient-button"
-          className="float-right"
+          // Compact link-style action on the label row, right-aligned; never widens the drawer.
+          className="absolute right-0 top-0 z-10 h-auto! min-h-0! max-w-[50%] truncate px-1! py-0! text-xs! font-medium text-primary-600 hover:underline dark:text-primary-400"
           onClick={registerNew}
         >
           + Add new patient

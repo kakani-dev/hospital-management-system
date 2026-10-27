@@ -614,7 +614,7 @@ export class ApiClient {
     list: (branchId?: string) => this.request<VisitType[]>(`/api/v1/visit-types${qs({ branchId })}`),
     suggestion: (params: { branchId: string; practitionerId: string; patientId: string; startsAt: string }) =>
       this.request<VisitSuggestion>(`/api/v1/visit-types/suggestion${qs(params)}`),
-    update: (id: string, body: { name?: string; defaultFeePaise?: number; durationMinutes?: number; followUpValidDays?: number | null; clearFollowUpWindow?: boolean; followUpFeePaise?: number | null; clearFollowUpFee?: boolean; isActive?: boolean }) =>
+    update: (id: string, body: { name?: string; defaultFeePaise?: number; durationMinutes?: number; followUpValidDays?: number | null; clearFollowUpWindow?: boolean; followUpFeePaise?: number | null; clearFollowUpFee?: boolean; followUpFreeLimit?: number | null; clearFollowUpFreeLimit?: boolean; isActive?: boolean }) =>
       this.request<VisitType>(`/api/v1/visit-types/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
     upsertOverride: (id: string, body: { branchId: string; feePaise?: number | null; durationMinutes?: number | null; followUpValidDays?: number | null; followUpFeePaise?: number | null }) =>
       this.request<unknown>(`/api/v1/visit-types/${encodeURIComponent(id)}/overrides`, { method: 'POST', body: JSON.stringify(body) }),
