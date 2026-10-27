@@ -6,7 +6,8 @@
 --   * approved + pending discounts can't exceed the bill subtotal (billing.bill_gross): 22023 -> 400;
 --   * decide_approval re-checks the cap before applying an approved discount.
 -- The bill row is locked FOR UPDATE so two requests at once are serialised.
--- Billing schema only; no cross-schema calls added. Same signatures, owner and grants.
+-- cross-schema: approved (existing audit.session_actor_id() calls, unchanged from 20261025240200; nothing new added)
+-- Billing schema otherwise. Same signatures, owner and grants.
 set local lock_timeout = '5s';
 set local statement_timeout = '120s';
 
