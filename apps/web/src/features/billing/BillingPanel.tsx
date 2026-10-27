@@ -53,28 +53,34 @@ export function BillingPanel({
     queryFn: () => apiClient.billing.summary(patientId),
   })
 
+  const draftId = summary.data?.bills.find(
+    (item) => item.status === 'draft' && item.billKind === 'final' && item.branchId === branchId,
+  )?.id ?? null
   const consult = useQuery({
-    queryKey: ['billing', 'consult', patientId, branchId, generation],
+    queryKey: ['billing', 'consult', patientId, branchId, generation, generation === 0 ? draftId : null],
     retry: false,
     staleTime: Infinity,
     enabled: summary.isFetched,
-    queryFn: async () => {
-      if (generation === 0 && summary.data) {
-        const draft = summary.data.bills.find(
-          (item) => item.status === 'draft' && item.billKind === 'final' && item.branchId === branchId,
-        )
-        if (draft) {
-          const existing = await apiClient.billing.bill(draft.id)
-          if (existing.lines.length === 0) return apiClient.billing.addLine(existing.id, { code: 'CONSULT' })
-          return existing
-        }
-      }
-      const opened = await apiClient.billing.openAccount({ patientId, branchId, accountType: 'op_visit' })
-      return apiClient.billing.addLine(opened.id, { code: 'CONSULT' })
+    // #164: never open a bill or add a consultation on its own. Show today's draft, or let
+    // the user choose. The server fills the doctor and fee for CONSULT (#165).
+    queryFn: async (): Promise<BillDocument | null> => {
+      if (generation !== 0 || !draftId) return null
+      return apiClient.billing.bill(draftId)
     },
   })
 
-  const bill = override?.generation === generation ? override.bill : consult.data
+  const start = useMutation({
+    mutationFn: async (withConsult: boolean) => {
+      const opened = await apiClient.billing.openAccount({ patientId, branchId, accountType: 'op_visit' })
+      return withConsult ? apiClient.billing.addLine(opened.id, { code: 'CONSULT' }) : opened
+    },
+    onSuccess: (next) => {
+      setOverride({ generation, bill: next })
+      void qc.invalidateQueries({ queryKey: ['billing', 'summary', patientId, branchId] })
+    },
+  })
+
+  const bill = override?.generation === generation ? override.bill : consult.data ?? undefined
   const watching = !!qr && !!bill && bill.duePaise > 0
   const polled = useQuery({
     queryKey: ['billing', 'bill', bill?.id],
@@ -157,7 +163,7 @@ export function BillingPanel({
     },
   })
 
-  if (consult.isPending && !shown) return <LoadingBlock label="Raising the consultation bill" />
+  if (consult.isPending && !shown) return <LoadingBlock label="Looking for an open bill" />
   if (consult.isError && !shown) {
     return (
       <div className="space-y-3">
@@ -166,7 +172,22 @@ export function BillingPanel({
       </div>
     )
   }
-  if (!shown) return null
+  if (!shown) {
+    return (
+      <div className="space-y-3" data-testid="billing-panel-empty">
+        <p className="text-sm text-gray-600 dark:text-dark-200">No open bill for this patient today.</p>
+        {start.isError && <Alert tone="error">{problemText(start.error)}</Alert>}
+        <div className="flex flex-wrap gap-2">
+          <Button className="h-8 px-3" data-testid="billing-panel-add-consult" onClick={() => start.mutate(true)} disabled={start.isPending}>
+            Add consultation
+          </Button>
+          <Button className="h-8 px-3" variant="secondary" data-testid="billing-panel-other-services" onClick={() => start.mutate(false)} disabled={start.isPending}>
+            Other services
+          </Button>
+        </div>
+      </div>
+    )
+  }
 
   const paid = shown.status === 'finalized' && shown.duePaise <= 0
   return (

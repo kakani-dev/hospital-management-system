@@ -727,7 +727,10 @@ export class MockBackend {
     }
     const summary = /^\/api\/v1\/accounts\/([^/]+)\/summary$/.exec(path)
     if (method === 'GET' && summary) {
-      return { status: 200, body: { patientId: summary[1], advancePaise: 0, accounts: [], bills: [] } }
+      const bills = [...this.mockBills.values()]
+        .filter((bill) => bill.patientId === summary[1])
+        .map((bill) => ({ id: bill.id, accountId: bill.accountId, branchId: bill.branchId, billNo: bill.billNo, status: bill.status, billKind: 'final', totalPaise: bill.totalPaise, duePaise: bill.duePaise }))
+      return { status: 200, body: { patientId: summary[1], advancePaise: 0, accounts: [], bills } }
     }
     if (method === 'POST' && path === '/api/v1/counter-sessions/ensure') {
       return { status: 200, body: { id: 'c1000000-0000-4000-8000-000000000001', businessDate: '2026-10-23', opened: true } }
