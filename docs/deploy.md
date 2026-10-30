@@ -125,6 +125,24 @@ If a container app does not exist yet, the script still creates the app registra
 | `AZURE_SUBSCRIPTION_ID` | yes | `6f4c512a-8528-461a-962b-f4f8525223a3` |
 | `SMTP_PASSWORD` | yes for identity | Gmail app password. Stored only on `ca-hms-identity` as `smtp-password`. Identity does not roll if this is empty. |
 | `SUPABASE_SERVICE_ROLE_KEY` | yes for identity | GoTrue service-role key. Stored only on `ca-hms-identity` as `supabase-service-role`. |
+| `HMS_EDGE_KEY` | when `ACA_SECRETS_SOURCE=github` | Edge-to-service key. Same value on all seven apps as `hms-edge-key` (`Edge__Key`). |
+| `HMS_DB_IDENTITY` | when `ACA_SECRETS_SOURCE=github` | Identity database connection string (`hms_identity_login`). `hms-db` on `ca-hms-identity`. |
+| `HMS_DB_PATIENTS` | when `ACA_SECRETS_SOURCE=github` | `hms-db` on `ca-hms-patients`. |
+| `HMS_DB_SCHEDULING` | when `ACA_SECRETS_SOURCE=github` | `hms-db` on `ca-hms-scheduling`. |
+| `HMS_DB_BILLING` | when `ACA_SECRETS_SOURCE=github` | `hms-db` on `ca-hms-billing`. |
+| `HMS_DB_INVENTORY` | when `ACA_SECRETS_SOURCE=github` | `hms-db` on `ca-hms-inventory`. |
+| `HMS_DB_PRIVACY` | when `ACA_SECRETS_SOURCE=github` | `hms-db` on `ca-hms-privacy`. |
+
+### App secrets from GitHub (issue #68)
+
+`.github/aca-secrets.tsv` is the single map from Container Apps secret to GitHub secret to env var. The repository variable `ACA_SECRETS_SOURCE` picks the mode:
+
+- unset or `legacy`: today's behaviour. Only the identity mail pair is written; `hms-db` and `hms-edge-key` stay as they are on each app.
+- `github`: every row is applied. Before any write the deploy fails if a needed secret is empty (names only in the log). Each value is masked, compared with the live value by hash, and written only if different, then referenced as `Name=secretref:<secret>`, never as a plain env value. A failed rollout restores the previous values it changed. Changing `HMS_EDGE_KEY` is refused unless all seven apps roll in the same run; use the emergency hatch with the current tag and a blank service.
+
+Container Apps secrets are app-level, not per revision, so a revision rollback alone does not bring an old value back. The in-run restore covers that; a cancelled job restores revisions only.
+
+`bash .github/scripts/aca-secrets.sh names github` lists the names. CI runs `.github/scripts/aca-secrets.test.sh` against a fake `az`.
 
 Do not create a client secret. The workflow asks Entra for a short-lived token with the federated credential above. Pulls use the identity already on each app (`AcrPull`), not a registry password. Patients keeps its existing identity. Scheduling keeps its system-assigned identity.
 

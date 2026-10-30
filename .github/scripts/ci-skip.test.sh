@@ -59,3 +59,6 @@ if grep -q 'cancel-in-progress: false' "$deploy"; then
 fi
 
 echo "ci-skip tests passed"
+
+# Issue #68 self-test (wired here until ci.yml gets its own step).
+bash "$(dirname "${BASH_SOURCE[0]}")/aca-secrets.test.sh"
