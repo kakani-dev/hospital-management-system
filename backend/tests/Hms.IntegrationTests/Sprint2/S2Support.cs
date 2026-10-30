@@ -50,7 +50,7 @@ internal static class S2
     {
         var response = await client.PostAsJsonAsync("/api/v1/patients", new
         {
-            mrn = Unique("S2-"), firstName = "Synth", lastName = lastName ?? Unique("Ln"), registeredBranchId = branch, dateOfBirth = dob, phone,
+            mrn = Unique("S2-"), firstName = "Synth", lastName = lastName ?? Unique("Ln"), registeredBranchId = branch, dateOfBirth = dob, phone, sex = "unknown", ageYears = 30, noPhoneReason = "test fixture"
         });
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<S2Patient>())!;

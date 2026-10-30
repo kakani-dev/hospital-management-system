@@ -92,7 +92,7 @@ public sealed class QaPatientEditDeleteApiTests(HmsApiFactory factory) : IClassF
 
         // The MRN stays reserved (D1): it is never handed out again (a typed MRN is ignored).
         var reuse = await Qa.ReadAsync<QaPatient>(
-            await admin.PostAsJsonAsync(QaRoutes.Patients, new { mrn = patient.Mrn, firstName = "Reuse", lastName = "Attempt", registeredBranchId = AlphaMain }),
+            await admin.PostAsJsonAsync(QaRoutes.Patients, new { mrn = patient.Mrn, firstName = "Reuse", lastName = "Attempt", registeredBranchId = AlphaMain, sex = "unknown", ageYears = 30, noPhoneReason = "test fixture" }),
             HttpStatusCode.Created);
         Assert.NotEqual(patient.Mrn, reuse.Mrn);
     }

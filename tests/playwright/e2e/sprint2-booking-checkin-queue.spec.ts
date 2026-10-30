@@ -1,5 +1,6 @@
 import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test'
 import { bearer, ids, signIn, tokenFor, unique, users } from './helpers'
+import { completeRegistration } from '../registration'
 
 /**
  * Sprint 2 full stack (web + API + real Postgres/RLS, SPRINT2-CONTRACT.md DB v4 + API v2):
@@ -121,7 +122,7 @@ async function setUp(request: APIRequestContext) {
   const lastName = `Zz-E2E-${unique('S2')}`
   const patientResponse = await request.post('/api/v1/patients', {
     headers: reception,
-    data: { firstName: 'Queue', lastName, registeredBranchId: ids.alphaMain, sex: 'female' },
+    data: { firstName: 'Queue', lastName, registeredBranchId: ids.alphaMain, sex: 'female', ageYears: 30, noPhoneReason: 'test fixture' },
   })
   expect(patientResponse.status()).toBe(201)
   const patient = (await patientResponse.json()) as Patient
@@ -232,6 +233,7 @@ test.describe('Booking drawer quick-register (full stack)', () => {
     await quick.getByLabel('Last name').fill(lastName)
     const created = page.waitForResponse((r) => r.url().endsWith('/api/v1/patients') && r.request().method() === 'POST')
     const booked = page.waitForResponse((r) => r.url().endsWith('/api/v1/appointments') && r.request().method() === 'POST')
+    await completeRegistration(quick)
     await quick.getByTestId('save-and-book').click()
     const patient = (await (await created).json()) as Patient
     expect(patient.registeredBranchId).toBe(ids.alphaMain)

@@ -305,7 +305,9 @@ public static class PatientEndpoints
         }
 
         var branchTimeZone = tenant.TimeZoneFor(request.RegisteredBranchId);
-        var errors = CreatePatientValidator.Validate(request, BranchClock.Today(timeProvider, branchTimeZone));
+        var today = BranchClock.Today(timeProvider, branchTimeZone);
+        var errors = CreatePatientValidator.Validate(request, today);
+        CreatePatientValidator.ValidateRegistration(request, errors);
 
         // Phones (Level 1): normalized to E.164 with the tenant's calling code (tenant from the token only).
         var countryCode = await registry.DefaultCountryCodeAsync(tenant.TenantId, ct) ?? PhoneE164.FallbackCountryCode;
@@ -343,9 +345,11 @@ public static class PatientEndpoints
         var patient = new Patient
         {
             FirstName = request.FirstName!.Trim(),
-            LastName = request.LastName!.Trim(),
-            DateOfBirth = request.DateOfBirth,
-            Sex = request.Sex ?? PatientSex.Unknown,
+            LastName = request.LastName?.Trim() ?? string.Empty,
+            DateOfBirth = request.DateOfBirth ?? CreatePatientValidator.EstimateDateOfBirth(request.AgeYears!.Value, today),
+            DobEstimated = request.DateOfBirth is null,
+            NoPhoneReason = phoneE164 is null ? request.NoPhoneReason!.Trim() : null,
+            Sex = request.Sex!,
             RegisteredBranchId = request.RegisteredBranchId,
             Email = email,
             AbhaNumber = abha,
@@ -478,7 +482,7 @@ public static class PatientEndpoints
         var email = string.IsNullOrWhiteSpace(merged.Email) ? null : merged.Email.Trim();
         var abha = CreatePatientValidator.NormalizeAbha(merged.AbhaNumber);
         var nameChanged = !string.Equals(patient.FirstName.Trim(), merged.FirstName!.Trim(), StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(patient.LastName.Trim(), merged.LastName!.Trim(), StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(patient.LastName.Trim(), (merged.LastName ?? string.Empty).Trim(), StringComparison.OrdinalIgnoreCase)
             || patient.DateOfBirth != merged.DateOfBirth;
         var emailChanged = !string.Equals(NormEmail(patient.Email), NormEmail(email), StringComparison.Ordinal);
         var abhaChanged = patient.AbhaNumber != abha;
@@ -512,8 +516,23 @@ public static class PatientEndpoints
         }
 
         patient.FirstName = merged.FirstName!.Trim();
-        patient.LastName = merged.LastName!.Trim();
+        patient.LastName = (merged.LastName ?? string.Empty).Trim();
+        if (patch.DateOfBirth.IsSet && patch.DateOfBirth.Value != patient.DateOfBirth)
+        {
+            patient.DobEstimated = false; // #190: a DOB typed in on edit is no longer an estimate
+        }
+
         patient.DateOfBirth = merged.DateOfBirth;
+        if (patient.DateOfBirth is null)
+        {
+            patient.DobEstimated = false;
+        }
+
+        if (phoneE164 is not null)
+        {
+            patient.NoPhoneReason = null; // #190: a mobile number was added
+        }
+
         patient.Sex = merged.Sex!;
         patient.RegisteredBranchId = targetBranch;
         patient.Email = email;

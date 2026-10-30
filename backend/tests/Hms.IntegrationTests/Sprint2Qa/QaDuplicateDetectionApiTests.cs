@@ -103,7 +103,7 @@ public sealed class QaDuplicateDetectionApiTests(HmsApiFactory factory) : IClass
 
         var blocked = await reception.PostAsJsonAsync(QaRoutes.Patients, new
         {
-            firstName = "Nila", lastName = surname, dateOfBirth = Dob, sex = "female", registeredBranchId = AlphaMain,
+            firstName = "Nila", lastName = surname, dateOfBirth = Dob, sex = "female", registeredBranchId = AlphaMain, ageYears = 30, noPhoneReason = "test fixture"
         });
         Assert.Equal(HttpStatusCode.Conflict, blocked.StatusCode);
         Assert.Equal("duplicate_name_confirmation", await Qa.CodeAsync(blocked));
@@ -111,7 +111,7 @@ public sealed class QaDuplicateDetectionApiTests(HmsApiFactory factory) : IClass
         var second = await reception.PostAsJsonAsync(QaRoutes.Patients, new
         {
             firstName = "Nila", lastName = surname, dateOfBirth = Dob, sex = "female", registeredBranchId = AlphaMain,
-            duplicateOverrideReason = "Twin registered at the other desk", email,
+            duplicateOverrideReason = "Twin registered at the other desk", email, ageYears = 30, noPhoneReason = "test fixture"
         });
         Assert.Equal(HttpStatusCode.Created, second.StatusCode);
         var created = await second.Content.ReadFromJsonAsync<QaPatient>();
@@ -121,14 +121,14 @@ public sealed class QaDuplicateDetectionApiTests(HmsApiFactory factory) : IClass
 
         var sharedPhone = await reception.PostAsJsonAsync(QaRoutes.Patients, new
         {
-            firstName = "Other", lastName = Qa.NewSurname("Ph"), sex = "female", registeredBranchId = AlphaMain, phone = $"0{digits}",
+            firstName = "Other", lastName = Qa.NewSurname("Ph"), sex = "female", registeredBranchId = AlphaMain, phone = $"0{digits}", ageYears = 30, noPhoneReason = "test fixture"
         });
         Assert.Equal(HttpStatusCode.Conflict, sharedPhone.StatusCode);
         Assert.Equal("duplicate_patient", await Qa.CodeAsync(sharedPhone));
 
         var sharedEmail = await reception.PostAsJsonAsync(QaRoutes.Patients, new
         {
-            firstName = "Other", lastName = Qa.NewSurname("Em"), sex = "female", registeredBranchId = AlphaMain, email = email.ToUpperInvariant(),
+            firstName = "Other", lastName = Qa.NewSurname("Em"), sex = "female", registeredBranchId = AlphaMain, email = email.ToUpperInvariant(), ageYears = 30, noPhoneReason = "test fixture"
         });
         Assert.Equal(HttpStatusCode.Conflict, sharedEmail.StatusCode);
         Assert.Equal("duplicate_patient", await Qa.CodeAsync(sharedEmail));
@@ -136,7 +136,7 @@ public sealed class QaDuplicateDetectionApiTests(HmsApiFactory factory) : IClass
         using var beta = factory.ClientAs(BetaAdmin, Beta);
         Assert.Equal(HttpStatusCode.Created, (await beta.PostAsJsonAsync(QaRoutes.Patients, new
         {
-            firstName = "Other", lastName = Qa.NewSurname("Be"), sex = "female", registeredBranchId = BetaMain, email,
+            firstName = "Other", lastName = Qa.NewSurname("Be"), sex = "female", registeredBranchId = BetaMain, email, ageYears = 30, noPhoneReason = "test fixture"
         })).StatusCode);
     }
 

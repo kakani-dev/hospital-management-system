@@ -62,7 +62,7 @@ public sealed class InProcessApiTests : IClassFixture<InProcessApiTests.ApiFacto
     // Each chart gets its own name. The in-memory registry is shared by this class, and a repeated
     // name is now a 409 until a reason is stored. Tests that care about the name pass their own.
     private static object NewPatient(Guid branch, string? mrn = null, string? dob = null) =>
-        new { mrn = mrn ?? NewMrn(), firstName = "Test", lastName = $"P{Guid.NewGuid():N}"[..12], registeredBranchId = branch, dateOfBirth = dob };
+        new { mrn = mrn ?? NewMrn(), firstName = "Test", lastName = $"P{Guid.NewGuid():N}"[..12], registeredBranchId = branch, dateOfBirth = dob, sex = "unknown", ageYears = 30, noPhoneReason = "test fixture" };
 
     [Fact]
     public async Task M1_role_at_another_branch_does_not_authorize_writes_here()
@@ -128,7 +128,7 @@ public sealed class InProcessApiTests : IClassFixture<InProcessApiTests.ApiFacto
         var response = await client.PostAsJsonAsync("/api/v1/patients", new
         {
             mrn = NewMrn(), firstName = "Long", lastName = "Contact", registeredBranchId = Main,
-            phone = new string('9', 33), email = new string('a', 250) + "@x.example",
+            phone = new string('9', 33), email = new string('a', 250) + "@x.example", sex = "unknown", ageYears = 30, noPhoneReason = "test fixture"
         });
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         var text = await response.Content.ReadAsStringAsync();
@@ -141,7 +141,7 @@ public sealed class InProcessApiTests : IClassFixture<InProcessApiTests.ApiFacto
     {
         using var client = _factory.ClientAs(Admin);
         var last = $"Findme{Guid.NewGuid():N}"[..20];
-        var created = await client.PostAsJsonAsync("/api/v1/patients", new { mrn = NewMrn(), firstName = "Search", lastName = last, registeredBranchId = Main });
+        var created = await client.PostAsJsonAsync("/api/v1/patients", new { mrn = NewMrn(), firstName = "Search", lastName = last, registeredBranchId = Main, sex = "unknown", ageYears = 30, noPhoneReason = "test fixture" });
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
 
         var search = await client.PostAsJsonAsync("/api/v1/patients/search", new { search = last.ToLowerInvariant(), page = 1, pageSize = 10 });
@@ -167,7 +167,7 @@ public sealed class InProcessApiTests : IClassFixture<InProcessApiTests.ApiFacto
         Assert.Equal(Alpha.ToString(), Assert.Single(ok.Headers.GetValues(HmsHeaders.Tenant)));
 
         // Also on error responses (validation / authorization) for a resolved tenant.
-        var bad = await client.PostAsJsonAsync("/api/v1/patients", new { mrn = "", firstName = "", lastName = "", registeredBranchId = Main });
+        var bad = await client.PostAsJsonAsync("/api/v1/patients", new { mrn = "", firstName = "", lastName = "", registeredBranchId = Main, sex = "unknown", ageYears = 30, noPhoneReason = "test fixture" });
         Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
         Assert.Equal(Alpha.ToString(), Assert.Single(bad.Headers.GetValues(HmsHeaders.Tenant)));
 

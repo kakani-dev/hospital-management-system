@@ -113,7 +113,7 @@ if [ "$SMOKE_WRITE" != 1 ]; then echo "SMOKE PASS (read-only; set SMOKE_WRITE=1 
 today=$(TZ="$BRANCH_TZ" date +%F); weekday=$(TZ="$BRANCH_TZ" date +%u)
 mrn="SMOKE-$(date +%Y%m%d%H%M%S)"
 echo "7. register SMOKE TEST Patient ($mrn) (patients service)"
-expect 201 "$(call POST /patients "{\"mrn\":\"$mrn\",\"firstName\":\"SMOKE TEST\",\"lastName\":\"Patient\",\"sex\":\"unknown\",\"registeredBranchId\":\"$BRANCH_ID\"}")" "create patient"
+expect 201 "$(call POST /patients "{\"mrn\":\"$mrn\",\"firstName\":\"SMOKE TEST\",\"lastName\":\"Patient\",\"sex\":\"unknown\",\"ageYears\":30,\"noPhoneReason\":\"smoke test\",\"registeredBranchId\":\"$BRANCH_ID\"}")" "create patient"
 pid=$(j 'd["id"]' <"$TMP/out.json"); echo "   ok id=$pid"
 
 echo "8. search $mrn"

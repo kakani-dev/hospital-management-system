@@ -33,7 +33,7 @@ test.describe('phase 2 admin screens', () => {
     const token = await tokenFor(request, users.alphaAdmin)
     const created = await request.post('/api/v1/patients', {
       headers: bearer(token),
-      data: { firstName: 'Dash', lastName: `Zz-E2E-${unique('Stat')}`, registeredBranchId: ids.alphaMain, sex: 'unknown' },
+      data: { firstName: 'Dash', lastName: `Zz-E2E-${unique('Stat')}`, registeredBranchId: ids.alphaMain, sex: 'unknown', ageYears: 30, noPhoneReason: 'test fixture' },
     })
     expect(created.status()).toBe(201)
 

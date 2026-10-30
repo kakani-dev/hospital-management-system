@@ -51,7 +51,7 @@ public sealed class N1SecondBranchInviteApiTests(HmsApiFactory factory) : IClass
 
     // MRNs are server-generated (Level 1): the unique marker travels in the last name instead.
     private static object NewPatient(string marker, Guid branch) =>
-        new { firstName = "Second", lastName = marker, registeredBranchId = branch, sex = "female" };
+        new { firstName = "Second", lastName = marker, registeredBranchId = branch, sex = "female", ageYears = 30, noPhoneReason = "test fixture" };
 
     private static async Task<int> CountByMrnAsync(string mrn)
     {

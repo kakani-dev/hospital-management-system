@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { bearer, searchPatients, signIn, tokenFor, unique, users } from './helpers'
+import { completeRegistration } from '../registration'
 
 test.describe('patient registration', () => {
   test('receptionist registers a patient (MRN generated, WhatsApp same as phone); other tenant cannot see it', async ({ page, browser }) => {
@@ -14,10 +15,11 @@ test.describe('patient registration', () => {
     await page.getByLabel('Last name').fill(lastName)
     await page.getByLabel('Date of birth').fill('1991-02-03')
     await page.getByLabel('Sex').selectOption('female')
-    await page.getByLabel('Phone (optional)').fill(`98451 ${digits}`)
+    await page.getByLabel('Mobile number').fill(`98451 ${digits}`)
     await expect(page.getByRole('checkbox', { name: 'Same as phone number' })).toBeChecked()
     await expect(page.getByLabel('Registered branch')).toHaveValue('a1111111-0000-4000-8000-000000000001')
     const createdResponse = page.waitForResponse((r) => r.url().endsWith('/api/v1/patients') && r.request().method() === 'POST')
+    await completeRegistration(page)
     await page.getByRole('button', { name: 'Register patient' }).click()
 
     const created = (await (await createdResponse).json()) as { id: string; mrn: string; phones: { number: string; isPrimary: boolean; isWhatsapp: boolean }[]; whatsappSameAsPhone: boolean }
@@ -64,7 +66,7 @@ test.describe('patient registration', () => {
     const token = await tokenFor(request, users.alphaReception)
     const response = await request.post('/api/v1/patients', {
       headers: bearer(token),
-      data: { mrn: 'CLIENT-0001', firstName: 'Mrn', lastName: `Synthetic-E2E-${unique('M').slice(2)}`, registeredBranchId: 'a1111111-0000-4000-8000-000000000001', phone: '098452 00011', whatsapp: { sameAsPhone: false, number: '0091 98452 00012' } },
+      data: { mrn: 'CLIENT-0001', firstName: 'Mrn', lastName: `Synthetic-E2E-${unique('M').slice(2)}`, registeredBranchId: 'a1111111-0000-4000-8000-000000000001', phone: '098452 00011', whatsapp: { sameAsPhone: false, number: '0091 98452 00012' }, sex: 'unknown', ageYears: 30, noPhoneReason: 'test fixture' },
     })
     expect(response.status()).toBe(201)
     const created = (await response.json()) as { id: string; mrn: string; phones: { number: string; isPrimary: boolean; isWhatsapp: boolean }[]; whatsappSameAsPhone: boolean }
@@ -80,7 +82,7 @@ test.describe('patient registration', () => {
     expect(patch.status()).toBe(400)
     const bad = await request.post('/api/v1/patients', {
       headers: bearer(token),
-      data: { firstName: 'Bad', lastName: 'Synthetic-E2E', registeredBranchId: 'a1111111-0000-4000-8000-000000000001', phone: '98452 00013', whatsapp: { sameAsPhone: false, number: '12' } },
+      data: { firstName: 'Bad', lastName: 'Synthetic-E2E', registeredBranchId: 'a1111111-0000-4000-8000-000000000001', phone: '98452 00013', whatsapp: { sameAsPhone: false, number: '12' }, sex: 'unknown', ageYears: 30, noPhoneReason: 'test fixture' },
     })
     expect(bad.status()).toBe(400)
     expect(((await bad.json()) as { errors: Record<string, string[]> }).errors).toHaveProperty('whatsapp')
@@ -99,7 +101,8 @@ test.describe('patient registration', () => {
   test('client-side validation blocks bad input', async ({ page }) => {
     await signIn(page, users.alphaAdmin)
     await page.goto('/patients/new')
-    await page.getByLabel('Phone (optional)').fill('call me')
+    await page.getByLabel('Mobile number').fill('call me')
+    await completeRegistration(page)
     await page.getByRole('button', { name: 'Register patient' }).click()
     await expect(page.getByText(/Enter a valid phone number/)).toBeVisible()
     await expect(page.getByText('First name is required')).toBeVisible()

@@ -28,6 +28,7 @@ public sealed class M2ServerOwnedFieldsApiTests(HmsApiFactory factory) : IClassF
             ["mrn"] = mrn,
             ["firstName"] = "Forged",
             ["lastName"] = "Audit",
+            ["sex"] = "unknown", ["ageYears"] = 30, ["noPhoneReason"] = "test fixture",
             ["registeredBranchId"] = AlphaMain,
             // Server-owned fields, in both the API's camelCase and the DB's snake_case spelling.
             ["id"] = forgedId,

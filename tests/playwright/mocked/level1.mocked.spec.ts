@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { INVITEE_EMAIL, MockBackend, OPERATOR_EMAIL, PASSWORD, ids, patientIds, signIn } from './mock-backend'
+import { completeRegistration } from '../registration'
 
 /**
  * Level 1 (tenants, branches, appointments) against the mocked API: public hospital registration,
@@ -242,10 +243,11 @@ test('register: no MRN input, the generated MRN is in the toast; WhatsApp same-a
   await expect(page.getByText('The MRN is assigned automatically when you register.')).toBeVisible()
   await page.getByLabel('First name').fill('Wanda')
   await page.getByLabel('Last name').fill('Synthetic-Level1')
-  await page.getByLabel('Phone (optional)').fill('098450 12345')
+  await page.getByLabel('Mobile number').fill('098450 12345')
   const same = page.getByRole('checkbox', { name: 'Same as phone number' })
   await expect(same).toBeChecked()
   await expect(page.getByLabel('WhatsApp number')).toHaveCount(0)
+  await completeRegistration(page)
   await page.getByRole('button', { name: 'Register patient' }).click()
 
   await expect(page.getByText('Patient registered. MRN ALPHA-000001')).toBeVisible() // toast
@@ -283,6 +285,7 @@ test('register with "All my branches": a branch is pre-selected and can be chang
   await branch.selectOption(ids.alphaMain)
   await page.getByLabel('First name').fill('Branchy')
   await page.getByLabel('Last name').fill('Synthetic-Level1')
+  await completeRegistration(page)
   await page.getByRole('button', { name: 'Register patient' }).click()
   await expect(page.getByText(/Patient registered\. MRN ALPHA-/)).toBeVisible()
   expect(backend.calls.find((c) => c.method === 'POST' && c.path === '/api/v1/patients')!.body).toMatchObject({ registeredBranchId: ids.alphaMain })
@@ -293,9 +296,10 @@ test('register: a bad WhatsApp number is refused by the server and shown on the 
   await page.goto('/patients/new')
   await page.getByLabel('First name').fill('Xena')
   await page.getByLabel('Last name').fill('Synthetic-Level1')
-  await page.getByLabel('Phone (optional)').fill('98450 12346')
+  await page.getByLabel('Mobile number').fill('98450 12346')
   await page.getByRole('checkbox', { name: 'Same as phone number' }).uncheck()
   await page.getByLabel('WhatsApp number').fill('12')
+  await completeRegistration(page)
   await page.getByRole('button', { name: 'Register patient' }).click()
   await expect(page.getByText(/valid WhatsApp number/).first()).toBeVisible()
   expect(backend.patients.some((p) => p.firstName === 'Xena')).toBe(false)

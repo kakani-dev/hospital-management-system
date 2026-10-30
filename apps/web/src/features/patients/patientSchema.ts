@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { SEXES, type WhatsappInput } from '../../lib/api/types'
+import { SEXES, type Sex, type WhatsappInput } from '../../lib/api/types'
 import { latestToday, localToday } from '../../lib/dates'
 
 /** Returns the IANA zone "today" is computed in; undefined = the workstation's zone. */
@@ -20,7 +20,8 @@ const todayIn = (timeZone: string | undefined) => (timeZone ? localToday(new Dat
 export function createPatientSchema(getTimeZone: TimeZoneGetter = () => undefined) {
   return z.object({
   firstName: z.string().trim().min(1, { error: 'First name is required' }).max(100, { error: 'Max 100 characters' }),
-  lastName: z.string().trim().min(1, { error: 'Last name is required' }).max(100, { error: 'Max 100 characters' }),
+  /** #190: optional — many patients have a single name. */
+  lastName: z.string().trim().max(100, { error: 'Max 100 characters' }),
   dateOfBirth: z
     .string()
     .refine((v) => v === '' || (/^\d{4}-\d{2}-\d{2}$/.test(v) && v >= '1900-01-01' && v <= todayIn(getTimeZone())), {
@@ -67,15 +68,58 @@ export const patientSchema = createPatientSchema()
 
 export type PatientFormValues = z.infer<typeof patientSchema>
 
-export function toCreatePatientRequest(v: PatientFormValues, duplicateOverrideReason?: string) {
+export const MAX_AGE_YEARS = 120
+export const SEX_REQUIRED_ERROR = 'Choose the sex (Unknown is allowed)'
+export const DOB_OR_AGE_ERROR = 'Enter a date of birth or an age'
+export const AGE_ERROR = `Age must be a whole number from 0 to ${MAX_AGE_YEARS}`
+export const PHONE_REQUIRED_ERROR = 'Mobile number is required, or tick "Patient has no mobile" and give a reason'
+export const NO_PHONE_REASON_ERROR = 'Give a reason (3 to 200 characters)'
+
+/**
+ * #190: a NEW registration (not an edit) must have the sex chosen (no silent default), a date of
+ * birth or an age (the server estimates the DOB and flags it), and a mobile number or a reason
+ * why there is none. Mirrors CreatePatientValidator.ValidateRegistration.
+ */
+export function createRegisterPatientSchema(getTimeZone: TimeZoneGetter = () => undefined) {
+  return createPatientSchema(getTimeZone)
+    .extend({
+      sex: z.union([z.enum(SEXES), z.literal('')]),
+      ageYears: z.string().trim(),
+      noPhone: z.boolean(),
+      noPhoneReason: z.string().trim(),
+    })
+    .superRefine((v, ctx) => {
+      if (v.sex === '') ctx.addIssue({ code: 'custom', path: ['sex'], message: SEX_REQUIRED_ERROR })
+      if (v.ageYears !== '' && !(/^\d{1,3}$/.test(v.ageYears) && Number(v.ageYears) <= MAX_AGE_YEARS)) {
+        ctx.addIssue({ code: 'custom', path: ['ageYears'], message: AGE_ERROR })
+      } else if (v.dateOfBirth === '' && v.ageYears === '') {
+        ctx.addIssue({ code: 'custom', path: ['dateOfBirth'], message: DOB_OR_AGE_ERROR })
+      }
+      if (v.noPhone) {
+        if (v.noPhoneReason.length < 3 || v.noPhoneReason.length > 200) {
+          ctx.addIssue({ code: 'custom', path: ['noPhoneReason'], message: NO_PHONE_REASON_ERROR })
+        }
+      } else if (v.phone.trim() === '') {
+        ctx.addIssue({ code: 'custom', path: ['phone'], message: PHONE_REQUIRED_ERROR })
+      }
+    })
+}
+
+export const registerPatientSchema = createRegisterPatientSchema()
+export type RegisterPatientFormValues = z.infer<typeof registerPatientSchema>
+
+export function toCreatePatientRequest(v: RegisterPatientFormValues, duplicateOverrideReason?: string) {
   const reason = duplicateOverrideReason?.trim()
+  const noPhone = v.noPhone && !v.phone.trim()
   return {
     firstName: v.firstName.trim(),
     lastName: v.lastName.trim(),
     dateOfBirth: v.dateOfBirth || null,
-    sex: v.sex,
+    ...(!v.dateOfBirth && v.ageYears.trim() ? { ageYears: Number(v.ageYears.trim()) } : {}),
+    sex: v.sex as Sex,
     registeredBranchId: v.registeredBranchId,
-    phone: v.phone.trim() || null,
+    phone: noPhone ? null : v.phone.trim() || null,
+    ...(noPhone ? { noPhoneReason: v.noPhoneReason.trim() } : {}),
     email: v.email || null,
     whatsapp: toWhatsappInput(v),
     abhaNumber: toAbha(v.abhaNumber ?? ''),

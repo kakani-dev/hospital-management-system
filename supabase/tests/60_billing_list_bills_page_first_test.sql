@@ -28,6 +28,9 @@ select '11111111-1111-4111-8111-111111111111', ('b1' || lpad(to_hex(g), 6, '0') 
        '0a000000-0000-4000-8000-000000000001', '0a000000-0000-4000-8000-000000000001'
 from generate_series(1, 330) g, generate_series(1, 3) n;
 set local session_replication_role = origin;
+-- Fresh planner statistics so the timing check measures the query, not a cold-stats plan
+-- (CI timed out at ~60 s on unanalyzed tables while the same file ran in 0.4 s locally).
+analyze billing.bill; analyze billing.billing_account; analyze billing.bill_line; analyze billing.payment; analyze patient.patients;
 
 create temporary table t60 (k text primary key, v jsonb, ms numeric) on commit drop;
 grant all on t60 to hms_svc_billing, hms_svc_identity;

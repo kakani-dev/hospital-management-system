@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { MockBackend, signIn } from './mock-backend'
+import { completeRegistration } from '../registration'
 
 /** Reception keyboard flow: global shortcuts and the type-ahead patient combobox (mocked API). */
 let backend: MockBackend
@@ -80,6 +81,7 @@ test('combobox: no match → register new (pre-filled, nothing in the URL) → b
   await expect(page.getByLabel('First name')).toHaveValue('Kiran')
   await expect(page.getByLabel('Last name')).toHaveValue('Synthetic-New')
   await expect(page.getByLabel('Date of birth')).toBeFocused() // first empty field; no MRN input
+  await completeRegistration(page)
   await page.getByRole('button', { name: /register patient/i }).click()
 
   await expect(page.getByRole('heading', { name: 'Reception check-in' })).toBeVisible()

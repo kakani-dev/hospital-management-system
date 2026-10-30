@@ -20,7 +20,7 @@ public sealed class QaPatientMergeApiTests(HmsApiFactory factory) : IClassFixtur
             firstName = "Keep",
             lastName = Qa.NewSurname("Merge"),
             registeredBranchId = AlphaMain,
-            sex = "unknown",
+            sex = "unknown", ageYears = 30, noPhoneReason = "test fixture"
         }), HttpStatusCode.Created);
         var email = $"merge-{Guid.NewGuid():N}@synthetic.example";
         var duplicate = await Qa.ReadAsync<QaPatient>(await admin.PostAsJsonAsync(QaRoutes.Patients, new
@@ -31,7 +31,7 @@ public sealed class QaPatientMergeApiTests(HmsApiFactory factory) : IClassFixtur
             sex = "female",
             dateOfBirth = new DateOnly(1991, 4, 5),
             email,
-            phone = Qa.NewPhoneDigits(),
+            phone = Qa.NewPhoneDigits(), ageYears = 30, noPhoneReason = "test fixture"
         }), HttpStatusCode.Created);
 
         var practitioner = await Qa.CreatePractitionerAsync(admin);

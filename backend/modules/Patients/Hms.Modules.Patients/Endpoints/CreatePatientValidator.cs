@@ -25,9 +25,10 @@ public static partial class CreatePatientValidator
             errors["firstName"] = ["First name is required (max 100 characters)."];
         }
 
-        if (string.IsNullOrWhiteSpace(request.LastName) || request.LastName.Length > 100)
+        // #190: many patients have a single name, so the last name is optional (stored as '').
+        if (request.LastName is { Length: > 100 })
         {
-            errors["lastName"] = ["Last name is required (max 100 characters)."];
+            errors["lastName"] = ["Last name must be at most 100 characters."];
         }
 
         if (request.Sex is not null && !PatientSex.All.Contains(request.Sex))
@@ -62,6 +63,45 @@ public static partial class CreatePatientValidator
 
         return errors;
     }
+
+    /// <summary>Oldest age accepted when the date of birth is estimated from an age.</summary>
+    public const int MaxAgeYears = 120;
+
+    /// <summary>
+    /// #190: extra rules for a NEW registration (not for edits of existing charts):
+    /// sex must be chosen (no silent default), a date of birth or an age is required,
+    /// and a mobile number is required unless a "no phone" reason is given.
+    /// </summary>
+    public static void ValidateRegistration(CreatePatientRequest request, Dictionary<string, string[]> errors)
+    {
+        if (string.IsNullOrWhiteSpace(request.Sex))
+        {
+            errors.TryAdd("sex", ["Sex is required (female, male, other or unknown)."]);
+        }
+
+        if (request.AgeYears is { } age && (age < 0 || age > MaxAgeYears))
+        {
+            errors.TryAdd("ageYears", [$"Age must be between 0 and {MaxAgeYears} years."]);
+        }
+        else if (request.DateOfBirth is null && request.AgeYears is null)
+        {
+            errors.TryAdd("dateOfBirth", ["Enter a date of birth or an age."]);
+        }
+
+        var hasPhone = !string.IsNullOrWhiteSpace(request.Phone);
+        var reason = request.NoPhoneReason?.Trim();
+        if (!hasPhone && string.IsNullOrEmpty(reason))
+        {
+            errors.TryAdd("phone", ["Mobile number is required, or give a reason why the patient has none."]);
+        }
+        else if (!hasPhone && reason is { Length: < 3 or > 200 })
+        {
+            errors.TryAdd("noPhoneReason", ["The no-phone reason must be 3 to 200 characters."]);
+        }
+    }
+
+    /// <summary>Date of birth estimated from an age: the same day and month, <paramref name="ageYears"/> years ago.</summary>
+    public static DateOnly EstimateDateOfBirth(int ageYears, DateOnly today) => today.AddYears(-ageYears);
 
     /// <summary>
     /// ABHA number (14 digits) to its canonical XX-XXXX-XXXX-XXXX form; spaces / dashes in the input are
