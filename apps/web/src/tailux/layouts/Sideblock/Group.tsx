@@ -14,7 +14,7 @@ export function Group({ data }: { data: NavGroup }) {
   const listId = useId()
 
   return (
-    <div className="pt-3">
+    <div className="pt-3" data-testid={`nav-group-${data.id}`}>
       <div className={clsx('sticky top-0 z-10 bg-white px-6', cardSkin === 'bordered' ? 'dark:bg-dark-900' : 'dark:bg-dark-750')}>
         <button
           type="button"

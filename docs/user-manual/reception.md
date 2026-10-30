@@ -1,7 +1,7 @@
 # Reception (receptionist)
 
 ## What you can and cannot do
-Menus you see: **Dashboard, Patients, Appointments, Schedules, Consent, Check-in, OPD queue, Bills, Day end, Data requests**.
+Menus you see: **Dashboard, Patients, Appointments, Schedules, Consent, Check-in, OPD queue, Bills, Day end**, and **Data requests** under the **Privacy** menu.
 
 You can register, edit and delete patients; book, reschedule, cancel and mark no-shows; check patients in and run the queue; raise bills, take payment and request discounts; record consent and log privacy requests.
 
