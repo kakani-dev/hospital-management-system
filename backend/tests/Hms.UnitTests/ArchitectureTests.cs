@@ -102,4 +102,42 @@ public class ArchitectureTests
             .ToList();
         Assert.Empty(hosts);
     }
+
+    private static IEnumerable<string> ProductionSources()
+    {
+        var sep = Path.DirectorySeparatorChar;
+        return Directory.EnumerateFiles(Backend, "*.cs", SearchOption.AllDirectories)
+            .Where(p => !p.Contains($"{sep}tests{sep}", StringComparison.Ordinal)
+                        && !p.Contains($"{sep}bin{sep}", StringComparison.Ordinal)
+                        && !p.Contains($"{sep}obj{sep}", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// #61: service hosts are thin. Domain code lives once, in backend/modules; a service only has
+    /// Program.cs (wiring) and ServiceMarker.cs, so legacy copies cannot creep back into backend/services.
+    /// </summary>
+    [Fact]
+    public void Service_hosts_hold_only_wiring_never_a_copy_of_module_code()
+    {
+        var allowed = new[] { "Program.cs", "ServiceMarker.cs" };
+        var services = Path.Combine(Backend, "services");
+        var extra = ProductionSources()
+            .Where(p => p.StartsWith(services + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+            .Where(p => !allowed.Contains(Path.GetFileName(p), StringComparer.Ordinal))
+            .Select(p => Path.GetRelativePath(Backend, p))
+            .ToList();
+        Assert.Empty(extra);
+    }
+
+    /// <summary>#61: no production source file is a byte-for-byte copy of another (ignoring line endings).</summary>
+    [Fact]
+    public void No_production_source_file_is_duplicated()
+    {
+        var dupes = ProductionSources()
+            .GroupBy(p => File.ReadAllText(p).Replace("\r\n", "\n", StringComparison.Ordinal).Trim(), StringComparer.Ordinal)
+            .Where(g => g.Count() > 1)
+            .Select(g => string.Join(", ", g.Select(p => Path.GetRelativePath(Backend, p))))
+            .ToList();
+        Assert.Empty(dupes);
+    }
 }
