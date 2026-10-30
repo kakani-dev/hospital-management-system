@@ -118,8 +118,8 @@ public sealed class S2ApiV2AdditionsTests(HmsApiFactory factory) : IClassFixture
         await Schedule(atMain.Id, AlphaMain);
         var off = await Schedule(inactiveSchedule.Id, AlphaEast);
         Assert.Equal(HttpStatusCode.OK, (await admin.PatchAsJsonAsync($"/api/v1/schedules/{off.Id}", new { isActive = false })).StatusCode);
-        await Schedule(endedSchedule.Id, AlphaEast, new { validFrom = "2020-01-01", validTo = "2020-12-31" });
-        await Schedule(futureSchedule.Id, AlphaEast, new { validFrom = "2031-01-01" });
+        await Schedule(endedSchedule.Id, AlphaEast, new { validFrom = TestDates.YearsAgo(6), validTo = TestDates.YearsAgo(5) });
+        await Schedule(futureSchedule.Id, AlphaEast, new { validFrom = TestDates.YearsAhead(4) });
         _ = none;
 
         var mine = new HashSet<Guid> { atEast.Id, atMain.Id, inactiveSchedule.Id, endedSchedule.Id, futureSchedule.Id, none.Id };

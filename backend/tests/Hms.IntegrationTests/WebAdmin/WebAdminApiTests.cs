@@ -63,7 +63,7 @@ public sealed class WebAdminApiTests(HmsApiFactory factory) : IClassFixture<HmsA
         var practitioner = await S2.CreatePractitionerAsync(admin);
         var created = await admin.PostAsJsonAsync("/api/v1/schedules", new
         {
-            practitionerId = practitioner.Id, branchId = AlphaMain, weekday = 3, startTime = "14:00", endTime = "16:00", slotMinutes = 20, validFrom = "2031-01-01",
+            practitionerId = practitioner.Id, branchId = AlphaMain, weekday = 3, startTime = "14:00", endTime = "16:00", slotMinutes = 20, validFrom = TestDates.YearsAhead(5),
         });
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
         var schedule = (await created.Content.ReadFromJsonAsync<AdminSchedule>())!;

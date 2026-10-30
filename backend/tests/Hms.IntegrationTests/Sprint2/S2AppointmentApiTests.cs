@@ -140,7 +140,7 @@ public sealed class S2AppointmentApiTests(HmsApiFactory factory) : IClassFixture
         using var admin = factory.ClientAs(AlphaAdmin, Alpha);
         using var reception = factory.ClientAs(AlphaReception, Alpha);
         var pr = await S2.CreatePractitionerAsync(admin);
-        var body = new { practitionerId = pr.Id, branchId = AlphaMain, weekday = 1, startTime = "09:00", endTime = "10:00", slotMinutes = 15, validFrom = "2031-01-01" };
+        var body = new { practitionerId = pr.Id, branchId = AlphaMain, weekday = 1, startTime = "09:00", endTime = "10:00", slotMinutes = 15, validFrom = TestDates.Iso(S2.FutureDay.AddDays(-7)) };
 
         Assert.Equal(HttpStatusCode.Forbidden, (await reception.PostAsJsonAsync("/api/v1/schedules", body)).StatusCode);
         var created = await admin.PostAsJsonAsync("/api/v1/schedules", body);
@@ -148,30 +148,30 @@ public sealed class S2AppointmentApiTests(HmsApiFactory factory) : IClassFixture
         var schedule = (await created.Content.ReadFromJsonAsync<S2Schedule>())!;
         Assert.Equal("09:00", schedule.StartTime);
 
-        var overlap2 = await admin.PostAsJsonAsync("/api/v1/schedules", new { practitionerId = pr.Id, branchId = AlphaEast, weekday = 1, startTime = "09:30", endTime = "11:00", validFrom = "2031-01-01" });
+        var overlap2 = await admin.PostAsJsonAsync("/api/v1/schedules", new { practitionerId = pr.Id, branchId = AlphaEast, weekday = 1, startTime = "09:30", endTime = "11:00", validFrom = TestDates.Iso(S2.FutureDay.AddDays(-7)) });
         Assert.Equal(HttpStatusCode.Conflict, overlap2.StatusCode);
         Assert.Equal("schedule_overlap", await S2.CodeAsync(overlap2));
 
         Assert.Equal(HttpStatusCode.BadRequest, (await admin.PostAsJsonAsync("/api/v1/schedules", new { practitionerId = pr.Id, branchId = AlphaMain, weekday = 8, startTime = "10:00", endTime = "09:00" })).StatusCode);
 
-        // 2031-03-03 is a Monday: 4 slots 09:00-10:00 IST, minus one booking at 09:15.
+        // S2.FutureDay is a Monday: 4 slots 09:00-10:00 IST, minus one booking at 09:15.
         var patient = await S2.CreatePatientAsync(admin, AlphaMain);
         Assert.Equal(HttpStatusCode.Created, (await S2.BookAsync(admin, AlphaMain, pr.Id, patient.Id, S2.FutureSlot(0, 9, 15))).StatusCode);
-        var slots = await reception.GetFromJsonAsync<List<S2Slot>>($"/api/v1/slots?branchId={AlphaMain}&from=2031-03-03&to=2031-03-03&practitionerId={pr.Id}");
+        var slots = await reception.GetFromJsonAsync<List<S2Slot>>($"/api/v1/slots?branchId={AlphaMain}&from={TestDates.Iso(S2.FutureDay)}&to={TestDates.Iso(S2.FutureDay)}&practitionerId={pr.Id}");
         Assert.Equal(
             new[] { S2.FutureSlot(0, 9, 0), S2.FutureSlot(0, 9, 30), S2.FutureSlot(0, 9, 45) }.Select(d => d.ToUniversalTime()),
             slots!.Select(s => s.StartsAt));
 
         using var beta = factory.ClientAs(BetaAdmin, Beta);
-        Assert.Equal(HttpStatusCode.NotFound, (await beta.GetAsync($"/api/v1/slots?branchId={AlphaMain}&from=2031-03-03")).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await beta.GetAsync($"/api/v1/slots?branchId={BetaMain}&from=2031-03-03&practitionerId={pr.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await beta.GetAsync($"/api/v1/slots?branchId={AlphaMain}&from={TestDates.Iso(S2.FutureDay)}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await beta.GetAsync($"/api/v1/slots?branchId={BetaMain}&from={TestDates.Iso(S2.FutureDay)}&practitionerId={pr.Id}")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await beta.PostAsJsonAsync("/api/v1/schedules", new { practitionerId = pr.Id, branchId = BetaMain, weekday = 2, startTime = "09:00", endTime = "10:00" })).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await admin.PostAsJsonAsync("/api/v1/schedules", new { practitionerId = pr.Id, branchId = BetaMain, weekday = 2, startTime = "09:00", endTime = "10:00" })).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await beta.PatchAsJsonAsync($"/api/v1/schedules/{schedule.Id}", new { isActive = false })).StatusCode);
-        Assert.Equal(HttpStatusCode.BadRequest, (await reception.GetAsync($"/api/v1/slots?branchId={AlphaMain}&from=2031-03-03&to=2031-05-03")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await reception.GetAsync($"/api/v1/slots?branchId={AlphaMain}&from={TestDates.Iso(S2.FutureDay)}&to={TestDates.Iso(S2.FutureDay.AddMonths(2))}")).StatusCode);
 
         Assert.Equal(HttpStatusCode.NoContent, (await admin.DeleteAsync($"/api/v1/schedules/{schedule.Id}")).StatusCode);
-        Assert.Empty((await reception.GetFromJsonAsync<List<S2Slot>>($"/api/v1/slots?branchId={AlphaMain}&from=2031-03-03&practitionerId={pr.Id}"))!);
+        Assert.Empty((await reception.GetFromJsonAsync<List<S2Slot>>($"/api/v1/slots?branchId={AlphaMain}&from={TestDates.Iso(S2.FutureDay)}&practitionerId={pr.Id}"))!);
     }
 
     [Fact]

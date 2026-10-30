@@ -8,10 +8,8 @@ namespace Hms.IntegrationTests.Sprint2;
 [Trait("Category", "Database")]
 public sealed class MultiBranchPractitionerApiTests(HmsApiFactory factory) : IClassFixture<HmsApiFactory>
 {
-    private static readonly TimeSpan Ist = TimeSpan.FromHours(5.5);
-
-    // 2030-06-03 is a Monday.
-    private static DateTimeOffset At(int hour, int minute = 0) => new(2030, 6, 3, hour, minute, 0, Ist);
+    private static readonly DateOnly Day = TestDates.FarMonday(weeks: 26);
+    private static DateTimeOffset At(int hour, int minute = 0) => TestDates.At(Day, hour, minute);
 
     [Fact]
     public async Task A_doctor_is_bookable_only_at_the_branch_and_hours_they_work()
@@ -19,8 +17,8 @@ public sealed class MultiBranchPractitionerApiTests(HmsApiFactory factory) : ICl
         using var admin = factory.ClientAs(AlphaAdmin, Alpha);
         var pr = await S2.CreatePractitionerAsync(admin);
         var patient = await S2.CreatePatientAsync(admin, AlphaMain);
-        var morning = new { practitionerId = pr.Id, branchId = AlphaMain, weekday = 1, startTime = "09:00", endTime = "13:00", slotMinutes = 30, validFrom = "2026-01-01" };
-        var evening = new { practitionerId = pr.Id, branchId = AlphaEast, weekday = 1, startTime = "17:00", endTime = "20:00", slotMinutes = 30, validFrom = "2026-01-01" };
+        var morning = new { practitionerId = pr.Id, branchId = AlphaMain, weekday = 1, startTime = "09:00", endTime = "13:00", slotMinutes = 30, validFrom = TestDates.YearsAgo(1) };
+        var evening = new { practitionerId = pr.Id, branchId = AlphaEast, weekday = 1, startTime = "17:00", endTime = "20:00", slotMinutes = 30, validFrom = TestDates.YearsAgo(1) };
         Assert.Equal(HttpStatusCode.Created, (await admin.PostAsJsonAsync("/api/v1/schedules", morning)).StatusCode);
         Assert.Equal(HttpStatusCode.Created, (await admin.PostAsJsonAsync("/api/v1/schedules", evening)).StatusCode);
 
@@ -29,14 +27,14 @@ public sealed class MultiBranchPractitionerApiTests(HmsApiFactory factory) : ICl
         Assert.Contains(atMain!, p => p.Id == pr.Id);
         Assert.Contains(atEast!, p => p.Id == pr.Id);
 
-        var mainSlots = await admin.GetFromJsonAsync<List<S2Slot>>($"/api/v1/slots?branchId={AlphaMain}&from=2030-06-03&to=2030-06-03&practitionerId={pr.Id}");
-        var eastSlots = await admin.GetFromJsonAsync<List<S2Slot>>($"/api/v1/slots?branchId={AlphaEast}&from=2030-06-03&to=2030-06-03&practitionerId={pr.Id}");
+        var mainSlots = await admin.GetFromJsonAsync<List<S2Slot>>($"/api/v1/slots?branchId={AlphaMain}&from={TestDates.Iso(Day)}&to={TestDates.Iso(Day)}&practitionerId={pr.Id}");
+        var eastSlots = await admin.GetFromJsonAsync<List<S2Slot>>($"/api/v1/slots?branchId={AlphaEast}&from={TestDates.Iso(Day)}&to={TestDates.Iso(Day)}&practitionerId={pr.Id}");
         Assert.NotEmpty(mainSlots!);
         Assert.NotEmpty(eastSlots!);
-        Assert.All(mainSlots!, s => Assert.InRange(s.StartsAt.ToOffset(Ist).Hour, 9, 12));
-        Assert.All(eastSlots!, s => Assert.InRange(s.StartsAt.ToOffset(Ist).Hour, 17, 19));
-        Assert.DoesNotContain(mainSlots!, s => s.StartsAt.ToOffset(Ist).Hour >= 17);
-        Assert.DoesNotContain(eastSlots!, s => s.StartsAt.ToOffset(Ist).Hour < 17);
+        Assert.All(mainSlots!, s => Assert.InRange(s.StartsAt.ToOffset(TestDates.SeedZone.GetUtcOffset(s.StartsAt)).Hour, 9, 12));
+        Assert.All(eastSlots!, s => Assert.InRange(s.StartsAt.ToOffset(TestDates.SeedZone.GetUtcOffset(s.StartsAt)).Hour, 17, 19));
+        Assert.DoesNotContain(mainSlots!, s => s.StartsAt.ToOffset(TestDates.SeedZone.GetUtcOffset(s.StartsAt)).Hour >= 17);
+        Assert.DoesNotContain(eastSlots!, s => s.StartsAt.ToOffset(TestDates.SeedZone.GetUtcOffset(s.StartsAt)).Hour < 17);
 
         Assert.Equal(HttpStatusCode.Created, (await BookAsync(admin, AlphaMain, pr.Id, patient.Id, At(9))).StatusCode);
         Assert.Equal(HttpStatusCode.Created, (await BookAsync(admin, AlphaEast, pr.Id, patient.Id, At(17))).StatusCode);
@@ -52,7 +50,7 @@ public sealed class MultiBranchPractitionerApiTests(HmsApiFactory factory) : ICl
         var memberships = await admin.GetFromJsonAsync<List<BranchMembership>>($"/api/v1/practitioner-branches?practitionerId={pr.Id}");
         var east = memberships!.Single(m => m.BranchId == AlphaEast);
         Assert.Equal(HttpStatusCode.OK, (await admin.PatchAsJsonAsync($"/api/v1/practitioner-branches/{east.Id}", new { isActive = false })).StatusCode);
-        var after = await admin.PostAsJsonAsync("/api/v1/schedules", new { practitionerId = pr.Id, branchId = AlphaEast, weekday = 5, startTime = "17:00", endTime = "18:00", validFrom = "2026-01-01" });
+        var after = await admin.PostAsJsonAsync("/api/v1/schedules", new { practitionerId = pr.Id, branchId = AlphaEast, weekday = 5, startTime = "17:00", endTime = "18:00", validFrom = TestDates.YearsAgo(1) });
         Assert.Equal(HttpStatusCode.BadRequest, after.StatusCode);
         Assert.Contains("practitioner_not_at_branch", await after.Content.ReadAsStringAsync(), StringComparison.Ordinal);
     }

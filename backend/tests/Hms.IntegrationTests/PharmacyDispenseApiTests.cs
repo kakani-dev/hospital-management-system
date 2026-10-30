@@ -37,8 +37,8 @@ public sealed class PharmacyDispenseApiTests(HmsApiFactory factory) : IClassFixt
             storeId,
             lines = new object[]
             {
-                new { itemId, batchNo = "ZZ-LATE", expiryDate = "2031-12-31", mrpPaise = 900, purchaseRatePaise = 500, qtyBase = 20 },
-                new { itemId, batchNo = "ZZ-SOON", expiryDate = "2030-01-31", mrpPaise = 900, purchaseRatePaise = 450, qtyBase = 3 },
+                new { itemId, batchNo = "ZZ-LATE", expiryDate = TestDates.YearsAhead(5), mrpPaise = 900, purchaseRatePaise = 500, qtyBase = 20 },
+                new { itemId, batchNo = "ZZ-SOON", expiryDate = TestDates.YearsAhead(4), mrpPaise = 900, purchaseRatePaise = 450, qtyBase = 3 },
                 new { itemId, batchNo = "ZZ-OLD", expiryDate = "2020-01-31", mrpPaise = 900, purchaseRatePaise = 400, qtyBase = 50 },
             },
         }, Guid.NewGuid());
