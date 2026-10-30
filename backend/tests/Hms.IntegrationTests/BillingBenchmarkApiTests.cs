@@ -99,7 +99,8 @@ public sealed class BillingBenchmarkApiTests(HmsApiFactory factory) : IClassFixt
         var pending = await Get(admin, "/api/v1/approvals?status=pending");
         var refund = pending.Body.EnumerateArray().First(row =>
             row.GetProperty("action").GetString() == "refund"
-            && row.GetProperty("payload").GetProperty("appointmentId").GetString() == appointmentId.ToString());
+            && row.GetProperty("payload").TryGetProperty("appointmentId", out var appt)
+            && appt.GetString() == appointmentId.ToString());
         var decided = await Post(admin, $"/api/v1/approvals/{refund.GetProperty("id").GetString()}/decide", new { status = "approved" });
         Assert.Equal(HttpStatusCode.OK, decided.Status);
         Assert.False(string.IsNullOrEmpty(decided.Body.GetProperty("creditNoteNo").GetString()));
