@@ -78,23 +78,23 @@ select tests.ok(true, 'East evening hours are stored once the buffer is back to 
 select tests.throws_ok(
   $$insert into appointment.schedule_overrides (tenant_id, practitioner_id, branch_id, override_date, is_leave, start_time, end_time, slot_minutes)
     values ('11111111-1111-4111-8111-111111111111', 'c1111111-0000-4000-8000-000000000035',
-            'a1111111-0000-4000-8000-000000000002', '2030-06-03', false, '10:00', '11:00', 15)$$,
+            'a1111111-0000-4000-8000-000000000002', (date '2030-06-03' + tests.fwd_days()), false, '10:00', '11:00', 15)$$,
   '23P01', 'an East hour override during Main hours is rejected');
 insert into appointment.schedule_overrides (tenant_id, practitioner_id, branch_id, override_date, is_leave, start_time, end_time, slot_minutes)
 values ('11111111-1111-4111-8111-111111111111', 'c1111111-0000-4000-8000-000000000035',
-        'a1111111-0000-4000-8000-000000000001', '2030-06-17', false, '15:00', '16:00', 15);
+        'a1111111-0000-4000-8000-000000000001', (date '2030-06-17' + tests.fwd_days()), false, '15:00', '16:00', 15);
 select tests.ok(true, 'a same-branch hour override replaces that day and does not clash with the weekly template');
 
 insert into appointment.schedule_overrides (tenant_id, practitioner_id, branch_id, override_date, is_leave)
 values ('11111111-1111-4111-8111-111111111111', 'c1111111-0000-4000-8000-000000000035',
-        'a1111111-0000-4000-8000-000000000001', '2030-06-10', true);
+        'a1111111-0000-4000-8000-000000000001', (date '2030-06-10' + tests.fwd_days()), true);
 select tests.ok(
   (select count(*) from appointment.available_slots('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001',
-                                                    '2030-06-10', '2030-06-10', 'c1111111-0000-4000-8000-000000000035')) = 0,
+                                                    (date '2030-06-10' + tests.fwd_days()), (date '2030-06-10' + tests.fwd_days()), 'c1111111-0000-4000-8000-000000000035')) = 0,
   'leave removes that branch''s slots for the day');
 select tests.ok(
   (select count(*) from appointment.available_slots('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000002',
-                                                    '2030-06-10', '2030-06-10', 'c1111111-0000-4000-8000-000000000035')) = 3,
+                                                    (date '2030-06-10' + tests.fwd_days()), (date '2030-06-10' + tests.fwd_days()), 'c1111111-0000-4000-8000-000000000035')) = 3,
   'leave at Main leaves the East evening slots');
 
 select tests.ok(
@@ -102,42 +102,42 @@ select tests.ok(
      and bool_and((slot_start at time zone 'Asia/Kolkata')::time >= '09:00'
               and (slot_end at time zone 'Asia/Kolkata')::time <= '13:00')
    from appointment.available_slots('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001',
-                                    '2030-06-03', '2030-06-03', 'c1111111-0000-4000-8000-000000000035')),
+                                    (date '2030-06-03' + tests.fwd_days()), (date '2030-06-03' + tests.fwd_days()), 'c1111111-0000-4000-8000-000000000035')),
   'Main offers only the Monday morning window');
 select tests.ok(
   (select count(*) = 3
      and bool_and((slot_start at time zone 'Asia/Kolkata')::time >= '17:00'
               and (slot_end at time zone 'Asia/Kolkata')::time <= '20:00')
    from appointment.available_slots('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000002',
-                                    '2030-06-03', '2030-06-03', 'c1111111-0000-4000-8000-000000000035')),
+                                    (date '2030-06-03' + tests.fwd_days()), (date '2030-06-03' + tests.fwd_days()), 'c1111111-0000-4000-8000-000000000035')),
   'East offers only the Monday evening window');
 
 select appointment.assert_bookable_window_v2(
   '11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000002', 'c1111111-0000-4000-8000-000000000035',
-  '2030-06-03 17:00+05:30', '2030-06-03 18:00+05:30', false);
+  (timestamptz '2030-06-03 17:00+05:30' + tests.fwd()), (timestamptz '2030-06-03 18:00+05:30' + tests.fwd()), false);
 select tests.ok(true, 'booking at East is checked against East hours');
 select tests.throws_ok(
   $$select appointment.assert_bookable_window_v2(
       '11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000002', 'c1111111-0000-4000-8000-000000000035',
-      '2030-06-03 10:00+05:30', '2030-06-03 11:00+05:30', false)$$,
+      (timestamptz '2030-06-03 10:00+05:30' + tests.fwd()), (timestamptz '2030-06-03 11:00+05:30' + tests.fwd()), false)$$,
   '22023', 'East morning is outside East hours even though Main is open');
 select appointment.assert_bookable_window_v2(
   '11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000002', 'c1111111-0000-4000-8000-000000000035',
-  '2030-06-03 12:00+05:30', '2030-06-03 12:15+05:30', true);
+  (timestamptz '2030-06-03 12:00+05:30' + tests.fwd()), (timestamptz '2030-06-03 12:15+05:30' + tests.fwd()), true);
 select tests.ok(true, 'an hours override waives this branch''s window');
 select tests.throws_ok(
   $$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at, hours_override, reason)
     values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000002', 'c1111111-0000-4000-8000-000000000035',
-            'aa000000-0000-4000-8000-000000000001', '2030-06-03 12:00+05:30', '2030-06-03 12:15+05:30', true, 'Covering the other campus (synthetic)')$$,
+            'aa000000-0000-4000-8000-000000000001', (timestamptz '2030-06-03 12:00+05:30' + tests.fwd()), (timestamptz '2030-06-03 12:15+05:30' + tests.fwd()), true, 'Covering the other campus (synthetic)')$$,
   '23P01', 'the override still cannot land inside another branch''s hours');
 
 insert into appointment.appointments (id, tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at)
 values ('e1111111-0000-4000-8000-000000000351', '11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001',
         'c1111111-0000-4000-8000-000000000035', 'aa000000-0000-4000-8000-000000000001',
-        '2030-06-03 09:00+05:30', '2030-06-03 10:00+05:30'),
+        (timestamptz '2030-06-03 09:00+05:30' + tests.fwd()), (timestamptz '2030-06-03 10:00+05:30' + tests.fwd())),
        ('e1111111-0000-4000-8000-000000000352', '11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000002',
         'c1111111-0000-4000-8000-000000000035', 'aa000000-0000-4000-8000-000000000002',
-        '2030-06-03 17:00+05:30', '2030-06-03 18:00+05:30');
+        (timestamptz '2030-06-03 17:00+05:30' + tests.fwd()), (timestamptz '2030-06-03 18:00+05:30' + tests.fwd()));
 select tests.ok((select count(*) from appointment.appointments where practitioner_id = 'c1111111-0000-4000-8000-000000000035') = 2,
   'the same doctor can be booked at both branches when the times do not overlap');
 

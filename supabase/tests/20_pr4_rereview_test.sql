@@ -23,12 +23,12 @@ select patient.soft_delete_patient('aa000000-0000-4000-8000-000000000004', 'synt
 select tests.authenticate_as('reception@alpha.example');
 select tests.throws_ok($$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at)
   values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'c1111111-0000-4000-8000-000000000002',
-          'aa000000-0000-4000-8000-000000000004', '2030-01-07 11:00+05:30', '2030-01-07 11:20+05:30')$$,
+          'aa000000-0000-4000-8000-000000000004', (timestamptz '2030-01-07 11:00+05:30' + tests.fwd()), (timestamptz '2030-01-07 11:20+05:30' + tests.fwd()))$$,
   'P0002', 'R3: booking for a soft-deleted patient -> P0002');
 select tests.ok(
   tests.affected_rows($$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at)
     values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'c1111111-0000-4000-8000-000000000002',
-            'aa000000-0000-4000-8000-000000000002', '2030-01-07 11:00+05:30', '2030-01-07 11:20+05:30')$$) = 1,
+            'aa000000-0000-4000-8000-000000000002', (timestamptz '2030-01-07 11:00+05:30' + tests.fwd()), (timestamptz '2030-01-07 11:20+05:30' + tests.fwd()))$$) = 1,
   'R3: booking for a live patient still works');
 select tests.as_superuser();
 set local role service_role;
@@ -38,7 +38,7 @@ select tests.throws_ok($$update appointment.appointments set patient_id = 'aa000
 select tests.authenticate_as('reception@alpha.example');
 select tests.throws_ok($$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at)
   values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'c1111111-0000-4000-8000-000000000002',
-          'bb000000-0000-4000-8000-000000000001', '2030-01-07 12:00+05:30', '2030-01-07 12:20+05:30')$$,
+          'bb000000-0000-4000-8000-000000000001', (timestamptz '2030-01-07 12:00+05:30' + tests.fwd()), (timestamptz '2030-01-07 12:20+05:30' + tests.fwd()))$$,
   'P0002', 'R3: booking another tenant''s patient -> P0002');
 
 -- ============================================ N5: the published v1 surface (signatures) ==

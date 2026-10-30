@@ -70,11 +70,11 @@ select tests.ok(
 select tests.authenticate_as('admin@alpha.example');
 select tests.ok(
   (select min(slot_start) from appointment.available_slots('11111111-1111-4111-8111-111111111111',
-     'a1111111-0000-4000-8000-000000000002', '2030-01-07', '2030-01-07')) = '2030-01-07 09:00:00+00',
+     'a1111111-0000-4000-8000-000000000002', (date '2030-01-07' + tests.fwd_days()), (date '2030-01-07' + tests.fwd_days()))) = (timestamptz '2030-01-07 09:00:00+00' + tests.fwd()),
   'slots at the UTC-override branch: 09:00 local = 09:00Z');
 select tests.ok(
   (select min(slot_start) from appointment.available_slots('11111111-1111-4111-8111-111111111111',
-     'a1111111-0000-4000-8000-000000000001', '2030-01-07', '2030-01-07')) = '2030-01-07 10:20:00+05:30',
+     'a1111111-0000-4000-8000-000000000001', (date '2030-01-07' + tests.fwd_days()), (date '2030-01-07' + tests.fwd_days()))) = (timestamptz '2030-01-07 10:20:00+05:30' + tests.fwd()),
   'slots at an inheriting branch are IST wall-clock (10:00 IST is booked in the seed, so 10:20 IST is first)');
 
 -- queue day + token reset follow the branch-local day

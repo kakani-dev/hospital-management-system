@@ -101,12 +101,13 @@ insert into appointment.schedules (id, tenant_id, practitioner_id, branch_id, we
   ('d1111111-0000-4000-8000-000000000004', '11111111-1111-4111-8111-111111111111', 'c1111111-0000-4000-8000-000000000002', 'a1111111-0000-4000-8000-000000000001', 2, '10:00', '14:00', 20, '2026-01-01'),
   ('d2222222-0000-4000-8000-000000000001', '22222222-2222-4222-8222-222222222222', 'c2222222-0000-4000-8000-000000000001', 'b2222222-0000-4000-8000-000000000001', 1, '09:00', '12:00', 15, '2026-01-01');
 
--- 2030-01-07 is a Monday.
+-- 2030-01-07 is a Monday. #236: shifted by whole 52-week blocks so it stays at least 3 years
+-- ahead (same formula as tests.fwd_days and TestDates.SeedShiftDays; 0 until late 2026).
 insert into appointment.appointments (id, tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at, reason) values
   ('e1111111-0000-4000-8000-000000000001', '11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'c1111111-0000-4000-8000-000000000002',
-   'aa000000-0000-4000-8000-000000000001', '2030-01-07 10:00+05:30', '2030-01-07 10:20+05:30', 'Synthetic follow-up'),
+   'aa000000-0000-4000-8000-000000000001', timestamptz '2030-01-07 10:00+05:30' + make_interval(days => greatest(0, ceil(((current_date + interval '3 years')::date - date '2030-01-01') / 364.0))::integer * 364), timestamptz '2030-01-07 10:20+05:30' + make_interval(days => greatest(0, ceil(((current_date + interval '3 years')::date - date '2030-01-01') / 364.0))::integer * 364), 'Synthetic follow-up'),
   ('e2222222-0000-4000-8000-000000000001', '22222222-2222-4222-8222-222222222222', 'b2222222-0000-4000-8000-000000000001', 'c2222222-0000-4000-8000-000000000001',
-   'bb000000-0000-4000-8000-000000000001', '2030-01-07 09:00+05:30', '2030-01-07 09:15+05:30', 'Synthetic check-up');
+   'bb000000-0000-4000-8000-000000000001', timestamptz '2030-01-07 09:00+05:30' + make_interval(days => greatest(0, ceil(((current_date + interval '3 years')::date - date '2030-01-01') / 364.0))::integer * 364), timestamptz '2030-01-07 09:15+05:30' + make_interval(days => greatest(0, ceil(((current_date + interval '3 years')::date - date '2030-01-01') / 364.0))::integer * 364), 'Synthetic check-up');
 
 -- The visiting consultant's own charts (one per hospital). A doctor sees only these.
 insert into appointment.practitioners (id, tenant_id, user_id, display_name, specialty) values
