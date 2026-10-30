@@ -18,7 +18,11 @@
 #
 # Does not change registry bindings. Patients keeps its existing ACR identity.
 # Scheduling keeps its system-assigned identity. Both already have AcrPull.
-# Does not write the identity app's hms-db secret (that value is hms_identity_login).
+# Does not write the identity app's hms-db secret (that value is hms_identity_login)
+# unless ACA_SECRETS_SOURCE=github (issue #68): then every row of .github/aca-secrets.tsv
+# (hms-db, hms-edge-key, the mail pair) is set from GitHub Actions secrets as a Container
+# Apps secret with a secretref env var, only when the value differs, and restored on
+# rollback. A shared secret (HMS_EDGE_KEY) only changes when every app using it rolls.
 # Passes the current min/max replicas through. Identity must already be minReplicas 1.
 #
 # A service the live edge does not list yet is not proved through that edge. The edge
@@ -62,6 +66,12 @@ if [[ "$ACR_NAME" != "acrmedicorehmsdev" ]]; then
   exit 1
 fi
 
+# shellcheck source=aca-secrets.sh
+source "$ROOT/.github/scripts/aca-secrets.sh"
+aca_secrets_mode >/dev/null || exit 1
+while read -r _secret_name; do
+  [[ -n "${!_secret_name:-}" ]] && echo "::add-mask::${!_secret_name}"
+done < <(aca_secret_names)
 if [[ -n "${SMTP_PASSWORD:-}" ]]; then
   echo "::add-mask::$SMTP_PASSWORD"
 fi
@@ -148,6 +158,7 @@ rollback_all() {
       az_retry containerapp revision deactivate -g "$RG" -n "$app" --revision "$new" -o none || rc=1
     fi
   done
+  aca_secrets_restore || rc=1
   set -e
   return "$rc"
 }
@@ -272,13 +283,17 @@ ensure_listen() {
   shown="$(mktemp)"
   body="$(mktemp)"
   az containerapp show -g "$RG" -n "$app" -o json >"$shown"
-  python3 - "$shown" "$body" "$image" "$suffix" "$SCALE_MIN" "$SCALE_MAX" <<'PY'
+  python3 - "$shown" "$body" "$image" "$suffix" "$SCALE_MIN" "$SCALE_MAX" ${ACA_SECRET_ENV[@]+"${ACA_SECRET_ENV[@]}"} <<'PY'
 import json, sys
-src, dest, image, suffix, scale_min, scale_max = sys.argv[1:]
+src, dest, image, suffix, scale_min, scale_max = sys.argv[1:7]
 app = json.load(open(src, encoding="utf-8"))
 template = app["properties"]["template"]
 container = template["containers"][0]
 container["image"] = image
+# Name=secretref:secret pairs from aca-secrets.sh; replaces same-named env entries.
+refs = dict(arg.split("=secretref:", 1) for arg in sys.argv[7:])
+env = [e for e in container.get("env", []) if e.get("name") not in refs]
+container["env"] = env + [{"name": n, "secretRef": ref} for n, ref in refs.items()]
 container["probes"] = [
     {"type": "Startup", "httpGet": {"path": "/health/live", "port": 8080, "scheme": "HTTP"},
      "initialDelaySeconds": 1, "periodSeconds": 2, "failureThreshold": 30, "timeoutSeconds": 5},
@@ -379,32 +394,20 @@ print(rows[0].get("revisionName", "") if rows else "")
     echo "$app revision $new already has $image"
   else
     read_scale "$app" "$service"
+    local -a secret_env=()
+    if [[ "$service" == "identity" && "$(aca_secrets_mode)" == "legacy" ]]; then
+      assert_hms_db "$app" "$(secret_names "$app")"
+    fi
+    aca_secrets_apply "$service" || die "failed to set $app secrets (the values were not logged)"
     if [[ "$service" == "identity" ]]; then
-      local err before after name
-      before="$(secret_names "$app")"
-      assert_hms_db "$app" "$before"
-      err="$(mktemp)"
-      # Only the two mail secrets. hms-db is not in this list, so its value is not replaced.
-      if ! az_retry containerapp secret set -g "$RG" -n "$app" --secrets \
-          "smtp-password=${SMTP_PASSWORD}" "supabase-service-role=${SUPABASE_SERVICE_ROLE_KEY}" \
-          -o none >"$err" 2>&1; then
-        rm -f "$err"
-        die "failed to set identity mail secrets on $app (the values were not logged)"
-      fi
-      rm -f "$err"
-      after="$(secret_names "$app")"
-      while IFS= read -r name; do
-        [[ -z "$name" ]] && continue
-        [[ " $(printf '%s' "$after" | tr '\n' ' ') " == *" $name "* ]] || die "$app lost secret $name"
-      done <<<"$before"
-      assert_hms_db "$app" "$after"
-      # --set-env-vars adds these three. It does not replace ConnectionStrings__HmsDatabase.
+      assert_hms_db "$app" "$(secret_names "$app")"
+    fi
+    ((${#ACA_SECRET_ENV[@]})) && secret_env=(--set-env-vars "${ACA_SECRET_ENV[@]}")
+    if [[ "$service" == "identity" ]]; then
+      # --set-env-vars adds these. Env vars not listed are kept.
       az_retry containerapp update -g "$RG" -n "$app" --image "$image" --revision-suffix "$suffix" \
         --min-replicas "$SCALE_MIN" --max-replicas "$SCALE_MAX" -o none \
-        --set-env-vars \
-        "Smtp__Password=secretref:smtp-password" \
-        "Auth__Supabase__ServiceRoleKey=secretref:supabase-service-role" \
-        "Email__Dispatcher__Enabled=true"
+        --set-env-vars "${ACA_SECRET_ENV[@]}" "Email__Dispatcher__Enabled=true"
     elif [[ "$service" == "edge" ]]; then
       # appsettings.json keeps localhost for dev. Every edge revision stamps the
       # in-environment addresses, including a service that was not on the previous edge.
@@ -416,12 +419,14 @@ print(rows[0].get("revisionName", "") if rows else "")
         "ReverseProxy__Clusters__scheduling__Destinations__primary__Address=http://ca-hms-scheduling/" \
         "ReverseProxy__Clusters__billing__Destinations__primary__Address=http://ca-hms-billing/" \
         "ReverseProxy__Clusters__inventory__Destinations__primary__Address=http://ca-hms-inventory/" \
-        "ReverseProxy__Clusters__privacy__Destinations__primary__Address=http://ca-hms-privacy/"
+        "ReverseProxy__Clusters__privacy__Destinations__primary__Address=http://ca-hms-privacy/" \
+        ${ACA_SECRET_ENV[@]+"${ACA_SECRET_ENV[@]}"}
     elif is_fresh "$service"; then
       ensure_listen "$app" "$image" "$suffix"
     else
       az_retry containerapp update -g "$RG" -n "$app" --image "$image" --revision-suffix "$suffix" \
-        --min-replicas "$SCALE_MIN" --max-replicas "$SCALE_MAX" -o none
+        --min-replicas "$SCALE_MIN" --max-replicas "$SCALE_MAX" -o none \
+        ${secret_env[@]+"${secret_env[@]}"}
     fi
     wait_provisioned "$app" "$rev_name"
     new="$(az containerapp show -g "$RG" -n "$app" --query properties.latestRevisionName -o tsv)"
@@ -466,14 +471,9 @@ main() {
   mapfile -t ordered <<<"$ordered_text"
   [[ "${#ordered[@]}" -ge 1 && -n "${ordered[0]}" ]] || die "no services to roll out"
 
-  local service
-  for service in "${ordered[@]}"; do
-    if [[ "$service" == "identity" ]]; then
-      if [[ -z "${SMTP_PASSWORD:-}" || -z "${SUPABASE_SERVICE_ROLE_KEY:-}" ]]; then
-        die "Repository secret SMTP_PASSWORD or SUPABASE_SERVICE_ROLE_KEY is empty. Refusing to deploy identity without them."
-      fi
-    fi
-  done
+  # Every GitHub secret a rolled app needs must be present before anything is touched.
+  aca_secrets_require "${ordered[@]}" || die "Refusing to deploy: a GitHub secret listed above is empty."
+  aca_secrets_guard_shared "${ordered[@]}" || die "Refusing to deploy: shared secret would split."
 
   : >"$STATE"
   b1_aca
