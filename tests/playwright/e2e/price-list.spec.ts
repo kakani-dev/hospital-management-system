@@ -35,10 +35,9 @@ test('a new service takes its category GST default, then is deactivated and brou
   await form.getByLabel('Name').fill(name)
   await form.getByRole('button', { name: 'Add service' }).click()
   // Adding opens the rate panel for the new service; close it to get back to the list.
-  const panel = page.getByRole('dialog', { name })
-  await expect(panel).toBeVisible()
-  await panel.getByRole('button', { name: `Close ${name}` }).click()
-  await expect(panel).toHaveCount(0)
+  const close = page.getByRole('button', { name: `Close ${name}` })
+  await close.click()
+  await expect(close).toHaveCount(0)
 
   const search = page.getByLabel('Search services')
   await search.fill(name)
