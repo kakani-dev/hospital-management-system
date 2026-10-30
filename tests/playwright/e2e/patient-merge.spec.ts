@@ -34,7 +34,7 @@ test('admin merges a duplicate chart from the patient screen; reception cannot',
   await signIn(page, users.alphaAdmin)
   await page.goto(`/patients/${survivor.id}`)
   await page.getByRole('button', { name: 'Merge patient' }).click()
-  const dialog = page.getByRole('dialog')
+  const dialog = page.getByRole('alertdialog')
   await expect(dialog).toContainText(survivor.mrn)
 
   // No duplicate chosen: refused, nothing merged.
