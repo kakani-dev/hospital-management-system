@@ -18,7 +18,7 @@ public sealed class VisitLengthSlotsApiTests(HmsApiFactory factory) : IClassFixt
         using var admin = factory.ClientAs(AlphaAdmin, Alpha);
         var pr = await S2.CreatePractitionerAsync(admin);
         var patient = await S2.CreatePatientAsync(admin, AlphaMain);
-        var hours = new { practitionerId = pr.Id, branchId = AlphaMain, weekday = 2, startTime = "09:00", endTime = "10:00", slotMinutes = 15, validFrom = "2026-01-01" };
+        var hours = new { practitionerId = pr.Id, branchId = AlphaMain, weekday = 2, startTime = "09:00", endTime = "10:00", slotMinutes = 15, validFrom = TestDates.YearsAgo(1) };
         Assert.Equal(HttpStatusCode.Created, (await admin.PostAsJsonAsync("/api/v1/schedules", hours)).StatusCode);
         Assert.Equal(HttpStatusCode.Created, (await S2.BookAsync(admin, AlphaMain, pr.Id, patient.Id, At(9, 30))).StatusCode);
 

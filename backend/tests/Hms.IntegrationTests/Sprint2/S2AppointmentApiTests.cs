@@ -140,7 +140,7 @@ public sealed class S2AppointmentApiTests(HmsApiFactory factory) : IClassFixture
         using var admin = factory.ClientAs(AlphaAdmin, Alpha);
         using var reception = factory.ClientAs(AlphaReception, Alpha);
         var pr = await S2.CreatePractitionerAsync(admin);
-        var body = new { practitionerId = pr.Id, branchId = AlphaMain, weekday = 1, startTime = "09:00", endTime = "10:00", slotMinutes = 15, validFrom = "2031-01-01" };
+        var body = new { practitionerId = pr.Id, branchId = AlphaMain, weekday = 1, startTime = "09:00", endTime = "10:00", slotMinutes = 15, validFrom = TestDates.Iso(S2.FutureDay.AddDays(-7)) };
 
         Assert.Equal(HttpStatusCode.Forbidden, (await reception.PostAsJsonAsync("/api/v1/schedules", body)).StatusCode);
         var created = await admin.PostAsJsonAsync("/api/v1/schedules", body);
@@ -148,7 +148,7 @@ public sealed class S2AppointmentApiTests(HmsApiFactory factory) : IClassFixture
         var schedule = (await created.Content.ReadFromJsonAsync<S2Schedule>())!;
         Assert.Equal("09:00", schedule.StartTime);
 
-        var overlap2 = await admin.PostAsJsonAsync("/api/v1/schedules", new { practitionerId = pr.Id, branchId = AlphaEast, weekday = 1, startTime = "09:30", endTime = "11:00", validFrom = "2031-01-01" });
+        var overlap2 = await admin.PostAsJsonAsync("/api/v1/schedules", new { practitionerId = pr.Id, branchId = AlphaEast, weekday = 1, startTime = "09:30", endTime = "11:00", validFrom = TestDates.Iso(S2.FutureDay.AddDays(-7)) });
         Assert.Equal(HttpStatusCode.Conflict, overlap2.StatusCode);
         Assert.Equal("schedule_overlap", await S2.CodeAsync(overlap2));
 
