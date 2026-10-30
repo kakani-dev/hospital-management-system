@@ -1,5 +1,7 @@
 -- #207/#208: price selection and the first item GST row use the tenant-local date. Rolls back.
 begin;
+-- zone changes with future bookings are owner-confirmed; superuser is not the owner on the Supabase stack (#237)
+select tests.as_owner('identity.tenants');
 
 update identity.tenants set time_zone = 'Asia/Kolkata' where id = '11111111-1111-4111-8111-111111111111';
 
