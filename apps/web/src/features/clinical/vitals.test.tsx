@@ -148,7 +148,7 @@ describe('vitals from the queue', () => {
   it('front desk gets no vitals button and never requests vitals', async () => {
     const calls = stubFetch({ ...base(['receptionist']), 'GET /api/v1/queue': () => json([queueEntry('waiting')]) })
     renderWithProviders(<App />, { path: '/queue', auth: auth() })
-    expect(await screen.findByText(/Token 7|#7|7/)).toBeInTheDocument()
+    expect(await screen.findByLabelText('Token 7')).toBeInTheDocument()
     expect(screen.queryByTestId('queue-vitals-toggle')).not.toBeInTheDocument()
     expect(calls.some((c) => c.path.startsWith('/api/v1/consultations'))).toBe(false)
   })
@@ -156,7 +156,7 @@ describe('vitals from the queue', () => {
   it('a finished visit has no vitals button', async () => {
     stubFetch({ ...base(['nurse']), 'GET /api/v1/queue': () => json([queueEntry('done')]) })
     renderWithProviders(<App />, { path: '/queue', auth: auth() })
-    expect(await screen.findByText(/Token 7|#7|7/)).toBeInTheDocument()
+    expect(await screen.findByLabelText('Token 7')).toBeInTheDocument()
     expect(screen.queryByTestId('queue-vitals-toggle')).not.toBeInTheDocument()
   })
 })
