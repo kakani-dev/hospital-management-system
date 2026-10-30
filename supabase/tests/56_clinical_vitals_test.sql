@@ -41,7 +41,9 @@ values
    '2035-08-01', 5404, 'aa000000-0000-4000-8000-000000000003', 'c1111111-0000-4000-8000-000000000001', 'waiting'),
   ('f5400000-0000-4000-8000-000000000005', '22222222-2222-4222-8222-222222222222', 'b2222222-0000-4000-8000-000000000001',
    '2035-08-01', 5405, 'bb000000-0000-4000-8000-000000000001', null, 'waiting');
+select tests.as_owner('patient.patients');  -- soft-delete state is owner-only; superuser is not enough on the Supabase stack (#237)
 update patient.patients set deleted_at = now() where id = 'aa000000-0000-4000-8000-000000000003';
+select tests.as_superuser();
 
 do $$
 declare

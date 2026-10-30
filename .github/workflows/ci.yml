@@ -634,6 +634,23 @@ jobs:
           cp -R supabase/migrations "$SB_WORKDIR/supabase/migrations"
           cp supabase/seed.sql "$SB_WORKDIR/supabase/seed.sql"
           ls -1 "$SB_WORKDIR/supabase/migrations"
+      - name: CI-only owner guard (#237; staged copy only, repo migrations and history unchanged)
+        # The CLI stack's migration role does not own Postgres-made range constructors, so
+        # ALTER FUNCTION appointment.time* fails with 42501. Skip only that error, only here.
+        run: |
+          python3 - "$SB_WORKDIR/supabase/migrations" "$RUNNER_TEMP/guarded.txt" <<'PY'
+          import pathlib, re, sys
+          pat = re.compile(r"^(alter function appointment\.time\w+\(.*?\) set search_path = '');$", re.M)
+          wrap = lambda m: ("do $ci$ begin execute $q$" + m.group(1) + "$q$; exception when insufficient_privilege "
+                            "then raise notice 'CI guard: not owner, skipped'; end $ci$;")
+          n = 0
+          for f in sorted(pathlib.Path(sys.argv[1]).glob("*.sql")):
+              s, k = pat.subn(wrap, f.read_text())
+              if k:
+                  f.write_text(s); n += k; print(f.name, k)
+                  with open(pathlib.Path(sys.argv[2]), "a") as out: out.write(f.name + "\n")
+          print("guarded statements:", n)
+          PY
       - name: supabase start (supabase/postgres + GoTrue; applies migrations + seed)
         run: >-
           supabase start --workdir "$SB_WORKDIR"
@@ -655,6 +672,12 @@ jobs:
             echo "SB_DB_URL=$db_url"
             echo "SB_ADMIN_URL=$admin_url"
           } >> "$GITHUB_ENV"
+      - name: Re-apply guarded statements as supabase_admin (#237; same SQL as the repo migration)
+        run: |
+          [ -f "$RUNNER_TEMP/guarded.txt" ] || exit 0
+          while read -r f; do
+            grep -iE "^alter function appointment\.time" "supabase/migrations/$f" | psql -X -v ON_ERROR_STOP=1 "$SB_ADMIN_URL"
+          done < "$RUNNER_TEMP/guarded.txt"
       - name: Smoke query (image, roles, migration history)
         run: |
           psql -X -v ON_ERROR_STOP=1 "$SB_DB_URL" <<'SQL'

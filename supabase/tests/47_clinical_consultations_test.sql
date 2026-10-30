@@ -43,7 +43,9 @@ values
    '2035-07-01', 4703, 'aa000000-0000-4000-8000-000000000001', 'c1111111-0000-4000-8000-000000000001', 'waiting'),
   ('f4700000-0000-4000-8000-000000000004', '11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000002',
    '2035-07-01', 4704, 'aa000000-0000-4000-8000-000000000003', 'c1111111-0000-4000-8000-000000000001', 'waiting');
+select tests.as_owner('patient.patients');  -- soft-delete state is owner-only; superuser is not enough on the Supabase stack (#237)
 update patient.patients set deleted_at = now() where id = 'aa000000-0000-4000-8000-000000000003';
+select tests.as_superuser();
 -- #128: finalize needs a council registration number (20261027120000).
 update appointment.practitioners set registration_number = 'NMC/4700001' where id = 'c1111111-0000-4000-8000-000000000001';
 
