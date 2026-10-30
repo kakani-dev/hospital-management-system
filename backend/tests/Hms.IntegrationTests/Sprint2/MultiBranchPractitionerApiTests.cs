@@ -59,13 +59,13 @@ public sealed class MultiBranchPractitionerApiTests(HmsApiFactory factory) : ICl
     public async Task My_day_lists_every_branch_for_the_linked_doctor()
     {
         using var doctor = factory.ClientAs(BetaDoctor, Beta);
-        var day = await doctor.GetFromJsonAsync<MyDay>("/api/v1/practitioners/me/day?date=2030-01-07");
+        var day = await doctor.GetFromJsonAsync<MyDay>($"/api/v1/practitioners/me/day?date={TestDates.Iso(TestDates.SeedMonday)}");
         Assert.Equal(Guid.Parse("c2222222-0000-4000-8000-000000000001"), day!.PractitionerId);
         Assert.Contains(day.Items, i => i.Kind == "hours" && i.BranchId == BetaMain);
         Assert.Contains(day.Items, i => i.Kind == "appointment" && i.BranchId == BetaMain && i.Patient != null);
 
         using var admin = factory.ClientAs(AlphaAdmin, Alpha);
-        var empty = await admin.GetFromJsonAsync<MyDay>("/api/v1/practitioners/me/day?date=2030-01-07");
+        var empty = await admin.GetFromJsonAsync<MyDay>($"/api/v1/practitioners/me/day?date={TestDates.Iso(TestDates.SeedMonday)}");
         Assert.Null(empty!.PractitionerId);
         Assert.Empty(empty.Items);
     }

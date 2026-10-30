@@ -129,7 +129,7 @@ public sealed class PharmacyDispenseApiTests(HmsApiFactory factory) : IClassFixt
             await using var cmd = new NpgsqlCommand(
                 """
                 insert into appointment.queue_entries (id, tenant_id, branch_id, queue_date, token_no, patient_id, practitioner_id, status)
-                values (@id, @t, @b, date '2036-01-01' + (random() * 3000)::int, 5000 + (random() * 90000)::int, @p, @pr, 'waiting')
+                values (@id, @t, @b, current_date + 3650 + (random() * 3000)::int, 5000 + (random() * 90000)::int, @p, @pr, 'waiting')
                 """, conn);
             cmd.Parameters.AddWithValue("id", queueEntryId);
             cmd.Parameters.AddWithValue("t", Beta);
