@@ -10,6 +10,8 @@ namespace Hms.IntegrationTests;
 
 /// <summary>OP billing through the edge: draft, discount approval, collect, cash ceiling, public link.</summary>
 [Trait("Category", "Database")]
+// #243: shares AlphaAdmin's counter session (one per branch and cashier; tests close it and assert exact cash), so never run in parallel.
+[Collection("AlphaAdminCounterSession")]
 public sealed class BillingApiTests(HmsApiFactory factory) : IClassFixture<HmsApiFactory>
 {
     private static readonly Guid AlphaTenant = Alpha;
@@ -19,7 +21,7 @@ public sealed class BillingApiTests(HmsApiFactory factory) : IClassFixture<HmsAp
     public async Task Consult_bill_is_finalized_collected_and_idempotent()
     {
         using var admin = factory.ClientAs(AlphaAdmin, AlphaTenant, Main);
-        var opened = await Post(admin, "/api/v1/accounts", new { patientId = AlphaPatientId, branchId = Main });
+        var opened = await Post(admin, "/api/v1/accounts", new { patientId = await NewPatientAsync(admin, Main), branchId = Main });
         Assert.Equal(HttpStatusCode.OK, opened.Status);
         var billId = Guid.Parse(opened.Body.GetProperty("id").GetString()!);
         var accountId = Guid.Parse(opened.Body.GetProperty("accountId").GetString()!);
@@ -68,10 +70,10 @@ public sealed class BillingApiTests(HmsApiFactory factory) : IClassFixture<HmsAp
         Assert.Equal(HttpStatusCode.Unauthorized, (await anon.GetAsync($"/api/v1/bills/{Guid.NewGuid()}")).StatusCode);
 
         using var lab = factory.ClientAs(AlphaLab, AlphaTenant, Main);
-        Assert.Equal(HttpStatusCode.Forbidden, (await lab.PostAsJsonAsync("/api/v1/accounts", new { patientId = AlphaPatientId, branchId = Main })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await lab.PostAsJsonAsync("/api/v1/accounts", new { patientId = Guid.NewGuid(), branchId = Main })).StatusCode);
 
         using var admin = factory.ClientAs(AlphaAdmin, AlphaTenant, Main);
-        var opened = await Post(admin, "/api/v1/accounts", new { patientId = AlphaPatientId, branchId = Main });
+        var opened = await Post(admin, "/api/v1/accounts", new { patientId = await NewPatientAsync(admin, Main), branchId = Main });
         var accountId = opened.Body.GetProperty("accountId").GetString();
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/payments")
         {
@@ -91,7 +93,7 @@ public sealed class BillingApiTests(HmsApiFactory factory) : IClassFixture<HmsAp
     public async Task Payment_link_is_public_and_the_webhook_reconciles_once()
     {
         using var admin = factory.ClientAs(AlphaAdmin, AlphaTenant, Main);
-        var opened = await Post(admin, "/api/v1/accounts", new { patientId = AlphaPatientId, branchId = Main });
+        var opened = await Post(admin, "/api/v1/accounts", new { patientId = await NewPatientAsync(admin, Main), branchId = Main });
         var billId = opened.Body.GetProperty("id").GetString()!;
         Assert.Equal(HttpStatusCode.OK, (await Post(admin, $"/api/v1/bills/{billId}/lines", new { code = "CONSULT" })).Status);
         Assert.Equal(HttpStatusCode.OK, (await Post(admin, $"/api/v1/bills/{billId}/finalize", new { })).Status);
@@ -165,7 +167,7 @@ public sealed class BillingApiTests(HmsApiFactory factory) : IClassFixture<HmsAp
         Assert.Equal(HttpStatusCode.OK, session.Status);
         var sessionId = session.Body.GetProperty("id").GetGuid();
 
-        var opened = await Post(admin, "/api/v1/accounts", new { patientId = AlphaPatientId, branchId = Main });
+        var opened = await Post(admin, "/api/v1/accounts", new { patientId = await NewPatientAsync(admin, Main), branchId = Main });
         Assert.Equal(HttpStatusCode.OK, opened.Status);
         var billId = opened.Body.GetProperty("id").GetGuid();
         var accountId = opened.Body.GetProperty("accountId").GetGuid();
@@ -235,7 +237,7 @@ public sealed class BillingApiTests(HmsApiFactory factory) : IClassFixture<HmsAp
         var session = await Post(admin, "/api/v1/counter-sessions/ensure", new { branchId = Main });
         var sessionId = session.Body.GetProperty("id").GetGuid();
 
-        var opened = await Post(admin, "/api/v1/accounts", new { patientId = AlphaPatientId, branchId = Main });
+        var opened = await Post(admin, "/api/v1/accounts", new { patientId = await NewPatientAsync(admin, Main), branchId = Main });
         var billId = opened.Body.GetProperty("id").GetGuid();
         var accountId = opened.Body.GetProperty("accountId").GetGuid();
         Assert.Equal(HttpStatusCode.OK, (await Post(admin, $"/api/v1/bills/{billId}/lines", new { code = "CONSULT" })).Status);
@@ -260,7 +262,7 @@ public sealed class BillingApiTests(HmsApiFactory factory) : IClassFixture<HmsAp
     public async Task Updating_a_payment_is_rejected()
     {
         using var admin = factory.ClientAs(AlphaAdmin, AlphaTenant, Main);
-        var opened = await Post(admin, "/api/v1/accounts", new { patientId = AlphaPatientId, branchId = Main });
+        var opened = await Post(admin, "/api/v1/accounts", new { patientId = await NewPatientAsync(admin, Main), branchId = Main });
         var billId = opened.Body.GetProperty("id").GetGuid();
         var accountId = opened.Body.GetProperty("accountId").GetGuid();
         Assert.Equal(HttpStatusCode.OK, (await Post(admin, $"/api/v1/bills/{billId}/lines", new { code = "CONSULT" })).Status);
@@ -295,7 +297,7 @@ public sealed class BillingApiTests(HmsApiFactory factory) : IClassFixture<HmsAp
     {
         // #154
         using var admin = factory.ClientAs(AlphaAdmin, AlphaTenant, Main);
-        var opened = await Post(admin, "/api/v1/accounts", new { patientId = AlphaPatientId, branchId = Main });
+        var opened = await Post(admin, "/api/v1/accounts", new { patientId = await NewPatientAsync(admin, Main), branchId = Main });
         Assert.Equal(HttpStatusCode.OK, opened.Status);
         var billId = Guid.Parse(opened.Body.GetProperty("id").GetString()!);
         Assert.Equal(HttpStatusCode.OK, (await Post(admin, $"/api/v1/bills/{billId}/lines", new { code = "CONSULT" })).Status);
