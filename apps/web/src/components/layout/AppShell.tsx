@@ -139,6 +139,15 @@ export function AppShell() {
               ? [{ id: 'pharmacy-dispense', path: '/pharmacy/dispense', title: 'Prescriptions to dispense', Icon: ClipboardDocumentCheckIcon }]
               : []),
             ...(has('stock.view') ? [{ id: 'stock', path: '/stock', title: 'Stock', Icon: ArchiveBoxIcon }] : []),
+          ],
+    }
+    // #114: privacy work (data-subject requests) has its own group, not Pharmacy. Same privacy.desk gate.
+    const privacy: NavGroup = {
+      id: 'privacy',
+      title: 'Privacy',
+      childs: operatorOnly
+        ? []
+        : [
             ...(has('privacy.desk') ? [{ id: 'data-requests', path: '/compliance/requests', title: 'Data requests', Icon: ClipboardDocumentListIcon }] : []),
           ],
     }
@@ -174,7 +183,7 @@ export function AppShell() {
           ]
         : [],
     }
-    return [clinical, reception, billing, stock, admin, platform]
+    return [clinical, reception, billing, stock, privacy, admin, platform]
       .filter((g) => g.childs.length > 0)
       .map((g) => ({ ...g, childs: g.childs.map((item) => ({ ...item, onPrefetch: () => prefetchRoute(item.path) })) }))
   // eslint-disable-next-line react-hooks/exhaustive-deps -- `has` derives from me.data (roles/permissions)

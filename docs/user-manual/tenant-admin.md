@@ -85,7 +85,7 @@ You can leave and finish later; the wizard opens again the next time you sign in
 ### Other admin screens
 - **Hospital settings**: hospital name, time zone, default country code, and which branches follow the hospital zone.
 - **Privacy notices**: write a **New draft** notice in English, Hindi, Tamil or Telugu, **Save draft**, and see **Versions**.
-- **Data requests**: patient privacy requests (correction, nomination, erasure): **Verify identity**, **Fulfil**, **Approve erasure**, **Execute erasure**, **Close**.
+- **Data requests** (Privacy menu): patient privacy requests (correction, nomination, erasure): **Verify identity**, **Fulfil**, **Approve erasure**, **Execute erasure**, **Close**.
 - **Stock**: items, stores and opening stock (see [Other roles](other-roles.md)).
 - **OPD queue → Close today early**: only when a branch must stop OPD before midnight (for example an emergency closure). Type a reason (3–500 characters) and confirm **Expire waiting tokens**; the reason is kept with the closed tokens. Otherwise the day closes by itself after midnight branch time.
 - Everything reception and billing staff do is also open to you: see [Reception](reception.md) and [Billing](billing.md).

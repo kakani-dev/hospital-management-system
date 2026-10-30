@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import { App } from '../../App'
 import { fakeAuthClient, fakeSession, json, meFor, renderWithProviders, stubFetch } from '../../test/fakes'
 import { ROLE_PERMISSIONS } from '../../lib/permissions'
@@ -45,6 +45,22 @@ describe('RBAC menus', () => {
         else expect(link, `${role} should not see ${name}`).not.toBeInTheDocument()
       }
     })
+  })
+
+  // #114: Data requests is a privacy task, listed under Privacy (never Pharmacy), for each role that has privacy.desk.
+  it.each(Object.keys(EXPECTED))('%s: Data requests sits under Privacy, not Pharmacy', async (role) => {
+    stub([role], [...(ROLE_PERMISSIONS[role] ?? [])])
+    renderWithProviders(<App />, { path: '/', auth: fakeAuthClient({ session: fakeSession() }) })
+    await screen.findByRole('link', { name: 'Dashboard' })
+    await waitFor(() => expect(screen.queryByRole('link', { name: 'Schedules' })).toBeInTheDocument())
+    if (EXPECTED[role]?.includes('Data requests')) {
+      const group = await screen.findByTestId('nav-group-privacy')
+      expect(within(group).getByRole('link', { name: 'Data requests' })).toHaveAttribute('href', '/compliance/requests')
+    } else {
+      expect(screen.queryByTestId('nav-group-privacy')).toBeNull()
+    }
+    const pharmacy = screen.queryByTestId('nav-group-stock')
+    if (pharmacy) expect(within(pharmacy).queryByRole('link', { name: 'Data requests' })).not.toBeInTheDocument()
   })
 
   it('trusts the server permission list over the role names', async () => {
