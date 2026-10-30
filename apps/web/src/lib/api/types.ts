@@ -1495,6 +1495,9 @@ export interface PharmacyQueueRow {
   patientMrn: string
   doctorName: string
   finalizedOn: string
+  /** Last branch-local day this Rx may be dispensed (YYYY-MM-DD), #188. */
+  validThrough?: string
+  expired?: boolean
   lineCount: number
   status: RxDispenseStatus
 }
