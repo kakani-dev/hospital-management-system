@@ -3,6 +3,9 @@
 -- price_list_item_no_overlap and the desk got 409 "That price overlaps an existing effective period".
 -- Serialise the check-then-insert per tenant with a transaction-scoped advisory lock (released at
 -- commit/rollback; other tenants are not blocked). Body otherwise unchanged.
+set local lock_timeout = '5s';
+set local statement_timeout = '120s';
+
 CREATE OR REPLACE FUNCTION billing.ensure_defaults(p_tenant_id uuid)
  RETURNS void
  LANGUAGE plpgsql
