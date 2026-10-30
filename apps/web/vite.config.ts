@@ -45,6 +45,14 @@ export default defineConfig({
     // userEvent.type through the zone combobox takes ~5s on a loaded CI runner; the 5s default
     // timed out there and the still-running test then broke the next one in the file.
     testTimeout: 20000,
+    // #79: coverage gate (npm run test:coverage in CI). Floors sit ~3 points under the 30 Oct baseline
+    // (lines 81.3, statements 79.9, functions 75.0, branches 72.4); raise them as coverage grows.
+    coverage: {
+      provider: 'v8',
+      include: ['src/**'],
+      reporter: ['text-summary', 'json-summary'],
+      thresholds: { lines: 78, statements: 76, functions: 72, branches: 69 },
+    },
     // Component tests use the real retry policy with tiny waits (Retry-After is capped by the max);
     // the policy itself is unit-tested with fake timers and explicit values (client.resilience.test.ts).
     env: {
