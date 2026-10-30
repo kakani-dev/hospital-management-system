@@ -3,8 +3,8 @@ using System.Text.RegularExpressions;
 namespace Hms.Edge;
 
 /// <summary>
-/// Allowed browser origins: exact <c>Cors:AllowedOrigins</c> (prod <c>https://medicore-hms-three.vercel.app</c>,
-/// local dev) plus anchored regexes in <c>Cors:AllowedOriginPatterns</c> for this project's Vercel preview
+/// Allowed browser origins: exact <c>Cors:AllowedOrigins</c> (the deployed web origin and
+/// local dev, set per environment) plus anchored regexes in <c>Cors:AllowedOriginPatterns</c> for this project's Vercel preview
 /// URLs only (never a bare <c>*.vercel.app</c>, which any Vercel user could register).
 /// </summary>
 public static class EdgeCors
