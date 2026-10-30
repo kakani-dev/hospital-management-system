@@ -1,3 +1,4 @@
+// cross-schema: approved — constraint names are lookup keys for error messages only (mapping a 23514 from any service to a field + message); nothing here queries another schema.
 // Generated from pg_constraint (single-column CHECKs) on 30 Oct 2026. Add new constraints here; unlisted ones still get a rule-level 400.
 namespace Hms.Platform.Http;
 
