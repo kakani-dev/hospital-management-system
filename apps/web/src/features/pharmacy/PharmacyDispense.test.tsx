@@ -88,6 +88,42 @@ describe('Pharmacy dispensing', () => {
     expect(calls.some((c) => c.method === 'POST')).toBe(false)
   })
 
+  it('needs a reason before giving more than prescribed (#187)', async () => {
+    const user = userEvent.setup()
+    const capped = { ...rx, lines: [line(1, { prescribedBase: 10, dispensedBase: 4 }), line(2, { inventoryItemId: null, availableBase: null, prescribedBase: null })] }
+    const calls2 = stubFetch({
+      'GET /api/v1/me': () => json({ ...meFor({ roles: ['pharmacist'] }), permissions: [...(ROLE_PERMISSIONS.pharmacist ?? [])] }),
+      'GET /api/v1/branches': () => json([{ id: ALPHA_MAIN, code: 'MAIN', name: 'Alpha Main', timezone: 'Asia/Kolkata', isActive: true }]),
+      'GET /api/v1/inventory/pharmacy/queue': () => json(queue),
+      'GET /api/v1/inventory/pharmacy/prescriptions/rx-1': () => json(capped),
+      'GET /api/v1/inventory/stores': () => json([store, ward]),
+      'GET /api/v1/inventory/items': () => json({ items: [], uoms: [] }),
+      'POST /api/v1/inventory/pharmacy/dispenses': () => json(after),
+      'GET /health/live': () => json({ status: 'Healthy' }),
+    })
+    renderWithProviders(<App />, { path: '/pharmacy/dispense/rx-1', auth: fakeAuthClient({ session: fakeSession() }) })
+    await screen.findByTestId('pharmacy-dispense-page')
+    await waitFor(() => expect(screen.getByTestId('dispense-store')).toHaveValue(store.id))
+    expect(screen.getAllByTestId('rx-line-prescribed')[0]).toHaveTextContent('10')
+    expect(screen.getAllByTestId('rx-line-prescribed')[1]).toHaveTextContent('—')
+    // Exactly the rest of the prescription: no warning.
+    await user.type(screen.getByLabelText('Quantity for line 1'), '6')
+    expect(screen.queryByTestId('rx-line-over-warning')).not.toBeInTheDocument()
+    // One over: warning, and submit is refused until a reason is given.
+    await user.clear(screen.getByLabelText('Quantity for line 1'))
+    await user.type(screen.getByLabelText('Quantity for line 1'), '7')
+    expect(screen.getByTestId('rx-line-over-warning')).toBeInTheDocument()
+    await user.click(screen.getByTestId('dispense-submit'))
+    expect(await screen.findByText(/Line 1: 7 is more than prescribed \(10 prescribed, 4 given\)/)).toBeInTheDocument()
+    expect(calls2.some((c) => c.method === 'POST')).toBe(false)
+    await user.type(screen.getByTestId('rx-line-override-reason'), 'Zz-QA strip cannot be split')
+    await user.click(screen.getByTestId('dispense-submit'))
+    await waitFor(() => expect(calls2.some((c) => c.method === 'POST')).toBe(true))
+    const posted = calls2.find((c) => c.method === 'POST')
+    expect(posted?.body).toEqual({ consultationId: 'rx-1', storeId: store.id,
+      lines: [{ lineNo: 1, qtyBase: 7, complete: true, overrideReason: 'Zz-QA strip cannot be split' }] })
+  })
+
   it('shows the server refusal for a stock-out', async () => {
     const user = userEvent.setup()
     stub('pharmacist', () => json({ title: 'Conflict', status: 409, detail: 'Not enough stock: only 56 in stock.' }, 409))

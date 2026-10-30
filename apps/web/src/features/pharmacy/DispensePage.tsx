@@ -13,7 +13,12 @@ import { problemText, StatusBadge } from './pharmacyUi'
 const selectClass = 'mt-1 min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-dark-500 dark:bg-dark-700'
 const DISPENSING_STORES = new Set(['op_pharmacy', 'ip_pharmacy'])
 
-interface Draft { qty: string; complete: boolean; itemId: string }
+interface Draft { qty: string; complete: boolean; itemId: string; reason: string }
+
+/** True when giving `qty` now would take the line past what was prescribed (#187). */
+function overPrescribed(l: PharmacyRxLine, qty: number): boolean {
+  return l.prescribedBase != null && Number.isFinite(qty) && l.dispensedBase + qty > l.prescribedBase
+}
 
 /** Prescription detail and dispense action (#106). Stock is taken FEFO by the server. */
 export function DispensePage() {
@@ -66,7 +71,7 @@ export function DispensePage() {
   if (rx.isError) return <Alert tone="error">{problemText(rx.error)}</Alert>
   const data: PharmacyPrescription = rx.data
 
-  const draftFor = (l: PharmacyRxLine): Draft => drafts[l.lineNo] ?? { qty: '', complete: true, itemId: l.inventoryItemId ?? '' }
+  const draftFor = (l: PharmacyRxLine): Draft => drafts[l.lineNo] ?? { qty: '', complete: true, itemId: l.inventoryItemId ?? '', reason: '' }
   const setDraft = (l: PharmacyRxLine, patch: Partial<Draft>) =>
     setDrafts((d) => ({ ...d, [l.lineNo]: { ...draftFor(l), ...patch } }))
 
@@ -74,7 +79,7 @@ export function DispensePage() {
     setDone(null)
     setFormError(null)
     if (!storeId) return setFormError('Choose the pharmacy store to dispense from.')
-    const lines: { lineNo: number; itemId?: string; qtyBase: number; complete: boolean }[] = []
+    const lines: { lineNo: number; itemId?: string; qtyBase: number; complete: boolean; overrideReason?: string }[] = []
     for (const l of data.lines) {
       if (l.complete) continue
       const d = draftFor(l)
@@ -82,7 +87,17 @@ export function DispensePage() {
       const qty = Number(d.qty)
       if (!Number.isInteger(qty) || qty < 1) return setFormError(`Line ${l.lineNo}: enter a whole quantity of at least 1.`)
       if (!d.itemId) return setFormError(`Line ${l.lineNo}: choose the stock item to give.`)
-      lines.push({ lineNo: l.lineNo, qtyBase: qty, complete: d.complete, ...(l.inventoryItemId ? {} : { itemId: d.itemId }) })
+      const over = overPrescribed(l, qty)
+      const reason = d.reason.trim()
+      if (over && (reason.length < 10 || reason.length > 300))
+        return setFormError(`Line ${l.lineNo}: ${qty} is more than prescribed (${l.prescribedBase} prescribed, ${l.dispensedBase} given). Give less or enter a reason of 10 to 300 characters.`)
+      lines.push({
+        lineNo: l.lineNo,
+        qtyBase: qty,
+        complete: d.complete,
+        ...(l.inventoryItemId ? {} : { itemId: d.itemId }),
+        ...(over ? { overrideReason: reason } : {}),
+      })
     }
     if (lines.length === 0) return setFormError('Enter a quantity for at least one medicine.')
     dispense.mutate({ consultationId: data.id, storeId, lines, ...(note.trim() ? { note: note.trim() } : {}) })
@@ -121,6 +136,7 @@ export function DispensePage() {
                 <th className="py-2 pr-3">#</th>
                 <th className="py-2 pr-3">Medicine</th>
                 <th className="py-2 pr-3">Directions</th>
+                <th className="py-2 pr-3">Prescribed</th>
                 <th className="py-2 pr-3">Given</th>
                 <th className="py-2 pr-3">In stock</th>
                 {canDispense && <th className="py-2 pr-3">Give now</th>}
@@ -134,6 +150,7 @@ export function DispensePage() {
                     <td className="py-2 pr-3">{l.lineNo}</td>
                     <td className="py-2 pr-3">{l.medicineName}{l.strength ? ` ${l.strength}` : ''}</td>
                     <td className="py-2 pr-3">{l.dose}, {l.frequency}, {l.durationDays} days{l.instructions ? ` (${l.instructions})` : ''}</td>
+                    <td className="py-2 pr-3" data-testid="rx-line-prescribed">{l.prescribedBase ?? '—'}</td>
                     <td className="py-2 pr-3" data-testid="rx-line-dispensed">{l.dispensedBase}{l.complete ? ' (done)' : ''}</td>
                     <td className="py-2 pr-3" data-testid="rx-line-available">{l.availableBase ?? '—'}</td>
                     {canDispense && (
@@ -164,6 +181,21 @@ export function DispensePage() {
                               value={d.qty}
                               onChange={(e) => setDraft(l, { qty: e.target.value })}
                             />
+                            {overPrescribed(l, Number(d.qty)) && d.qty.trim() !== '' && (
+                              <div className="space-y-1">
+                                <p className="text-xs text-amber-700 dark:text-amber-400" data-testid="rx-line-over-warning">
+                                  More than prescribed ({l.prescribedBase}). Enter why to continue.
+                                </p>
+                                <input
+                                  aria-label={`Reason for giving more than prescribed on line ${l.lineNo}`}
+                                  data-testid="rx-line-override-reason"
+                                  maxLength={300}
+                                  className={selectClass}
+                                  value={d.reason}
+                                  onChange={(e) => setDraft(l, { reason: e.target.value })}
+                                />
+                              </div>
+                            )}
                             <label className="flex items-center gap-2 text-xs">
                               <input
                                 type="checkbox"
@@ -205,7 +237,7 @@ export function DispensePage() {
             {data.dispenses.map((d) => (
               <li key={d.id}>
                 {new Date(d.createdOn).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}:{' '}
-                {d.lines.map((x) => `${x.brandName} ${x.qtyBase} (batch ${x.batchNo}, exp ${x.expiryDate})`).join('; ')}
+                {d.lines.map((x) => `${x.brandName} ${x.qtyBase} (batch ${x.batchNo}, exp ${x.expiryDate})${x.overrideReason ? ` — over prescription: ${x.overrideReason}` : ''}`).join('; ')}
                 {d.note ? ` (${d.note})` : ''}
               </li>
             ))}

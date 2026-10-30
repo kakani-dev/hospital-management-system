@@ -59,7 +59,7 @@ describe('Privacy pages', () => {
           channel: 'desk',
           status: 'received',
           receivedAt: '2026-10-20T00:00:00Z',
-          dueAt: '2026-10-30T00:00:00Z',
+          dueAt: new Date(Date.now() + 5 * 86_400_000).toISOString(),
           daysRemaining: 5,
         },
       ]),
@@ -67,6 +67,7 @@ describe('Privacy pages', () => {
     renderWithProviders(<App />, { path: '/compliance/requests', auth: fakeAuthClient({ session: fakeSession() }) })
     expect(await screen.findByText('DPR-2026-00001')).toBeInTheDocument()
     expect(screen.getByText('Due soon')).toBeInTheDocument()
+    expect(screen.queryByTestId('dpr-overdue')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Execute erasure' })).not.toBeInTheDocument()
   })
 

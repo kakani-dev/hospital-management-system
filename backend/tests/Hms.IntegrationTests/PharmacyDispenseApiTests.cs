@@ -82,6 +82,12 @@ public sealed class PharmacyDispenseApiTests(HmsApiFactory factory) : IClassFixt
         Assert.Equal(HttpStatusCode.OK, replay.Status);
         Assert.Equal(5, replay.Body.GetProperty("lines")[0].GetProperty("dispensedBase").GetInt32());
 
+        // #187: 1-0-1 x 10 days = 20 prescribed; 5 given, so 16 more is over the prescription.
+        Assert.Equal(20, replay.Body.GetProperty("lines")[0].GetProperty("prescribedBase").GetInt32());
+        var overRx = await Send(ph, HttpMethod.Post, "/api/v1/inventory/pharmacy/dispenses",
+            new { consultationId = rxId, storeId, lines = new[] { new { lineNo = 1, qtyBase = 16, complete = true } } }, Guid.NewGuid());
+        Assert.Equal(HttpStatusCode.Conflict, overRx.Status);
+
         var rest = await Send(ph, HttpMethod.Post, "/api/v1/inventory/pharmacy/dispenses",
             new { consultationId = rxId, storeId, lines = new[] { new { lineNo = 1, qtyBase = 10, complete = true } } }, Guid.NewGuid());
         Assert.Equal("dispensed", rest.Body.GetProperty("status").GetString());
@@ -139,7 +145,7 @@ public sealed class PharmacyDispenseApiTests(HmsApiFactory factory) : IClassFixt
         {
             rowVersion = 1,
             chiefComplaint = "Zz-QA cough (synthetic)",
-            lines = new[] { new { medicineName = "Amoxicillin", strength = "500 mg", dose = "1 cap", frequency = "1-0-1", durationDays = 5, inventoryItemId = itemId } },
+            lines = new[] { new { medicineName = "Amoxicillin", strength = "500 mg", dose = "1 cap", frequency = "1-0-1", durationDays = 10, inventoryItemId = itemId } },
         });
         Assert.Equal(HttpStatusCode.OK, saved.Status);
         var fin = await Send(doctor, HttpMethod.Post, $"/api/v1/consultations/{id}/finalize", new { rowVersion = saved.Body.GetProperty("rowVersion").GetInt32() });

@@ -7,3 +7,9 @@ export function isDueSoon(dueAt: string, now: Date = new Date()): boolean {
   const left = due - now.getTime()
   return left > 0 && left <= TEN_DAYS_MS
 }
+
+/** A request whose statutory deadline has passed and is still open needs to stand out. */
+export function isOverdue(dueAt: string, now: Date = new Date()): boolean {
+  const due = Date.parse(dueAt)
+  return !Number.isNaN(due) && due <= now.getTime()
+}
