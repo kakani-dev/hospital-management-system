@@ -1,8 +1,12 @@
+-- cross-schema: approved (finalize_bill reads identity.branch_bill_header_v for the branch GSTIN state, unchanged from the previous definition; read-only)
 -- #109: a taxed bill must not be finalized without a known supplier state and place of supply.
 -- Before this, a branch with no GSTIN produced a NULL supplier state and NULL place of supply, and
 -- billing.tax_split silently treated that as intra-state (CGST + SGST). Now finalize refuses a bill that
 -- has any taxed line unless both states are known. Untaxed (exempt) bills are unchanged.
 -- Live data check before release: 0 finalized taxed lines had a NULL supplier state.
+set local lock_timeout = '5s';
+set local statement_timeout = '120s';
+
 create or replace function billing.finalize_bill(p_tenant_id uuid, p_bill_id uuid)
 returns jsonb
 language plpgsql
