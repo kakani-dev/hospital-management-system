@@ -38,7 +38,7 @@ public sealed class SmtpEmailSender(IOptions<SmtpOptions> options) : IEmailSende
         var body = new BodyBuilder { TextBody = email.TextBody, HtmlBody = email.HtmlBody };
         message.Body = body.ToMessageBody();
 
-        using var client = new SmtpClient { Timeout = 30_000 };
+        using var client = new SmtpClient { Timeout = (int)TimeSpan.FromSeconds(Math.Clamp(smtp.TimeoutSeconds, 1, 300)).TotalMilliseconds };
         await client.ConnectAsync(smtp.Host, smtp.Port, SecureSocketOptions.StartTls, cancellationToken);
         try
         {

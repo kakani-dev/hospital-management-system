@@ -18,6 +18,20 @@ public sealed class SupabaseAuthOptions
 
     public string Audience { get; set; } = "authenticated";
 
+    public const int DefaultJwksTimeoutSeconds = 10;
+
+    /// <summary>JWKS fetch timeout (1-120 s). Read when the HTTP client is registered.</summary>
+    public int JwksTimeoutSeconds { get; set; } = DefaultJwksTimeoutSeconds;
+
+    /// <summary>How often the JWKS key set is refreshed in the background (5-1440 min).</summary>
+    public int JwksAutomaticRefreshMinutes { get; set; } = 60;
+
+    /// <summary>Minimum gap between refreshes forced by an unknown key id (1-3600 s).</summary>
+    public int JwksRefreshSeconds { get; set; } = 60;
+
+    /// <summary>Allowed token clock skew (0-300 s).</summary>
+    public int ClockSkewSeconds { get; set; } = 30;
+
     /// <summary>
     /// OPTIONAL legacy HS256 JWT secret (Supabase "Legacy JWT secret"). Only for projects that
     /// still issue symmetric tokens. Leave empty to accept asymmetric (JWKS) tokens only.
@@ -107,7 +121,8 @@ public static class AuthenticationSetup
     public static IServiceCollection AddHmsAuthentication(this IServiceCollection services, IConfiguration configuration, IHostEnvironment environment)
     {
         services.Configure<SupabaseAuthOptions>(configuration.GetSection(SupabaseAuthOptions.Section));
-        services.AddHttpClient(SupabaseAuthOptions.JwksHttpClient, c => c.Timeout = TimeSpan.FromSeconds(10));
+        services.AddHttpClient(SupabaseAuthOptions.JwksHttpClient, c => c.Timeout = TimeSpan.FromSeconds(Math.Clamp(
+            configuration.GetValue($"{SupabaseAuthOptions.Section}:JwksTimeoutSeconds", SupabaseAuthOptions.DefaultJwksTimeoutSeconds), 1, 120)));
 
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer();
         services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
@@ -151,8 +166,8 @@ public static class AuthenticationSetup
             new JwksConfigurationRetriever(options.Issuer),
             new HttpDocumentRetriever(httpClientFactory.CreateClient(SupabaseAuthOptions.JwksHttpClient)) { RequireHttps = requireHttps })
         {
-            AutomaticRefreshInterval = TimeSpan.FromHours(1),
-            RefreshInterval = TimeSpan.FromMinutes(1),
+            AutomaticRefreshInterval = TimeSpan.FromMinutes(Math.Clamp(options.JwksAutomaticRefreshMinutes, 5, 1440)),
+            RefreshInterval = TimeSpan.FromSeconds(Math.Clamp(options.JwksRefreshSeconds, 1, 3600)),
         });
         jwt.ConfigurationManager = keySource;
 
@@ -176,7 +191,7 @@ public static class AuthenticationSetup
             ValidateIssuerSigningKey = true,
             ValidAlgorithms = algorithms,
             IssuerSigningKeys = legacyKeys, // JwtBearer appends the JWKS keys from ConfigurationManager
-            ClockSkew = TimeSpan.FromSeconds(30),
+            ClockSkew = TimeSpan.FromSeconds(Math.Clamp(options.ClockSkewSeconds, 0, 300)),
             NameClaimType = "sub",
             RoleClaimType = "role",
         };

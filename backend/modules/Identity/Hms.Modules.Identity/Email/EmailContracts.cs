@@ -47,6 +47,9 @@ public sealed class SmtpOptions
 {
     public const string Section = "Smtp";
 
+    /// <summary>Connect/send timeout in seconds (Smtp:TimeoutSeconds, 1-300).</summary>
+    public int TimeoutSeconds { get; set; } = 30;
+
     public string Host { get; set; } = "smtp.gmail.com";
 
     public int Port { get; set; } = 587;

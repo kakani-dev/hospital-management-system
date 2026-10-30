@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Primitives;
 
 namespace Hms.Modules.Identity.Caching;
@@ -11,9 +12,13 @@ namespace Hms.Modules.Identity.Caching;
 /// Entries live <see cref="Ttl"/> at most and are evicted on every write to the tenant's branches
 /// or settings (<see cref="Invalidate"/>), including once more after the response (post-commit).
 /// </summary>
-public sealed class TenantReferenceCache(IMemoryCache cache, TimeProvider clock)
+public sealed class TenantReferenceCache(IMemoryCache cache, TimeProvider clock, IConfiguration? configuration = null)
 {
-    public static readonly TimeSpan Ttl = TimeSpan.FromSeconds(60);
+    /// <summary>Fallback when <c>Caching:TenantReferenceTtlSeconds</c> is not configured.</summary>
+    public const int DefaultTtlSeconds = 60;
+
+    /// <summary>Staleness bound, from <c>Caching:TenantReferenceTtlSeconds</c> (1-3600 s).</summary>
+    public TimeSpan Ttl { get; } = TimeSpan.FromSeconds(Math.Clamp(configuration?.GetValue("Caching:TenantReferenceTtlSeconds", DefaultTtlSeconds) ?? DefaultTtlSeconds, 1, 3600));
 
     private readonly ConcurrentDictionary<Guid, CancellationTokenSource> _tenantTokens = new();
 

@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Configuration;
 
 namespace Hms.Modules.Billing.Caching;
 
@@ -9,9 +10,13 @@ namespace Hms.Modules.Billing.Caching;
 /// An empty tenant id is never cached. Entries expire; nothing here is invalidated by a write
 /// because the report is a read of committed bills and the TTL is the staleness bound.
 /// </summary>
-public sealed class EarningsReportCache(IMemoryCache cache, TimeProvider clock)
+public sealed class EarningsReportCache(IMemoryCache cache, TimeProvider clock, IConfiguration? configuration = null)
 {
-    public static readonly TimeSpan Ttl = TimeSpan.FromSeconds(45);
+    /// <summary>Fallback when <c>Caching:EarningsReportTtlSeconds</c> is not configured.</summary>
+    public const int DefaultTtlSeconds = 45;
+
+    /// <summary>Staleness bound, from <c>Caching:EarningsReportTtlSeconds</c> (1-3600 s).</summary>
+    public TimeSpan Ttl { get; } = TimeSpan.FromSeconds(Math.Clamp(configuration?.GetValue("Caching:EarningsReportTtlSeconds", DefaultTtlSeconds) ?? DefaultTtlSeconds, 1, 3600));
 
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _gates = new();
 
