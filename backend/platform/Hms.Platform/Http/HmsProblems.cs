@@ -99,7 +99,9 @@ public static class HmsProblems
         return db.SqlState switch
         {
             SqlStates.InsufficientPrivilege => Forbidden("The database rejected this operation for your memberships."),
-            SqlStates.NoDataFound => NotFound(),
+            SqlStates.NoDataFound => NotFound(SafeNotFoundDetail(message)),
+            SqlStates.UniqueViolation when message?.StartsWith("idempotency key reused", StringComparison.Ordinal) == true =>
+                Conflict(uniqueCode, IdempotencyAmountDetail),
             SqlStates.UniqueViolation => Conflict(uniqueCode, uniqueDetail ?? "A conflicting record already exists."),
             SqlStates.ExclusionViolation => Conflict(exclusionCode, exclusionDetail ?? "The time range overlaps an existing booking."),
             SqlStates.ObjectNotInPrerequisiteState => Conflict(Codes.InvalidState, Sanitize(message) ?? "The record is not in a state that allows this operation."),
@@ -124,6 +126,34 @@ public static class HmsProblems
     }
 
     // DB messages for these states are authored by our own functions (no data values), keep them short.
+    /// <summary>#149 (PAY-008): the same Idempotency-Key replayed with a different amount.</summary>
+    public const string IdempotencyAmountDetail = "Idempotency key reused with a different amount.";
+
+    /// <summary>
+    /// #149 (BRN-005, STF-003): a few not-found messages are safe to show because they reveal nothing beyond
+    /// what the caller already has. Everything else stays the generic text, so no email or cross-hospital
+    /// existence leaks through a 404.
+    /// </summary>
+    internal static string? SafeNotFoundDetail(string? message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            return null;
+        }
+
+        if (message == "invite not found, expired or already used")
+        {
+            return "Invite not found, expired or already used.";
+        }
+
+        if (System.Text.RegularExpressions.Regex.IsMatch(message, "^[a-z]+ is not deleted$"))
+        {
+            return char.ToUpperInvariant(message[0]) + message[1..] + "; there is nothing to restore.";
+        }
+
+        return null;
+    }
+
     private static string? Sanitize(string? message) =>
         string.IsNullOrWhiteSpace(message) ? null : message.Length > 300 ? message[..300] : message;
 
