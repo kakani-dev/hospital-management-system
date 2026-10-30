@@ -1,4 +1,4 @@
--- #188: prescriptions expire for dispensing (20261030120000). Synthetic Zz-QA data; rolls back.
+-- #188: prescriptions expire for dispensing (20261030120000_inventory_pharmacy_rx_validity). Synthetic Zz-QA data; rolls back.
 begin;
 
 create or replace function pg_temp.act(p_user uuid, p_role text default 'hms_svc_inventory')

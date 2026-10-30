@@ -2,8 +2,8 @@
 -- #188: prescriptions expire for dispensing. Tenant setting rx_validity_days (default 30).
 -- An Rx finalized on local day D can be dispensed through D + N; from D + N + 1 it is expired:
 -- the open queue hides it and pharmacy.dispense raises 55000 'prescription expired on <D+N>'.
-set lock_timeout = '5s';
-set statement_timeout = '120s';
+set local lock_timeout = '5s';
+set local statement_timeout = '120s';
 
 create table if not exists pharmacy.tenant_setting (
   tenant_id uuid primary key references identity.tenants (id),
