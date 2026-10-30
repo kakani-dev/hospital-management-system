@@ -19,12 +19,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
-      WEB_URL: https://medicore-hms-three.vercel.app
-      EDGE_URL: https://ca-hms-edge.whiteisland-88abe7bd.centralindia.azurecontainerapps.io
+      # From repository variables (Settings > Variables), not hard-coded (#234).
+      WEB_URL: ${{ vars.LIVE_WEB_URL }}
+      EDGE_URL: ${{ vars.LIVE_EDGE_URL }}
     steps:
       - name: Check status codes
         run: |
           set -u
+          if [ -z "$WEB_URL" ] || [ -z "$EDGE_URL" ]; then
+            echo "::error::Repository variables LIVE_WEB_URL and LIVE_EDGE_URL must be set"; exit 1
+          fi
           fail=0
           expect() {
             local name="$1" url="$2" want="$3" got=""

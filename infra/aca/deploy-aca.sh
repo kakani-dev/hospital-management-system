@@ -37,7 +37,11 @@ fi
 case "$-" in *x*) echo "refusing: xtrace (set -x) would print secrets" >&2; exit 2 ;; esac
 
 export PATH="$HOME/.local/bin:$PATH"
-SUB="${SUB:-6f4c512a-8528-461a-962b-f4f8525223a3}"
+# Environment-specific values come from env or a git-ignored env file, not this script (#234).
+ACA_ENV_FILE="${ACA_ENV_FILE:-$(dirname "$0")/deploy-aca.env}"
+# shellcheck disable=SC1090
+[ -f "$ACA_ENV_FILE" ] && . "$ACA_ENV_FILE"
+: "${SUB:?set SUB (Azure subscription id) in env or $ACA_ENV_FILE}"
 RG="${RG:-rg-medicore-hms-dev}"
 LOC="${LOC:-centralindia}"
 ENV_NAME="${ENV_NAME:-cae-medicore-hms-dev}"
@@ -48,9 +52,9 @@ LA_RETENTION_DAYS="${LA_RETENTION_DAYS:-30}"   # 31 days of analytics retention 
 IMAGE_SHA="${IMAGE_SHA:-}"
 REGISTRY="${REGISTRY:-ghcr.io/kakani-dev}"
 POOL_SIZE="${POOL_SIZE:-5}"           # per service: 3 x 5 = 15 client connections
-SUPABASE_URL="${SUPABASE_URL:-https://gvgomzogbzbjhlcsimrx.supabase.co}"
-CORS_0="${CORS_0:-https://medicore-hms-three.vercel.app}"
-CORS_1="${CORS_1:-https://medicore-hms-kakani-devs-projects.vercel.app}"
+: "${SUPABASE_URL:?set SUPABASE_URL in env or $ACA_ENV_FILE}"
+: "${CORS_0:?set CORS_0 (web origin) in env or $ACA_ENV_FILE}"
+CORS_1="${CORS_1:-$CORS_0}"
 CONNSTR_FILE="${CONNSTR_FILE:-/home/box/.secrets/medicore-hms-connstr}"
 EDGE_KEY_FILE="${EDGE_KEY_FILE:-/home/box/.secrets/medicore-hms-edge-key}"
 # inventory is not in this loop. The script writes one shared hms-db secret, and the
