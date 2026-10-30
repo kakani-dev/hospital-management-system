@@ -863,6 +863,9 @@ export interface BillListItem {
   status: string
   billKind: string
   patientId: Guid
+  /** #124: first + last name; null if the patient record is missing. */
+  patientName?: string | null
+  patientMrn?: string | null
   branchId: Guid
   totalPaise: number | null
   duePaise: number | null

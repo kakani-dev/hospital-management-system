@@ -19,6 +19,18 @@ const columns: ColumnDef<BillListItem, unknown>[] = [
       </Link>
     ),
   },
+  {
+    header: 'Patient',
+    accessorKey: 'patientName',
+    cell: ({ row }) => (
+      <span data-testid="billing-bills-row-patient">
+        <span className="block">{row.original.patientName ?? 'Unknown patient'}</span>
+        {row.original.patientMrn ? (
+          <span className="block text-xs text-gray-500" data-testid="billing-bills-row-mrn">MRN {row.original.patientMrn}</span>
+        ) : null}
+      </span>
+    ),
+  },
   { header: 'Status', accessorKey: 'status', cell: ({ row }) => <span data-testid="billing-bills-row-status">{billStatusLabel(row.original.status)}</span> },
   {
     header: 'Total',
