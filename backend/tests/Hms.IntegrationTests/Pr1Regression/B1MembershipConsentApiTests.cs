@@ -157,7 +157,7 @@ public sealed class B1MembershipConsentApiTests(HmsApiFactory factory) : IClassF
         Assert.Contains((await claimingAlpha.GetAsync($"/api/v1/patients/{AlphaPatientId}")).StatusCode, new[] { HttpStatusCode.Forbidden, HttpStatusCode.NotFound });
         var search = await claimingAlpha.PostAsJsonAsync(Pr1Contract.PatientSearch, new { search = "synthetic", page = 1, pageSize = 100 });
         Assert.Equal(HttpStatusCode.Forbidden, search.StatusCode);
-        var write = await claimingAlpha.PostAsJsonAsync("/api/v1/patients", new { mrn = Pr1Db.NewMrn("B1"), firstName = "No", lastName = "Access", registeredBranchId = AlphaMain });
+        var write = await claimingAlpha.PostAsJsonAsync("/api/v1/patients", new { mrn = Pr1Db.NewMrn("B1"), firstName = "No", lastName = "Access", registeredBranchId = AlphaMain, sex = "unknown", ageYears = 30, noPhoneReason = "test fixture" });
         Assert.Contains(write.StatusCode, new[] { HttpStatusCode.Forbidden, HttpStatusCode.NotFound });
 
         using var claimingAlphaMain = factory.ClientAs(victim, Alpha, AlphaMain);

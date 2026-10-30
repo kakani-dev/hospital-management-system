@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { patientSchema, toCreatePatientRequest } from './patientSchema'
+import { registerPatientSchema as patientSchema, toCreatePatientRequest } from './patientSchema'
 
 const valid = {
   firstName: 'Asha',
@@ -11,6 +11,9 @@ const valid = {
   email: '',
   whatsappSameAsPhone: true,
   whatsappNumber: '',
+  ageYears: '',
+  noPhone: true,
+  noPhoneReason: 'Patient has no phone',
 }
 
 describe('patientSchema', () => {
@@ -57,5 +60,40 @@ describe('ABHA number', () => {
     expect(patientSchema.safeParse({ ...base, abhaNumber: '' }).success).toBe(true)
     expect(patientSchema.safeParse({ ...base, abhaNumber: '1234' }).success).toBe(false)
     expect(patientSchema.safeParse({ ...base, abhaNumber: '12-3456-7890-1234' }).success).toBe(true)
+  })
+})
+
+describe('registration rules (#190)', () => {
+  const base = { ...valid, noPhone: false, noPhoneReason: '', phone: '98450 00001' }
+  const errorsOf = (v: Record<string, unknown>) => {
+    const r = patientSchema.safeParse(v)
+    return r.success ? [] : r.error.issues.map((i) => i.path.join('.'))
+  }
+
+  it('accepts a single-name patient (blank last name)', () => {
+    expect(errorsOf({ ...base, lastName: '' })).toEqual([])
+    expect(toCreatePatientRequest(patientSchema.parse({ ...base, lastName: '  ' })).lastName).toBe('')
+  })
+
+  it('requires the sex to be chosen; Unknown is an explicit choice', () => {
+    expect(errorsOf({ ...base, sex: '' })).toEqual(['sex'])
+    expect(errorsOf({ ...base, sex: 'unknown' })).toEqual([])
+  })
+
+  it('requires a date of birth or an age, and sends ageYears only without a DOB', () => {
+    expect(errorsOf({ ...base, dateOfBirth: '' })).toEqual(['dateOfBirth'])
+    expect(errorsOf({ ...base, dateOfBirth: '', ageYears: '121' })).toEqual(['ageYears'])
+    expect(errorsOf({ ...base, dateOfBirth: '', ageYears: '4.5' })).toEqual(['ageYears'])
+    const byAge = toCreatePatientRequest(patientSchema.parse({ ...base, dateOfBirth: '', ageYears: ' 45 ' }))
+    expect(byAge).toMatchObject({ dateOfBirth: null, ageYears: 45 })
+    expect(toCreatePatientRequest(patientSchema.parse({ ...base, ageYears: '45' }))).not.toHaveProperty('ageYears')
+  })
+
+  it('requires a mobile number or a no-phone reason', () => {
+    expect(errorsOf({ ...base, phone: '' })).toEqual(['phone'])
+    expect(errorsOf({ ...base, phone: '', noPhone: true, noPhoneReason: 'no' })).toEqual(['noPhoneReason'])
+    const none = toCreatePatientRequest(patientSchema.parse({ ...base, phone: '', noPhone: true, noPhoneReason: ' Elderly, no phone ' }))
+    expect(none).toMatchObject({ phone: null, noPhoneReason: 'Elderly, no phone' })
+    expect(toCreatePatientRequest(patientSchema.parse(base))).not.toHaveProperty('noPhoneReason')
   })
 })

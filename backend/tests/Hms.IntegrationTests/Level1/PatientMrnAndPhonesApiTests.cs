@@ -42,7 +42,7 @@ public sealed class PatientMrnAndPhonesApiTests(HmsApiFactory factory) : IClassF
         var created = await ReadAsync(await client.PostAsJsonAsync("/api/v1/patients", new
         {
             firstName = "Wa", lastName = Unique("Same"), registeredBranchId = AlphaMain, phone = "0" + mobile,
-            whatsapp = new { sameAsPhone = true }, tenantId = Beta, // a client tenant id is ignored
+            whatsapp = new { sameAsPhone = true }, tenantId = Beta, // a client tenant id is ignored, sex = "unknown", ageYears = 30, noPhoneReason = "test fixture"
         }), HttpStatusCode.Created);
 
         Assert.Matches("^DEMO-ALPHA-[0-9]{6,}$", created.Mrn);
@@ -71,7 +71,7 @@ public sealed class PatientMrnAndPhonesApiTests(HmsApiFactory factory) : IClassF
         var created = await ReadAsync(await client.PostAsJsonAsync("/api/v1/patients", new
         {
             firstName = "Wa", lastName = last, registeredBranchId = AlphaMain, phone = mobile,
-            whatsapp = new { sameAsPhone = false, number = "+91 " + whatsapp },
+            whatsapp = new { sameAsPhone = false, number = "+91 " + whatsapp }, sex = "unknown", ageYears = 30, noPhoneReason = "test fixture"
         }), HttpStatusCode.Created);
         Assert.False(created.WhatsappSameAsPhone);
         Assert.Equal(2, created.Phones.Count);
@@ -99,7 +99,7 @@ public sealed class PatientMrnAndPhonesApiTests(HmsApiFactory factory) : IClassF
         using var client = factory.ClientAs(AlphaReception, Alpha);
         var bad = await client.PostAsJsonAsync("/api/v1/patients", new
         {
-            firstName = "Bad", lastName = "Phone", registeredBranchId = AlphaMain, phone = "123",
+            firstName = "Bad", lastName = "Phone", registeredBranchId = AlphaMain, phone = "123", sex = "unknown", ageYears = 30, noPhoneReason = "test fixture"
         });
         Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
         Assert.Contains("phone", await bad.Content.ReadAsStringAsync(), StringComparison.Ordinal);
@@ -107,7 +107,7 @@ public sealed class PatientMrnAndPhonesApiTests(HmsApiFactory factory) : IClassF
         var created = await ReadAsync(await client.PostAsJsonAsync("/api/v1/patients", new
         {
             firstName = "Iso", lastName = Unique("Iso"), registeredBranchId = AlphaMain, phone = NewMobile(),
-            whatsapp = new { sameAsPhone = true },
+            whatsapp = new { sameAsPhone = true }, sex = "unknown", ageYears = 30, noPhoneReason = "test fixture"
         }), HttpStatusCode.Created);
         using var beta = factory.ClientAs(BetaAdmin, Beta);
         Assert.Equal(HttpStatusCode.NotFound, (await beta.GetAsync($"/api/v1/patients/{created.Id}")).StatusCode);

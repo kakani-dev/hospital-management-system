@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
 import { MockBackend, addDays, branchToday, practitionerIds, signIn } from './mock-backend'
+import { completeRegistration } from '../registration'
 
 /**
  * A typical reception journey (login → register patient → book → check in → queue → back to the
@@ -35,6 +36,7 @@ test('reception journey: API calls per endpoint, fresh data after every write', 
   await page.getByLabel('First name').fill('Journey')
   await page.getByLabel('Last name').fill('Synthetic-Cache')
   await page.getByLabel('Date of birth').fill('1990-01-01')
+  await completeRegistration(page)
   await page.getByRole('button', { name: 'Register patient' }).click()
   await expect(page.getByText(/Patient .* registered\./)).toBeVisible()
 

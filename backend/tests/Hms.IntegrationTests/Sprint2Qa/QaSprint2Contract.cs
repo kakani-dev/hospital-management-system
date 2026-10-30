@@ -154,7 +154,7 @@ internal static class Qa
             dateOfBirth = dob,
             sex = "female",
             registeredBranchId = branch,
-            phone,
+            phone, ageYears = 30, noPhoneReason = "test fixture"
         });
         return await ReadAsync<QaPatient>(response, HttpStatusCode.Created);
     }

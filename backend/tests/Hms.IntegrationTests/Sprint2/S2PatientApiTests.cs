@@ -112,7 +112,7 @@ public sealed class S2PatientApiTests(HmsApiFactory factory) : IClassFixture<Hms
         Assert.DoesNotContain(patient.Id.ToString(), dupes, StringComparison.OrdinalIgnoreCase);
 
         // MRN stays reserved after delete (D1): a new registration never gets it (a typed MRN is ignored).
-        var reuse = await reception.PostAsJsonAsync("/api/v1/patients", new { mrn = patient.Mrn, firstName = "Re", lastName = "Use", registeredBranchId = AlphaEast });
+        var reuse = await reception.PostAsJsonAsync("/api/v1/patients", new { mrn = patient.Mrn, firstName = "Re", lastName = "Use", registeredBranchId = AlphaEast, sex = "unknown", ageYears = 30, noPhoneReason = "test fixture" });
         Assert.Equal(HttpStatusCode.Created, reuse.StatusCode);
         Assert.DoesNotContain(patient.Mrn, await reuse.Content.ReadAsStringAsync(), StringComparison.Ordinal);
 
@@ -149,7 +149,7 @@ public sealed class S2PatientApiTests(HmsApiFactory factory) : IClassFixture<Hms
 
         var sharedPhone = await admin.PostAsJsonAsync("/api/v1/patients", new
         {
-            firstName = "Other", lastName = S2.Unique("Ph"), registeredBranchId = AlphaEast, phone = $"0{digits}",
+            firstName = "Other", lastName = S2.Unique("Ph"), registeredBranchId = AlphaEast, phone = $"0{digits}", sex = "unknown", ageYears = 30, noPhoneReason = "test fixture"
         });
         Assert.Equal(HttpStatusCode.Conflict, sharedPhone.StatusCode);
         Assert.Equal("duplicate_patient", await S2.CodeAsync(sharedPhone));
@@ -157,7 +157,7 @@ public sealed class S2PatientApiTests(HmsApiFactory factory) : IClassFixture<Hms
         var sameName = await admin.PostAsJsonAsync("/api/v1/patients", new
         {
             firstName = " synth ", lastName = last.ToLowerInvariant(), dateOfBirth = "1955-05-15", registeredBranchId = AlphaEast,
-            duplicateOverrideReason = "Different person, confirmed",
+            duplicateOverrideReason = "Different person, confirmed", sex = "unknown", ageYears = 30, noPhoneReason = "test fixture"
         });
         Assert.Equal(HttpStatusCode.Created, sameName.StatusCode);
         var created = (await sameName.Content.ReadFromJsonAsync<S2Patient>())!;

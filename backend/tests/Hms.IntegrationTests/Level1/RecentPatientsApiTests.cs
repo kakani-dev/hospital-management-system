@@ -16,7 +16,7 @@ public sealed class RecentPatientsApiTests(HmsApiFactory factory) : IClassFixtur
         using var reception = factory.ClientAs(AlphaReception, Alpha);
         var created = await reception.PostAsJsonAsync("/api/v1/patients", new
         {
-            firstName = "Recent", lastName = $"Zz-Recent-{Guid.NewGuid():N}"[..24], registeredBranchId = AlphaMain, sex = "unknown",
+            firstName = "Recent", lastName = $"Zz-Recent-{Guid.NewGuid():N}"[..24], registeredBranchId = AlphaMain, sex = "unknown", ageYears = 30, noPhoneReason = "test fixture"
         });
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
         var id = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();

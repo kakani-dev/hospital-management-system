@@ -89,7 +89,7 @@ test('a new hospital finishes setup and books its first appointment', async ({ p
   const lastName = `Zz-${unique('Pt')}`
   const patientResponse = await request.post('/api/v1/patients', {
     headers: admin,
-    data: { firstName: 'Asha', lastName, registeredBranchId: branch!.id, sex: 'female' },
+    data: { firstName: 'Asha', lastName, registeredBranchId: branch!.id, sex: 'female', ageYears: 30, noPhoneReason: 'test fixture' },
   })
   expect(patientResponse.status()).toBe(201)
   const patient = (await patientResponse.json()) as { id: string; firstName: string; lastName: string }

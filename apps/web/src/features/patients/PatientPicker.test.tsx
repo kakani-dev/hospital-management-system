@@ -88,9 +88,10 @@ describe('PatientPicker combobox', () => {
     await screen.findByRole('form', { name: 'Register patient' })
     expect(window.location.search).not.toContain('Kiran')
     expect(screen.getByLabelText('First name')).toHaveValue('Kiran')
-    expect(screen.getByLabelText('Last name')).toHaveValue('Synthetic-New')
+    expect(screen.getByLabelText(/Last name/)).toHaveValue('Synthetic-New')
     expect(screen.queryByLabelText('MRN')).not.toBeInTheDocument()
     await waitFor(() => expect(screen.getByLabelText('Date of birth')).toHaveFocus())
+    await completeRequired(user, document.body)
     await user.click(screen.getByRole('button', { name: /register patient/i }))
 
     // Back on check-in, patient chosen, "Issue walk-in token" focused: Enter issues it
@@ -116,6 +117,18 @@ describe('PatientPicker combobox', () => {
     expect(screen.getByLabelText('First name')).toHaveValue('')
     await waitFor(() => expect(screen.getByLabelText('First name')).toHaveFocus())
   })
+
+  /** #190: choose sex (Unknown), give an age when there is no DOB and a reason when there is no mobile number. */
+  async function completeRequired(user: ReturnType<typeof userEvent.setup>, scope: HTMLElement) {
+    const q = within(scope)
+    const sex = q.getByLabelText('Sex') as HTMLSelectElement
+    if (!sex.value) await user.selectOptions(sex, 'unknown')
+    if (!(q.getByLabelText('Date of birth') as HTMLInputElement).value) await user.type(q.getByTestId('register-age'), '30')
+    if (!(q.getByLabelText('Mobile number') as HTMLInputElement).value) {
+      await user.click(q.getByRole('checkbox', { name: 'Patient has no mobile' }))
+      await user.type(q.getByTestId('register-no-phone-reason'), 'Synthetic test patient')
+    }
+  }
 
   async function openBooking(user: ReturnType<typeof userEvent.setup>) {
     render('/appointments')
@@ -152,10 +165,11 @@ describe('PatientPicker combobox', () => {
 
     const quick = await screen.findByTestId('quick-register')
     expect(within(quick).getByLabelText('First name')).toHaveValue('Lata')
-    expect(within(quick).getByLabelText('Last name')).toHaveValue('Synthetic-New')
+    expect(within(quick).getByLabelText(/Last name/)).toHaveValue('Synthetic-New')
     expect(within(quick).getByLabelText('Same as phone number')).toBeChecked()
     expect(within(quick).queryByLabelText('Registered branch')).toBeNull()
     expect(screen.getByRole('form', { name: 'Book appointment', hidden: true })).toBe(form) // same drawer, no navigation; add-patient drawer stacked on top
+    await completeRequired(user, quick)
     await user.click(within(quick).getByTestId('save-patient'))
 
     expect(await within(form).findByTestId('picked-patient')).toHaveTextContent('Synthetic-New, Lata NEW-0098')
@@ -194,6 +208,7 @@ describe('PatientPicker combobox', () => {
     const save = within(quick).getByTestId('save-patient')
     expect(step.compareDocumentPosition(save) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     await user.click(within(quick).getByRole('checkbox', { name: 'Appointment and follow-up reminders' }))
+    await completeRequired(user, quick)
     await user.click(save)
     expect(await within(form).findByTestId('picked-patient')).toHaveTextContent('NEW-0098')
     const posted = calls.find((c) => c.path === `/api/v1/privacy/patients/${NEW.id}/consents`)
@@ -216,10 +231,11 @@ describe('PatientPicker combobox', () => {
     await user.type(within(form).getByLabelText('Find patient'), '98450 77777')
     await user.click(await within(form).findByTestId('register-new-patient'))
     const quick = await screen.findByTestId('quick-register')
-    expect(within(quick).getByLabelText(/Phone/)).toHaveValue('+971 98450 77777')
+    expect(within(quick).getByLabelText('Mobile number')).toHaveValue('+971 98450 77777')
     expect(within(quick).getByText('+971 is assumed when no country code is typed.')).toBeInTheDocument()
     await waitFor(() => expect(within(quick).getByLabelText('First name')).toHaveFocus())
     await user.keyboard('Lata{Tab}Synthetic-New')
+    await completeRequired(user, quick)
     await user.click(within(quick).getByTestId('save-and-book'))
     expect(await screen.findByText(/Booked Lata Synthetic-New with Dr. Rao/)).toBeInTheDocument()
     expect(calls.find((c) => c.method === 'POST' && c.path === '/api/v1/patients')!.body).toMatchObject({
@@ -240,7 +256,8 @@ describe('PatientPicker combobox', () => {
     await user.type(within(form).getByLabelText('Find patient'), 'Ravi Synthetic-Alpha')
     await user.click(await within(form).findByTestId('register-new-patient'))
     const quick = await screen.findByTestId('quick-register')
-    await user.type(within(quick).getByLabelText(/Phone/), '+91 98450 00002')
+    await user.type(within(quick).getByLabelText('Mobile number'), '+91 98450 00002')
+    await completeRequired(user, quick)
     await user.click(within(quick).getByTestId('save-and-book'))
     await user.click(await within(quick).findByTestId('use-existing'))
     expect(await within(form).findByTestId('picked-patient')).toHaveTextContent('Synthetic-Alpha, Ravi ALP-0002')

@@ -97,7 +97,7 @@ async function createPatient(request: APIRequestContext, admin: Record<string, s
   const lastName = `Zz-MB-${unique('P')}`
   const created = await request.post('/api/v1/patients', {
     headers: admin,
-    data: { firstName: 'Multi', lastName, registeredBranchId: ids.alphaMain, sex: 'female' },
+    data: { firstName: 'Multi', lastName, registeredBranchId: ids.alphaMain, sex: 'female', ageYears: 30, noPhoneReason: 'test fixture' },
   })
   expect(created.status()).toBe(201)
   return (await created.json()) as Patient

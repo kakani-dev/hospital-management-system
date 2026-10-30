@@ -42,7 +42,7 @@ public sealed class QaCrossTenantNotFoundApiTests(HmsApiFactory factory) : IClas
         [
             // 2.1 patients
             new("POST patient at foreign branch", HttpMethod.Post, QaRoutes.Patients,
-                new { mrn = "XT-S2QA-0001", firstName = "Cross", lastName = "Tenant", registeredBranchId = BetaMain }),
+                new { mrn = "XT-S2QA-0001", firstName = "Cross", lastName = "Tenant", registeredBranchId = BetaMain, sex = "unknown", ageYears = 30, noPhoneReason = "test fixture" }),
             new("GET patient", HttpMethod.Get, QaRoutes.Patient(bPatient), null),
             new("PATCH patient", HttpMethod.Patch, QaRoutes.Patient(bPatient), new { firstName = "Hijack" }),
             new("PATCH own patient to foreign branch", HttpMethod.Patch, QaRoutes.Patient(aPatient), new { registeredBranchId = BetaMain }),
@@ -88,7 +88,7 @@ public sealed class QaCrossTenantNotFoundApiTests(HmsApiFactory factory) : IClas
         new("DELETE unknown patient", HttpMethod.Delete, QaRoutes.Patient(Unknown), null),
         new("POST restore unknown patient", HttpMethod.Post, QaRoutes.Restore(Unknown), null),
         new("POST patient at unknown branch", HttpMethod.Post, QaRoutes.Patients,
-            new { mrn = "XT-S2QA-0002", firstName = "Cross", lastName = "Tenant", registeredBranchId = Unknown }),
+            new { mrn = "XT-S2QA-0002", firstName = "Cross", lastName = "Tenant", registeredBranchId = Unknown, sex = "unknown", ageYears = 30, noPhoneReason = "test fixture" }),
         new("GET practitioners at unknown branch", HttpMethod.Get, $"{QaRoutes.Practitioners}?branchId={Unknown}", null),
         new("PATCH unknown practitioner", HttpMethod.Patch, QaRoutes.Practitioner(Unknown), new { displayName = "X" }),
         new("PATCH unknown schedule", HttpMethod.Patch, QaRoutes.Schedule(Unknown), new { isActive = false }),

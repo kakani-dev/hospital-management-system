@@ -50,7 +50,7 @@ test.describe('cross-tenant attacks', () => {
     const token = await tokenFor(request, users.alphaAdmin)
     const response = await request.post('/api/v1/patients', {
       headers: bearer(token),
-      data: { firstName: 'Cross', lastName: 'Tenant', registeredBranchId: ids.betaMain, tenantId: ids.beta },
+      data: { firstName: 'Cross', lastName: 'Tenant', registeredBranchId: ids.betaMain, tenantId: ids.beta, sex: 'unknown', ageYears: 30, noPhoneReason: 'test fixture' },
     })
     expect(response.status()).toBe(404)
   })

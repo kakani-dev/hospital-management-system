@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { MockBackend, addDays, branchInstant, branchToday, ids, patientIds, practitionerIds, signIn, todayIn } from './mock-backend'
+import { completeRegistration } from '../registration'
 
 /**
  * Sprint 2 UI against the mocked API (SPRINT2-CONTRACT.md API v2 + CTO answers 2026-10-09):
@@ -82,6 +83,7 @@ test.describe('2.1 patients', () => {
     await page.goto('/patients/new')
     await page.getByLabel('First name').fill('Ravi')
     await page.getByLabel('Last name').fill('Synthetic-Alpha')
+    await completeRegistration(page)
     await page.getByRole('button', { name: 'Register patient' }).click()
 
     const warning = page.getByTestId('duplicate-warning')
@@ -114,11 +116,13 @@ test.describe('2.1 patients', () => {
       await page.getByLabel('Last name').fill('Synthetic-Alpha')
       // Tomorrow at the branch is rejected client-side (the API would 400 too)
       await dob.fill(addDays(branchDay, 1))
+      await completeRegistration(page)
       await page.getByRole('button', { name: 'Register patient' }).click()
       await expect(page.getByText('Date of birth must be between 1900-01-01 and today')).toBeVisible()
       expect(backend.calls.some((c) => c.method === 'POST' && c.path === '/api/v1/patients')).toBe(false)
 
       await dob.fill(branchDay)
+      await completeRegistration(page)
       await page.getByRole('button', { name: 'Register patient' }).click()
       await expect(page.getByText('Patient ALPHA-000001 registered.')).toBeVisible()
       expect(backend.calls.find((c) => c.method === 'POST' && c.path === '/api/v1/patients')!.body).toMatchObject({ dateOfBirth: branchDay, registeredBranchId: ids.alphaMain })

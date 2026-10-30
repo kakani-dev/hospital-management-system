@@ -73,6 +73,10 @@ export interface CreatePatientRequest {
   abhaNumber?: string | null
   /** Required when the name matches a live patient (date of birth may be blank). Email, phone and ABHA cannot be overridden. */
   duplicateOverrideReason?: string | null
+  /** #190: age in years when the DOB is unknown; the server estimates the DOB and flags it. */
+  ageYears?: number | null
+  /** #190: why the patient has no mobile number (required when phone is blank). */
+  noPhoneReason?: string | null
 }
 
 export const ROLES = [
@@ -379,6 +383,10 @@ export interface PatientDetail extends PatientSummary {
   email: string | null
   createdOn?: string
   updatedOn?: string
+  /** #190: the date of birth was estimated from an age given at registration. */
+  dobEstimated?: boolean
+  /** #190: why there is no mobile number. */
+  noPhoneReason?: string | null
   /** Level 1: normalized numbers (E.164); `phone` is the primary one. */
   phones?: PatientPhone[]
   /** Level 1: the phone number is also the WhatsApp number. */

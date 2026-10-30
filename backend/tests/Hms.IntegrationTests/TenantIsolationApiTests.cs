@@ -88,7 +88,7 @@ public sealed class TenantIsolationApiTests(HmsApiFactory factory) : IClassFixtu
             firstName = "Cross",
             lastName = "Attempt",
             registeredBranchId = BetaMain,
-            tenantId = Beta,
+            tenantId = Beta, sex = "unknown", ageYears = 30, noPhoneReason = "test fixture"
         });
         // 404-not-403: another tenant's branch is indistinguishable from an unknown one.
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
@@ -104,7 +104,7 @@ public sealed class TenantIsolationApiTests(HmsApiFactory factory) : IClassFixtu
             mrn = $"R-{Guid.NewGuid():N}"[..20],
             firstName = "Scope",
             lastName = "Test",
-            registeredBranchId = AlphaEast,
+            registeredBranchId = AlphaEast, sex = "unknown", ageYears = 30, noPhoneReason = "test fixture"
         });
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
@@ -114,18 +114,18 @@ public sealed class TenantIsolationApiTests(HmsApiFactory factory) : IClassFixtu
     {
         var typed = $"T-{Guid.NewGuid():N}"[..20];
         using var alpha = factory.ClientAs(AlphaReception, Alpha);
-        var created = await alpha.PostAsJsonAsync("/api/v1/patients", new { mrn = typed, firstName = "New", lastName = "Patient", registeredBranchId = AlphaMain, sex = "female" });
+        var created = await alpha.PostAsJsonAsync("/api/v1/patients", new { mrn = typed, firstName = "New", lastName = "Patient", registeredBranchId = AlphaMain, sex = "female", ageYears = 30, noPhoneReason = "test fixture" });
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
         var patient = await created.Content.ReadFromJsonAsync<PatientView>();
         Assert.Matches("^DEMO-ALPHA-[0-9]{6,}$", patient!.Mrn); // <tenant code>-<counter>, returned in the 201
 
-        var again = await alpha.PostAsJsonAsync("/api/v1/patients", new { mrn = patient.Mrn, firstName = "Dup", lastName = "Patient", registeredBranchId = AlphaMain });
+        var again = await alpha.PostAsJsonAsync("/api/v1/patients", new { mrn = patient.Mrn, firstName = "Dup", lastName = "Patient", registeredBranchId = AlphaMain, sex = "unknown", ageYears = 30, noPhoneReason = "test fixture" });
         Assert.Equal(HttpStatusCode.Created, again.StatusCode);
         var second = await again.Content.ReadFromJsonAsync<PatientView>();
         Assert.NotEqual(patient.Mrn, second!.Mrn);
 
         using var beta = factory.ClientAs(BetaAdmin, Beta);
-        var otherTenant = await beta.PostAsJsonAsync("/api/v1/patients", new { mrn = typed, firstName = "Same", lastName = "Mrn", registeredBranchId = BetaMain });
+        var otherTenant = await beta.PostAsJsonAsync("/api/v1/patients", new { mrn = typed, firstName = "Same", lastName = "Mrn", registeredBranchId = BetaMain, sex = "unknown", ageYears = 30, noPhoneReason = "test fixture" });
         Assert.Equal(HttpStatusCode.Created, otherTenant.StatusCode);
         Assert.Matches("^DEMO-BETA-[0-9]{6,}$", (await otherTenant.Content.ReadFromJsonAsync<PatientView>())!.Mrn);
 
@@ -148,7 +148,7 @@ public sealed class TenantIsolationApiTests(HmsApiFactory factory) : IClassFixtu
     public async Task Invalid_patient_payload_is_400()
     {
         using var client = factory.ClientAs(AlphaAdmin, Alpha);
-        var response = await client.PostAsJsonAsync("/api/v1/patients", new { mrn = "", firstName = "", lastName = "", registeredBranchId = AlphaMain });
+        var response = await client.PostAsJsonAsync("/api/v1/patients", new { mrn = "", firstName = "", lastName = "", registeredBranchId = AlphaMain, sex = "unknown", ageYears = 30, noPhoneReason = "test fixture" });
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
@@ -158,9 +158,9 @@ public sealed class TenantIsolationApiTests(HmsApiFactory factory) : IClassFixtu
         // Review M1 / PoC P2: billing (read-only) at Main + nurse at East.
         var user = await CreateUserAsync("mixed", (Alpha, AlphaMain, "billing"), (Alpha, AlphaEast, "receptionist") /* RBAC: nurses no longer write patients */);
         using var client = factory.ClientAs(user, Alpha);
-        var atMain = await client.PostAsJsonAsync("/api/v1/patients", new { mrn = $"M-{Guid.NewGuid():N}"[..20], firstName = "Main", lastName = "Branch", registeredBranchId = AlphaMain });
+        var atMain = await client.PostAsJsonAsync("/api/v1/patients", new { mrn = $"M-{Guid.NewGuid():N}"[..20], firstName = "Main", lastName = "Branch", registeredBranchId = AlphaMain, sex = "unknown", ageYears = 30, noPhoneReason = "test fixture" });
         Assert.Equal(HttpStatusCode.Forbidden, atMain.StatusCode);
-        var atEast = await client.PostAsJsonAsync("/api/v1/patients", new { mrn = $"E-{Guid.NewGuid():N}"[..20], firstName = "East", lastName = "Branch", registeredBranchId = AlphaEast });
+        var atEast = await client.PostAsJsonAsync("/api/v1/patients", new { mrn = $"E-{Guid.NewGuid():N}"[..20], firstName = "East", lastName = "Branch", registeredBranchId = AlphaEast, sex = "unknown", ageYears = 30, noPhoneReason = "test fixture" });
         Assert.Equal(HttpStatusCode.Created, atEast.StatusCode);
         // Reads stay tenant-wide.
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync($"/api/v1/patients/{AlphaPatientId}")).StatusCode);

@@ -133,7 +133,7 @@ public sealed class BusinessRulesApiTests(HmsApiFactory factory) : IClassFixture
     {
         using var admin = factory.ClientAs(AlphaAdmin, Alpha);
         var digits = string.Concat(Enumerable.Range(0, 14).Select(_ => Random.Shared.Next(10)));
-        object Body(string? abha) => new { firstName = "Abha", lastName = Qa.NewSurname("Rules"), sex = "female", registeredBranchId = AlphaMain, abhaNumber = abha };
+        object Body(string? abha) => new { firstName = "Abha", lastName = Qa.NewSurname("Rules"), sex = "female", registeredBranchId = AlphaMain, abhaNumber = abha, ageYears = 30, noPhoneReason = "test fixture" };
 
         var created = await admin.PostAsJsonAsync("/api/v1/patients", Body(digits));
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);

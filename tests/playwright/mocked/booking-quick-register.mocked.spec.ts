@@ -1,5 +1,6 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test'
 import { MockBackend, addDays, branchToday, ids, practitionerIds, signIn } from './mock-backend'
+import { completeRegistration } from '../registration'
 
 /**
  * Inline quick-register in the Book appointment drawer (mobile width, Mohith 20 Oct): "+ New patient"
@@ -53,9 +54,10 @@ test('mobile: recent patients on focus, then "+ Add new patient" → Save & book
   await expect(quick.getByLabel('Last name')).toHaveValue('Synthetic')
   await expect(quick.getByLabel('First name')).not.toBeFocused() // name pre-filled → focus moves on
   await expect(quick.getByLabel('Same as phone number')).toBeChecked()
-  await quick.getByLabel(/Phone/).fill('+91 98450 55501')
+  await quick.getByLabel('Mobile number').fill('+91 98450 55501')
   await shot(page, info, 'quick-3-inline-form')
   // The booking form is inert under the stacked drawer; slot retention is asserted in the drawer tests below.
+  await completeRegistration(quick)
   await tap(quick.getByTestId('save-and-book'))
   await expect(page.getByText(/Booked Zz-Mobile Synthetic with/)).toBeVisible()
   await shot(page, info, 'quick-4-booked')
@@ -78,7 +80,7 @@ test('mobile: phone search pre-fills +91; a duplicate phone offers "Use existing
   await form.getByLabel('Find patient').fill('98450 00002')
   await form.getByTestId('register-new-patient').click()
   const quick = page.getByTestId('quick-register')
-  await expect(quick.getByLabel(/Phone/)).toHaveValue('+91 98450 00002')
+  await expect(quick.getByLabel('Mobile number')).toHaveValue('+91 98450 00002')
   await expect(quick.getByLabel('First name')).toBeFocused()
   await page.keyboard.type('Zz-Dup')
   await page.keyboard.press('Tab')
@@ -113,7 +115,8 @@ test.describe('Add new patient drawer over the booking drawer', () => {
 
   test('create closes the drawer, selects the new patient and keeps practitioner, date and slot', async ({ page }) => {
     const { form, drawer } = await openAdd(page, 'Zz-Stack Synthetic')
-    await drawer.getByLabel(/Phone/).fill('+91 98450 55601')
+    await drawer.getByLabel('Mobile number').fill('+91 98450 55601')
+    await completeRegistration(drawer)
     await drawer.getByTestId('save-patient').click()
     await expect(drawer).toBeHidden()
     await expect(form.getByTestId('picked-patient')).toContainText('Synthetic, Zz-Stack')
@@ -124,6 +127,7 @@ test.describe('Add new patient drawer over the booking drawer', () => {
     backend.fault({ method: 'POST', path: '/api/v1/patients', delayMs: 800 })
     const { drawer } = await openAdd(page, 'Zz-Double Synthetic')
     const save = drawer.getByTestId('save-patient')
+    await completeRegistration(drawer)
     await save.click()
     await expect(save).toBeDisabled()
     await save.click({ force: true }).catch(() => {})
@@ -135,7 +139,9 @@ test.describe('Add new patient drawer over the booking drawer', () => {
     const { drawer } = await openAdd(page, 'Zz-Valid')
     await drawer.getByTestId('save-patient').click()
     await expect(drawer.getByTestId('quick-register')).toBeVisible()
-    await expect(drawer.getByText(/last name/i).first()).toBeVisible()
+    // #190: a single name is fine, but sex, DOB-or-age and mobile-or-reason are required
+    await expect(drawer.getByText('Choose the sex (Unknown is allowed)')).toBeVisible()
+    await expect(drawer.getByText('Enter a date of birth or an age')).toBeVisible()
     expect(backend.patients.some((p) => p.firstName === 'Zz-Valid')).toBe(false)
   })
 
@@ -151,17 +157,18 @@ test.describe('Add new patient drawer over the booking drawer', () => {
   test('API failure shows an error and keeps the typed form', async ({ page }) => {
     backend.fault({ method: 'POST', path: '/api/v1/patients', status: 500 })
     const { drawer } = await openAdd(page, 'Zz-Fail Synthetic')
-    await drawer.getByLabel(/Phone/).fill('+91 98450 55602')
+    await drawer.getByLabel('Mobile number').fill('+91 98450 55602')
+    await completeRegistration(drawer)
     await drawer.getByTestId('save-patient').click()
     await expect(drawer.getByRole('alert').first()).toBeVisible()
     await expect(drawer.getByLabel('First name')).toHaveValue('Zz-Fail')
-    await expect(drawer.getByLabel(/Phone/)).toHaveValue('+91 98450 55602')
+    await expect(drawer.getByLabel('Mobile number')).toHaveValue('+91 98450 55602')
   })
 
   test('MRN-like search text pre-fills nothing; phone-like pre-fills the phone', async ({ page }) => {
     const { drawer } = await openAdd(page, 'ALPHA-999999')
     await expect(drawer.getByLabel('First name')).toHaveValue('')
     await expect(drawer.getByLabel('Last name')).toHaveValue('')
-    await expect(drawer.getByLabel(/Phone/)).toHaveValue('')
+    await expect(drawer.getByLabel('Mobile number')).toHaveValue('')
   })
 })

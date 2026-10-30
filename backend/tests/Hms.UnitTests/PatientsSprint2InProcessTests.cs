@@ -18,7 +18,7 @@ public sealed class PatientsSprint2InProcessTests(ApiFactory factory) : IClassFi
         var response = await client.PostAsJsonAsync("/api/v1/patients", new
         {
             mrn = Unique("m"), firstName = "Ravi", lastName = lastName ?? Unique("L"), registeredBranchId = branch,
-            dateOfBirth = dob, phone, email = $"ravi-{Guid.NewGuid():N}@synthetic.example", duplicateOverrideReason,
+            dateOfBirth = dob, phone, email = $"ravi-{Guid.NewGuid():N}@synthetic.example", duplicateOverrideReason, sex = "unknown", ageYears = 30, noPhoneReason = "test fixture"
         });
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         return (await response.Content.ReadFromJsonAsync<Detail>())!;
@@ -255,14 +255,14 @@ public sealed class PatientsSprint2InProcessTests(ApiFactory factory) : IClassFi
         using var client = factory.ClientAs(Admin);
         var sameName = await client.PostAsJsonAsync("/api/v1/patients", new
         {
-            firstName = " ravi ", lastName = last.ToUpperInvariant(), dateOfBirth = "1960-12-31", registeredBranchId = East,
+            firstName = " ravi ", lastName = last.ToUpperInvariant(), dateOfBirth = "1960-12-31", registeredBranchId = East, sex = "unknown", ageYears = 30, noPhoneReason = "test fixture"
         });
         Assert.Equal(HttpStatusCode.Conflict, sameName.StatusCode);
         Assert.Equal("duplicate_name_confirmation", await CodeOf(sameName));
 
         var blankDob = await client.PostAsJsonAsync("/api/v1/patients", new
         {
-            firstName = "Ravi", lastName = last, registeredBranchId = East,
+            firstName = "Ravi", lastName = last, registeredBranchId = East, sex = "unknown", ageYears = 30, noPhoneReason = "test fixture"
         });
         Assert.Equal(HttpStatusCode.Conflict, blankDob.StatusCode);
         Assert.Equal("duplicate_name_confirmation", await CodeOf(blankDob));
@@ -270,7 +270,7 @@ public sealed class PatientsSprint2InProcessTests(ApiFactory factory) : IClassFi
         var confirmed = await client.PostAsJsonAsync("/api/v1/patients", new
         {
             firstName = " ravi ", lastName = last.ToUpperInvariant(), dateOfBirth = "1960-12-31", registeredBranchId = East,
-            duplicateOverrideReason = "Different person, same name", email = $"other-{Guid.NewGuid():N}@synthetic.example",
+            duplicateOverrideReason = "Different person, same name", email = $"other-{Guid.NewGuid():N}@synthetic.example", sex = "unknown", ageYears = 30, noPhoneReason = "test fixture"
         });
         Assert.Equal(HttpStatusCode.Created, confirmed.StatusCode);
         var second = (await confirmed.Content.ReadFromJsonAsync<Detail>())!;
@@ -281,7 +281,7 @@ public sealed class PatientsSprint2InProcessTests(ApiFactory factory) : IClassFi
         var sharedPhone = await client.PostAsJsonAsync("/api/v1/patients", new
         {
             firstName = "Other", lastName = Unique("Ph"), registeredBranchId = East, phone = $"0{phone}",
-            duplicateOverrideReason = "should not override a phone",
+            duplicateOverrideReason = "should not override a phone", sex = "unknown", ageYears = 30, noPhoneReason = "test fixture"
         });
         Assert.Equal(HttpStatusCode.Conflict, sharedPhone.StatusCode);
         Assert.Equal("duplicate_patient", await CodeOf(sharedPhone));
@@ -301,7 +301,7 @@ public sealed class PatientsSprint2InProcessTests(ApiFactory factory) : IClassFi
     {
         var created = await CreateAsync(Main);
         using var client = factory.ClientAs(Admin);
-        var response = await client.PostAsJsonAsync("/api/v1/patients", new { mrn = created.Mrn.ToLowerInvariant(), firstName = "A", lastName = "B", registeredBranchId = East });
+        var response = await client.PostAsJsonAsync("/api/v1/patients", new { mrn = created.Mrn.ToLowerInvariant(), firstName = "A", lastName = "B", registeredBranchId = East, sex = "unknown", ageYears = 30, noPhoneReason = "test fixture" });
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         Assert.NotEqual(created.Mrn, (await response.Content.ReadFromJsonAsync<Detail>())!.Mrn);
     }
@@ -313,7 +313,7 @@ public sealed class PatientsSprint2InProcessTests(ApiFactory factory) : IClassFi
         var response = await client.PostAsJsonAsync("/api/v1/patients", new
         {
             firstName = "Wa", lastName = Unique("Same"), registeredBranchId = Main, phone = "090011 12233",
-            whatsapp = new { sameAsPhone = true },
+            whatsapp = new { sameAsPhone = true }, sex = "unknown", ageYears = 30, noPhoneReason = "test fixture"
         });
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var body = (await response.Content.ReadFromJsonAsync<Detail>())!;
@@ -331,7 +331,7 @@ public sealed class PatientsSprint2InProcessTests(ApiFactory factory) : IClassFi
         var response = await client.PostAsJsonAsync("/api/v1/patients", new
         {
             firstName = "Wa", lastName = Unique("Diff"), registeredBranchId = Main, phone = "9345012345",
-            whatsapp = new { sameAsPhone = false, number = "+971 50 123 4567" },
+            whatsapp = new { sameAsPhone = false, number = "+971 50 123 4567" }, sex = "unknown", ageYears = 30, noPhoneReason = "test fixture"
         });
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var body = (await response.Content.ReadFromJsonAsync<Detail>())!;
@@ -365,12 +365,12 @@ public sealed class PatientsSprint2InProcessTests(ApiFactory factory) : IClassFi
         using var admin = factory.ClientAs(Admin);
         var survivor = await (await admin.PostAsJsonAsync("/api/v1/patients", new
         {
-            firstName = "Keep", lastName = survivorLast, registeredBranchId = Main, sex = "unknown",
+            firstName = "Keep", lastName = survivorLast, registeredBranchId = Main, sex = "unknown", ageYears = 30, noPhoneReason = "test fixture"
         })).Content.ReadFromJsonAsync<Detail>();
         var duplicate = await (await admin.PostAsJsonAsync("/api/v1/patients", new
         {
             firstName = "Copy", lastName = duplicateLast, registeredBranchId = East, sex = "female",
-            dateOfBirth = "1991-04-05", email = $"copy-{Guid.NewGuid():N}@synthetic.example", phone = "9845099001",
+            dateOfBirth = "1991-04-05", email = $"copy-{Guid.NewGuid():N}@synthetic.example", phone = "9845099001", ageYears = 30, noPhoneReason = "test fixture"
         })).Content.ReadFromJsonAsync<Detail>();
 
         using var reception = factory.ClientAs(DoctorMainReceptionEast);
@@ -416,10 +416,35 @@ public sealed class PatientsSprint2InProcessTests(ApiFactory factory) : IClassFi
 
     private sealed record Candidate(Guid Id, string Mrn, List<string> MatchReasons);
 
+    [Fact]
+    public async Task Registration_190_requires_sex_dob_or_age_and_mobile_or_reason_and_allows_a_single_name()
+    {
+        using var client = factory.ClientAs(Admin);
+        var missing = await client.PostAsJsonAsync("/api/v1/patients", new { firstName = "Lakshmi", registeredBranchId = Main });
+        Assert.Equal(HttpStatusCode.BadRequest, missing.StatusCode);
+        var body = await missing.Content.ReadAsStringAsync();
+        Assert.Contains("\"sex\"", body, StringComparison.Ordinal);
+        Assert.Contains("\"dateOfBirth\"", body, StringComparison.Ordinal);
+        Assert.Contains("\"phone\"", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"lastName\"", body, StringComparison.Ordinal);
+
+        var created = await client.PostAsJsonAsync("/api/v1/patients", new
+        {
+            firstName = Unique("Lakshmi"), registeredBranchId = Main, sex = "female", ageYears = 60, noPhoneReason = "Elderly patient, no phone",
+        });
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var detail = (await created.Content.ReadFromJsonAsync<Detail>())!;
+        Assert.Equal("", detail.LastName);
+        Assert.True(detail.DobEstimated);
+        Assert.NotNull(detail.DateOfBirth);
+        Assert.Equal("Elderly patient, no phone", detail.NoPhoneReason);
+        Assert.Equal("female", detail.Sex);
+    }
+
     private sealed record Detail(
         Guid Id, string Mrn, string FirstName, string LastName, DateOnly? DateOfBirth, string Sex, Guid RegisteredBranchId,
         string? Phone, DateTimeOffset? DeletedAt, string? Email, List<Candidate> DuplicateWarnings,
-        List<PhoneEntry>? Phones = null, bool WhatsappSameAsPhone = false);
+        List<PhoneEntry>? Phones = null, bool WhatsappSameAsPhone = false, bool DobEstimated = false, string? NoPhoneReason = null);
 
     private sealed record PhoneEntry(string Number, bool IsPrimary, bool IsWhatsapp);
 

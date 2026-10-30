@@ -15,6 +15,10 @@ public sealed class Patient : AuditableEntity, ITenantOwned
     public required string FirstName { get; set; }
     public required string LastName { get; set; }
     public DateOnly? DateOfBirth { get; set; }
+    /// <summary>#190: true when DateOfBirth was estimated from an age at registration.</summary>
+    public bool DobEstimated { get; set; }
+    /// <summary>#190: why the patient has no mobile number (null when one was given).</summary>
+    public string? NoPhoneReason { get; set; }
     public string Sex { get; set; } = PatientSex.Unknown;
     public string? Phone { get; set; }
     public string? Email { get; set; }

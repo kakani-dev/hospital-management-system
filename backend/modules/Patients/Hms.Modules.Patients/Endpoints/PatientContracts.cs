@@ -31,11 +31,12 @@ public sealed record WhatsappInput(bool? SameAsPhone, string? Number);
 public sealed record PatientDetailDto(
     Guid Id, string Mrn, string FirstName, string LastName, DateOnly? DateOfBirth, string Sex, Guid RegisteredBranchId,
     string? Phone, DateTimeOffset? DeletedAt, string? Email, DateTimeOffset CreatedOn, DateTimeOffset UpdatedOn,
-    IReadOnlyList<PatientPhoneDto> Phones, bool WhatsappSameAsPhone, string? AbhaNumber = null)
+    IReadOnlyList<PatientPhoneDto> Phones, bool WhatsappSameAsPhone, string? AbhaNumber = null,
+    bool DobEstimated = false, string? NoPhoneReason = null)
 {
     public static PatientDetailDto From(Patient p, IReadOnlyList<PatientPhoneDto> phones) =>
         new(p.Id, p.Mrn, p.FirstName, p.LastName, p.DateOfBirth, p.Sex, p.RegisteredBranchId, PrimaryOr(p, phones), p.DeletedAt, p.Email,
-            p.CreatedOn, p.UpdatedOn, phones, PatientPhoneDto.SameAsPhone(phones), p.AbhaNumber);
+            p.CreatedOn, p.UpdatedOn, phones, PatientPhoneDto.SameAsPhone(phones), p.AbhaNumber, p.DobEstimated, p.NoPhoneReason);
 
     internal static string? PrimaryOr(Patient p, IReadOnlyList<PatientPhoneDto> phones) =>
         phones.FirstOrDefault(x => x.IsPrimary)?.Number ?? p.Phone;
@@ -45,11 +46,12 @@ public sealed record PatientDetailDto(
 public sealed record PatientCreatedDto(
     Guid Id, string Mrn, string FirstName, string LastName, DateOnly? DateOfBirth, string Sex, Guid RegisteredBranchId,
     string? Phone, DateTimeOffset? DeletedAt, string? Email, DateTimeOffset CreatedOn, DateTimeOffset UpdatedOn,
-    IReadOnlyList<DuplicateCandidateDto> DuplicateWarnings, IReadOnlyList<PatientPhoneDto> Phones, bool WhatsappSameAsPhone, string? AbhaNumber = null)
+    IReadOnlyList<DuplicateCandidateDto> DuplicateWarnings, IReadOnlyList<PatientPhoneDto> Phones, bool WhatsappSameAsPhone, string? AbhaNumber = null,
+    bool DobEstimated = false, string? NoPhoneReason = null)
 {
     public static PatientCreatedDto From(Patient p, IReadOnlyList<DuplicateCandidateDto> warnings, IReadOnlyList<PatientPhoneDto> phones) =>
         new(p.Id, p.Mrn, p.FirstName, p.LastName, p.DateOfBirth, p.Sex, p.RegisteredBranchId, PatientDetailDto.PrimaryOr(p, phones), p.DeletedAt,
-            p.Email, p.CreatedOn, p.UpdatedOn, warnings, phones, PatientPhoneDto.SameAsPhone(phones), p.AbhaNumber);
+            p.Email, p.CreatedOn, p.UpdatedOn, warnings, phones, PatientPhoneDto.SameAsPhone(phones), p.AbhaNumber, p.DobEstimated, p.NoPhoneReason);
 }
 
 public sealed record DuplicateCandidateDto(
@@ -74,7 +76,11 @@ public sealed record CreatePatientRequest(
     WhatsappInput? Whatsapp = null,
     string? AbhaNumber = null,
     /// <summary>Required when the name matches a live patient (date of birth may be blank). Ignored unless there is a name match. Does not override email, phone or ABHA.</summary>
-    string? DuplicateOverrideReason = null);
+    string? DuplicateOverrideReason = null,
+    /// <summary>#190: age in years when the date of birth is not known; the DOB is estimated and flagged. Ignored when DateOfBirth is sent.</summary>
+    int? AgeYears = null,
+    /// <summary>#190: why the patient has no mobile number. Required when Phone is blank on registration.</summary>
+    string? NoPhoneReason = null);
 
 /// <summary>
 /// Body of POST /api/v1/patients/search. The terms travel in the body (not the URL) so names, MRNs,

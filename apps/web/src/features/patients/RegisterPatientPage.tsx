@@ -1,5 +1,6 @@
 import { useEffect, useState, type KeyboardEvent, type ReactNode } from 'react'
-import { useForm, useWatch } from 'react-hook-form'
+import { useForm, useWatch, type Control, type FieldErrors, type UseFormRegister } from 'react-hook-form'
+import { Checkbox } from '@tailux/components/ui'
 import { ageOn } from './patientLabel'
 import { Link, useLocation, useNavigate } from 'react-router'
 import { toast } from 'sonner'
@@ -19,14 +20,19 @@ import { SEXES, type DuplicateCandidate, type PatientSummary } from '../../lib/a
 import { DuplicateWarning } from './DuplicateWarning'
 import { duplicateMode } from './duplicateCheck'
 import { defaultBranchId, useCurrentContext } from '../tenancy/useCurrentContext'
-import { createPatientSchema, toCreatePatientRequest, type PatientFormValues } from './patientSchema'
+import {
+  createRegisterPatientSchema,
+  toCreatePatientRequest,
+  type PatientFormValues,
+  type RegisterPatientFormValues,
+} from './patientSchema'
 import { useBranchToday, useBranchZonedResolver } from './useBranchZonedResolver'
 import { WhatsappFields } from './WhatsappFields'
 
 /**
  * Embedded (compact) mode, used inline by the booking drawer's "+ New patient": the same form,
- * validation, duplicate check and server-generated MRN. Sex stays "unknown" and the branch is the
- * booking branch. Date of birth and ABHA are included so the live duplicate check can match
+ * validation, duplicate check and server-generated MRN. The branch is the booking branch; sex,
+ * DOB-or-age and mobile-or-reason are required here too (#190). Date of birth and ABHA are included so the live duplicate check can match
  * name+DOB+phone and ABHA. Not a <form> of its own (it sits inside the booking form): Enter saves via onKeyDown.
  */
 export interface EmbeddedRegisterOptions {
@@ -59,14 +65,14 @@ export function RegisterPatientPage({
   const countryCode = useTenantCountryCode()
   const { branches, activeTenant, me } = useCurrentContext()
   const createPatient = useCreatePatient()
-  const resolver = useBranchZonedResolver<PatientFormValues>(createPatientSchema)
+  const resolver = useBranchZonedResolver<RegisterPatientFormValues>(createRegisterPatientSchema)
   const [formError, setFormError] = useState<string | null>(null)
-  const [duplicates, setDuplicates] = useState<{ matches: DuplicateCandidate[]; values: PatientFormValues } | null>(null)
+  const [duplicates, setDuplicates] = useState<{ matches: DuplicateCandidate[]; values: RegisterPatientFormValues } | null>(null)
   const [duplicateReason, setDuplicateReason] = useState('')
   const [liveFetched, setLiveFetched] = useState<{ key: string; matches: DuplicateCandidate[] } | null>(null)
   const [dismissedLive, setDismissedLive] = useState<string | null>(null)
   const [creatingAnyway, setCreatingAnyway] = useState(false)
-  const [retryValues, setRetryValues] = useState<PatientFormValues | null>(null)
+  const [retryValues, setRetryValues] = useState<RegisterPatientFormValues | null>(null)
   const {
     register,
     handleSubmit,
@@ -76,13 +82,16 @@ export function RegisterPatientPage({
     setFocus,
     control,
     formState: { errors, isSubmitting },
-  } = useForm<PatientFormValues>({
+  } = useForm<RegisterPatientFormValues>({
     resolver,
     defaultValues: {
       firstName: origin.prefill?.firstName ?? '',
       lastName: origin.prefill?.lastName ?? '',
       dateOfBirth: '',
-      sex: 'unknown',
+      sex: '',
+      ageYears: '',
+      noPhone: false,
+      noPhoneReason: '',
       registeredBranchId: embedded?.branchId ?? '',
       phone: origin.prefill?.phone ?? '',
       email: '',
@@ -103,6 +112,13 @@ export function RegisterPatientPage({
   const watchedPhone = useWatch({ control, name: 'phone' }) ?? ''
   const watchedDob = useWatch({ control, name: 'dateOfBirth' }) ?? ''
   const watchedAbha = useWatch({ control, name: 'abhaNumber' }) ?? ''
+  const noPhone = useWatch({ control, name: 'noPhone' }) ?? false
+  // WhatsappFields is shared with the edit form; it only touches the phone / WhatsApp fields.
+  const whatsappProps = {
+    control: control as unknown as Control<PatientFormValues>,
+    register: register as unknown as UseFormRegister<PatientFormValues>,
+    errors: errors as FieldErrors<PatientFormValues>,
+  }
   const liveKey = [watchedName, watchedLast, watchedPhone, watchedDob, watchedAbha].join('\u0001')
   const debouncedLive = useDebouncedValue(liveKey, PATIENT_SEARCH_DEBOUNCE_MS)
   // Booking drawer only: warn while the name or phone is still being typed. The full page keeps
@@ -160,7 +176,7 @@ export function RegisterPatientPage({
     if (next) setValue('registeredBranchId', next)
   }, [branchKey, fallbackBranch, getValues, setValue, isEmbedded])
 
-  const create = async (values: PatientFormValues, chosen: 'select' | 'book' = action, reason?: string) => {
+  const create = async (values: RegisterPatientFormValues, chosen: 'select' | 'book' = action, reason?: string) => {
     setFormError(null)
     setRetryValues(null)
     try {
@@ -188,7 +204,7 @@ export function RegisterPatientPage({
       const fields = fieldErrors(error)
       for (const [field, message] of Object.entries(fields)) {
         const key = field === 'whatsapp' ? 'whatsappNumber' : field
-        if (key in values) setError(key as keyof PatientFormValues, { message })
+        if (key in values) setError(key as keyof RegisterPatientFormValues, { message })
       }
       setFormError(
         error instanceof ApiError && error.status === 403
@@ -202,7 +218,7 @@ export function RegisterPatientPage({
 
   // Same hospital: email, phone and ABHA block; a name match (even with no date of birth) needs a reason.
   // If the check itself fails, registration does not continue.
-  const onSubmit = async (values: PatientFormValues, chosen: 'select' | 'book' = 'select') => {
+  const onSubmit = async (values: RegisterPatientFormValues, chosen: 'select' | 'book' = 'select') => {
     setFormError(null)
     setDuplicates(null)
     setDuplicateReason('')
@@ -289,15 +305,30 @@ export function RegisterPatientPage({
         )}
         <div className="grid gap-3 sm:grid-cols-2">
           <FormField label="First name" autoComplete="off" error={errors.firstName?.message} {...register('firstName')} />
-          <FormField label="Last name" autoComplete="off" error={errors.lastName?.message} {...register('lastName')} />
-          <FormField
-            label="Phone (optional)"
-            type="tel"
-            autoComplete="off"
-            hint={`${countryCode ?? "The hospital's calling code"} is assumed when no country code is typed.`}
-            error={errors.phone?.message}
-            {...register('phone')}
-          />
+          <FormField label="Last name (optional)" autoComplete="off" error={errors.lastName?.message} {...register('lastName')} />
+<div className="space-y-2">
+            <FormField
+              label="Mobile number"
+              type="tel"
+              autoComplete="off"
+              data-testid="register-phone"
+              disabled={noPhone}
+              hint={`${countryCode ?? "The hospital's calling code"} is assumed when no country code is typed.`}
+              error={errors.phone?.message}
+              {...register('phone')}
+            />
+            <Checkbox label="Patient has no mobile" data-testid="register-no-phone" classNames={{ labelText: 'text-sm' }} {...register('noPhone')} />
+            {noPhone && (
+              <FormField
+                label="Reason for no mobile"
+                autoComplete="off"
+                placeholder="e.g. Elderly patient, uses neighbour's phone"
+                data-testid="register-no-phone-reason"
+                error={errors.noPhoneReason?.message}
+                {...register('noPhoneReason')}
+              />
+            )}
+          </div>
           <FormField
             label="Date of birth"
             type="date"
@@ -307,6 +338,24 @@ export function RegisterPatientPage({
             {...register('dateOfBirth')}
           />
           <FormField
+            label="Age in years"
+            inputMode="numeric"
+            autoComplete="off"
+            data-testid="register-age"
+            disabled={!!watchedDob}
+            hint={watchedDob ? 'Using the date of birth.' : 'If the birth date is unknown: it is estimated from the age and marked as estimated.'}
+            error={errors.ageYears?.message}
+            {...register('ageYears')}
+          />
+          <SelectField label="Sex" error={errors.sex?.message} data-testid="register-sex" {...register('sex')}>
+            <option value="">Select…</option>
+            {SEXES.map((s) => (
+              <option key={s} value={s}>
+                {s[0]!.toUpperCase() + s.slice(1)}
+              </option>
+            ))}
+          </SelectField>
+          <FormField
             label="ABHA number (optional)"
             inputMode="numeric"
             autoComplete="off"
@@ -314,7 +363,7 @@ export function RegisterPatientPage({
             error={errors.abhaNumber?.message}
             {...register('abhaNumber')}
           />
-          <WhatsappFields control={control} register={register} errors={errors} />
+          {!noPhone && <WhatsappFields {...whatsappProps} />}
         </div>
         {consent}
         <div className="flex flex-wrap gap-2">
@@ -392,7 +441,7 @@ export function RegisterPatientPage({
             ))}
           </SelectField>
           <FormField label="First name" autoComplete="off" error={errors.firstName?.message} {...register('firstName')} />
-          <FormField label="Last name" autoComplete="off" error={errors.lastName?.message} {...register('lastName')} />
+          <FormField label="Last name (optional)" autoComplete="off" error={errors.lastName?.message} {...register('lastName')} />
           <FormField
             label="Date of birth"
             type="date"
@@ -402,14 +451,46 @@ export function RegisterPatientPage({
             hint={age ? `Age: ${age}` : undefined}
             {...register('dateOfBirth')}
           />
-          <SelectField label="Sex" error={errors.sex?.message} {...register('sex')}>
+<FormField
+            label="Age in years"
+            inputMode="numeric"
+            autoComplete="off"
+            data-testid="register-age"
+            disabled={!!watchedDob}
+            hint={watchedDob ? 'Using the date of birth.' : 'If the birth date is unknown: it is estimated from the age and marked as estimated.'}
+            error={errors.ageYears?.message}
+            {...register('ageYears')}
+          />
+          <SelectField label="Sex" error={errors.sex?.message} data-testid="register-sex" {...register('sex')}>
+            <option value="">Select…</option>
             {SEXES.map((s) => (
               <option key={s} value={s}>
                 {s[0]!.toUpperCase() + s.slice(1)}
               </option>
             ))}
           </SelectField>
-          <FormField label="Phone (optional)" type="tel" autoComplete="off" error={errors.phone?.message} {...register('phone')} />
+          <div className="space-y-2">
+            <FormField
+              label="Mobile number"
+              type="tel"
+              autoComplete="off"
+              data-testid="register-phone"
+              disabled={noPhone}
+              error={errors.phone?.message}
+              {...register('phone')}
+            />
+            <Checkbox label="Patient has no mobile" data-testid="register-no-phone" classNames={{ labelText: 'text-sm' }} {...register('noPhone')} />
+            {noPhone && (
+              <FormField
+                label="Reason for no mobile"
+                autoComplete="off"
+                placeholder="e.g. Elderly patient, uses neighbour's phone"
+                data-testid="register-no-phone-reason"
+                error={errors.noPhoneReason?.message}
+                {...register('noPhoneReason')}
+              />
+            )}
+          </div>
           <FormField label="Email (optional)" type="email" autoComplete="off" error={errors.email?.message} {...register('email')} />
           <FormField
             label="ABHA number (optional)"
@@ -419,7 +500,7 @@ export function RegisterPatientPage({
             error={errors.abhaNumber?.message}
             {...register('abhaNumber')}
           />
-          <WhatsappFields control={control} register={register} errors={errors} />
+          {!noPhone && <WhatsappFields {...whatsappProps} />}
           {consent && <div className="sm:col-span-2">{consent}</div>}
           <div className="sm:col-span-2">
             <Button type="submit" disabled={isSubmitting || creatingAnyway}>

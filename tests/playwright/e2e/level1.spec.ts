@@ -203,7 +203,7 @@ test.describe('Level 1: branches and appointments', () => {
     const weekday = ((day.getUTCDay() + 6) % 7) + 1
     expect((await request.post('/api/v1/schedules', { headers: admin, data: { practitionerId: practitioner.id, branchId: ids.alphaMain, weekday, startTime: '08:00', endTime: '20:00', slotMinutes: 15, validFrom: date, validTo: date } })).status()).toBe(201)
     const lastName = `Zz-L1-${unique('C')}`
-    const patient = (await (await request.post('/api/v1/patients', { headers: reception, data: { firstName: 'Cancel', lastName, registeredBranchId: ids.alphaMain, sex: 'female' } })).json()) as { id: string }
+    const patient = (await (await request.post('/api/v1/patients', { headers: reception, data: { firstName: 'Cancel', lastName, registeredBranchId: ids.alphaMain, sex: 'female', ageYears: 30, noPhoneReason: 'test fixture' } })).json()) as { id: string }
     const slots = (await (await request.get(`/api/v1/slots?branchId=${ids.alphaMain}&from=${date}&to=${date}&practitionerId=${practitioner.id}`, { headers: reception })).json()) as { startsAt: string; endsAt: string }[]
     expect(slots.length).toBeGreaterThan(0)
     const booked = await request.post('/api/v1/appointments', { headers: reception, data: { branchId: ids.alphaMain, practitionerId: practitioner.id, patientId: patient.id, startsAt: slots[0]!.startsAt, endsAt: slots[0]!.endsAt, reason: 'Synthetic follow-up' } })
