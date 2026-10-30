@@ -1,3 +1,4 @@
+-- cross-schema: approved (the replaced patient.find_duplicate_patients keeps its existing identity.current_tenant_ids / identity.has_tenant_role calls)
 -- #190: registration fields that match Indian OPD practice.
 -- * Single-name patients: last_name may be blank (stored ''), first name is still required.
 -- * Age-only registration: date_of_birth can be estimated from an age; dob_estimated flags it.
