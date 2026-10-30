@@ -21,7 +21,7 @@ public sealed class BillingBenchmarkApiTests(HmsApiFactory factory) : IClassFixt
         var bad = await Put(admin, $"/api/v1/price-lists/branches/{AlphaMain}/profile", new { gstin = "NOPE" });
         Assert.Equal(HttpStatusCode.BadRequest, bad.Status);
 
-        var opened = await Post(admin, "/api/v1/accounts", new { patientId = AlphaPatientId, branchId = AlphaMain });
+        var opened = await Post(admin, "/api/v1/accounts", new { patientId = await NewPatientAsync(admin, AlphaMain), branchId = AlphaMain });
         var billId = opened.Body.GetProperty("id").GetString()!;
         Assert.Equal(HttpStatusCode.OK, (await Post(admin, $"/api/v1/bills/{billId}/lines", new { code = "CONSULT" })).Status);
         var placed = await Put(admin, $"/api/v1/bills/{billId}/place-of-supply", new { stateCode = "27" });
@@ -53,7 +53,7 @@ public sealed class BillingBenchmarkApiTests(HmsApiFactory factory) : IClassFixt
         Assert.Equal(HttpStatusCode.OK, settings.Status);
         Assert.Equal(20000, settings.Body.GetProperty("makerCheckerThresholdPaise").GetInt64());
 
-        var opened = await Post(admin, "/api/v1/accounts", new { patientId = AlphaPatientId, branchId = AlphaMain });
+        var opened = await Post(admin, "/api/v1/accounts", new { patientId = await NewPatientAsync(admin, AlphaMain), branchId = AlphaMain });
         var billId = opened.Body.GetProperty("id").GetString()!;
         Assert.Equal(HttpStatusCode.OK, (await Post(admin, $"/api/v1/bills/{billId}/lines", new { code = "CONSULT" })).Status);
 
@@ -77,7 +77,7 @@ public sealed class BillingBenchmarkApiTests(HmsApiFactory factory) : IClassFixt
         using var desk = factory.ClientAs(AlphaReception, Alpha, AlphaMain);
         var practitioner = await S2.CreatePractitionerAsync(admin);
         var start = S2.TodayAt(8, Random.Shared.Next(0, 50));
-        var booked = await S2.BookAsync(admin, AlphaMain, practitioner.Id, AlphaPatientId, start);
+        var booked = await S2.BookAsync(admin, AlphaMain, practitioner.Id, await NewPatientAsync(admin, AlphaMain), start);
         Assert.Equal(HttpStatusCode.Created, booked.StatusCode);
         var appointmentId = (await booked.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
 

@@ -80,6 +80,13 @@ public class HmsApiFactory : IDisposable
     public static readonly Guid BetaDoctor = Guid.Parse("0b000000-0000-4000-8000-000000000002");
     public static readonly Guid Outsider = Guid.Parse("0c000000-0000-4000-8000-000000000001");
     public static readonly Guid BetaPatientId = Guid.Parse("bb000000-0000-4000-8000-000000000001");
+    /// <summary>
+    /// A fresh synthetic patient for one test (#243). Billing tests must not share the seeded patient:
+    /// open accounts, bills and counter state on a shared patient made results depend on test order.
+    /// </summary>
+    public static async Task<Guid> NewPatientAsync(HttpClient client, Guid branch) =>
+        (await Sprint2.S2.CreatePatientAsync(client, branch)).Id;
+
     public static readonly Guid AlphaPatientId = Guid.Parse("aa000000-0000-4000-8000-000000000001");
 
     private readonly List<StubJwksHandler> _jwks = [];

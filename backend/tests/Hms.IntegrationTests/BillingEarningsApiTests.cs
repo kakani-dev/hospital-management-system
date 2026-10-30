@@ -13,7 +13,7 @@ public sealed class BillingEarningsApiTests(HmsApiFactory factory) : IClassFixtu
     public async Task Todays_invoice_is_in_the_report_and_a_second_read_is_cached()
     {
         using var admin = factory.ClientAs(AlphaAdmin, Alpha, AlphaMain);
-        var opened = await Post(admin, "/api/v1/accounts", new { patientId = AlphaPatientId, branchId = AlphaMain });
+        var opened = await Post(admin, "/api/v1/accounts", new { patientId = await NewPatientAsync(admin, AlphaMain), branchId = AlphaMain });
         Assert.Equal(HttpStatusCode.OK, opened.Status);
         var billId = opened.Body.GetProperty("id").GetString()!;
         Assert.Equal(HttpStatusCode.OK, (await Post(admin, $"/api/v1/bills/{billId}/lines", new { code = "CONSULT" })).Status);

@@ -7,6 +7,8 @@ namespace Hms.IntegrationTests;
 
 /// <summary>#70 / REG-034: refund guards beyond the happy-path cash refund.</summary>
 [Trait("Category", "Database")]
+// #243: shares AlphaAdmin's counter session (one per branch and cashier; tests close it and assert exact cash), so never run in parallel.
+[Collection("AlphaAdminCounterSession")]
 public sealed class RefundGuardsApiTests(HmsApiFactory factory) : IClassFixture<HmsApiFactory>
 {
     [Fact]
@@ -79,7 +81,7 @@ public sealed class RefundGuardsApiTests(HmsApiFactory factory) : IClassFixture<
 
     private static async Task<Guid> PaidUpi(HttpClient admin, long amount)
     {
-        var opened = await Post(admin, "/api/v1/accounts", new { patientId = AlphaPatientId, branchId = AlphaMain });
+        var opened = await Post(admin, "/api/v1/accounts", new { patientId = await NewPatientAsync(admin, AlphaMain), branchId = AlphaMain });
         Assert.Equal(HttpStatusCode.OK, opened.Status);
         var billId = opened.Body.GetProperty("id").GetGuid();
         var accountId = opened.Body.GetProperty("accountId").GetGuid();

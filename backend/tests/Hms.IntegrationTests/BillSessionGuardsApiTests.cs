@@ -7,6 +7,8 @@ namespace Hms.IntegrationTests;
 
 /// <summary>#72 / REG-032, REG-038: finalized-bill and counter-session guards through the API.</summary>
 [Trait("Category", "Database")]
+// #243: shares AlphaAdmin's counter session (one per branch and cashier; tests close it and assert exact cash), so never run in parallel.
+[Collection("AlphaAdminCounterSession")]
 public sealed class BillSessionGuardsApiTests(HmsApiFactory factory) : IClassFixture<HmsApiFactory>
 {
     [Fact]
@@ -65,7 +67,7 @@ public sealed class BillSessionGuardsApiTests(HmsApiFactory factory) : IClassFix
 
     private static async Task<(Guid BillId, Guid AccountId)> OpenBill(HttpClient client, Guid? branch = null)
     {
-        var opened = await Post(client, "/api/v1/accounts", new { patientId = AlphaPatientId, branchId = branch ?? AlphaMain });
+        var opened = await Post(client, "/api/v1/accounts", new { patientId = await NewPatientAsync(client, branch ?? AlphaMain), branchId = branch ?? AlphaMain });
         Assert.Equal(HttpStatusCode.OK, opened.Status);
         var billId = opened.Body.GetProperty("id").GetGuid();
         Assert.Equal(HttpStatusCode.OK, (await Post(client, $"/api/v1/bills/{billId}/lines", new { code = "CONSULT" })).Status);

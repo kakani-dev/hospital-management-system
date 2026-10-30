@@ -14,7 +14,8 @@ public sealed class AdvanceJourneyApiTests(HmsApiFactory factory) : IClassFixtur
     {
         using var admin = factory.ClientAs(AlphaAdmin, Alpha, AlphaMain);
 
-        var first = await Post(admin, "/api/v1/accounts", new { patientId = AlphaPatientId, branchId = AlphaMain });
+        var patientId = await NewPatientAsync(admin, AlphaMain);
+        var first = await Post(admin, "/api/v1/accounts", new { patientId, branchId = AlphaMain });
         Assert.Equal(HttpStatusCode.OK, first.Status);
         var advance = await Pay(admin, new
         {
@@ -26,7 +27,7 @@ public sealed class AdvanceJourneyApiTests(HmsApiFactory factory) : IClassFixtur
         Assert.Equal("advance", advance.Body.GetProperty("kind").GetString());
         var advanceId = advance.Body.GetProperty("id").GetGuid();
 
-        var later = await Post(admin, "/api/v1/accounts", new { patientId = AlphaPatientId, branchId = AlphaMain });
+        var later = await Post(admin, "/api/v1/accounts", new { patientId, branchId = AlphaMain });
         var billId = later.Body.GetProperty("id").GetGuid();
         Assert.Equal(HttpStatusCode.OK, (await Post(admin, $"/api/v1/bills/{billId}/lines", new { code = "CONSULT" })).Status);
 
