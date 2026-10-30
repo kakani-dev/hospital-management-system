@@ -10,7 +10,7 @@ afterEach(() => vi.unstubAllGlobals())
 const store = { id: 'st-ph', code: 'STR-0002', branchId: ALPHA_MAIN, name: 'Zz-QA OP Pharmacy', storeKind: 'op_pharmacy', drugLicenceNo: 'DL-1', licenceValidTo: '2099-01-01', isActive: true }
 const ward = { ...store, id: 'st-ward', name: 'Ward', storeKind: 'ward' }
 const queue = [
-  { id: 'rx-1', branchId: ALPHA_MAIN, patientId: 'p1', patientName: 'Ravi Synthetic-Alpha', patientMrn: 'ALP-0002', doctorName: 'Dr Zz-QA', finalizedOn: '2026-10-27T04:00:00Z', lineCount: 2, status: 'pending' },
+  { id: 'rx-1', branchId: ALPHA_MAIN, patientId: 'p1', patientName: 'Ravi Synthetic-Alpha', patientMrn: 'ALP-0002', doctorName: 'Dr Zz-QA', finalizedOn: '2026-10-27T04:00:00Z', validThrough: '2026-11-26', expired: false, lineCount: 2, status: 'pending' },
   { id: 'rx-2', branchId: ALPHA_MAIN, patientId: 'p2', patientName: 'Kiran Synthetic-Alpha', patientMrn: 'MRN-1001', doctorName: 'Dr Zz-QA', finalizedOn: '2026-10-27T05:00:00Z', lineCount: 1, status: 'partial' },
 ]
 const line = (lineNo: number, extra: object) => ({
@@ -133,6 +133,26 @@ describe('Pharmacy dispensing', () => {
     await user.type(screen.getByLabelText('Quantity for line 1'), '57')
     await user.click(screen.getByTestId('dispense-submit'))
     expect(await screen.findByText(/only 56 in stock/)).toBeInTheDocument()
+  })
+
+  it('shows how long each prescription stays valid (#188)', async () => {
+    stub('pharmacist')
+    renderWithProviders(<App />, { path: '/pharmacy/dispense', auth: fakeAuthClient({ session: fakeSession() }) })
+    const cells = await screen.findAllByTestId('pharmacy-queue-valid-through')
+    expect(cells[0]).toHaveTextContent('26 Nov 2026')
+    expect(cells[0]).toHaveAttribute('data-expired', 'false')
+    expect(cells[1]).toHaveTextContent('—')
+  })
+
+  it('shows the server refusal for an expired prescription (#188)', async () => {
+    const user = userEvent.setup()
+    stub('pharmacist', () => json({ title: 'Conflict', status: 409, detail: 'prescription expired on 2026-10-29' }, 409))
+    renderWithProviders(<App />, { path: '/pharmacy/dispense/rx-1', auth: fakeAuthClient({ session: fakeSession() }) })
+    await screen.findByTestId('pharmacy-dispense-page')
+    await waitFor(() => expect(screen.getByTestId('dispense-store')).toHaveValue(store.id))
+    await user.type(screen.getByLabelText('Quantity for line 1'), '2')
+    await user.click(screen.getByTestId('dispense-submit'))
+    expect(await screen.findByText(/prescription expired on 2026-10-29/)).toBeInTheDocument()
   })
 
   it('keeps the queue off the menu for a receptionist', async () => {

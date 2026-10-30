@@ -59,6 +59,7 @@ export function PharmacyQueuePage() {
                   <th className="py-2 pr-3">Finalized</th>
                   <th className="py-2 pr-3">Patient</th>
                   <th className="py-2 pr-3">Doctor</th>
+                  <th className="py-2 pr-3">Valid through</th>
                   <th className="py-2 pr-3">Medicines</th>
                   <th className="py-2 pr-3">Status</th>
                   <th className="py-2"><span className="sr-only">Open</span></th>
@@ -72,6 +73,11 @@ export function PharmacyQueuePage() {
                       {row.patientName} <span className="text-gray-500">({row.patientMrn})</span>
                     </td>
                     <td className="py-2 pr-3">{row.doctorName}</td>
+                    <td className="py-2 pr-3" data-testid="pharmacy-queue-valid-through" data-expired={row.expired ? 'true' : 'false'}>
+                      {row.validThrough
+                        ? `${new Date(`${row.validThrough}T00:00:00`).toLocaleDateString('en-IN', { dateStyle: 'medium' })}${row.expired ? ' (expired)' : ''}`
+                        : '—'}
+                    </td>
                     <td className="py-2 pr-3">{row.lineCount}</td>
                     <td className="py-2 pr-3"><StatusBadge status={row.status as RxDispenseStatus} /></td>
                     <td className="py-2">
