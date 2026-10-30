@@ -161,6 +161,11 @@ public sealed class AuditSoftDeleteApiTests(HmsApiFactory factory) : IClassFixtu
         var restored = (await admin.GetFromJsonAsync<List<ATzBranch>>("/api/v1/branches"))!.Single(b => b.Id == branch.Id);
         Assert.False(restored.IsDeleted);
         Assert.False(restored.IsActive); // restored inactive: an admin re-activates it deliberately
+
+        // #149 (BRN-005): restoring a live branch says why, not a bare "does not exist".
+        var again = await admin.PostAsync($"/api/v1/branches/{branch.Id}/restore", null);
+        Assert.Equal(HttpStatusCode.NotFound, again.StatusCode);
+        Assert.Contains("Branch is not deleted", await again.Content.ReadAsStringAsync());
     }
 
     [Fact]
