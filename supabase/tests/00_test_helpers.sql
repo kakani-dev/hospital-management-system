@@ -92,7 +92,7 @@ $$;
 
 -- #236: clock-relative test dates. Fixtures are written against 2030 (a Monday on 2030-01-07).
 -- fwd_days() is a whole number of 52-week blocks (weekday kept) that moves 2030-01-01 to at
--- least three years ahead of the real date; it is 0 until late 2026+3y, so today's run is unchanged.
+-- least three years ahead of the real date; it is 0 until 2027-01-01, so today's run is unchanged.
 -- seed.sql applies the same shift to the seeded 2030 appointments (keep the two formulas equal).
 create or replace function tests.fwd_days()
 returns integer language sql stable as $$

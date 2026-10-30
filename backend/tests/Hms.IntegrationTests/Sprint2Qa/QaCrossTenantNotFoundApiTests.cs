@@ -200,7 +200,7 @@ public sealed class QaCrossTenantNotFoundApiTests(HmsApiFactory factory) : IClas
         Assert.DoesNotContain(schedules, s => s.Id == QaSeed.BetaSchedule || s.BranchId == BetaMain);
 
         var appointments = await Qa.ReadAsync<QaPaged<QaAppointment>>(
-            await alpha.GetAsync($"{QaRoutes.Appointments}?from=2030-01-01T00:00:00Z&to=2030-01-31T00:00:00Z&pageSize=100"), HttpStatusCode.OK);
+            await alpha.GetAsync($"{QaRoutes.Appointments}?from={TestDates.Iso(TestDates.SeedMonday.AddDays(-6))}T00:00:00Z&to={TestDates.Iso(TestDates.SeedMonday.AddDays(24))}T00:00:00Z&pageSize=100"), HttpStatusCode.OK);
         Assert.Contains(appointments.Items, a => a.Id == QaSeed.AlphaAppointment);
         Assert.DoesNotContain(appointments.Items, a => a.Id == QaSeed.BetaAppointment || a.BranchId == BetaMain);
 

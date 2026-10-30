@@ -16,7 +16,7 @@ public sealed class BusinessRulesApiTests(HmsApiFactory factory) : IClassFixture
 
     /// <summary>A far-future Monday (IST) per test, so tests never collide on the seeded practitioners.</summary>
     private static DateTimeOffset Monday(int week, int hour, int minute = 0) =>
-        new DateTimeOffset(2032, 3, 1, hour, minute, 0, TimeSpan.FromHours(5.5)).AddDays(7 * week); // 2032-03-01 is a Monday
+        TestDates.At(TestDates.FarMonday(week, years: 5), hour, minute); // far from other classes' days (#233)
 
     private static object Booking(Guid branch, Guid practitioner, Guid patient, DateTimeOffset start, Guid? parent = null, bool? overrideHours = null) => new
     {

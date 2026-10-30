@@ -43,6 +43,22 @@ internal static class TestDates
         return new DateTimeOffset(local, SeedZone.GetUtcOffset(local));
     }
 
+    private static readonly Lazy<DateOnly> Seeded = new(() =>
+    {
+        using var conn = new NpgsqlConnection(HmsApiFactory.AdminConnection);
+        conn.Open();
+        using var cmd = new NpgsqlCommand(
+            "select (a.starts_at at time zone identity.branch_time_zone_v1(a.branch_id))::date::text from appointment.appointments a where a.id = @id", conn);
+        cmd.Parameters.AddWithValue("id", Guid.Parse("e1111111-0000-4000-8000-000000000001"));
+        return DateOnly.ParseExact((string)cmd.ExecuteScalar()!, "yyyy-MM-dd", CultureInfo.InvariantCulture);
+    });
+
+    /// <summary>
+    /// The Monday the seed books its sample appointments on (#233). Read from the database, because
+    /// seed.sql moves it forward with the clock; never assume a calendar date here.
+    /// </summary>
+    public static DateOnly SeedMonday => Seeded.Value;
+
     public static string Iso(DateOnly date) => date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
     /// <summary>An ISO date <paramref name="years"/> years (plus days) from today, e.g. batch expiry or licence end.</summary>
