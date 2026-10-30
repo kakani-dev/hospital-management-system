@@ -70,6 +70,48 @@ describe('RegisterPatientPage', () => {
     expect(posted?.headers.get('Idempotency-Key')).toBeTruthy()
   })
 
+  it('says when no privacy notice is published instead of hiding consent (#129)', async () => {
+    stubFetch({
+      'GET /api/v1/me': () => json(meFor({ activeBranchId: ALPHA_MAIN })),
+      'GET /api/v1/privacy/consent-notices/current': () =>
+        json({ title: 'Not Found', status: 404, detail: 'Publish a privacy notice in Admin › Privacy first.' }, 404),
+    })
+    renderWithProviders(<App />, { path: '/patients/new', auth: fakeAuthClient({ session: fakeSession() }) })
+    const box = await screen.findByTestId('consent-no-notice')
+    expect(box).toHaveTextContent(/No privacy notice is published/)
+    expect(screen.getByTestId('consent-publish-link')).toHaveAttribute('href', '/admin/privacy-notices')
+    expect(screen.queryByRole('group', { name: 'Optional uses' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /register patient/i })).toBeEnabled()
+  })
+
+  it('asks a receptionist to get an admin to publish the notice (#129)', async () => {
+    stubFetch({
+      'GET /api/v1/me': () => json(meFor({ activeBranchId: ALPHA_MAIN, roles: ['receptionist'] })),
+      'GET /api/v1/privacy/consent-notices/current': () => json({ title: 'Not Found', status: 404 }, 404),
+    })
+    renderWithProviders(<App />, { path: '/patients/new', auth: fakeAuthClient({ session: fakeSession() }) })
+    expect(await screen.findByTestId('consent-no-notice')).toHaveTextContent(/Ask an administrator/)
+    expect(screen.queryByTestId('consent-publish-link')).not.toBeInTheDocument()
+  })
+
+  it('offers a retry when the notice fails to load (#129)', async () => {
+    let n = 0
+    stubFetch({
+      'GET /api/v1/me': () => json(meFor({ activeBranchId: ALPHA_MAIN })),
+      'GET /api/v1/privacy/consent-notices/current': () => {
+        n += 1
+        return n === 1
+          ? json({ title: 'Server error', status: 500 }, 500)
+          : json({ noticeId: 'n-1', version: 1, language: 'en', title: 'T', body: 'B', contentSha256: 'a'.repeat(64),
+              publishedAt: '2026-10-25T00:00:00Z', purposes: [{ code: 'reminders', label: 'Reminders', required: false }] })
+      },
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: '/patients/new', auth: fakeAuthClient({ session: fakeSession() }) })
+    await user.click(await screen.findByTestId('consent-notice-retry'))
+    expect(await screen.findByRole('group', { name: 'Optional uses' })).toBeInTheDocument()
+  })
+
   it('shows a consent slot above Save patient when the booking form passes one', async () => {
     stubFetch({ 'GET /api/v1/me': () => json(meFor({ activeBranchId: ALPHA_MAIN })) })
     renderWithProviders(
