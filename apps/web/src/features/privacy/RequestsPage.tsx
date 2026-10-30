@@ -8,7 +8,9 @@ import { apiClient } from '../../lib/api/client'
 import type { PatientSummary } from '../../lib/api/types'
 import { PatientPicker } from '../patients/PatientPicker'
 import { useCurrentContext } from '../tenancy/useCurrentContext'
-import { isDueSoon } from './due'
+import { isDueSoon, isOverdue } from './due'
+
+const OPEN_STATUSES = new Set<string>(['received', 'verified', 'fulfilled', 'held'])
 import { problemText } from './problem'
 
 const TYPES = [
@@ -103,7 +105,10 @@ export function RequestsPage() {
               <li key={row.id} className="space-y-2 border-b border-gray-200 pb-3 text-sm last:border-0 dark:border-dark-500">
                 <p>
                   <span className="font-mono">{row.code}</span> · {row.type} · {row.status}
-                  {isDueSoon(row.dueAt) && <span className="ml-2 font-medium">Due soon</span>}
+                  {isDueSoon(row.dueAt) && <span className="ml-2 font-medium" data-testid="dpr-due-soon">Due soon</span>}
+                  {OPEN_STATUSES.has(row.status) && isOverdue(row.dueAt) && (
+                    <span className="ml-2 font-medium text-red-700 dark:text-red-400" data-testid="dpr-overdue">Overdue</span>
+                  )}
                 </p>
                 <p>{row.details}</p>
                 <div className="flex flex-wrap gap-2">
