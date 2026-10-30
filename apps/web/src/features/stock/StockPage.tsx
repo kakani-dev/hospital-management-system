@@ -181,7 +181,7 @@ function ItemsPanel({
               </thead>
               <tbody>
                 {rows.map((item) => (
-                  <tr key={item.id} className="border-t border-gray-100 dark:border-dark-500">
+                  <tr key={item.id} className="border-t border-gray-100 dark:border-dark-500" data-testid="stock-item-row" data-item-code={item.code}>
                     <td className="py-2 pr-3">{item.code}</td>
                     <td className="py-2 pr-3">
                       {item.brandName}
@@ -431,7 +431,7 @@ function StoresPanel({
               </thead>
               <tbody>
                 {rows.map((store) => (
-                  <tr key={store.id} className="border-t border-gray-100 dark:border-dark-500">
+                  <tr key={store.id} className="border-t border-gray-100 dark:border-dark-500" data-testid="stock-store-row" data-store-code={store.code}>
                     <td className="py-2 pr-3">{store.code}</td>
                     <td className="py-2 pr-3">{store.name}</td>
                     <td className="py-2 pr-3">{STORE_LABEL[store.storeKind] ?? store.storeKind}</td>
@@ -706,7 +706,7 @@ function OnHandPanel({ items, stores }: { items: StockItem[]; stores: StockStore
 
 function StockRow({ row }: { row: StockOnHandRow }) {
   return (
-    <tr className={`border-t border-gray-100 dark:border-dark-500 ${EXPIRY_ROW[row.expiryState]}`} data-expiry={row.expiryState}>
+    <tr className={`border-t border-gray-100 dark:border-dark-500 ${EXPIRY_ROW[row.expiryState]}`} data-expiry={row.expiryState} data-testid="stock-row" data-batch={row.batchNo}>
       <td className="py-2 pr-3">{row.storeName}</td>
       <td className="py-2 pr-3">
         {row.brandName} ({row.itemCode})

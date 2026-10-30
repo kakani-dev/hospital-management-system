@@ -79,6 +79,51 @@ public sealed class InventoryGuardsApiTests(HmsApiFactory factory) : IClassFixtu
         Assert.DoesNotContain(Alpha.ToString(), stockBody);
     }
 
+    [Fact]
+    public async Task Opening_stock_needs_a_uuid_idempotency_key_and_both_rights()
+    {
+        var line = new { itemId = Guid.NewGuid(), batchNo = "B", expiryDate = TestDates.YearsAhead(4, 150), mrpPaise = 100, purchaseRatePaise = 50, qtyBase = 1 };
+        using var admin = factory.ClientAs(AlphaAdmin, Alpha, AlphaMain);
+        Assert.Equal(HttpStatusCode.BadRequest, (await Post(admin, "/api/v1/inventory/opening-stock", new { storeId = Guid.NewGuid(), lines = new[] { line } })).Status);
+
+        using var bad = new HttpRequestMessage(HttpMethod.Post, "/api/v1/inventory/opening-stock") { Content = JsonContent.Create(new { storeId = Guid.NewGuid(), lines = new[] { line } }) };
+        bad.Headers.TryAddWithoutValidation("Idempotency-Key", "not-a-uuid");
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.SendAsync(bad)).StatusCode);
+
+        using var reception = factory.ClientAs(AlphaReception, Alpha, AlphaMain);
+        Assert.Equal(HttpStatusCode.Forbidden, (await Post(reception, "/api/v1/inventory/opening-stock", new { storeId = Guid.NewGuid(), lines = new[] { line } }, Guid.NewGuid())).Status);
+    }
+
+    [Fact]
+    public async Task Another_tenant_cannot_pick_or_post_against_alpha_stores()
+    {
+        using var alpha = factory.ClientAs(AlphaAdmin, Alpha, AlphaMain);
+        var stores = JsonDocument.Parse(await alpha.GetStringAsync("/api/v1/inventory/stores")).RootElement;
+        var storeId = stores.GetArrayLength() > 0 ? stores[0].GetProperty("id").GetGuid() : Guid.NewGuid();
+        var items = JsonDocument.Parse(await alpha.GetStringAsync("/api/v1/inventory/items")).RootElement.GetProperty("items");
+        var itemId = items.GetArrayLength() > 0 ? items[0].GetProperty("id").GetGuid() : Guid.NewGuid();
+
+        using var beta = factory.ClientAs(BetaAdmin, Beta);
+        var fefo = await beta.GetAsync($"/api/v1/inventory/fefo?storeId={storeId}&itemId={itemId}&qty=1");
+        var fefoBody = await fefo.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.NotFound, fefo.StatusCode);
+        Assert.DoesNotContain(Alpha.ToString(), fefoBody);
+
+        var post = await Post(beta, "/api/v1/inventory/opening-stock", new
+        {
+            storeId, lines = new[] { new { itemId, batchNo = "ZZ-X", expiryDate = TestDates.YearsAhead(4, 150), mrpPaise = 100, purchaseRatePaise = 50, qtyBase = 1 } },
+        }, Guid.NewGuid());
+        Assert.True((int)post.Status is 400 or 403 or 404, $"cross-tenant opening gave {(int)post.Status}");
+    }
+
+    [Fact]
+    public async Task Anonymous_callers_get_401()
+    {
+        using var anon = factory.CreateClient();
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anon.GetAsync("/api/v1/inventory/stock")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anon.GetAsync("/api/v1/inventory/items")).StatusCode);
+    }
+
     private static async Task<(HttpStatusCode Status, JsonElement Body)> Post(HttpClient client, string path, object body, Guid? key = null)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, path) { Content = JsonContent.Create(body) };
