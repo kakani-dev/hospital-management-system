@@ -98,7 +98,7 @@ public static class HmsProblems
         var message = MessageOf(db);
         return db.SqlState switch
         {
-            SqlStates.InsufficientPrivilege => Forbidden("The database rejected this operation for your memberships."),
+            SqlStates.InsufficientPrivilege => Forbidden(BusinessRuleDetail(message) ?? "The database rejected this operation for your memberships."),
             SqlStates.NoDataFound => NotFound(),
             SqlStates.UniqueViolation => Conflict(uniqueCode, uniqueDetail ?? "A conflicting record already exists."),
             SqlStates.ExclusionViolation => Conflict(exclusionCode, exclusionDetail ?? "The time range overlaps an existing booking."),
@@ -107,7 +107,7 @@ public static class HmsProblems
                 Conflict(Codes.InvalidTransition, NoShowNotAllowedDetail),
             SqlStates.CheckViolation when message?.Contains("invalid_transition:", StringComparison.Ordinal) == true =>
                 Conflict(Codes.InvalidTransition, Sanitize(message)!),
-            SqlStates.CheckViolation => BadRequest(Codes.CheckViolation, "A value violates a database rule."),
+            SqlStates.CheckViolation => CheckViolation(db, message),
             SqlStates.ForeignKeyViolation => BadRequest(Codes.InvalidReference, "A referenced record does not exist in this hospital (or was deleted)."),
             SqlStates.InvalidParameterValue => BadRequest(Codes.InvalidParameter, Sanitize(message) ?? "A parameter value is invalid."),
             SqlStates.DeadlockDetected or SqlStates.SerializationFailure =>
@@ -115,6 +115,66 @@ public static class HmsProblems
             _ => null,
         };
     }
+
+    /// <summary>
+    /// #111: a table CHECK constraint that maps to one field becomes a field-level 400 (<c>errors</c>, shown on
+    /// the form field). An unmapped constraint names the rule. A 23514 raised by our own functions (no
+    /// constraint name) carries an authored message, so it is shown as is.
+    /// </summary>
+    private static ProblemHttpResult CheckViolation(DbException db, string? message)
+    {
+        var constraint = Prop(db, "ConstraintName");
+        if (!string.IsNullOrEmpty(constraint))
+        {
+            var key = $"{Prop(db, "SchemaName")}.{Prop(db, "TableName")}.{constraint}";
+            if (DatabaseCheckRules.ByConstraint.TryGetValue(key, out var rule))
+            {
+                return TypedResults.Problem(title: "Bad request", detail: rule.Message, statusCode: StatusCodes.Status400BadRequest,
+                    extensions: new Dictionary<string, object?>
+                    {
+                        ["code"] = Codes.CheckViolation,
+                        ["rule"] = constraint,
+                        ["errors"] = new Dictionary<string, string[]> { [rule.Field] = [rule.Message] },
+                    });
+            }
+
+            return TypedResults.Problem(title: "Bad request", detail: $"A value breaks the rule \"{constraint}\". Check the entered values.",
+                statusCode: StatusCodes.Status400BadRequest,
+                extensions: new Dictionary<string, object?> { ["code"] = Codes.CheckViolation, ["rule"] = constraint });
+        }
+
+        return BadRequest(Codes.CheckViolation, Readable(message) ?? "A value violates a database rule.");
+    }
+
+    /// <summary>
+    /// #111: 42501 raised by our own functions carries a business rule ("only admins can book outside working
+    /// hours"). PostgreSQL's own privilege and row-level-security errors name tables, so they stay generic.
+    /// </summary>
+    internal static string? BusinessRuleDetail(string? message)
+    {
+        if (string.IsNullOrWhiteSpace(message)
+            || message.StartsWith("permission denied", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("row-level security", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return Readable(message);
+    }
+
+    private static string? Readable(string? message)
+    {
+        var text = Sanitize(message);
+        if (text is null)
+        {
+            return null;
+        }
+
+        text = char.ToUpperInvariant(text[0]) + text[1..];
+        return text.EndsWith('.') ? text : text + ".";
+    }
+
+    private static string? Prop(DbException db, string name) => db.GetType().GetProperty(name)?.GetValue(db) as string;
 
     // PostgresException.MessageText (no "SQLSTATE: " prefix) when available, without a hard Npgsql dependency here.
     private static string? MessageOf(DbException db)
