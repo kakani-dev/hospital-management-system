@@ -31,10 +31,10 @@ public sealed class MultiBranchPractitionerApiTests(HmsApiFactory factory) : ICl
         var eastSlots = await admin.GetFromJsonAsync<List<S2Slot>>($"/api/v1/slots?branchId={AlphaEast}&from={TestDates.Iso(Day)}&to={TestDates.Iso(Day)}&practitionerId={pr.Id}");
         Assert.NotEmpty(mainSlots!);
         Assert.NotEmpty(eastSlots!);
-        Assert.All(mainSlots!, s => Assert.InRange(s.StartsAt.ToOffset(Ist).Hour, 9, 12));
-        Assert.All(eastSlots!, s => Assert.InRange(s.StartsAt.ToOffset(Ist).Hour, 17, 19));
-        Assert.DoesNotContain(mainSlots!, s => s.StartsAt.ToOffset(Ist).Hour >= 17);
-        Assert.DoesNotContain(eastSlots!, s => s.StartsAt.ToOffset(Ist).Hour < 17);
+        Assert.All(mainSlots!, s => Assert.InRange(s.StartsAt.ToOffset(TestDates.SeedZone.GetUtcOffset(s.StartsAt)).Hour, 9, 12));
+        Assert.All(eastSlots!, s => Assert.InRange(s.StartsAt.ToOffset(TestDates.SeedZone.GetUtcOffset(s.StartsAt)).Hour, 17, 19));
+        Assert.DoesNotContain(mainSlots!, s => s.StartsAt.ToOffset(TestDates.SeedZone.GetUtcOffset(s.StartsAt)).Hour >= 17);
+        Assert.DoesNotContain(eastSlots!, s => s.StartsAt.ToOffset(TestDates.SeedZone.GetUtcOffset(s.StartsAt)).Hour < 17);
 
         Assert.Equal(HttpStatusCode.Created, (await BookAsync(admin, AlphaMain, pr.Id, patient.Id, At(9))).StatusCode);
         Assert.Equal(HttpStatusCode.Created, (await BookAsync(admin, AlphaEast, pr.Id, patient.Id, At(17))).StatusCode);
