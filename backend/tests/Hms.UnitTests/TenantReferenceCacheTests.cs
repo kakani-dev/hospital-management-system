@@ -72,7 +72,7 @@ public sealed class TenantReferenceCacheTests
     {
         var (cache, clock) = Create();
         // Written "one TTL ago": its absolute expiry has already passed.
-        clock.Offset = -(TenantReferenceCache.Ttl + TimeSpan.FromSeconds(1));
+        clock.Offset = -(cache.Ttl + TimeSpan.FromSeconds(1));
         await cache.GetOrCreateAsync(Alpha, "branches", "v", () => Task.FromResult("old"));
         clock.Offset = TimeSpan.Zero;
         Assert.Equal("new", await cache.GetOrCreateAsync(Alpha, "branches", "v", () => Task.FromResult("new")));

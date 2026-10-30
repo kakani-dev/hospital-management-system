@@ -159,7 +159,7 @@ public sealed class EarningsReportTests
         Assert.Equal("report", (await second).Json);
         Assert.Equal(1, loads);
 
-        clock.Advance(EarningsReportCache.Ttl + TimeSpan.FromSeconds(1));
+        clock.Advance(cache.Ttl + TimeSpan.FromSeconds(1));
         Assert.False((await cache.GetOrCreateAsync(Alpha, "race", _ => Task.FromResult("again"), CancellationToken.None)).Hit);
     }
 
