@@ -1,0 +1,46 @@
+# #78: scheduled live smoke (REG-046..048). Three anonymous GETs, no credentials, no data written.
+# - web app returns 200
+# - edge /health/live returns 200
+# - a protected API without sign-in returns 401
+# Non-required; a failure shows on the Actions tab. Free GitHub-hosted runner, curl only.
+name: Live smoke
+
+on:
+  schedule:
+    - cron: '17 */6 * * *' # every 6 hours
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-smoke:
+    name: Live smoke (web, edge health, protected API)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      WEB_URL: https://medicore-hms-three.vercel.app
+      EDGE_URL: https://ca-hms-edge.whiteisland-88abe7bd.centralindia.azurecontainerapps.io
+    steps:
+      - name: Check status codes
+        run: |
+          set -u
+          fail=0
+          expect() {
+            local name="$1" url="$2" want="$3" got=""
+            for attempt in 1 2 3; do
+              got=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$url" || echo 000)
+              [ "$got" = "$want" ] && break
+              sleep 20
+            done
+            if [ "$got" = "$want" ]; then
+              echo "ok   $name: $got"
+            else
+              echo "::error::$name returned $got, expected $want"
+              fail=1
+            fi
+          }
+          expect "REG-046 web" "$WEB_URL" 200
+          expect "REG-047 edge health" "$EDGE_URL/health/live" 200
+          expect "REG-048 protected API without sign-in" "$EDGE_URL/api/v1/inventory/pharmacy/queue" 401
+          exit $fail
