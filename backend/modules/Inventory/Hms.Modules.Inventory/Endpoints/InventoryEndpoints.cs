@@ -76,6 +76,11 @@ public static class InventoryEndpoints
             return HmsProblems.BadRequest(HmsProblems.Codes.InvalidParameter, "Idempotency-Key must be a UUID.");
         }
 
+        if (InventoryCodeRules.HasTooManyOpeningLines(body))
+        {
+            return HmsProblems.BadRequest(HmsProblems.Codes.InvalidParameter, InventoryCodeRules.TooManyOpeningLinesDetail);
+        }
+
         if (!tenant.Can(HmsPermissions.InventoryOpening) || !tenant.Can(HmsPermissions.InventoryApprove))
         {
             return HmsProblems.Forbidden();
