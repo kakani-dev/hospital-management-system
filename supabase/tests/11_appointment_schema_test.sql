@@ -82,7 +82,7 @@ alter table appointment.schedules enable trigger schedules_refs;
 select tests.authenticate_as('reception@alpha.example');
 insert into appointment.appointments (id, tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at, reason)
 values ('e1111111-0000-4000-8000-0000000000a1', '11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001',
-        'c1111111-0000-4000-8000-000000000002', 'aa000000-0000-4000-8000-000000000002', '2030-01-08 10:00+05:30', '2030-01-08 10:30+05:30', 'Synthetic');
+        'c1111111-0000-4000-8000-000000000002', 'aa000000-0000-4000-8000-000000000002', (timestamptz '2030-01-08 10:00+05:30' + tests.fwd()), (timestamptz '2030-01-08 10:30+05:30' + tests.fwd()), 'Synthetic');
 select tests.ok(
   (select status = 'booked' and created_on is not null and during = tstzrange(starts_at, ends_at, '[)')
    from appointment.appointments where id = 'e1111111-0000-4000-8000-0000000000a1'),
@@ -90,11 +90,11 @@ select tests.ok(
 select tests.throws_ok(
   $$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at)
     values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'c1111111-0000-4000-8000-000000000002',
-            'aa000000-0000-4000-8000-000000000004', '2030-01-08 10:15+05:30', '2030-01-08 10:45+05:30')$$,
+            'aa000000-0000-4000-8000-000000000004', (timestamptz '2030-01-08 10:15+05:30' + tests.fwd()), (timestamptz '2030-01-08 10:45+05:30' + tests.fwd()))$$,
   '23P01', 'overlapping booking for the same practitioner -> 23P01');
 insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at)
 values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'c1111111-0000-4000-8000-000000000002',
-        'aa000000-0000-4000-8000-000000000004', '2030-01-08 10:30+05:30', '2030-01-08 11:00+05:30');
+        'aa000000-0000-4000-8000-000000000004', (timestamptz '2030-01-08 10:30+05:30' + tests.fwd()), (timestamptz '2030-01-08 11:00+05:30' + tests.fwd()));
 select tests.ok(true, 'back-to-back booking ([) range) is accepted');
 select tests.as_superuser();
 insert into appointment.practitioner_branches (tenant_id, practitioner_id, branch_id)
@@ -102,44 +102,44 @@ values ('11111111-1111-4111-8111-111111111111', 'c1111111-0000-4000-8000-0000000
 select tests.authenticate_as('reception@alpha.example');
 insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at)
 values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'c1111111-0000-4000-8000-000000000001',
-        'aa000000-0000-4000-8000-000000000004', '2030-01-08 10:00+05:30', '2030-01-08 10:30+05:30');
+        'aa000000-0000-4000-8000-000000000004', (timestamptz '2030-01-08 10:00+05:30' + tests.fwd()), (timestamptz '2030-01-08 10:30+05:30' + tests.fwd()));
 select tests.ok(true, 'same time with a different practitioner is accepted');
 select tests.throws_ok(
   $$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at)
     values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'c1111111-0000-4000-8000-000000000002',
-            'aa000000-0000-4000-8000-000000000004', '2030-01-09 10:00+05:30', '2030-01-09 09:00+05:30')$$,
+            'aa000000-0000-4000-8000-000000000004', (timestamptz '2030-01-09 10:00+05:30' + tests.fwd()), (timestamptz '2030-01-09 09:00+05:30' + tests.fwd()))$$,
   '23514', 'ends_at before starts_at -> 23514');
 select tests.throws_ok(
   $$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at)
     values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'c1111111-0000-4000-8000-0000000000ff',
-            'aa000000-0000-4000-8000-000000000004', '2030-01-09 10:00+05:30', '2030-01-09 10:30+05:30')$$,
+            'aa000000-0000-4000-8000-000000000004', (timestamptz '2030-01-09 10:00+05:30' + tests.fwd()), (timestamptz '2030-01-09 10:30+05:30' + tests.fwd()))$$,
   '23514', 'booking an inactive practitioner -> 23514 practitioner_inactive');
 
 -- ---------- cross-tenant / deleted-patient negatives ----------
 select tests.throws_ok(
   $$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at)
     values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'c1111111-0000-4000-8000-000000000002',
-            'bb000000-0000-4000-8000-000000000001', '2030-01-09 10:00+05:30', '2030-01-09 10:30+05:30')$$,
+            'bb000000-0000-4000-8000-000000000001', (timestamptz '2030-01-09 10:00+05:30' + tests.fwd()), (timestamptz '2030-01-09 10:30+05:30' + tests.fwd()))$$,
   'P0002', 'cross-tenant: Alpha booking for a Beta patient -> P0002');
 select tests.throws_ok(
   $$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at)
     values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'c2222222-0000-4000-8000-000000000001',
-            'aa000000-0000-4000-8000-000000000004', '2030-01-09 10:00+05:30', '2030-01-09 10:30+05:30')$$,
+            'aa000000-0000-4000-8000-000000000004', (timestamptz '2030-01-09 10:00+05:30' + tests.fwd()), (timestamptz '2030-01-09 10:30+05:30' + tests.fwd()))$$,
   'P0002', 'cross-tenant: Alpha booking with a Beta practitioner -> P0002 (was 23503)');
 select tests.throws_ok(
   $$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at)
     values ('11111111-1111-4111-8111-111111111111', 'b2222222-0000-4000-8000-000000000001', 'c1111111-0000-4000-8000-000000000002',
-            'aa000000-0000-4000-8000-000000000004', '2030-01-09 10:00+05:30', '2030-01-09 10:30+05:30')$$,
+            'aa000000-0000-4000-8000-000000000004', (timestamptz '2030-01-09 10:00+05:30' + tests.fwd()), (timestamptz '2030-01-09 10:30+05:30' + tests.fwd()))$$,
   'P0002', 'cross-tenant: Alpha booking at a Beta branch -> P0002 (was 42501)');
 select tests.throws_ok(
   $$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at)
     values ('22222222-2222-4222-8222-222222222222', 'b2222222-0000-4000-8000-000000000001', 'c2222222-0000-4000-8000-000000000001',
-            'bb000000-0000-4000-8000-000000000001', '2030-01-09 10:00+05:30', '2030-01-09 10:30+05:30')$$,
+            'bb000000-0000-4000-8000-000000000001', (timestamptz '2030-01-09 10:00+05:30' + tests.fwd()), (timestamptz '2030-01-09 10:30+05:30' + tests.fwd()))$$,
   'P0002', 'cross-tenant: Alpha reception booking inside Beta (all-Beta row) -> P0002 (was 42501)');
 select tests.throws_ok(
   $$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at)
     values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000002', 'c1111111-0000-4000-8000-000000000001',
-            'aa000000-0000-4000-8000-000000000004', '2030-01-09 10:00+05:30', '2030-01-09 10:30+05:30')$$,
+            'aa000000-0000-4000-8000-000000000004', (timestamptz '2030-01-09 10:00+05:30' + tests.fwd()), (timestamptz '2030-01-09 10:30+05:30' + tests.fwd()))$$,
   '42501', 'reception (Main only) cannot book at Alpha East -> 42501');
 select tests.as_superuser();
 select tests.as_owner('patient.patients');  -- the soft-delete state is owner-only (re-review R2)
@@ -149,32 +149,32 @@ select tests.authenticate_as('admin@alpha.example');
 select tests.throws_ok(
   $$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at)
     values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'c1111111-0000-4000-8000-000000000002',
-            'aa000000-0000-4000-8000-000000000003', '2030-01-09 10:00+05:30', '2030-01-09 10:30+05:30')$$,
+            'aa000000-0000-4000-8000-000000000003', (timestamptz '2030-01-09 10:00+05:30' + tests.fwd()), (timestamptz '2030-01-09 10:30+05:30' + tests.fwd()))$$,
   'P0002', 'booking a soft-deleted patient -> P0002 (was 23503)');
 select tests.throws_ok(
   $$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at)
     values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', gen_random_uuid(),
-            'aa000000-0000-4000-8000-000000000004', '2030-01-09 10:00+05:30', '2030-01-09 10:30+05:30')$$,
+            'aa000000-0000-4000-8000-000000000004', (timestamptz '2030-01-09 10:00+05:30' + tests.fwd()), (timestamptz '2030-01-09 10:30+05:30' + tests.fwd()))$$,
   'P0002', 'booking an unknown practitioner -> P0002');
 select tests.authenticate_as('lab@alpha.example');
 select tests.throws_ok(
   $$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at)
     values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'c1111111-0000-4000-8000-000000000002',
-            'aa000000-0000-4000-8000-000000000004', '2030-01-09 10:00+05:30', '2030-01-09 10:30+05:30')$$,
+            'aa000000-0000-4000-8000-000000000004', (timestamptz '2030-01-09 10:00+05:30' + tests.fwd()), (timestamptz '2030-01-09 10:30+05:30' + tests.fwd()))$$,
   '42501', 'same-tenant lab technician booking -> 42501 (RLS)');
 select tests.as_superuser();
 alter table appointment.appointments disable trigger appointments_status_machine;
 select tests.throws_ok(
   $$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at)
     values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'c2222222-0000-4000-8000-000000000001',
-            'aa000000-0000-4000-8000-000000000004', '2030-01-09 10:00+05:30', '2030-01-09 10:30+05:30')$$,
+            'aa000000-0000-4000-8000-000000000004', (timestamptz '2030-01-09 10:00+05:30' + tests.fwd()), (timestamptz '2030-01-09 10:30+05:30' + tests.fwd()))$$,
   '23503', 'backstop: with the trigger disabled the composite FK rejects a Beta practitioner -> 23503');
 alter table appointment.appointments enable trigger appointments_status_machine;
 select tests.as_superuser();
 select tests.throws_ok(
   $$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at, status)
     values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'c1111111-0000-4000-8000-000000000002',
-            'aa000000-0000-4000-8000-000000000004', '2030-01-09 10:00+05:30', '2030-01-09 10:30+05:30', 'completed')$$,
+            'aa000000-0000-4000-8000-000000000004', (timestamptz '2030-01-09 10:00+05:30' + tests.fwd()), (timestamptz '2030-01-09 10:30+05:30' + tests.fwd()), 'completed')$$,
   '23514', 'inserting with a status other than booked -> 23514 (even as superuser)');
 
 -- ---------- visibility ----------
@@ -213,10 +213,10 @@ select tests.throws_ok(
 select tests.throws_ok(
   $$update appointment.appointments set practitioner_id = 'c2222222-0000-4000-8000-000000000001' where id = 'e1111111-0000-4000-8000-0000000000a1'$$,
   'P0002', 'cross-tenant: re-assigning to a Beta practitioner -> P0002 (was 23503)');
-update appointment.appointments set starts_at = '2030-01-08 12:00+05:30', ends_at = '2030-01-08 12:30+05:30'
+update appointment.appointments set starts_at = (timestamptz '2030-01-08 12:00+05:30' + tests.fwd()), ends_at = (timestamptz '2030-01-08 12:30+05:30' + tests.fwd())
 where id = 'e1111111-0000-4000-8000-0000000000a1';
 select tests.ok(
-  (select during = tstzrange('2030-01-08 12:00+05:30', '2030-01-08 12:30+05:30', '[)') from appointment.appointments
+  (select during = tstzrange((timestamptz '2030-01-08 12:00+05:30' + tests.fwd()), (timestamptz '2030-01-08 12:30+05:30' + tests.fwd()), '[)') from appointment.appointments
    where id = 'e1111111-0000-4000-8000-0000000000a1'),
   'a booked appointment can be rescheduled (during recomputed)');
 select tests.throws_ok(
@@ -229,7 +229,7 @@ select tests.ok(
   'booked -> cancelled stamps cancelled_at');
 insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at)
 values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'c1111111-0000-4000-8000-000000000002',
-        'aa000000-0000-4000-8000-000000000004', '2030-01-08 12:00+05:30', '2030-01-08 12:30+05:30');
+        'aa000000-0000-4000-8000-000000000004', (timestamptz '2030-01-08 12:00+05:30' + tests.fwd()), (timestamptz '2030-01-08 12:30+05:30' + tests.fwd()));
 select tests.ok(true, 'a cancelled appointment frees its time slot');
 select tests.throws_ok(
   $$update appointment.appointments set status = 'booked' where id = 'e1111111-0000-4000-8000-0000000000a1'$$,
@@ -283,36 +283,36 @@ select tests.throws_ok(
 select tests.authenticate_as('reception@alpha.example');
 select tests.ok(
   (select count(*) from appointment.available_slots('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001',
-                                                     '2030-01-07', '2030-01-07')) = 11,
+                                                     (date '2030-01-07' + tests.fwd_days()), (date '2030-01-07' + tests.fwd_days()))) = 11,
   'Monday at Alpha Main: 12 x 20-min slots (10:00-14:00) minus the seeded 10:00 booking = 11');
 select tests.ok(
-  (select min(slot_start) = '2030-01-07 10:20+05:30' and max(slot_end) = '2030-01-07 14:00+05:30'
+  (select min(slot_start) = (timestamptz '2030-01-07 10:20+05:30' + tests.fwd()) and max(slot_end) = (timestamptz '2030-01-07 14:00+05:30' + tests.fwd())
    from appointment.available_slots('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001',
-                                    '2030-01-07', '2030-01-07')),
+                                    (date '2030-01-07' + tests.fwd_days()), (date '2030-01-07' + tests.fwd_days()))),
   'slots are generated in branch-local time (Asia/Kolkata)');
 select tests.ok(
   (select count(*) from appointment.available_slots('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001',
-                                                     '2030-01-08', '2030-01-08', 'c1111111-0000-4000-8000-000000000002')) = 12 - 2 - 2,
+                                                     (date '2030-01-08' + tests.fwd_days()), (date '2030-01-08' + tests.fwd_days()), 'c1111111-0000-4000-8000-000000000002')) = 12 - 2 - 2,
   'Tuesday: slots overlapping the 10:30-11:00 and 12:00-12:30 bookings are removed (2 each); the cancelled booking frees its slots');
 select tests.throws_ok(
-  $$select * from appointment.available_slots('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', '2030-01-01', '2030-03-01')$$,
+  $$select * from appointment.available_slots('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', (date '2030-01-01' + tests.fwd_days()), (date '2030-03-01' + tests.fwd_days()))$$,
   '22023', 'range over 31 days -> 22023');
 select tests.throws_ok(
-  $$select * from appointment.available_slots('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000002', '2030-01-07', '2030-01-07')$$,
+  $$select * from appointment.available_slots('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000002', (date '2030-01-07' + tests.fwd_days()), (date '2030-01-07' + tests.fwd_days()))$$,
   '42501', 'reception (Main only) asking for Alpha East slots -> 42501');
 select tests.throws_ok(
-  $$select * from appointment.available_slots('22222222-2222-4222-8222-222222222222', 'b2222222-0000-4000-8000-000000000001', '2030-01-07', '2030-01-07')$$,
+  $$select * from appointment.available_slots('22222222-2222-4222-8222-222222222222', 'b2222222-0000-4000-8000-000000000001', (date '2030-01-07' + tests.fwd_days()), (date '2030-01-07' + tests.fwd_days()))$$,
   'P0002', 'cross-tenant: Alpha reception asking for Beta slots -> P0002 (was 42501)');
 select tests.throws_ok(
-  $$select * from appointment.available_slots('11111111-1111-4111-8111-111111111111', 'b2222222-0000-4000-8000-000000000001', '2030-01-07', '2030-01-07')$$,
+  $$select * from appointment.available_slots('11111111-1111-4111-8111-111111111111', 'b2222222-0000-4000-8000-000000000001', (date '2030-01-07' + tests.fwd_days()), (date '2030-01-07' + tests.fwd_days()))$$,
   'P0002', 'cross-tenant: Alpha tenant id with a Beta branch id -> P0002 (was 42501)');
 select tests.throws_ok(
-  $$select * from appointment.available_slots('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', '2030-01-07', '2030-01-07',
+  $$select * from appointment.available_slots('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', (date '2030-01-07' + tests.fwd_days()), (date '2030-01-07' + tests.fwd_days()),
       'c2222222-0000-4000-8000-000000000001')$$,
   'P0002', 'cross-tenant: Beta practitioner filter on Alpha slots -> P0002');
 select tests.authenticate_as('outsider@example.test');
 select tests.throws_ok(
-  $$select * from appointment.available_slots('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', '2030-01-07', '2030-01-07')$$,
+  $$select * from appointment.available_slots('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', (date '2030-01-07' + tests.fwd_days()), (date '2030-01-07' + tests.fwd_days()))$$,
   'P0002', 'user with no membership -> P0002');
 
 -- ---------- practitioner deletion ----------

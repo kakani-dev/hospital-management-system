@@ -42,13 +42,13 @@ update appointment.practitioners set registration_number = 'NMC/5500001' where i
 insert into appointment.queue_entries (id, tenant_id, branch_id, queue_date, token_no, patient_id, practitioner_id, status)
 values
   ('f5500000-0000-4000-8000-000000000001', '11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000002',
-   '2035-08-01', 5501, 'aa000000-0000-4000-8000-000000000002', 'c1111111-0000-4000-8000-000000000001', 'done'),
+   (date '2035-08-01' + tests.fwd_days()), 5501, 'aa000000-0000-4000-8000-000000000002', 'c1111111-0000-4000-8000-000000000001', 'done'),
   ('f5500000-0000-4000-8000-000000000002', '11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000002',
-   '2035-08-01', 5502, 'aa000000-0000-4000-8000-000000000004', 'c1111111-0000-4000-8000-000000000001', 'done'),
+   (date '2035-08-01' + tests.fwd_days()), 5502, 'aa000000-0000-4000-8000-000000000004', 'c1111111-0000-4000-8000-000000000001', 'done'),
   ('f5500000-0000-4000-8000-000000000003', '11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001',
-   '2035-08-01', 5503, 'aa000000-0000-4000-8000-000000000001', 'c1111111-0000-4000-8000-000000000001', 'done'),
+   (date '2035-08-01' + tests.fwd_days()), 5503, 'aa000000-0000-4000-8000-000000000001', 'c1111111-0000-4000-8000-000000000001', 'done'),
   ('f5500000-0000-4000-8000-000000000004', '11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000002',
-   '2035-08-01', 5504, 'aa000000-0000-4000-8000-000000000002', 'c1111111-0000-4000-8000-000000000001', 'done');
+   (date '2035-08-01' + tests.fwd_days()), 5504, 'aa000000-0000-4000-8000-000000000002', 'c1111111-0000-4000-8000-000000000001', 'done');
 
 do $$
 declare
@@ -72,10 +72,10 @@ begin
     'name', 'Zz-QA East Ward', 'storeKind', 'ward'));
   perform inventory.post_opening_stock(t, 'e5500000-0000-4000-8000-000000000001', jsonb_build_object(
     'storeId', st ->> 'id', 'lines', jsonb_build_array(
-      jsonb_build_object('itemId', item ->> 'id', 'batchNo', 'ZZ-LATE', 'expiryDate', '2031-12-31', 'mrpPaise', 900, 'purchaseRatePaise', 500, 'qtyBase', 50),
-      jsonb_build_object('itemId', item ->> 'id', 'batchNo', 'ZZ-SOON', 'expiryDate', '2030-01-31', 'mrpPaise', 900, 'purchaseRatePaise', 450, 'qtyBase', 6),
+      jsonb_build_object('itemId', item ->> 'id', 'batchNo', 'ZZ-LATE', 'expiryDate', (date '2031-12-31' + tests.fwd_days()), 'mrpPaise', 900, 'purchaseRatePaise', 500, 'qtyBase', 50),
+      jsonb_build_object('itemId', item ->> 'id', 'batchNo', 'ZZ-SOON', 'expiryDate', (date '2030-01-31' + tests.fwd_days()), 'mrpPaise', 900, 'purchaseRatePaise', 450, 'qtyBase', 6),
       jsonb_build_object('itemId', item ->> 'id', 'batchNo', 'ZZ-EXPIRED', 'expiryDate', '2020-01-31', 'mrpPaise', 900, 'purchaseRatePaise', 400, 'qtyBase', 100),
-      jsonb_build_object('itemId', item2 ->> 'id', 'batchNo', 'ZZ-P1', 'expiryDate', '2032-01-31', 'mrpPaise', 200, 'purchaseRatePaise', 100, 'qtyBase', 4))));
+      jsonb_build_object('itemId', item2 ->> 'id', 'batchNo', 'ZZ-P1', 'expiryDate', (date '2032-01-31' + tests.fwd_days()), 'mrpPaise', 200, 'purchaseRatePaise', 100, 'qtyBase', 4))));
   execute 'reset role';
   perform set_config('zz.item', item ->> 'id', true);
   perform set_config('zz.item2', item2 ->> 'id', true);

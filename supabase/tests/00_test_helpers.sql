@@ -89,4 +89,30 @@ begin
 end;
 $$;
 
+
+-- #236: clock-relative test dates. Fixtures are written against 2030 (a Monday on 2030-01-07).
+-- fwd_days() is a whole number of 52-week blocks (weekday kept) that moves 2030-01-01 to at
+-- least three years ahead of the real date; it is 0 until late 2026+3y, so today's run is unchanged.
+-- seed.sql applies the same shift to the seeded 2030 appointments (keep the two formulas equal).
+create or replace function tests.fwd_days()
+returns integer language sql stable as $$
+  select greatest(0, ceil(((current_date + interval '3 years')::date - date '2030-01-01') / 364.0))::integer * 364
+$$;
+
+create or replace function tests.fwd()
+returns interval language sql stable as $$ select make_interval(days => tests.fwd_days()) $$;
+
+-- First Sunday of November (US fall back) three years ahead, and the next second Sunday of March.
+create or replace function tests.us_fall_back()
+returns date language sql stable as $$
+  select d + ((7 - extract(dow from d)::integer) % 7)
+  from (select make_date(extract(year from current_date)::integer + 3, 11, 1) as d) x
+$$;
+
+create or replace function tests.us_spring_forward()
+returns date language sql stable as $$
+  select d + ((7 - extract(dow from d)::integer) % 7) + 7
+  from (select make_date(extract(year from tests.us_fall_back())::integer + 1, 3, 1) as d) x
+$$;
+
 grant execute on all functions in schema tests to public;

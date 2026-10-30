@@ -100,13 +100,13 @@ insert into appointment.practitioner_branches (tenant_id, practitioner_id, branc
 values ('11111111-1111-4111-8111-111111111111', 'c1111111-0000-4000-8000-000000000002', 'a1111111-0000-4000-8000-000000000002');
 insert into appointment.schedules (tenant_id, branch_id, practitioner_id, weekday, start_time, end_time, slot_minutes, valid_from)
 values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000002', 'c1111111-0000-4000-8000-000000000002',
-        7, '00:00', '04:00', 30, '2026-10-01');
+        7, '00:00', '04:00', 30, (tests.us_fall_back() - 31));
 select tests.authenticate_as('admin@alpha.example');
 create temporary table t_fall on commit drop as
   select * from appointment.available_slots('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000002',
-                                            '2026-11-01', '2026-11-01', 'c1111111-0000-4000-8000-000000000002');
+                                            tests.us_fall_back(), tests.us_fall_back(), 'c1111111-0000-4000-8000-000000000002');
 select tests.ok((select bool_and(slot_end - slot_start = interval '30 minutes') from t_fall),
-  'MIN-1 fall back (2026-11-01 New York): every slot lasts exactly 30 minutes (was: a 90-minute 00:30 slot)');
+  'MIN-1 fall back (first Sunday of November, New York): every slot lasts exactly 30 minutes (was: a 90-minute 00:30 slot)');
 select tests.ok(
   (select count(*) = count(distinct (slot_start at time zone 'America/New_York')::time) and count(*) = 8 from t_fall),
   'MIN-1 fall back: each of the 8 wall-clock slots 00:00-03:30 is offered once');
@@ -115,15 +115,15 @@ select tests.ok(
   'MIN-1 fall back: no two slots overlap');
 create temporary table t_spring on commit drop as
   select * from appointment.available_slots('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000002',
-                                            '2027-03-14', '2027-03-14', 'c1111111-0000-4000-8000-000000000002');
+                                            tests.us_spring_forward(), tests.us_spring_forward(), 'c1111111-0000-4000-8000-000000000002');
 select tests.ok((select count(*) = 6 and bool_and(slot_end - slot_start = interval '30 minutes') from t_spring),
-  'MIN-1 spring forward (2027-03-14 New York): no error; the nonexistent 02:00 and 02:30 are skipped (6 slots of 30 min)');
+  'MIN-1 spring forward (second Sunday of March, New York): no error; the nonexistent 02:00 and 02:30 are skipped (6 slots of 30 min)');
 select tests.ok(
   not exists (select 1 from t_spring where (slot_start at time zone 'America/New_York')::time in ('02:00', '02:30')),
   'MIN-1 spring forward: no slot starts at a nonexistent local time');
 select tests.ok(
   (select count(*) > 0 from appointment.available_slots('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000002',
-                                                        '2027-03-08', '2027-03-20', 'c1111111-0000-4000-8000-000000000002')),
+                                                        tests.us_spring_forward() - 6, tests.us_spring_forward() + 6, 'c1111111-0000-4000-8000-000000000002')),
   'MIN-1: a range that contains the DST day no longer fails as a whole');
 
 -- ================================================== MIN-2: POSIX suffixes and aliases ==

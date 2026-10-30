@@ -6,40 +6,40 @@ begin;
 select tests.authenticate_as('reception@alpha.example');
 select tests.ok(
   (select count(*) from (select appointment.assert_bookable_window_v2('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001',
-     'c1111111-0000-4000-8000-000000000002', '2030-01-07 10:20+05:30', '2030-01-07 10:40+05:30', false)) x) = 1,
+     'c1111111-0000-4000-8000-000000000002', (timestamptz '2030-01-07 10:20+05:30' + tests.fwd()), (timestamptz '2030-01-07 10:40+05:30' + tests.fwd()), false)) x) = 1,
   'inside working hours is bookable');
 select tests.throws_ok($$select appointment.assert_bookable_window_v2('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001',
-  'c1111111-0000-4000-8000-000000000002', '2030-01-07 15:00+05:30', '2030-01-07 15:20+05:30', false)$$,
+  'c1111111-0000-4000-8000-000000000002', (timestamptz '2030-01-07 15:00+05:30' + tests.fwd()), (timestamptz '2030-01-07 15:20+05:30' + tests.fwd()), false)$$,
   '22023', 'outside working hours is rejected');
 select tests.throws_ok($$select appointment.assert_bookable_window_v2('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001',
-  'c1111111-0000-4000-8000-000000000002', '2030-01-07 13:50+05:30', '2030-01-07 14:10+05:30', false)$$,
+  'c1111111-0000-4000-8000-000000000002', (timestamptz '2030-01-07 13:50+05:30' + tests.fwd()), (timestamptz '2030-01-07 14:10+05:30' + tests.fwd()), false)$$,
   '22023', 'a booking running past the end of the shift is rejected');
 select tests.throws_ok($$select appointment.assert_bookable_window_v2('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001',
-  'c1111111-0000-4000-8000-000000000002', '2030-01-09 10:00+05:30', '2030-01-09 10:20+05:30', false)$$,
+  'c1111111-0000-4000-8000-000000000002', (timestamptz '2030-01-09 10:00+05:30' + tests.fwd()), (timestamptz '2030-01-09 10:20+05:30' + tests.fwd()), false)$$,
   '22023', 'a weekday without a schedule is rejected');
 select tests.throws_ok($$select appointment.assert_bookable_window_v2('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001',
-  'c1111111-0000-4000-8000-000000000002', '2030-01-07 15:00+05:30', '2030-01-07 15:20+05:30', true)$$,
+  'c1111111-0000-4000-8000-000000000002', (timestamptz '2030-01-07 15:00+05:30' + tests.fwd()), (timestamptz '2030-01-07 15:20+05:30' + tests.fwd()), true)$$,
   '42501', 'reception cannot override working hours');
 select tests.throws_ok($$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at, hours_override)
   values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'c1111111-0000-4000-8000-000000000002',
-          'aa000000-0000-4000-8000-000000000002', '2030-01-07 16:00+05:30', '2030-01-07 16:20+05:30', true)$$,
+          'aa000000-0000-4000-8000-000000000002', (timestamptz '2030-01-07 16:00+05:30' + tests.fwd()), (timestamptz '2030-01-07 16:20+05:30' + tests.fwd()), true)$$,
   '42501', 'reception cannot store an override flag directly');
 select tests.authenticate_as('admin@alpha.example');
 select tests.ok(
   (select count(*) from (select appointment.assert_bookable_window_v2('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001',
-     'c1111111-0000-4000-8000-000000000002', '2030-01-07 15:00+05:30', '2030-01-07 15:20+05:30', true)) x) = 1,
+     'c1111111-0000-4000-8000-000000000002', (timestamptz '2030-01-07 15:00+05:30' + tests.fwd()), (timestamptz '2030-01-07 15:20+05:30' + tests.fwd()), true)) x) = 1,
   'an admin may override working hours');
 select tests.throws_ok($$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at, hours_override)
   values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'c1111111-0000-4000-8000-000000000002',
-          'aa000000-0000-4000-8000-000000000002', '2030-01-07 16:30+05:30', '2030-01-07 16:50+05:30', true)$$,
+          'aa000000-0000-4000-8000-000000000002', (timestamptz '2030-01-07 16:30+05:30' + tests.fwd()), (timestamptz '2030-01-07 16:50+05:30' + tests.fwd()), true)$$,
   '22023', 'an override without a reason is rejected');
 select tests.throws_ok($$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at, hours_override, reason)
   values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'c1111111-0000-4000-8000-000000000002',
-          'aa000000-0000-4000-8000-000000000002', '2030-01-07 16:30+05:30', '2030-01-07 16:50+05:30', true, '   ')$$,
+          'aa000000-0000-4000-8000-000000000002', (timestamptz '2030-01-07 16:30+05:30' + tests.fwd()), (timestamptz '2030-01-07 16:50+05:30' + tests.fwd()), true, '   ')$$,
   '22023', 'a blank override reason is rejected');
 insert into appointment.appointments (id, tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at, hours_override, reason)
 values ('e3000000-0000-4000-8000-000000000001', '11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001',
-        'c1111111-0000-4000-8000-000000000002', 'aa000000-0000-4000-8000-000000000002', '2030-01-07 15:00+05:30', '2030-01-07 15:20+05:30', true,
+        'c1111111-0000-4000-8000-000000000002', 'aa000000-0000-4000-8000-000000000002', (timestamptz '2030-01-07 15:00+05:30' + tests.fwd()), (timestamptz '2030-01-07 15:20+05:30' + tests.fwd()), true,
         'Emergency add-on (synthetic)');
 select tests.as_superuser();
 select tests.ok(exists (select 1 from audit.audit_log where table_name = 'appointments' and record_id = 'e3000000-0000-4000-8000-000000000001'
@@ -58,31 +58,31 @@ insert into identity.memberships (tenant_id, user_id, branch_id, role, status) v
 select tests.authenticate_as('nurse-br@alpha.example');
 select tests.ok(tests.affected_rows($$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at)
   values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'c1111111-0000-4000-8000-000000000002',
-          'aa000000-0000-4000-8000-000000000002', '2030-01-07 11:00+05:30', '2030-01-07 11:20+05:30')$$) = 1, 'a nurse can book');
+          'aa000000-0000-4000-8000-000000000002', (timestamptz '2030-01-07 11:00+05:30' + tests.fwd()), (timestamptz '2030-01-07 11:20+05:30' + tests.fwd()))$$) = 1, 'a nurse can book');
 
 select tests.authenticate_as('doctor@beta.example');
 select tests.throws_ok($$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at)
   values ('22222222-2222-4222-8222-222222222222', 'b2222222-0000-4000-8000-000000000001', 'c2222222-0000-4000-8000-000000000001',
-          'bb000000-0000-4000-8000-000000000001', '2030-01-14 09:00+05:30', '2030-01-14 09:15+05:30')$$,
+          'bb000000-0000-4000-8000-000000000001', (timestamptz '2030-01-14 09:00+05:30' + tests.fwd()), (timestamptz '2030-01-14 09:15+05:30' + tests.fwd()))$$,
   '42501', 'a doctor cannot book a fresh appointment');
 select tests.ok(tests.affected_rows($$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at, parent_appointment_id)
   values ('22222222-2222-4222-8222-222222222222', 'b2222222-0000-4000-8000-000000000001', 'c2222222-0000-4000-8000-000000000001',
-          'bb000000-0000-4000-8000-000000000001', '2030-01-14 09:00+05:30', '2030-01-14 09:15+05:30', 'e2222222-0000-4000-8000-000000000001')$$) = 1,
+          'bb000000-0000-4000-8000-000000000001', (timestamptz '2030-01-14 09:00+05:30' + tests.fwd()), (timestamptz '2030-01-14 09:15+05:30' + tests.fwd()), 'e2222222-0000-4000-8000-000000000001')$$) = 1,
   'a doctor can book a follow-up of an earlier visit');
 
 -- ============================================ 3. follow-up link ==
 select tests.authenticate_as('reception@alpha.example');
 select tests.throws_ok($$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at, parent_appointment_id)
   values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'c1111111-0000-4000-8000-000000000002',
-          'aa000000-0000-4000-8000-000000000002', '2030-01-14 10:00+05:30', '2030-01-14 10:20+05:30', 'e1111111-0000-4000-8000-000000000001')$$,
+          'aa000000-0000-4000-8000-000000000002', (timestamptz '2030-01-14 10:00+05:30' + tests.fwd()), (timestamptz '2030-01-14 10:20+05:30' + tests.fwd()), 'e1111111-0000-4000-8000-000000000001')$$,
   '22023', 'a follow-up for a different patient is rejected');
 select tests.throws_ok($$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at, parent_appointment_id)
   values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'c1111111-0000-4000-8000-000000000002',
-          'aa000000-0000-4000-8000-000000000001', '2030-01-14 10:00+05:30', '2030-01-14 10:20+05:30', 'e2222222-0000-4000-8000-000000000001')$$,
+          'aa000000-0000-4000-8000-000000000001', (timestamptz '2030-01-14 10:00+05:30' + tests.fwd()), (timestamptz '2030-01-14 10:20+05:30' + tests.fwd()), 'e2222222-0000-4000-8000-000000000001')$$,
   'P0002', 'a parent from another tenant looks unknown');
 select tests.ok(tests.affected_rows($$insert into appointment.appointments (tenant_id, branch_id, practitioner_id, patient_id, starts_at, ends_at, parent_appointment_id)
   values ('11111111-1111-4111-8111-111111111111', 'a1111111-0000-4000-8000-000000000001', 'c1111111-0000-4000-8000-000000000002',
-          'aa000000-0000-4000-8000-000000000001', '2030-01-14 10:00+05:30', '2030-01-14 10:20+05:30', 'e1111111-0000-4000-8000-000000000001')$$) = 1,
+          'aa000000-0000-4000-8000-000000000001', (timestamptz '2030-01-14 10:00+05:30' + tests.fwd()), (timestamptz '2030-01-14 10:20+05:30' + tests.fwd()), 'e1111111-0000-4000-8000-000000000001')$$) = 1,
   'a follow-up for the same patient links to the earlier visit');
 
 -- ============================================ 4. end of day ==
