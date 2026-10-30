@@ -1511,6 +1511,8 @@ export interface PharmacyRxLine {
   dispensedBase: number
   complete: boolean
   availableBase: number | null
+  /** Derived from frequency x duration; null when it cannot be worked out (SOS, free text). */
+  prescribedBase: number | null
 }
 
 export interface PharmacyDispenseRecord {
@@ -1519,7 +1521,7 @@ export interface PharmacyDispenseRecord {
   dispensedBy: Guid
   createdOn: string
   note: string | null
-  lines: { prescriptionLineId: Guid; itemId: Guid; brandName: string; batchId: Guid; batchNo: string; expiryDate: string; qtyBase: number; completesLine: boolean }[]
+  lines: { prescriptionLineId: Guid; itemId: Guid; brandName: string; batchId: Guid; batchNo: string; expiryDate: string; qtyBase: number; completesLine: boolean; overrideReason?: string | null }[]
 }
 
 export interface PharmacyPrescription {
@@ -1543,5 +1545,5 @@ export interface DispenseRequest {
   consultationId: Guid
   storeId: Guid
   note?: string
-  lines: { lineNo: number; itemId?: Guid; qtyBase: number; complete: boolean }[]
+  lines: { lineNo: number; itemId?: Guid; qtyBase: number; complete: boolean; overrideReason?: string }[]
 }
