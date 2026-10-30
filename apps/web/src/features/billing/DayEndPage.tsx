@@ -51,7 +51,7 @@ export function DayEndPage() {
       )}
       <ul className="space-y-3">
         {report.data?.map((session) => (
-          <li key={session.sessionId} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 p-4 dark:border-dark-500" data-testid="day-end-session">
+          <li key={session.sessionId} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 p-4 dark:border-dark-500" data-testid="day-end-session" data-session-id={session.sessionId}>
             <div>
               <p className="font-medium capitalize" data-testid="session-status">{session.status.replace('_', ' ')}</p>
               <p className="text-sm text-gray-500">
