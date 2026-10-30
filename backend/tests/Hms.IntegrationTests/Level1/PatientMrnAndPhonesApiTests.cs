@@ -42,7 +42,7 @@ public sealed class PatientMrnAndPhonesApiTests(HmsApiFactory factory) : IClassF
         var created = await ReadAsync(await client.PostAsJsonAsync("/api/v1/patients", new
         {
             firstName = "Wa", lastName = Unique("Same"), registeredBranchId = AlphaMain, phone = "0" + mobile,
-            whatsapp = new { sameAsPhone = true }, tenantId = Beta, // a client tenant id is ignored, sex = "unknown", ageYears = 30, noPhoneReason = "test fixture"
+            whatsapp = new { sameAsPhone = true }, tenantId = Beta, sex = "unknown", ageYears = 30, noPhoneReason = "test fixture", // a client tenant id is ignored
         }), HttpStatusCode.Created);
 
         Assert.Matches("^DEMO-ALPHA-[0-9]{6,}$", created.Mrn);
