@@ -62,7 +62,7 @@ export function AuthProvider({
   client,
   children,
   idleTimeoutMs = configuredIdleTimeoutMs,
-  warmup = apiClient.warmup,
+  warmup = () => apiClient.warmup({ force: true }),
 }: {
   client: AuthClient | null
   children: ReactNode

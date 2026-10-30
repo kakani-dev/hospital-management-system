@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ApiClient, ApiError, ApiTransportError, isTransientError, parseRetryAfter, retryDelayMs } from './client'
+import { ApiClient, ApiError, WARMUP_INTERVAL_MS, claimWarmupSlot, ApiTransportError, isTransientError, parseRetryAfter, retryDelayMs } from './client'
 import { oldestPendingStart, resetPending, retryPendingNow } from './pending'
 import { resilienceConfigFrom } from '../config'
 
@@ -164,6 +164,7 @@ describe('ApiClient resilience', () => {
   })
 
   it('warm-up: unauthenticated GET /api/v1/warmup, never retried, not tracked, errors swallowed', async () => {
+    sessionStorage.clear()
     const fetchImpl = vi.fn().mockResolvedValue(problem(503))
     const getAccessToken = vi.fn(() => 'tkn')
     const client = new ApiClient({ baseUrl: 'https://edge.example.test', fetchImpl, getAccessToken, resilience: fast })
@@ -241,5 +242,39 @@ describe('resilience configuration', () => {
     expect(cfg.retryMaxDelayMs).toBe(300_000)
     expect(cfg.wakingBannerAfterMs).toBe(1_000)
     expect(cfg.wakingStillAfterMs).toBe(1_000) // never before the first banner
+  })
+})
+
+describe('warm-up throttle (#91)', () => {
+  beforeEach(() => sessionStorage.clear())
+
+  it('warms up once per tab, then again only after the interval', () => {
+    expect(claimWarmupSlot(1_000_000)).toBe(true)
+    expect(claimWarmupSlot(1_000_000 + 1_000)).toBe(false)
+    expect(claimWarmupSlot(1_000_000 + WARMUP_INTERVAL_MS - 1)).toBe(false)
+    expect(claimWarmupSlot(1_000_000 + WARMUP_INTERVAL_MS)).toBe(true)
+  })
+
+  it('a clock that moved backwards or a junk value does not block the warm-up', () => {
+    sessionStorage.setItem('hms.warmupAt', 'junk')
+    expect(claimWarmupSlot(5_000)).toBe(true)
+    sessionStorage.setItem('hms.warmupAt', String(9_000_000))
+    expect(claimWarmupSlot(5_000)).toBe(true)
+  })
+
+  it('a reload inside the interval does not call the edge again', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(null, { status: 200 }))
+    const client = new ApiClient({ baseUrl: 'https://edge.example.test', fetchImpl })
+    await client.warmup()
+    await client.warmup()
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it('sign-in (force) always warms up, even right after a page-load warm-up', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(null, { status: 200 }))
+    const client = new ApiClient({ baseUrl: 'https://edge.example.test', fetchImpl })
+    await client.warmup()
+    await client.warmup({ force: true })
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
   })
 })

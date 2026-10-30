@@ -44,7 +44,8 @@ public static class ServiceDefaults
         services.AddHmsTenancy(configuration);
         services.AddHmsHealthChecks();
 
-        // ---- Rate limiting: per authenticated user, else per client IP.
+        // ---- Rate limiting: per authenticated user, else per client IP. #150: the default matches the edge
+        // (300/min), so a service behind the edge never throttles a user below the documented limit.
         services.AddRateLimiter(options =>
         {
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -53,7 +54,7 @@ public static class ServiceDefaults
                     ctx.User.FindFirst("sub")?.Value ?? ctx.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
                     _ => new FixedWindowRateLimiterOptions
                     {
-                        PermitLimit = configuration.GetValue("RateLimiting:PermitPerMinute", 120),
+                        PermitLimit = configuration.GetValue("RateLimiting:PermitPerMinute", 300),
                         Window = TimeSpan.FromMinutes(1),
                         QueueLimit = 0,
                     }));
