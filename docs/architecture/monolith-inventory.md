@@ -76,7 +76,7 @@ Recorded from the removed `backend/gateway/Hms.Gateway/appsettings.json`:
 | `Database:MaxPoolSize` | absent | `5` on each service |
 | `Auth:Supabase` | same shape, empty local secrets | same |
 | `Cors:AllowedOrigins` | localhost 5173 and 4173 | empty (the edge owns CORS) |
-| `RateLimiting:PermitPerMinute` | 120 | 120 on services; 300 on the edge |
+| `RateLimiting:PermitPerMinute` | 300 | 300 on services and on the edge (#150) |
 | `Edge:Key` | absent | present (empty in source, set in Azure) |
 | `Email` / `Smtp` | absent | identity only |
 | `Outbox` | absent (dispatcher registered in code, enabled only when the flag is true) | scheduling only, flag false |

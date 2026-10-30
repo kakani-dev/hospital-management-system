@@ -56,7 +56,7 @@ Configuration (environment variables use `__` for nesting):
 | `Auth__Supabase__LegacyJwtSecret` | optional HS256 legacy secret (secret store only, never in git) |
 | `Auth__Supabase__AllowInsecureHttp` | `true` only for local mock auth/tests; refused in Production |
 | `Cors__AllowedOrigins__0..n` | Allowed SPA origins |
-| `RateLimiting__PermitPerMinute` | Per user/IP fixed window (default 120) |
+| `RateLimiting__PermitPerMinute` | Per user/IP fixed window (default 300, same as the edge) |
 | `OpenApi__Enabled` | Swagger/OpenAPI outside Development |
 
 Protected endpoints need a valid Supabase access token (see [auth-flow.md](auth-flow.md)). Locally, get one from the mock auth server:

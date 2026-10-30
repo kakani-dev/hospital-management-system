@@ -66,7 +66,7 @@ public static partial class EdgeHost
                 ctx.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
                 _ => new FixedWindowRateLimiterOptions
                 {
-                    PermitLimit = configuration.GetValue("RateLimiting:WarmupPerMinute", 10),
+                    PermitLimit = configuration.GetValue("RateLimiting:WarmupPerMinute", 60),
                     Window = TimeSpan.FromMinutes(1),
                     QueueLimit = 0,
                 }));

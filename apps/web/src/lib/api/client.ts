@@ -394,7 +394,11 @@ export class ApiClient {
    * Fire-and-forget wake-up of the edge and services (CTO contract: unauthenticated
    * GET /api/v1/warmup, result ignored). Never retried, never shown in the waking banner.
    */
-  warmup = async (): Promise<void> => {
+  warmup = async (opts: { force?: boolean } = {}): Promise<void> => {
+    // #91: page-load warm-ups run at most once per tab every few minutes, so reloads don't spend the
+    // edge's per-IP warm-up limit. Sign-in passes force (a deliberate, infrequent action).
+    if (opts.force) claimWarmupSlot(Date.now(), true)
+    else if (!claimWarmupSlot()) return
     try {
       await this.request<void>('/api/v1/warmup', { auth: false, retry: false, track: false })
     } catch {
@@ -956,4 +960,20 @@ export function earningsExportName(query: Record<string, string | undefined>): s
   const section = query.section ?? (format === 'xlsx' ? 'accounts' : 'report')
   const period = query.fy ? `FY${query.fy}${query.quarter ? `-Q${query.quarter}` : ''}` : [query.from, query.to].filter(Boolean).join('-')
   return `earnings-${section}${period ? `-${period}` : ''}.${format}`
+}
+
+/** #91: how long one warm-up covers a browser tab before reloads call it again. */
+export const WARMUP_INTERVAL_MS = 5 * 60_000
+const WARMUP_KEY = 'hms.warmupAt'
+
+/** True when this tab has not warmed up in the last WARMUP_INTERVAL_MS (and records now). */
+export function claimWarmupSlot(now: number = Date.now(), force = false): boolean {
+  try {
+    const last = Number(globalThis.sessionStorage?.getItem(WARMUP_KEY) ?? 0)
+    if (Number.isFinite(last) && last > 0 && now - last < WARMUP_INTERVAL_MS && now >= last && !force) return false
+    globalThis.sessionStorage?.setItem(WARMUP_KEY, String(now))
+  } catch {
+    /* storage blocked: warm up anyway */
+  }
+  return true
 }

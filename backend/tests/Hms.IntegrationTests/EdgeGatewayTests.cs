@@ -316,14 +316,14 @@ public sealed class EdgeResilienceTests
     }
 
     [Fact]
-    public async Task Warmup_is_rate_limited_to_10_per_minute_per_client()
+    public async Task Warmup_is_rate_limited_to_60_per_minute_per_client()
     {
-        // default RateLimiting:WarmupPerMinute = 10 (not overridden here); services are down, so the 10
-        // permitted calls answer 503 and the 11th is refused by the limiter before any probe runs.
+        // default RateLimiting:WarmupPerMinute = 60 (#91; not overridden here); services are down, so the 60
+        // permitted calls answer 503 and the 61st is refused by the limiter before any probe runs.
         await using var edge = new DownstreamDownEdge(jwksDown: false);
         using var client = edge.CreateClient();
         client.DefaultRequestHeaders.Add("Origin", Prod);
-        for (var i = 0; i < 10; i++)
+        for (var i = 0; i < 60; i++)
         {
             Assert.NotEqual(HttpStatusCode.TooManyRequests, (await client.GetAsync("/api/v1/warmup")).StatusCode);
         }
