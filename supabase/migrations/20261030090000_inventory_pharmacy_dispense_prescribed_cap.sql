@@ -1,7 +1,10 @@
+-- cross-schema: approved (pharmacy schema is hosted by the inventory service per docs/adr/0004-pharmacy-dispensing-in-inventory.md; recreated pharmacy.rx_json / pharmacy.dispense keep the same clinical/patient/identity/audit/inventory reads and writes as 20261027150000_inventory_pharmacy_dispense.sql)
 -- #187: cap pharmacy dispensing at the prescribed quantity.
 -- The prescribed quantity is derived from frequency x duration (x tablets per dose for tab/cap doses):
 --   "1-0-1" x 5 days = 10; OD/BD/TDS/QID/HS = 1/2/3/4/1 per day. SOS/PRN/free text: no cap (pharmacist judgement).
 -- Going over the cap needs an override reason (10-300 chars), stored on the dispense line and in the audit log.
+set local lock_timeout = '5s';
+set local statement_timeout = '120s';
 
 alter table pharmacy.dispense_line add column over_rx_reason text
   constraint dispense_line_over_rx_reason check (over_rx_reason is null or length(over_rx_reason) between 10 and 300);
