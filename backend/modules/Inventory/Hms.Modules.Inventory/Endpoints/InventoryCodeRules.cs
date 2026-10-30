@@ -41,4 +41,15 @@ internal static class InventoryCodeRules
 
         return false;
     }
+
+    /// <summary>INV-009 (#147): one opening-stock import carries at most this many lines.</summary>
+    public const int MaxOpeningLines = 500;
+
+    public const string TooManyOpeningLinesDetail = "Import at most 500 rows in one opening-stock document; split the file.";
+
+    public static bool HasTooManyOpeningLines(JsonElement body) =>
+        body.ValueKind == JsonValueKind.Object
+        && body.TryGetProperty("lines", out var lines)
+        && lines.ValueKind == JsonValueKind.Array
+        && lines.GetArrayLength() > MaxOpeningLines;
 }

@@ -55,6 +55,17 @@ public sealed class InventoryApiTests(HmsApiFactory factory) : IClassFixture<Hms
         });
         Assert.Equal(HttpStatusCode.BadRequest, unlicensed.Status);
 
+        // #147 (INV-009): more than 500 lines is refused before anything is written.
+        var tooMany = await Post(admin, "/api/v1/inventory/opening-stock", new
+        {
+            storeId,
+            lines = Enumerable.Range(1, 501).Select(i => new
+            {
+                itemId, batchNo = "BIG" + i, expiryDate = "2030-06-01", mrpPaise = 2500, purchaseRatePaise = 1250, qtyBase = 1,
+            }).ToArray(),
+        }, Guid.NewGuid());
+        Assert.Equal(HttpStatusCode.BadRequest, tooMany.Status);
+
         var key = Guid.NewGuid();
         var opened = await Post(admin, "/api/v1/inventory/opening-stock", new
         {

@@ -21,4 +21,25 @@ public class InventoryCodeRulesTests
         using var doc = JsonDocument.Parse(json);
         Assert.Equal(supplied, InventoryCodeRules.HasClientSuppliedCode(doc.RootElement));
     }
+
+    [Theory]
+    [InlineData(1, false)]
+    [InlineData(500, false)]
+    [InlineData(501, true)]
+    public void Opening_stock_accepts_at_most_500_lines(int count, bool tooMany)
+    {
+        var lines = string.Join(",", Enumerable.Repeat("""{"qtyBase":1}""", count));
+        using var doc = JsonDocument.Parse("{\"lines\":[" + lines + "]}");
+        Assert.Equal(tooMany, InventoryCodeRules.HasTooManyOpeningLines(doc.RootElement));
+    }
+
+    [Theory]
+    [InlineData("""{}""")]
+    [InlineData("""{"lines":"x"}""")]
+    [InlineData("""[]""")]
+    public void A_missing_or_malformed_lines_field_is_left_to_the_database_checks(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        Assert.False(InventoryCodeRules.HasTooManyOpeningLines(doc.RootElement));
+    }
 }
