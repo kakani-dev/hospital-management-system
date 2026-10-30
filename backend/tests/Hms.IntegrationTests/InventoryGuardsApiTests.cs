@@ -25,11 +25,11 @@ public sealed class InventoryGuardsApiTests(HmsApiFactory factory) : IClassFixtu
         Assert.Equal(HttpStatusCode.Forbidden, (await Post(lab, "/api/v1/inventory/items", Drug("Zz guard"))).Status);
         Assert.Equal(HttpStatusCode.Forbidden, (await Post(lab, "/api/v1/inventory/stores", new
         {
-            branchId = AlphaMain, name = "Zz guard", storeKind = "op_pharmacy", drugLicenceNo = "DL-9", licenceValidTo = "2030-01-01",
+            branchId = AlphaMain, name = "Zz guard", storeKind = "op_pharmacy", drugLicenceNo = "DL-9", licenceValidTo = TestDates.YearsAhead(4),
         })).Status);
         Assert.Equal(HttpStatusCode.Forbidden, (await Post(lab, "/api/v1/inventory/opening-stock", new
         {
-            storeId = Guid.NewGuid(), lines = new[] { new { itemId = Guid.NewGuid(), batchNo = "B", expiryDate = "2030-06-01", mrpPaise = 100, purchaseRatePaise = 50, qtyBase = 1 } },
+            storeId = Guid.NewGuid(), lines = new[] { new { itemId = Guid.NewGuid(), batchNo = "B", expiryDate = TestDates.YearsAhead(4, 150), mrpPaise = 100, purchaseRatePaise = 50, qtyBase = 1 } },
         }, Guid.NewGuid())).Status);
     }
 
@@ -55,7 +55,7 @@ public sealed class InventoryGuardsApiTests(HmsApiFactory factory) : IClassFixtu
         var unknownStore = await Post(admin, "/api/v1/inventory/opening-stock", new
         {
             storeId = Guid.NewGuid(),
-            lines = new[] { new { itemId = Guid.NewGuid(), batchNo = "B", expiryDate = "2030-06-01", mrpPaise = 100, purchaseRatePaise = 50, qtyBase = 1 } },
+            lines = new[] { new { itemId = Guid.NewGuid(), batchNo = "B", expiryDate = TestDates.YearsAhead(4, 150), mrpPaise = 100, purchaseRatePaise = 50, qtyBase = 1 } },
         }, Guid.NewGuid());
         Assert.True((int)unknownStore.Status is 400 or 404, $"unknown store gave {(int)unknownStore.Status}");
 

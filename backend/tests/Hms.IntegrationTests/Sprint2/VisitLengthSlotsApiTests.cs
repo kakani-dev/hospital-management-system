@@ -8,10 +8,9 @@ namespace Hms.IntegrationTests.Sprint2;
 [Trait("Category", "Database")]
 public sealed class VisitLengthSlotsApiTests(HmsApiFactory factory) : IClassFixture<HmsApiFactory>
 {
-    private static readonly TimeSpan Ist = TimeSpan.FromHours(5.5);
-
-    // 2030-06-04 is a Tuesday.
-    private static DateTimeOffset At(int hour, int minute = 0) => new(2030, 6, 4, hour, minute, 0, Ist);
+    // A far-future Tuesday.
+    private static readonly DateOnly Day = TestDates.FarMonday(weeks: 39).AddDays(1);
+    private static DateTimeOffset At(int hour, int minute = 0) => TestDates.At(Day, hour, minute);
 
     [Fact]
     public async Task Slots_respect_the_visit_length_and_every_offered_slot_can_be_booked()
@@ -23,7 +22,7 @@ public sealed class VisitLengthSlotsApiTests(HmsApiFactory factory) : IClassFixt
         Assert.Equal(HttpStatusCode.Created, (await admin.PostAsJsonAsync("/api/v1/schedules", hours)).StatusCode);
         Assert.Equal(HttpStatusCode.Created, (await S2.BookAsync(admin, AlphaMain, pr.Id, patient.Id, At(9, 30))).StatusCode);
 
-        var url = $"/api/v1/slots?branchId={AlphaMain}&date=2030-06-04&practitionerId={pr.Id}";
+        var url = $"/api/v1/slots?branchId={AlphaMain}&date={TestDates.Iso(Day)}&practitionerId={pr.Id}";
         var plain = await admin.GetFromJsonAsync<List<S2Slot>>(url);
         Assert.Equal([At(9), At(9, 15), At(9, 45)], plain!.Select(s => s.StartsAt).ToList());
         Assert.All(plain!, s => Assert.Equal(TimeSpan.FromMinutes(15), s.EndsAt - s.StartsAt));
@@ -46,7 +45,7 @@ public sealed class VisitLengthSlotsApiTests(HmsApiFactory factory) : IClassFixt
     public async Task An_out_of_range_visit_length_is_400(int minutes)
     {
         using var admin = factory.ClientAs(AlphaAdmin, Alpha);
-        var response = await admin.GetAsync($"/api/v1/slots?branchId={AlphaMain}&date=2030-06-04&durationMinutes={minutes}");
+        var response = await admin.GetAsync($"/api/v1/slots?branchId={AlphaMain}&date={TestDates.Iso(Day)}&durationMinutes={minutes}");
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Contains("durationMinutes", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
     }

@@ -18,8 +18,9 @@ public sealed class QaCrossTenantNotFoundApiTests(HmsApiFactory factory) : IClas
 
     private sealed record Probe(string Name, HttpMethod Method, string Path, object? Body);
 
-    private static readonly DateTimeOffset Start = new(2031, 9, 1, 10, 0, 0, TimeSpan.FromHours(5.5));
-    private const string Day = "2031-09-01";
+    private static readonly DateOnly StartDay = TestDates.FarMonday(weeks: 52);
+    private static readonly DateTimeOffset Start = TestDates.At(StartDay, 10);
+    private static readonly string Day = TestDates.Iso(StartDay);
 
     /// <summary>Alpha admin -> Beta ids (seed rows from contract §5), for every route that takes an id.</summary>
     private static readonly Dictionary<string, Probe> ForeignProbes = BuildForeignProbes().ToDictionary(p => p.Name);

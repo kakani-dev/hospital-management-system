@@ -8,10 +8,8 @@ namespace Hms.IntegrationTests.Sprint2;
 [Trait("Category", "Database")]
 public sealed class MultiBranchPractitionerApiTests(HmsApiFactory factory) : IClassFixture<HmsApiFactory>
 {
-    private static readonly TimeSpan Ist = TimeSpan.FromHours(5.5);
-
-    // 2030-06-03 is a Monday.
-    private static DateTimeOffset At(int hour, int minute = 0) => new(2030, 6, 3, hour, minute, 0, Ist);
+    private static readonly DateOnly Day = TestDates.FarMonday(weeks: 26);
+    private static DateTimeOffset At(int hour, int minute = 0) => TestDates.At(Day, hour, minute);
 
     [Fact]
     public async Task A_doctor_is_bookable_only_at_the_branch_and_hours_they_work()
@@ -29,8 +27,8 @@ public sealed class MultiBranchPractitionerApiTests(HmsApiFactory factory) : ICl
         Assert.Contains(atMain!, p => p.Id == pr.Id);
         Assert.Contains(atEast!, p => p.Id == pr.Id);
 
-        var mainSlots = await admin.GetFromJsonAsync<List<S2Slot>>($"/api/v1/slots?branchId={AlphaMain}&from=2030-06-03&to=2030-06-03&practitionerId={pr.Id}");
-        var eastSlots = await admin.GetFromJsonAsync<List<S2Slot>>($"/api/v1/slots?branchId={AlphaEast}&from=2030-06-03&to=2030-06-03&practitionerId={pr.Id}");
+        var mainSlots = await admin.GetFromJsonAsync<List<S2Slot>>($"/api/v1/slots?branchId={AlphaMain}&from={TestDates.Iso(Day)}&to={TestDates.Iso(Day)}&practitionerId={pr.Id}");
+        var eastSlots = await admin.GetFromJsonAsync<List<S2Slot>>($"/api/v1/slots?branchId={AlphaEast}&from={TestDates.Iso(Day)}&to={TestDates.Iso(Day)}&practitionerId={pr.Id}");
         Assert.NotEmpty(mainSlots!);
         Assert.NotEmpty(eastSlots!);
         Assert.All(mainSlots!, s => Assert.InRange(s.StartsAt.ToOffset(Ist).Hour, 9, 12));

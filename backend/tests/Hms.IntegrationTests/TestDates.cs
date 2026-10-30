@@ -1,0 +1,52 @@
+using System.Globalization;
+using Npgsql;
+
+namespace Hms.IntegrationTests;
+
+/// <summary>
+/// Relative dates for API tests (#232, #233). No literal calendar dates: everything is derived from
+/// the real clock and the seed branch's configured time zone, so tests neither rot nor depend on
+/// the time of day they run.
+/// </summary>
+internal static class TestDates
+{
+    private static readonly Lazy<TimeZoneInfo> Zone = new(() =>
+    {
+        using var conn = new NpgsqlConnection(HmsApiFactory.AdminConnection);
+        conn.Open();
+        using var cmd = new NpgsqlCommand("select identity.branch_time_zone_v1(@b)", conn);
+        cmd.Parameters.AddWithValue("b", HmsApiFactory.AlphaMain);
+        return TimeZoneInfo.FindSystemTimeZoneById((string)cmd.ExecuteScalar()!);
+    });
+
+    /// <summary>The seed tenant's time zone (tenant settings, not a constant).</summary>
+    public static TimeZoneInfo SeedZone => Zone.Value;
+
+    /// <summary>Branch-local today in the seed zone.</summary>
+    public static DateOnly Today => DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, SeedZone).DateTime);
+
+    /// <summary>
+    /// A Monday about <paramref name="years"/> years ahead, plus <paramref name="weeks"/> weeks, so
+    /// different test classes get different far-future days that always stay in the future.
+    /// </summary>
+    public static DateOnly FarMonday(int weeks = 0, int years = 3)
+    {
+        var d = Today.AddYears(years);
+        while (d.DayOfWeek != DayOfWeek.Monday) d = d.AddDays(1);
+        return d.AddDays(7 * weeks);
+    }
+
+    /// <summary>The given local date and time in the seed zone, as an instant.</summary>
+    public static DateTimeOffset At(DateOnly date, int hour, int minute = 0)
+    {
+        var local = date.ToDateTime(new TimeOnly(hour, minute));
+        return new DateTimeOffset(local, SeedZone.GetUtcOffset(local));
+    }
+
+    public static string Iso(DateOnly date) => date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+    /// <summary>An ISO date <paramref name="years"/> years (plus days) from today, e.g. batch expiry or licence end.</summary>
+    public static string YearsAhead(int years, int days = 0) => Iso(Today.AddYears(years).AddDays(days));
+
+    public static string YearsAgo(int years) => Iso(Today.AddYears(-years));
+}

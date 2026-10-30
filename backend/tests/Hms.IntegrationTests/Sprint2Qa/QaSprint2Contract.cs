@@ -192,9 +192,9 @@ internal static class Qa
     public static async Task<QaCheckIn> WalkInOkAsync(HttpClient client, Guid branch, Guid patient, Guid? practitioner = null) =>
         await ReadAsync<QaCheckIn>(await client.PostAsJsonAsync(QaRoutes.WalkIn, new { branchId = branch, patientId = patient, practitionerId = practitioner }), HttpStatusCode.Created);
 
-    /// <summary>A far-future, branch-independent instant (2031) for bookings that are never checked in.</summary>
+    /// <summary>A far-future Monday instant (relative to today, #233) for bookings that are never checked in.</summary>
     public static DateTimeOffset Future(int dayOffset = 0, int hour = 10, int minute = 0) =>
-        new DateTimeOffset(2031, 6, 2, hour, minute, 0, TimeSpan.FromHours(5.5)).AddDays(dayOffset);
+        TestDates.At(TestDates.FarMonday(weeks: 13).AddDays(dayOffset), hour, minute);
 
     public static async Task<TimeZoneInfo> BranchZoneAsync(Guid branch) =>
         TimeZoneInfo.FindSystemTimeZoneById((await ScalarAsync<string>("select identity.branch_time_zone_v1(@b)", ("b", branch)))!);

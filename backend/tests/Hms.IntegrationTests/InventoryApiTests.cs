@@ -41,7 +41,7 @@ public sealed class InventoryApiTests(HmsApiFactory factory) : IClassFixture<Hms
             name = "Pharmacy",
             storeKind = "op_pharmacy",
             drugLicenceNo = "DL-1",
-            licenceValidTo = "2030-01-01",
+            licenceValidTo = TestDates.YearsAhead(4),
         });
         Assert.Equal(HttpStatusCode.OK, store.Status);
         Assert.Equal("STR-0001", store.Body.GetProperty("code").GetString());
@@ -61,7 +61,7 @@ public sealed class InventoryApiTests(HmsApiFactory factory) : IClassFixture<Hms
             storeId,
             lines = Enumerable.Range(1, 501).Select(i => new
             {
-                itemId, batchNo = "BIG" + i, expiryDate = "2030-06-01", mrpPaise = 2500, purchaseRatePaise = 1250, qtyBase = 1,
+                itemId, batchNo = "BIG" + i, expiryDate = TestDates.YearsAhead(4, 150), mrpPaise = 2500, purchaseRatePaise = 1250, qtyBase = 1,
             }).ToArray(),
         }, Guid.NewGuid());
         Assert.Equal(HttpStatusCode.BadRequest, tooMany.Status);
@@ -76,7 +76,7 @@ public sealed class InventoryApiTests(HmsApiFactory factory) : IClassFixture<Hms
                 {
                     itemId,
                     batchNo = "B1",
-                    expiryDate = "2030-06-01",
+                    expiryDate = TestDates.YearsAhead(4, 150),
                     mrpPaise = 2500,
                     purchaseRatePaise = 1250,
                     qtyBase = 10,
@@ -96,7 +96,7 @@ public sealed class InventoryApiTests(HmsApiFactory factory) : IClassFixture<Hms
                 {
                     itemId,
                     batchNo = "B9",
-                    expiryDate = "2031-01-01",
+                    expiryDate = TestDates.YearsAhead(5),
                     mrpPaise = 1,
                     purchaseRatePaise = 1,
                     qtyBase = 99,
@@ -133,7 +133,7 @@ public sealed class InventoryApiTests(HmsApiFactory factory) : IClassFixture<Hms
             storeId,
             lines = new[]
             {
-                new { itemId = lowItemId, batchNo = "G1", expiryDate = "2031-01-01", mrpPaise = 800, purchaseRatePaise = 400, qtyBase = 4 },
+                new { itemId = lowItemId, batchNo = "G1", expiryDate = TestDates.YearsAhead(5), mrpPaise = 800, purchaseRatePaise = 400, qtyBase = 4 },
             },
         }, Guid.NewGuid());
         Assert.Equal(HttpStatusCode.OK, lowOpened.Status);

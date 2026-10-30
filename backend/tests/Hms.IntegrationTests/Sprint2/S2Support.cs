@@ -72,17 +72,14 @@ internal static class S2
         });
     }
 
-    /// <summary>A far-future instant unique enough per test (practitioners are per test anyway).</summary>
-    public static DateTimeOffset FutureSlot(int dayOffset = 0, int hour = 10, int minute = 0) =>
-        new DateTimeOffset(2031, 3, 3, hour, minute, 0, TimeSpan.FromHours(5.5)).AddDays(dayOffset);
+    /// <summary>Far-future Monday (relative to today, #233) for bookings that are never checked in.</summary>
+    public static DateOnly FutureDay => TestDates.FarMonday();
 
-    /// <summary>Branch-local (Asia/Kolkata in the seed) "today" at the given time, as an instant.</summary>
-    public static DateTimeOffset TodayAt(int hour, int minute = 0)
-    {
-        var ist = TimeSpan.FromHours(5.5);
-        var today = DateTimeOffset.UtcNow.ToOffset(ist).Date;
-        return new DateTimeOffset(today.Year, today.Month, today.Day, hour, minute, 0, ist);
-    }
+    public static DateTimeOffset FutureSlot(int dayOffset = 0, int hour = 10, int minute = 0) =>
+        TestDates.At(FutureDay.AddDays(dayOffset), hour, minute);
+
+    /// <summary>Branch-local "today" (seed tenant zone from settings, #232) at the given time, as an instant.</summary>
+    public static DateTimeOffset TodayAt(int hour, int minute = 0) => TestDates.At(TestDates.Today, hour, minute);
 
     public static async Task<long> ScalarLongAsync(string sql, params (string Name, object Value)[] parameters)
     {
