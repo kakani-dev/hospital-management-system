@@ -73,6 +73,8 @@ jobs:
           fetch-depth: 0
       - name: Self-check skip planner
         run: bash .github/scripts/ci-skip.test.sh
+      - name: Self-check Container Apps secrets from GitHub (#68)
+        run: bash .github/scripts/aca-secrets.test.sh
       - id: mode
         run: |
           case "${{ github.event_name }}" in
