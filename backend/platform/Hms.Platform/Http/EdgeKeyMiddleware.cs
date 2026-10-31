@@ -10,11 +10,16 @@ namespace Hms.Platform.Http;
 /// <c>X-Hms-Edge-Key</c> with that value. Anything else gets a bare 404 (the service does not admit
 /// to existing). The edge strips any client-supplied <c>X-Hms-*</c> header before adding the key.
 /// Empty <c>Edge:Key</c> (local dev, in-process tests of a single service) disables the check.
+/// Zero-downtime key rotation (issue #68, docs/runbooks/credential-rotation.md): services also
+/// accept <c>Edge:PreviousKey</c> when it is set, so they can roll onto a new key before the edge
+/// starts sending it. Only the edge sends a key, and it always sends <c>Edge:Key</c>. Retire the
+/// previous key by setting it equal to the current one.
 /// </summary>
 public static class EdgeKeyMiddleware
 {
     public const string Header = "X-Hms-Edge-Key";
     public const string ConfigKey = "Edge:Key";
+    public const string PreviousConfigKey = "Edge:PreviousKey";
 
     public static IApplicationBuilder UseHmsEdgeKey(this IApplicationBuilder app, IConfiguration configuration)
     {
@@ -25,10 +30,10 @@ public static class EdgeKeyMiddleware
             return app;
         }
 
-        var expected = Encoding.UTF8.GetBytes(key);
+        var accepted = AcceptedKeys(key, configuration[PreviousConfigKey]);
         return app.Use(async (context, next) =>
         {
-            if (context.Request.Path.StartsWithSegments("/health", StringComparison.OrdinalIgnoreCase) || Matches(context, expected))
+            if (context.Request.Path.StartsWithSegments("/health", StringComparison.OrdinalIgnoreCase) || Matches(context.Request.Headers[Header], accepted))
             {
                 await next(context).ConfigureAwait(false);
                 return;
@@ -38,14 +43,34 @@ public static class EdgeKeyMiddleware
         });
     }
 
-    private static bool Matches(HttpContext context, byte[] expected)
+    /// <summary>The current key, plus the previous key when it is set and different.</summary>
+    public static IReadOnlyList<byte[]> AcceptedKeys(string key, string? previousKey)
     {
-        var values = context.Request.Headers[Header];
+        var keys = new List<byte[]> { Encoding.UTF8.GetBytes(key) };
+        if (!string.IsNullOrEmpty(previousKey) && !string.Equals(previousKey, key, StringComparison.Ordinal))
+        {
+            keys.Add(Encoding.UTF8.GetBytes(previousKey));
+        }
+
+        return keys;
+    }
+
+    /// <summary>True when exactly one non-empty header value equals one of the accepted keys.</summary>
+    public static bool Matches(Microsoft.Extensions.Primitives.StringValues values, IReadOnlyList<byte[]> accepted)
+    {
+        ArgumentNullException.ThrowIfNull(accepted);
         if (values.Count != 1 || string.IsNullOrEmpty(values[0]))
         {
             return false;
         }
 
-        return CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(values[0]!), expected);
+        var presented = Encoding.UTF8.GetBytes(values[0]!);
+        var ok = false;
+        foreach (var expected in accepted)
+        {
+            ok |= CryptographicOperations.FixedTimeEquals(presented, expected); // no early exit
+        }
+
+        return ok;
     }
 }

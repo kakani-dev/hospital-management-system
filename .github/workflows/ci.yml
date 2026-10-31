@@ -75,6 +75,8 @@ jobs:
         run: bash .github/scripts/ci-skip.test.sh
       - name: Self-check Container Apps secrets from GitHub (#68)
         run: bash .github/scripts/aca-secrets.test.sh
+      - name: Self-check credential rotation helper (#68)
+        run: python3 scripts/ops/credential_rotation_test.py
       - id: mode
         run: |
           case "${{ github.event_name }}" in

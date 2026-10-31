@@ -132,6 +132,7 @@ If a container app does not exist yet, the script still creates the app registra
 | `HMS_DB_BILLING` | when `ACA_SECRETS_SOURCE=github` | `hms-db` on `ca-hms-billing`. |
 | `HMS_DB_INVENTORY` | when `ACA_SECRETS_SOURCE=github` | `hms-db` on `ca-hms-inventory`. |
 | `HMS_DB_PRIVACY` | when `ACA_SECRETS_SOURCE=github` | `hms-db` on `ca-hms-privacy`. |
+| `HMS_EDGE_KEY_PREVIOUS` | optional, only during an edge-key rotation | Previous edge key, accepted by the six services as `hms-edge-key-previous` (`Edge__PreviousKey`). Skipped while empty or unset. |
 
 ### App secrets from GitHub (issue #68)
 
@@ -141,6 +142,10 @@ If a container app does not exist yet, the script still creates the app registra
 - `github`: every row is applied. Before any write the deploy fails if a needed secret is empty (names only in the log). Each value is masked, compared with the live value by hash, and written only if different, then referenced as `Name=secretref:<secret>`, never as a plain env value. A failed rollout restores the previous values it changed. Changing `HMS_EDGE_KEY` is refused unless all seven apps roll in the same run; use the emergency hatch with the current tag and a blank service.
 
 Container Apps secrets are app-level, not per revision, so a revision rollback alone does not bring an old value back. The in-run restore covers that; a cancelled job restores revisions only.
+
+- mode `optional` rows (only `HMS_EDGE_KEY_PREVIOUS`) apply in `github` mode only while the GitHub secret is non-empty.
+
+Rotating any of these without downtime: [runbooks/credential-rotation.md](runbooks/credential-rotation.md) (blue/green DB logins, dual edge key).
 
 `bash .github/scripts/aca-secrets.sh names github` lists the names. CI runs `.github/scripts/aca-secrets.test.sh` against a fake `az`.
 
