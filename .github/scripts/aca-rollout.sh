@@ -392,6 +392,9 @@ print(rows[0].get("revisionName", "") if rows else "")
     [[ "$existing" == "$image" ]] || die "$rev_name already exists with image $existing, not $image"
     new="$rev_name"
     echo "$app revision $new already has $image"
+    # #256: a reused revision still gets its secrets compared; it restarts only on a change.
+    aca_secrets_sync_reused "$service" "$new" || die "failed to sync $app secrets on reuse (the values were not logged)"
+    ((ACA_SECRETS_CHANGED)) && wait_provisioned "$app" ""
   else
     read_scale "$app" "$service"
     local -a secret_env=()

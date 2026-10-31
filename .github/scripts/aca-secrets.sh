@@ -8,6 +8,8 @@
 ACA_SECRETS_MANIFEST="${ACA_SECRETS_MANIFEST:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/aca-secrets.tsv}"
 declare -gA ACA_SECRET_OLD=()   # "app<TAB>secret" -> previous value, in memory only
 declare -ga ACA_SECRET_ENV=()   # Name=secretref:secret for the current app
+declare -g ACA_SECRETS_CHANGED=0  # how many secrets the last aca_secrets_apply wrote
+declare -ga ACA_RESTARTED=()    # "app<TAB>revision" restarted to pick up new values (#256)
 
 aca_secrets_mode() {
   case "${ACA_SECRETS_SOURCE:-legacy}" in
@@ -83,6 +85,7 @@ aca_secrets_apply() {
   local service="$1" app="ca-hms-$1" aca name env before after live
   local -a pairs=()
   ACA_SECRET_ENV=()
+  ACA_SECRETS_CHANGED=0
   while IFS=$'\t' read -r _ aca name env _; do
     ACA_SECRET_ENV+=("${env}=secretref:${aca}")
     live="$(_aca_live "$app" "$aca")"
@@ -93,12 +96,24 @@ aca_secrets_apply() {
   ((${#pairs[@]})) || { echo "   $app secrets already match GitHub"; return 0; }
   before="$(az containerapp secret list -g "$RG" -n "$app" --query "[].name" -o tsv | sort)"
   az_retry containerapp secret set -g "$RG" -n "$app" --secrets "${pairs[@]}" -o none
+  ACA_SECRETS_CHANGED=${#pairs[@]}
   after="$(az containerapp secret list -g "$RG" -n "$app" --query "[].name" -o tsv | sort)"
   local n
   for n in $before; do
     grep -qx "$n" <<<"$after" || die "$app lost secret $n after secret set"
   done
   echo "   $app updated ${#pairs[@]} secret(s) from GitHub (names: ${pairs[*]%%=*})"
+}
+
+# Issue #256: an existing revision is reused (same image). Still sync its secrets, and
+# restart that revision only when a value changed, so it reads the new secret.
+aca_secrets_sync_reused() {
+  local service="$1" rev="$2" app="ca-hms-$1"
+  aca_secrets_apply "$service" || return 1
+  ((ACA_SECRETS_CHANGED)) || return 0
+  echo "   restarting $app revision $rev to load ${ACA_SECRETS_CHANGED} changed secret(s)"
+  az_retry containerapp revision restart -g "$RG" -n "$app" --revision "$rev" -o none || return 1
+  ACA_RESTARTED+=("$app"$'\t'"$rev")
 }
 
 # Put back secrets this process changed. Only previous values that existed are restored.
@@ -109,6 +124,12 @@ aca_secrets_restore() {
     [[ -n "${ACA_SECRET_OLD[$key]}" ]] || { echo "::warning::$app $aca was new; left in place" >&2; continue; }
     echo "restoring $app secret $aca"
     az_retry containerapp secret set -g "$RG" -n "$app" --secrets "${aca}=${ACA_SECRET_OLD[$key]}" -o none || rc=1
+  done
+  # A reused revision keeps the values it loaded until restarted.
+  local pair
+  for pair in ${ACA_RESTARTED[@]+"${ACA_RESTARTED[@]}"}; do
+    echo "restarting ${pair%%$'\t'*} revision ${pair#*$'\t'} after restore"
+    az_retry containerapp revision restart -g "$RG" -n "${pair%%$'\t'*}" --revision "${pair#*$'\t'}" -o none || rc=1
   done
   return "$rc"
 }
