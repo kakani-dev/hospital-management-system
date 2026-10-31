@@ -65,6 +65,49 @@ public sealed class BillSessionGuardsApiTests(HmsApiFactory factory) : IClassFix
         Assert.Equal(HttpStatusCode.NotFound, foreignTenant.Status);
     }
 
+    [Fact]
+    public async Task Counter_left_open_from_an_earlier_day_is_marked_stale_and_never_reused()
+    {
+        // #283: relative dates only; the drawer is backdated by one day from whatever "today" is.
+        using var admin = factory.ClientAs(AlphaAdmin, Alpha, AlphaEast);
+        var first = await Post(admin, "/api/v1/counter-sessions/ensure", new { branchId = AlphaEast });
+        Assert.Equal(HttpStatusCode.OK, first.Status);
+        var staleId = first.Body.GetProperty("id").GetGuid();
+        var today = DateOnly.Parse(first.Body.GetProperty("businessDate").GetString()!);
+
+        await using var owner = new Npgsql.NpgsqlConnection(AdminConnection);
+        await owner.OpenAsync();
+        await using (var backdate = new Npgsql.NpgsqlCommand(
+            "update billing.counter_session set business_date = business_date - 1 where id = @id", owner))
+        {
+            backdate.Parameters.AddWithValue("id", staleId);
+            Assert.Equal(1, await backdate.ExecuteNonQueryAsync());
+        }
+
+        var (billId, accountId) = await OpenBill(admin, AlphaEast);
+        var onStale = await PayCash(admin, accountId, billId, 10000, staleId);
+        Assert.Equal(HttpStatusCode.Conflict, onStale.Status);
+
+        var fresh = await Post(admin, "/api/v1/counter-sessions/ensure", new { branchId = AlphaEast });
+        Assert.Equal(HttpStatusCode.OK, fresh.Status);
+        var freshId = fresh.Body.GetProperty("id").GetGuid();
+        Assert.NotEqual(staleId, freshId);
+        Assert.Equal(today, DateOnly.Parse(fresh.Body.GetProperty("businessDate").GetString()!));
+
+        await using (var status = new Npgsql.NpgsqlCommand("select status from billing.counter_session where id = @id", owner))
+        {
+            status.Parameters.AddWithValue("id", staleId);
+            Assert.Equal("stale", (string?)await status.ExecuteScalarAsync());
+        }
+
+        Assert.Equal(HttpStatusCode.OK, (await PayCash(admin, accountId, billId, 10000, freshId)).Status);
+
+        // The stale drawer is still counted and closed for its own day.
+        var closeStale = await Post(admin, $"/api/v1/counter-sessions/{staleId}/close", new { countedCashPaise = 0 });
+        Assert.Equal(HttpStatusCode.OK, closeStale.Status);
+        Assert.Equal(HttpStatusCode.OK, (await Post(admin, $"/api/v1/counter-sessions/{freshId}/close", new { countedCashPaise = 10000 })).Status);
+    }
+
     private static async Task<(Guid BillId, Guid AccountId)> OpenBill(HttpClient client, Guid? branch = null)
     {
         var opened = await Post(client, "/api/v1/accounts", new { patientId = await NewPatientAsync(client, branch ?? AlphaMain), branchId = branch ?? AlphaMain });
