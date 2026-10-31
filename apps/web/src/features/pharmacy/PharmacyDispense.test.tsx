@@ -10,7 +10,7 @@ afterEach(() => vi.unstubAllGlobals())
 const store = { id: 'st-ph', code: 'STR-0002', branchId: ALPHA_MAIN, name: 'Zz-QA OP Pharmacy', storeKind: 'op_pharmacy', drugLicenceNo: 'DL-1', licenceValidTo: '2099-01-01', isActive: true }
 const ward = { ...store, id: 'st-ward', name: 'Ward', storeKind: 'ward' }
 const queue = [
-  { id: 'rx-1', branchId: ALPHA_MAIN, patientId: 'p1', patientName: 'Ravi Synthetic-Alpha', patientMrn: 'ALP-0002', doctorName: 'Dr Zz-QA', finalizedOn: '2026-10-27T04:00:00Z', validThrough: '2026-11-26', expired: false, lineCount: 2, status: 'pending' },
+  { id: 'rx-1', branchId: ALPHA_MAIN, patientId: 'p1', patientName: 'Ravi Synthetic-Alpha', patientMrn: 'ALP-0002', doctorName: 'Dr Zz-QA', finalizedOn: '2026-10-27T04:00:00Z', validThrough: '2026-11-26', expired: false, lineCount: 2, status: 'pending', patientAgeYears: 41, patientSex: 'male', patientDobEstimated: false, patientAllergies: 'Penicillin' },
   { id: 'rx-2', branchId: ALPHA_MAIN, patientId: 'p2', patientName: 'Kiran Synthetic-Alpha', patientMrn: 'MRN-1001', doctorName: 'Dr Zz-QA', finalizedOn: '2026-10-27T05:00:00Z', lineCount: 1, status: 'partial' },
 ]
 const line = (lineNo: number, extra: object) => ({
@@ -29,12 +29,16 @@ const after = {
     lines: [{ prescriptionLineId: 'l1', itemId: 'it-1', brandName: 'Zz-QA Amoxy', batchId: 'b1', batchNo: 'SOON', expiryDate: '2030-01-31', qtyBase: 10, completesLine: false }] }],
 }
 
-function stub(role: string, dispense: () => Response = () => json(after)) {
+function stubFetchRx(prescription: object) {
+  return stub('pharmacist', undefined, prescription)
+}
+
+function stub(role: string, dispense: () => Response = () => json(after), prescription: object = rx) {
   return stubFetch({
     'GET /api/v1/me': () => json({ ...meFor({ roles: [role] }), permissions: [...(ROLE_PERMISSIONS[role] ?? [])] }),
     'GET /api/v1/branches': () => json([{ id: ALPHA_MAIN, code: 'MAIN', name: 'Alpha Main', timezone: 'Asia/Kolkata', isActive: true }]),
     'GET /api/v1/inventory/pharmacy/queue': () => json(queue),
-    'GET /api/v1/inventory/pharmacy/prescriptions/rx-1': () => json(rx),
+    'GET /api/v1/inventory/pharmacy/prescriptions/rx-1': () => json(prescription),
     'GET /api/v1/inventory/stores': () => json([store, ward]),
     'GET /api/v1/inventory/items': () => json({ items: [], uoms: [] }),
     'POST /api/v1/inventory/pharmacy/dispenses': dispense,
@@ -43,6 +47,29 @@ function stub(role: string, dispense: () => Response = () => json(after)) {
 }
 
 describe('Pharmacy dispensing', () => {
+  it('shows age, sex and allergies in the queue, and warns when allergies are not recorded (#275)', async () => {
+    stub('pharmacist')
+    renderWithProviders(<App />, { path: '/pharmacy/dispense', auth: fakeAuthClient({ session: fakeSession() }) })
+    const rows = await screen.findAllByTestId('pharmacy-queue-row')
+    expect(rows[0]).toHaveTextContent('41 y · male')
+    expect(within(rows[0]!).getByTestId('pharmacy-allergies')).toHaveTextContent('Allergies: Penicillin')
+    expect(within(rows[1]!).getByTestId('pharmacy-allergies-missing')).toHaveTextContent('Allergies not recorded')
+  })
+
+  it('shows the allergies prominently on the dispense page before dispensing (#275)', async () => {
+    stubFetchRx({ ...rx, patientAgeYears: 7, patientDobEstimated: true, patientSex: 'female', patientAllergies: 'Sulfa; Ibuprofen' })
+    renderWithProviders(<App />, { path: '/pharmacy/dispense/rx-1', auth: fakeAuthClient({ session: fakeSession() }) })
+    expect(await screen.findByTestId('pharmacy-allergies')).toHaveTextContent('Allergies: Sulfa; Ibuprofen')
+    expect(screen.getByTestId('rx-patient-age-sex')).toHaveTextContent('7 y (approx.) · female')
+  })
+
+  it('warns the pharmacist when allergies are not recorded (#275)', async () => {
+    stubFetchRx({ ...rx, patientAgeYears: null, patientSex: 'unknown', patientAllergies: null })
+    renderWithProviders(<App />, { path: '/pharmacy/dispense/rx-1', auth: fakeAuthClient({ session: fakeSession() }) })
+    expect(await screen.findByTestId('pharmacy-allergies-missing')).toHaveTextContent('Ask the patient about drug allergies')
+    expect(screen.queryByTestId('rx-patient-age-sex')).not.toBeInTheDocument()
+  })
+
   it('shows the pharmacist the queue oldest first with patient, doctor and status', async () => {
     stub('pharmacist')
     renderWithProviders(<App />, { path: '/pharmacy/dispense', auth: fakeAuthClient({ session: fakeSession() }) })

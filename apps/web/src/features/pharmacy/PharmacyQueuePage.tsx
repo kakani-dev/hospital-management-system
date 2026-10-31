@@ -7,7 +7,7 @@ import { LoadingBlock } from '../../components/ui/LoadingBlock'
 import { apiClient } from '../../lib/api/client'
 import type { RxDispenseStatus } from '../../lib/api/types'
 import { useCurrentContext } from '../tenancy/useCurrentContext'
-import { problemText, STATUS_LABEL, StatusBadge } from './pharmacyUi'
+import { problemText, STATUS_LABEL, StatusBadge, AllergyNotice, ageSexText } from './pharmacyUi'
 
 const FILTERS = [
   { value: 'open', label: 'To dispense (pending and partial)' },
@@ -71,6 +71,8 @@ export function PharmacyQueuePage() {
                     <td className="py-2 pr-3">{new Date(row.finalizedOn).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</td>
                     <td className="py-2 pr-3">
                       {row.patientName} <span className="text-gray-500">({row.patientMrn})</span>
+                      {ageSexText(row) && <span className="block text-xs text-gray-600 dark:text-dark-200">{ageSexText(row)}</span>}
+                      <span className="block text-xs"><AllergyNotice patient={row} compact /></span>
                     </td>
                     <td className="py-2 pr-3">{row.doctorName}</td>
                     <td className="py-2 pr-3" data-testid="pharmacy-queue-valid-through" data-expired={row.expired ? 'true' : 'false'}>

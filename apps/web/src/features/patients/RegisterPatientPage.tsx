@@ -98,6 +98,7 @@ export function RegisterPatientPage({
       whatsappSameAsPhone: true,
       whatsappNumber: '',
       abhaNumber: '',
+      knownAllergies: '',
     },
   })
 
@@ -363,6 +364,14 @@ export function RegisterPatientPage({
             error={errors.abhaNumber?.message}
             {...register('abhaNumber')}
           />
+          <FormField
+            label="Known allergies (optional)"
+            autoComplete="off"
+            placeholder="e.g. Penicillin, or No known allergies"
+            data-testid="patient-known-allergies"
+            error={errors.knownAllergies?.message}
+            {...register('knownAllergies')}
+          />
           {!noPhone && <WhatsappFields {...whatsappProps} />}
         </div>
         {consent}
@@ -499,6 +508,14 @@ export function RegisterPatientPage({
             placeholder="XX-XXXX-XXXX-XXXX"
             error={errors.abhaNumber?.message}
             {...register('abhaNumber')}
+          />
+          <FormField
+            label="Known allergies (optional)"
+            autoComplete="off"
+            placeholder="e.g. Penicillin, or No known allergies"
+            data-testid="patient-known-allergies"
+            error={errors.knownAllergies?.message}
+            {...register('knownAllergies')}
           />
           {!noPhone && <WhatsappFields {...whatsappProps} />}
           {consent && <div className="sm:col-span-2">{consent}</div>}
