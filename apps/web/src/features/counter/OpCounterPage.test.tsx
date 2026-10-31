@@ -13,8 +13,8 @@ const draft = (duePaise: number, status = 'draft') => ({
   lines: [{ id: 'l1', name: 'Consultation (Zz-QA)', quantity: 1, netPaise: 50000, taxPaise: 0 }], payments: [], rowVersion: 1, createdOn,
 })
 
-function routes(roles: string[], state: { due: number }, branch: string | null = ALPHA_MAIN) {
-  const me = meWithRoles(roles, branch)
+function routes(roles: string[], state: { due: number }, branch: string | null = ALPHA_MAIN, activeBranchId: string | null = null) {
+  const me = meWithRoles(roles, branch, { activeBranchId })
   return stubFetch({
     'GET /api/v1/me': () => json(me),
     'GET /api/v1/branches': () => json(branchesResponse),
@@ -57,5 +57,15 @@ describe('OpCounterPage', () => {
     expect(await screen.findByTestId('opc-total-cash')).toHaveTextContent('₹1,200.00')
     expect(screen.getByTestId('opc-search')).toBeInTheDocument()
     await waitFor(() => expect(calls.some((c) => c.path === '/api/v1/billing-reports/day-end/accounts' && c.url.includes(ALPHA_EAST))).toBe(true))
+  })
+
+  it('follows the header branch over the remembered one and hides its own picker', async () => {
+    const calls = routes(['receptionist'], { due: 0 }, null, ALPHA_MAIN)
+    localStorage.setItem('hms.opCounter.branch.0a000000-0000-4000-8000-000000000001', ALPHA_EAST)
+    renderWithProviders(<App />, { path: '/billing/counter', auth: fakeAuthClient({ session: fakeSession() }) })
+    await screen.findByTestId('opc-total-cash')
+    await waitFor(() => expect(calls.some((c) => c.path === '/api/v1/billing-reports/day-end/accounts' && c.url.includes(ALPHA_MAIN))).toBe(true))
+    expect(calls.some((c) => c.url.includes(ALPHA_EAST))).toBe(false)
+    expect(screen.queryByRole('combobox', { name: /showing branch/i })).not.toBeInTheDocument()
   })
 })

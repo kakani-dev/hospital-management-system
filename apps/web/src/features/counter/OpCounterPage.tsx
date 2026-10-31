@@ -23,33 +23,29 @@ const MODES: { mode: TenderMode; label: string; key: string }[] = [
   { mode: 'split', label: 'Cash + UPI', key: 'F8' },
 ]
 const MODE_LABEL: Record<string, string> = { cash: 'Cash', upi: 'UPI', card: 'Card', bank: 'Bank', advance: 'Advance', credit: 'Credit' }
-const chip = 'h-7 rounded-full border px-3 text-xs font-medium focus:outline-2 focus:outline-this disabled:opacity-50'
-const chipOn = 'border-this bg-this text-white'
+const chip = 'h-7 rounded-full border px-3 text-xs font-medium focus:outline-2 focus:outline-primary-500 disabled:opacity-50'
+const chipOn = 'border-primary-600 bg-primary-600 text-white'
 const chipOff = 'border-gray-300 text-gray-700 hover:bg-gray-100 dark:border-dark-450 dark:text-dark-100 dark:hover:bg-dark-600'
 const input = 'h-8 rounded-md border border-gray-300 px-2 text-sm dark:border-dark-450 dark:bg-dark-700'
 const err = (e: unknown) => (e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Something went wrong.')
 
 /** One-screen OP counter: find/register, token (auto-bills), discount, collect, print — keyboard first. */
 export function OpCounterPage() {
-  const { me } = useCurrentContext()
+  const { me, activeBranchId } = useCurrentContext()
   const qc = useQueryClient()
   const sel = useBranchSelection()
   const userId = me.data?.userId
-  // Remember the counter's branch on this workstation; the URL (?branch=) still wins.
+  // The header's branch (saved on the server) is the counter's branch. Only when the header is on
+  // "All my branches" does the counter pick one itself, remembered on this workstation.
+  const params = new URLSearchParams(window.location.search)
   const remembered = rememberedBranch.get(userId)
-  const branchId =
-    !new URLSearchParams(window.location.search).get('branch') && remembered && sel.branches.some((b) => b.id === remembered) ? remembered : sel.branchId
+  const fallback = remembered && sel.branches.some((b) => b.id === remembered) ? remembered : sel.branchId
+  const headerBranch = activeBranchId && sel.branches.some((b) => b.id === activeBranchId) ? activeBranchId : null
+  const branchId = params.get('branch') ? sel.branchId : (headerBranch ?? fallback)
   const setBranch = (id: string) => {
     rememberedBranch.set(userId, id)
     sel.setBranchId(id)
   }
-  useEffect(() => {
-    if (branchId && branchId !== sel.branchId) sel.setBranchId(branchId)
-  }, [branchId]) // eslint-disable-line react-hooks/exhaustive-deps
-  // Whatever branch the counter ends up on (header picker or remembered) is the one to reopen next time.
-  useEffect(() => {
-    if (sel.branchId && sel.branchId === branchId) rememberedBranch.set(userId, sel.branchId)
-  }, [sel.branchId, branchId, userId])
 
   const roles = rolesAtBranch(me.data, branchId)
   const canToken = can(roles, 'queue.checkIn') && can(roles, 'billing.bill')
@@ -268,7 +264,7 @@ export function OpCounterPage() {
       <section className="space-y-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <h1 className="text-xl font-semibold text-gray-800 dark:text-dark-50">OP counter</h1>
-          <BranchPicker branches={sel.branches} value={branchId} onChange={setBranch} />
+          {!headerBranch && <BranchPicker branches={sel.branches} value={branchId} onChange={setBranch} />}
         </div>
         {notice && <Alert tone="info"><span data-testid="opc-notice">{notice}</span></Alert>}
         {error && <Alert tone="error"><span data-testid="opc-error">{error}</span></Alert>}
@@ -331,7 +327,7 @@ export function OpCounterPage() {
           </form>
         )}
 
-        {patient && !bill && canToken && (
+        {patient && !bill && canToken && !pending.some((x) => x.bill.patientId === patient.id) && (
           <div className="space-y-2" data-testid="opc-doctors">
             <p className="text-xs text-gray-500">Issue a token (creates the bill)</p>
             <div className="flex flex-wrap gap-2">
@@ -429,7 +425,7 @@ export function OpCounterPage() {
           <div>
             <h2 className="mb-1 font-semibold">Today’s collection</h2>
             <dl className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5" data-testid="opc-totals">
-              {byMode.length === 0 && <dd className="text-gray-500">Nothing yet.</dd>}
+              {byMode.length === 0 && <dd className="col-span-2 text-gray-500">Nothing yet.</dd>}
               {byMode.map((m) => (
                 <div key={m.mode} className="contents" data-testid={`opc-total-${m.mode}`}>
                   <dt>{MODE_LABEL[m.mode] ?? m.mode} <span className="text-xs text-gray-500">({m.count})</span></dt>
