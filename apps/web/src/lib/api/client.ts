@@ -62,6 +62,8 @@ import type {
   BillListItem,
   BranchBillProfile,
   CashierSession,
+  DayCloseSettlementInput,
+  DayCloseSummary,
   DayEndSession,
   EarningsReport,
   GlLedgerMap,
@@ -754,6 +756,20 @@ export class ApiClient {
     decide: (id: string, body: { status: 'approved' | 'rejected'; note?: string }) =>
       this.request<BillDocument | Receipt>(`/api/v1/approvals/${encodeURIComponent(id)}/decide`, { method: 'POST', body: JSON.stringify(body) }),
     dayEnd: (branchId: string, date: string) => this.request<DayEndSession[]>(`/api/v1/billing-reports/day-end${qs({ branchId, date })}`),
+    dayClose: (branchId: string, date: string) =>
+      this.request<DayCloseSummary>(`/api/v1/billing-reports/day-close${qs({ branchId, date })}`),
+    closeDrawer: (sessionId: string, body: { countedCashPaise: number; reason?: string; handoverPaise?: number; note?: string }) =>
+      this.request<{ sessionId: string; variancePaise: number }>(
+        `/api/v1/billing-reports/day-close/sessions/${encodeURIComponent(sessionId)}/close`, { method: 'POST', body: JSON.stringify(body) }),
+    receiveHandover: (handoverId: string) =>
+      this.request<{ handoverId: string; toSessionId: string; amountPaise: number }>(
+        `/api/v1/billing-reports/day-close/handovers/${encodeURIComponent(handoverId)}/receive`, { method: 'POST' }),
+    saveSettlements: (branchId: string, date: string, items: DayCloseSettlementInput[]) =>
+      this.request<DayCloseSummary>(`/api/v1/billing-reports/day-close/settlements${qs({ branchId, date })}`, {
+        method: 'PUT', body: JSON.stringify({ items }) }),
+    signOffDay: (branchId: string, date: string, note?: string) =>
+      this.request<DayCloseSummary>(`/api/v1/billing-reports/day-close/signoff${qs({ branchId, date })}`, {
+        method: 'POST', body: JSON.stringify({ note }) }),
     earnings: (query: Record<string, string | undefined>) =>
       this.request<EarningsReport>(`/api/v1/billing-reports/earnings${qs(query)}`),
     glLedgers: () => this.request<GlLedgerMap>('/api/v1/billing-reports/gl/ledgers'),

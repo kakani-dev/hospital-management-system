@@ -478,6 +478,9 @@ export class MockBackend {
   readonly mockReceipts = new Map<string, MockReceipt>()
   readonly mockApprovals: MockApproval[] = []
   readonly mockSessions: MockSession[] = []
+  /** #65: settled card amount and sign-off per branch|date. */
+  readonly mockSettlements = new Map<string, number>()
+  readonly mockSignoffs = new Map<string, Record<string, unknown>>()
   /** Per instance (admin screens write to them). */
   readonly practitioners: MockPractitioner[] = seedPractitioners()
   readonly schedules: MockSchedule[] = seedSchedules()
@@ -827,6 +830,52 @@ export class MockBackend {
       item.status = String(body.status)
       item.note = body.note ? String(body.note) : null
       return { status: 200, body: { approvalId: item.id, status: item.status } }
+    }
+    // #65: day-end close (all methods) built from the same mock sessions; one card line to settle.
+    if (path.startsWith('/api/v1/billing-reports/day-close')) {
+      const branchId = url.searchParams.get('branchId') ?? ''
+      const date = url.searchParams.get('date') ?? ''
+      const dayKey = `${branchId}|${date}`
+      const sessions = this.mockSessions.filter((session) => session.branchId === branchId && session.businessDate === date)
+      const summary = () => {
+        const settled = this.mockSettlements.get(dayKey) ?? null
+        const signoff = this.mockSignoffs.get(dayKey) ?? null
+        const blockers = signoff ? [] : [
+          ...(sessions.some((x) => x.status === 'open') ? ['open_sessions'] : []),
+          ...(settled == null ? ['unsettled_methods'] : []),
+        ]
+        const cashVar = sessions.reduce((sum, x) => sum + (x.variancePaise ?? 0), 0)
+        return {
+          branchId, date,
+          cash: { expectedPaise: sessions.reduce((sum, x) => sum + x.expectedCashPaise, 0),
+            countedPaise: sessions.reduce((sum, x) => sum + (x.countedCashPaise ?? 0), 0), variancePaise: cashVar },
+          sessions: sessions.map((x) => ({ ...x, counterName: 'Zz-QA Counter', mine: false, openedAt: `${date}T03:30:00Z`,
+            closedAt: null, varianceReason: null, handover: null })),
+          methods: [{ mode: 'card', paymentAccountId: null, label: 'Unassigned', receivedPaise: 30000, refundedPaise: 0, expectedPaise: 30000,
+            count: 1, settledPaise: settled, variancePaise: settled == null ? null : settled - 30000, reason: null, recordedBy: null,
+            recordedAt: null, stale: false }],
+          otherVariancePaise: settled == null ? 0 : settled - 30000,
+          expectedTotalPaise: sessions.reduce((sum, x) => sum + x.expectedCashPaise, 0) + 30000,
+          advances: { count: 0, amountPaise: 0 }, refunds: { count: 0, amountPaise: 0 }, credit: { count: 0, amountPaise: 0 },
+          flowByMode: {}, signoff, blockers,
+          varianceReasons: ['Counting error'], methodLabels: { cash: 'Cash', card: 'Card (EDC)', upi: 'UPI', bank: 'Bank / cheque' },
+        }
+      }
+      if (method === 'GET' && path === '/api/v1/billing-reports/day-close') return { status: 200, body: summary() }
+      if (method === 'PUT' && path === '/api/v1/billing-reports/day-close/settlements') {
+        const items = (body.items as unknown as { settledPaise: number }[] | undefined) ?? []
+        this.mockSettlements.set(dayKey, items[0]?.settledPaise ?? 0)
+        return { status: 200, body: summary() }
+      }
+      if (method === 'POST' && path === '/api/v1/billing-reports/day-close/signoff') {
+        const current = summary()
+        if (current.blockers.length) return { status: 409, body: { title: 'Close every open drawer first.', status: 409 } }
+        sessions.filter((x) => x.status === 'closed').forEach((x) => { x.status = 'reconciled' })
+        this.mockSignoffs.set(dayKey, { id: 'signoff-1', signedBy: 'admin', signedAt: new Date().toISOString(),
+          note: body.note ? String(body.note) : null, cashVariancePaise: current.cash.variancePaise,
+          otherVariancePaise: current.otherVariancePaise, changedSince: false })
+        return { status: 200, body: summary() }
+      }
     }
     if (method === 'GET' && path === '/api/v1/billing-reports/day-end') {
       const branchId = url.searchParams.get('branchId')

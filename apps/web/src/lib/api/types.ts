@@ -1159,6 +1159,81 @@ export interface DayEndSession {
   businessDate: string
 }
 
+/** #65: one drawer (cash) on the day-close screen. */
+export interface DayCloseSession {
+  sessionId: Guid
+  counterId: Guid
+  counterName: string | null
+  cashierId: Guid
+  /** True when the signed-in user is this drawer's cashier. */
+  mine: boolean
+  status: string
+  openedAt: string
+  closedAt: string | null
+  openingFloatPaise: number
+  expectedCashPaise: number
+  countedCashPaise: number | null
+  variancePaise: number | null
+  varianceReason: string | null
+  handover: { id: Guid; amountPaise: number; note: string | null; receivedBy: Guid | null; receivedAt: string | null } | null
+}
+
+/** #65: a non-cash method (card / UPI / bank incl. cheque) per payment account for the branch-day. */
+export interface DayCloseMethod {
+  mode: 'card' | 'upi' | 'bank'
+  paymentAccountId: Guid | null
+  label: string
+  receivedPaise: number
+  refundedPaise: number
+  expectedPaise: number
+  count: number
+  settledPaise: number | null
+  variancePaise: number | null
+  reason: string | null
+  recordedBy: Guid | null
+  recordedAt: string | null
+  /** Payments changed after the settlement was entered. */
+  stale: boolean
+}
+
+export interface DayCloseFlow {
+  count: number
+  amountPaise: number
+}
+
+export interface DayCloseSummary {
+  branchId: Guid
+  date: string
+  cash: { expectedPaise: number; countedPaise: number; variancePaise: number }
+  sessions: DayCloseSession[]
+  methods: DayCloseMethod[]
+  otherVariancePaise: number
+  expectedTotalPaise: number
+  advances: DayCloseFlow
+  refunds: DayCloseFlow
+  credit: DayCloseFlow
+  flowByMode: Record<string, { advancePaise: number; refundPaise: number }>
+  signoff: {
+    id: Guid
+    signedBy: Guid
+    signedAt: string
+    note: string | null
+    cashVariancePaise: number
+    otherVariancePaise: number
+    changedSince: boolean
+  } | null
+  blockers: string[]
+  varianceReasons?: string[]
+  methodLabels?: Record<string, string>
+}
+
+export interface DayCloseSettlementInput {
+  mode: string
+  paymentAccountId: Guid | null
+  settledPaise: number
+  reason?: string
+}
+
 export interface PublicBill extends BillDocument {
   linkStatus: string
   channel: string

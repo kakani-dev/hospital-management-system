@@ -19,6 +19,7 @@ public static class BillingEndpoints
     {
         api.MapEarningsEndpoints();
         api.MapGlEndpoints();
+        api.MapDayCloseEndpoints();
         var items = api.MapGroup("/service-items").WithTags("Billing").RequireTenant().WithDbTransaction<BillingDbContext>();
         items.MapGet("/", (string? q, bool? includeInactive, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
             Exec(db, tenant, HmsPermissions.BillingView,

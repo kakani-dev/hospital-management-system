@@ -78,3 +78,17 @@ test('approvals are phone-sized actions and day-end reconciles a closed counter'
   await page.getByRole('button', { name: 'Reconcile' }).click()
   await expect(page.getByTestId('session-status')).toHaveText('reconciled')
 })
+
+test('day-end close settles card and the supervisor signs off on one screen', async ({ page }) => {
+  await signIn(page, 'admin@alpha.example')
+  await page.goto('/billing/day-end?branch=a1111111-0000-4000-8000-000000000001')
+  await expect(page.getByTestId('dc-blockers')).toContainText('Enter the settled amount')
+  await expect(page.getByTestId('dc-signoff-submit')).toBeDisabled()
+  await expect(page.getByTestId('dc-settled')).toHaveValue('300.00')
+  await page.getByTestId('dc-save-settlements').click()
+  await expect(page.getByTestId('dc-signoff-submit')).toBeEnabled()
+  await page.getByTestId('dc-signoff-note').fill('Zz-QA day checked')
+  await page.getByTestId('dc-signoff-submit').click()
+  await expect(page.getByTestId('day-close-signed')).toContainText('Zz-QA day checked')
+  await expect(page.getByTestId('session-status')).toHaveText('reconciled')
+})
