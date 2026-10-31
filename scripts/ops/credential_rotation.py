@@ -61,7 +61,7 @@ def manifest_rows() -> list[list[str]]:
     return rows
 
 
-def db_secret(service: str) -> tuple[str, str]:
+def db_names(service: str) -> tuple[str, str]:
     """(container app secret name, GitHub secret name) of a service's DB connection."""
     for svc, aca, gh, env_name, _ in manifest_rows():
         if svc == service and env_name == "ConnectionStrings__HmsDatabase":
@@ -69,7 +69,7 @@ def db_secret(service: str) -> tuple[str, str]:
     raise RotationError(f"{service} has no DB connection row in {MANIFEST.name}")
 
 
-def edge_key_secrets() -> tuple[str, str, str, str]:
+def edge_names() -> tuple[str, str, str, str]:
     """(aca current, gh current, aca previous, gh previous) for the edge key."""
     cur = prev = None
     for _, aca, gh, env_name, _ in manifest_rows():
@@ -238,72 +238,82 @@ def write_private(path: Path, value: str) -> None:
 
 
 # --- commands -------------------------------------------------------------------------
+# Printed text is built only from the service name, manifest names and literal slot letters,
+# never from values read from az (CodeQL clear-text logging).
+def login_role(service: str, slot: str) -> str:
+    return f"hms_{service}_login" + (SLOT_B_SUFFIX if slot == "b" else "")
+
+
+def other(slot: str) -> str:
+    return "a" if slot == "b" else "b"
+
+
+def live_slot(service: str) -> str:
+    app_ref, _ = db_names(service)
+    role, _ = split_user(connstr_get(parse_connstr(live_secret(app_name(service), app_ref)), "Username"))
+    if role == login_role(service, "a"):
+        return "a"
+    if role == login_role(service, "b"):
+        return "b"
+    raise RotationError(f"{service} app uses a login that is neither slot of hms_{service}_login")
+
+
 def cmd_status(service: str) -> None:
-    aca, gh = db_secret(service)
-    value = live_secret(app_name(service), aca)
-    role, _ = split_user(connstr_get(parse_connstr(value), "Username"))
-    a, b = slots(role)
-    print(f"{service}: app uses {role} (slot {'b' if role == b else 'a'}), standby {standby_of(role)}, "
-          f"app secret {aca}, GitHub secret {gh}")
+    app_ref, gh_ref = db_names(service)
+    slot = live_slot(service)
+    print(f"{service}: app uses {login_role(service, slot)} (slot {slot}), standby {login_role(service, other(slot))}, "
+          f"app secret {app_ref}, GitHub secret {gh_ref}")
 
 
 def cmd_prepare(service: str) -> None:
-    aca, gh = db_secret(service)
-    live = live_secret(app_name(service), aca)
-    pairs = parse_connstr(live)
-    role, tenant = split_user(connstr_get(pairs, "Username"))
-    standby = standby_of(role)
+    app_ref, _ = db_names(service)
+    slot = live_slot(service)
+    active, standby = login_role(service, slot), login_role(service, other(slot))
+    pairs = parse_connstr(live_secret(app_name(service), app_ref))
+    _, tenant = split_user(connstr_get(pairs, "Username"))
     password = new_password()
-    new = connstr_with(pairs, Username=standby + tenant, Password=password)
     d = workdir()
-    write_private(d / f"{service}.connstr", new)
-    write_private(d / f"{service}.prepare.sql", prepare_sql(role, standby, scram_verifier(password)))
-    write_private(d / f"{service}.active", role)
-    print(f"{service}: prepared {standby} (active {role}); "
+    write_private(d / f"{service}.connstr", connstr_with(pairs, Username=standby + tenant, Password=password))
+    write_private(d / f"{service}.prepare.sql", prepare_sql(active, standby, scram_verifier(password)))
+    write_private(d / f"{service}.active", slot)
+    print(f"{service}: prepared {standby} (active {active}); "
           f"run {d / (service + '.prepare.sql')} in Supabase, then: publish {service}")
 
 
 def cmd_publish(service: str) -> None:
-    _, gh = db_secret(service)
+    _, gh_ref = db_names(service)
     path = workdir() / f"{service}.connstr"
     if not path.exists():
         raise RotationError(f"run prepare {service} first")
-    value = path.read_text()
-    gh_secret_set(gh, value)
-    print(f"{service}: {gh} set. Dispatch deploy-aca with the current tag and a blank service.")
+    gh_secret_set(gh_ref, path.read_text())
+    print(f"{service}: {gh_ref} set. Dispatch deploy-aca with the current tag and a blank service.")
 
 
 def cmd_retire(service: str) -> None:
-    aca, _ = db_secret(service)
     d = workdir()
     marker = d / f"{service}.active"
     if not marker.exists():
         raise RotationError(f"no prepared rotation for {service}")
-    old = marker.read_text().strip()
-    live_role, _ = split_user(connstr_get(parse_connstr(live_secret(app_name(service), aca)), "Username"))
-    if live_role == old:
+    old_slot = "b" if marker.read_text().strip() == "b" else "a"
+    old = login_role(service, old_slot)
+    if live_slot(service) == old_slot:
         raise RotationError(f"{service} app still uses {old}; deploy and verify before retiring it")
-    if live_role != standby_of(old):
-        raise RotationError(f"{service} app uses {live_role}, expected {standby_of(old)}")
     write_private(d / f"{service}.retire.sql", retire_sql(old))
-    print(f"{service}: app uses {live_role}; run {d / (service + '.retire.sql')} to disable {old}")
+    print(f"{service}: app uses {login_role(service, other(old_slot))}; run {d / (service + '.retire.sql')} to disable {old}")
 
 
 def cmd_edge_prepare() -> None:
-    aca_cur, gh_cur, _, gh_prev = edge_key_secrets()
-    current = live_secret(app_name("edge"), aca_cur)
-    new = new_password()
-    gh_secret_set(gh_prev, current)
-    gh_secret_set(gh_cur, new)
-    print(f"edge key: {gh_prev} = live key, {gh_cur} = new key. "
+    app_cur, gh_cur, _, gh_prev = edge_names()
+    gh_secret_set(gh_prev, live_secret(app_name("edge"), app_cur))
+    gh_secret_set(gh_cur, new_password())
+    print(f"edge: {gh_prev} = live value, {gh_cur} = new random value. "
           f"Dispatch deploy-aca with the current tag and a blank service (edge rolls last).")
 
 
 def cmd_edge_retire() -> None:
-    aca_cur, gh_cur, _, gh_prev = edge_key_secrets()
-    current = live_secret(app_name("edge"), aca_cur)
-    gh_secret_set(gh_prev, current)
-    print(f"edge key: {gh_prev} = current key; previous key retired after the next full deploy.")
+    app_cur, _, _, gh_prev = edge_names()
+    gh_secret_set(gh_prev, live_secret(app_name("edge"), app_cur))
+    print(f"edge: {gh_prev} = current value; the previous value stops working after the next full deploy.")
 
 
 def cmd_cleanup() -> None:
