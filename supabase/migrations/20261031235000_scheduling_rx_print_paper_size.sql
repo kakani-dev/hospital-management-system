@@ -1,3 +1,4 @@
+-- cross-schema: approved (the scheduling module owns clinical + appointment; the print payload reads the platform onboarding default from identity.onboarding_defaults, as consultation_print already reads identity/patient read models)
 -- Prescription print paper size is a per-tenant setting (A5 by default, A4 if the hospital prints
 -- on A4 letterhead). clinical.consultation_print returns it as paperSize so the web print view sets
 -- @page from data, not code. Tenants without a settings row fall back to the platform onboarding
