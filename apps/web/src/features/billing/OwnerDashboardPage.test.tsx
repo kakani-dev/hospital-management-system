@@ -7,9 +7,10 @@ import { addDays } from '../../lib/dates'
 import { branchesResponse, today } from '../../test/schedulingFixtures'
 import { rangeFor } from './OwnerDashboardPage'
 
-afterEach(() => vi.unstubAllGlobals())
+let collected = 800_000
+afterEach(() => { vi.unstubAllGlobals(); collected = 800_000 })
 
-const day = (date: string) => ({ date, opdVisits: 12, newPatients: 4, noShows: 2, billedPaise: 1_000_000, discountPaise: 20_000, creditNotePaise: 0, collectedPaise: 800_000, refundPaise: 10_000, pharmacySales: 9, pharmacySalesPaise: 45_000 })
+const day = (date: string) => ({ date, opdVisits: 12, newPatients: 4, noShows: 2, billedPaise: 1_000_000, discountPaise: 20_000, creditNotePaise: 0, collectedPaise: collected, refundPaise: 10_000, pharmacySales: 9, pharmacySalesPaise: 45_000 })
 const report = (from: string, to: string) => {
   const days = [] as ReturnType<typeof day>[]
   for (let d = from; d <= to; d = addDays(d, 1)) days.push(day(d))
@@ -33,6 +34,15 @@ function routes(roles: string[]) {
 const open = () => renderWithProviders(<App />, { path: '/billing/owner', auth: fakeAuthClient({ session: fakeSession() }) })
 
 describe('Owner dashboard', () => {
+  it('never shows negative dues when collections and advances exceed billing', async () => {
+    collected = 1_108_299 // ₹11,082.99 in, ₹10,000 billed, ₹100 refunded → ₹982.99 ahead
+    routes(['tenant_admin'])
+    open()
+    await waitFor(() => expect(screen.getByTestId('kpi-outstanding')).toHaveTextContent('₹0'))
+    expect(screen.getByTestId('kpi-outstanding')).not.toHaveTextContent('-')
+    expect(screen.getByText(/982\.99 collected ahead of billing/)).toBeInTheDocument()
+  })
+
   it('computes preset ranges from a relative today', () => {
     const t = today()
     expect(rangeFor('today', t)).toEqual({ from: t, to: t })

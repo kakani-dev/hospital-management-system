@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
 import { BranchPicker } from '../../components/scheduling/BranchPicker'
-import { ApiError, apiClient } from '../../lib/api/client'
+import { apiClient } from '../../lib/api/client'
 import { localToday } from '../../lib/dates'
 import { can } from '../../lib/permissions'
 import type { BillDocument, PatientSummary, Sex } from '../../lib/api/types'
@@ -14,7 +14,7 @@ import { useBookablePractitionersState } from '../scheduling/useBookablePractiti
 import { planTenders, type TenderMode } from '../billing/collect'
 import { formatPaise, parseRupeesToPaise } from '../billing/money'
 import { UpiQr } from '../billing/UpiQr'
-import { changeDue, classifySearch, collectionByMode, quickTenders, rememberedBranch, waitingCount, waitingToPay } from './counter'
+import { changeDue, errorText, classifySearch, collectionByMode, quickTenders, rememberedBranch, waitingCount, waitingToPay } from './counter'
 
 const MODES: { mode: TenderMode; label: string; key: string }[] = [
   { mode: 'cash', label: 'Cash', key: 'F5' },
@@ -27,7 +27,7 @@ const chip = 'h-7 rounded-full border px-3 text-xs font-medium focus:outline-2 f
 const chipOn = 'border-primary-600 bg-primary-600 text-white'
 const chipOff = 'border-gray-300 text-gray-700 hover:bg-gray-100 dark:border-dark-450 dark:text-dark-100 dark:hover:bg-dark-600'
 const input = 'h-8 rounded-md border border-gray-300 px-2 text-sm dark:border-dark-450 dark:bg-dark-700'
-const err = (e: unknown) => (e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Something went wrong.')
+const err = errorText
 
 /** One-screen OP counter: find/register, token (auto-bills), discount, collect, print — keyboard first. */
 export function OpCounterPage() {

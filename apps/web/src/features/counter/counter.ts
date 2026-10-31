@@ -1,3 +1,4 @@
+import { ApiError } from '../../lib/api/client'
 import type { BillListItem, DayEndAccountTotal, PatientSearchRequest, QueueEntry } from '../../lib/api/types'
 
 /** Shortest phone the server accepts (PatientPhone.MinDigits). */
@@ -69,4 +70,10 @@ export const rememberedBranch = {
   set: (userId: string | undefined, branchId: string) => {
     if (userId) localStorage.setItem(`${BRANCH_KEY}.${userId}`, branchId)
   },
+}
+
+/** What the cashier sees on failure: the server's plain-language detail (e.g. "Already checked in…"), not the bare HTTP title. */
+export function errorText(e: unknown): string {
+  if (e instanceof ApiError) return e.problem?.detail || e.message
+  return e instanceof Error ? e.message : 'Something went wrong.'
 }

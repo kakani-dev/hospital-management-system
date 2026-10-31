@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { changeDue, classifySearch, collectionByMode, quickTenders, rememberedBranch, waitingCount, waitingToPay } from './counter'
+import { ApiError } from '../../lib/api/client'
+import { errorText, changeDue, classifySearch, collectionByMode, quickTenders, rememberedBranch, waitingCount, waitingToPay } from './counter'
 import type { BillListItem, QueueEntry } from '../../lib/api/types'
 
 const now = Date.now()
@@ -63,5 +64,13 @@ describe('rememberedBranch', () => {
     expect(rememberedBranch.get('u1')).toBe('b1')
     expect(rememberedBranch.get('u2')).toBeNull()
     expect(rememberedBranch.get(undefined)).toBeNull()
+  })
+})
+
+describe('errorText', () => {
+  it('prefers the server detail over the HTTP title', () => {
+    expect(errorText(new ApiError(409, { title: 'Conflict', detail: 'Already checked in today.' }))).toBe('Already checked in today.')
+    expect(errorText(new ApiError(409, { title: 'Conflict' }))).toBe('Conflict')
+    expect(errorText('x')).toBe('Something went wrong.')
   })
 })
