@@ -180,9 +180,11 @@ public static class BillingEndpoints
             !BodyFields.TryGuid(body, "eventId", out var eventId) ? BodyFields.Invalid("eventId", "a UUID")
             : !BodyFields.TryString(body, "eventType", out var eventType) ? BodyFields.Invalid("eventType", "a non-empty string")
             : !BodyFields.TryObject(body, "payload", out var payload) ? BodyFields.Invalid("payload", "a JSON object")
+            : !BodyFields.TryStampTenant(payload, tenant.TenantId, out var scoped)
+                ? Task.FromResult<IResult>(HmsProblems.Forbidden())
             : Exec(db, tenant, HmsPermissions.BillingBill,
                 "select billing.consume_event(@e::uuid, @y::text, @j::jsonb)::text", ct,
-                ("e", eventId), ("y", eventType), ("j", payload)))
+                ("e", eventId), ("y", eventType), ("j", scoped)))
             .WithTags("Billing").RequireTenant().WithDbTransaction<BillingDbContext>();
 
         var pub = api.MapGroup("/billing-public").WithTags("Billing").AllowAnonymous().WithDbTransaction<BillingDbContext>();

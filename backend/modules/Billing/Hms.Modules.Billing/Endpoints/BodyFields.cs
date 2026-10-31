@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Hms.Platform.Http;
 using Microsoft.AspNetCore.Http;
 
@@ -39,4 +40,22 @@ public static class BodyFields
 
     public static Task<IResult> Invalid(string name, string kind) =>
         Task.FromResult<IResult>(HmsProblems.BadRequest(HmsProblems.Codes.InvalidParameter, $"{name} must be {kind}."));
+
+    /// <summary>
+    /// Stamps the session tenant onto an event payload. The client never chooses the tenant:
+    /// a payload that names a different tenant is rejected, otherwise tenant_id is set from the session.
+    /// </summary>
+    public static bool TryStampTenant(string payloadRaw, Guid sessionTenant, out string stamped)
+    {
+        stamped = "";
+        if (JsonNode.Parse(payloadRaw) is not JsonObject obj) return false;
+        if (obj.TryGetPropertyValue("tenant_id", out var given) && given is not null)
+        {
+            var text = given.GetValueKind() == JsonValueKind.String ? given.GetValue<string>() : null;
+            if (!Guid.TryParse(text, out var g) || g != sessionTenant) return false;
+        }
+        obj["tenant_id"] = sessionTenant.ToString();
+        stamped = obj.ToJsonString();
+        return true;
+    }
 }
