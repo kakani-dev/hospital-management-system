@@ -9,7 +9,7 @@ Source of truth is shared with the Notion database [Test Cases](https://app.noti
 **Small refund below ₹200 no approval** · P0 · happy · Role: billing
 
 - Preconditions: Paid receipt
-- Steps: Refund ₹200
+- Steps: Refund ₹199.99 (exactly ₹200 needs an approver)
 - Test data: —
 - Expected: Refund completes immediately (threshold inclusive: at or above needs approver; #115)
 - Rule / code: `billing_gst_refunds.sql:54-67 maker_checker_threshold_paise 20000`
