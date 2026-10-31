@@ -197,9 +197,9 @@ public sealed class ZoneDayEdgeApiTests(FixedClockApiFactory factory) : IClassFi
 
         // date of birth "not in the future" uses the same branch-local today
         var dob = new { mrn = Sprint2.S2.Unique("ATZ-"), firstName = "Edge", lastName = "Case", dateOfBirth = "2026-10-10" };
-        var ist = await admin.PostAsJsonAsync("/api/v1/patients", new { dob.mrn, dob.firstName, dob.lastName, dob.dateOfBirth, registeredBranchId = t.MainBranchId, sex = "unknown", noPhoneReason = "test fixture" });
+        var ist = await admin.PostAsJsonAsync("/api/v1/patients", new { dob.mrn, dob.firstName, dob.lastName, dob.dateOfBirth, registeredBranchId = t.MainBranchId, sex = "unknown", noPhoneReason = "test fixture", details = new { guardianName = "Zz-QA Guardian" } });
         Assert.Equal(HttpStatusCode.Created, ist.StatusCode);
-        var atUtc = await admin.PostAsJsonAsync("/api/v1/patients", new { mrn = Sprint2.S2.Unique("ATZ-"), dob.firstName, dob.lastName, dob.dateOfBirth, registeredBranchId = utc.Id, sex = "unknown", noPhoneReason = "test fixture" });
+        var atUtc = await admin.PostAsJsonAsync("/api/v1/patients", new { mrn = Sprint2.S2.Unique("ATZ-"), dob.firstName, dob.lastName, dob.dateOfBirth, registeredBranchId = utc.Id, sex = "unknown", noPhoneReason = "test fixture", details = new { guardianName = "Zz-QA Guardian" } });
         Assert.Equal(HttpStatusCode.BadRequest, atUtc.StatusCode);
         Assert.Contains("dateOfBirth", await atUtc.Content.ReadAsStringAsync(), StringComparison.Ordinal);
 
