@@ -298,6 +298,25 @@ public static partial class PlatformEndpoints
             errors["adminEmail"] = ["A valid first-admin email is required."];
         }
 
+        var branches = request.Branches ?? [];
+        if (branches.Count > 20)
+        {
+            errors["branches"] = ["Add 1 to 20 branches."];
+        }
+        else if (branches.Any(b => b.Code is null || !BranchCodePattern().IsMatch(b.Code)))
+        {
+            errors["branches"] = ["Each branch code must be 2-20 lowercase letters, digits or hyphens."];
+        }
+        else if (branches.Any(b => string.IsNullOrWhiteSpace(b.Name) || b.Name.Trim().Length > 120))
+        {
+            errors["branches"] = ["Every branch needs a name (max 120 characters)."];
+        }
+        else if (branches.Select(b => b.Code).Distinct().Count() != branches.Count
+            || branches.Select(b => b.Name!.Trim().ToLowerInvariant()).Distinct().Count() != branches.Count)
+        {
+            errors["branches"] = ["Branch codes and names must be unique."];
+        }
+
         if (errors.Count > 0)
         {
             return TypedResults.ValidationProblem(errors);
@@ -305,15 +324,20 @@ public static partial class PlatformEndpoints
 
         try
         {
+            var branchJson = System.Text.Json.JsonSerializer.Serialize(
+                branches.Select(b => new { code = b.Code, name = b.Name!.Trim(), address = b.Address?.Trim() }));
             var rows = await RawSql.QueryAsync(
                 db,
-                "select tenant_id, invite_link_id, token, expires_on from identity.platform_create_tenant(@code, @name, @zone, @email)",
+                branches.Count > 0
+                    ? "select tenant_id, invite_link_id, token, expires_on from identity.platform_onboard_tenant(@code, @name, @zone, @email, @branches::jsonb)"
+                    : "select tenant_id, invite_link_id, token, expires_on from identity.platform_create_tenant(@code, @name, @zone, @email)",
                 r => new HospitalApprovedDto(r.GetGuid(0), Issued(r.GetGuid(1), r.GetString(2), r.GetFieldValue<DateTimeOffset>(3))),
                 ct,
                 ("code", request.Code),
                 ("name", request.Name!.Trim()),
                 ("zone", request.TimeZone),
-                ("email", request.AdminEmail!.Trim()));
+                ("email", request.AdminEmail!.Trim()),
+                ("branches", branchJson));
             return TypedResults.Created($"/api/v1/platform/tenants/{rows[0].TenantId}", rows[0]);
         }
         catch (Exception ex) when (HmsProblems.FromDatabase(ex, uniqueDetail: "A hospital with this code already exists. Choose another code.") is { } problem)
@@ -417,6 +441,9 @@ public static partial class PlatformEndpoints
 
     [GeneratedRegex("^[a-z0-9][a-z0-9-]{1,39}$")]
     private static partial Regex CodePattern();
+
+    [GeneratedRegex("^[a-z0-9][a-z0-9-]{1,19}$")]
+    private static partial Regex BranchCodePattern();
 
     [GeneratedRegex(@"^[^@\s]+@[^@\s]+\.[^@\s]+$")]
     private static partial Regex EmailPattern();

@@ -401,6 +401,8 @@ export interface PlatformCreateTenantRequest {
   name: string
   timeZone: string
   adminEmail: string
+  /** First is the main branch. Omit to create a single "Main" branch. */
+  branches?: { code: string; name: string; address: string | null }[]
 }
 
 // ---------------------------------------------------------------------------------------------

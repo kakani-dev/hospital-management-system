@@ -36,7 +36,11 @@ public sealed record TenantStatusChangeDto(string FromStatus, string ToStatus, s
 
 public sealed record PlatformTenantDetailDto(PlatformTenantDto Tenant, IReadOnlyList<TenantStatusChangeDto> History);
 
-public sealed record PlatformCreateTenantRequest(string? Code, string? Name, string? TimeZone, string? AdminEmail);
+public sealed record PlatformCreateTenantRequest(
+    string? Code, string? Name, string? TimeZone, string? AdminEmail, IReadOnlyList<PlatformBranchInput>? Branches = null);
+
+/// <summary>One branch at onboarding; the first one is the main branch.</summary>
+public sealed record PlatformBranchInput(string? Code, string? Name, string? Address);
 
 public sealed record TenantStatusRequest(string? Reason);
 
