@@ -217,3 +217,41 @@ public sealed class PatientRef
     /// <summary>patient.patient_summary_v1 is_deleted (the API embeds null for deleted patients).</summary>
     public bool IsDeleted { get; set; }
 }
+
+/// <summary>appointment.reminder_settings (#59): one row per tenant; no row = reminders off.</summary>
+public sealed class ReminderSettings : AuditableEntity, ITenantOwned
+{
+    public Guid TenantId { get; set; }
+    public bool Enabled { get; set; }
+    public short LeadHours { get; set; } = 24;
+    public short SameDayHours { get; set; } = 2;
+    public short MinNoticeMinutes { get; set; } = 120;
+    public bool EmailEnabled { get; set; } = true;
+    public bool WhatsappEnabled { get; set; }
+    public TimeOnly QuietStart { get; set; } = new(21, 0);
+    public TimeOnly QuietEnd { get; set; } = new(8, 0);
+}
+
+/// <summary>appointment.reminder_opt_outs (#59): the patient asked not to be reminded. Deleting the row opts back in.</summary>
+public sealed class ReminderOptOut : AuditableEntity, ITenantOwned
+{
+    public Guid TenantId { get; set; }
+    public Guid PatientId { get; set; }
+    public string? Reason { get; set; }
+}
+
+/// <summary>appointment.appointment_reminders (#59): read-only here; written by the sweep functions.</summary>
+public sealed class AppointmentReminder : AuditableEntity, ITenantOwned
+{
+    public Guid TenantId { get; set; }
+    public Guid AppointmentId { get; set; }
+    public string Kind { get; set; } = "lead";
+    public string Channel { get; set; } = "email";
+    public DateTimeOffset ScheduledStart { get; set; }
+    public string Status { get; set; } = "queued";
+    public string? Detail { get; set; }
+    public string? RecipientMasked { get; set; }
+    public short Attempts { get; set; }
+    public DateTimeOffset? ClaimedUntil { get; set; }
+    public DateTimeOffset? SentAt { get; set; }
+}

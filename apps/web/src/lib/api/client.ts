@@ -41,6 +41,9 @@ import type {
   Schedule,
   ScheduleOverride,
   SchedulingSettings,
+  ReminderSettings,
+  UpdateReminderSettingsRequest,
+  AppointmentReminders,
   MyDay,
   Slot,
   SwitchContextRequest,
@@ -609,6 +612,16 @@ export class ApiClient {
     get: () => this.request<SchedulingSettings>('/api/v1/scheduling-settings'),
     update: (travelBufferMinutes: number) =>
       this.request<SchedulingSettings>('/api/v1/scheduling-settings', { method: 'PUT', body: JSON.stringify({ travelBufferMinutes }) }),
+  }
+
+  reminders = {
+    settings: () => this.request<ReminderSettings>('/api/v1/reminders/settings'),
+    updateSettings: (body: UpdateReminderSettingsRequest) =>
+      this.request<ReminderSettings>('/api/v1/reminders/settings', { method: 'PUT', body: JSON.stringify(body) }),
+    forAppointment: (appointmentId: string) => this.request<AppointmentReminders>(`/api/v1/reminders/appointments/${appointmentId}`),
+    optOut: (patientId: string, reason?: string) =>
+      this.request<void>(`/api/v1/reminders/opt-outs/${patientId}`, { method: 'PUT', body: JSON.stringify({ reason: reason ?? null }) }),
+    optIn: (patientId: string) => this.request<void>(`/api/v1/reminders/opt-outs/${patientId}`, { method: 'DELETE' }),
   }
 
   myDay = (date: string) => this.request<MyDay>(`/api/v1/practitioners/me/day${qs({ date })}`)

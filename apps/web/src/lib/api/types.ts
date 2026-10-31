@@ -650,6 +650,44 @@ export interface SchedulingSettings {
   travelBufferMinutes: number
 }
 
+/** #59 appointment reminders. deliveryMode comes from server config; only test recipients are ever messaged. */
+export interface ReminderSettings {
+  enabled: boolean
+  leadHours: number
+  sameDayHours: number
+  minNoticeMinutes: number
+  emailEnabled: boolean
+  whatsappEnabled: boolean
+  quietStart: string
+  quietEnd: string
+  deliveryMode: 'Off' | 'TestRecipientsOnly'
+  emailAvailable: boolean
+  whatsappAvailable: boolean
+}
+
+export type UpdateReminderSettingsRequest = Omit<ReminderSettings, 'deliveryMode' | 'emailAvailable' | 'whatsappAvailable'>
+
+export interface ReminderLog {
+  id: string
+  kind: 'lead' | 'same_day'
+  channel: 'email' | 'whatsapp' | 'none'
+  status: 'queued' | 'sending' | 'sent' | 'skipped' | 'failed'
+  detail?: string | null
+  recipientMasked?: string | null
+  attempts: number
+  scheduledStart: string
+  sentAt?: string | null
+  createdOn: string
+}
+
+export interface AppointmentReminders {
+  appointmentId: string
+  patientId: string
+  optedOut: boolean
+  optOutReason?: string | null
+  reminders: ReminderLog[]
+}
+
 /** Doctor's day across every branch they work at. */
 export interface MyDayItem {
   kind: 'appointment' | 'hours' | 'leave'
