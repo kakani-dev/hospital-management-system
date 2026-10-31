@@ -100,7 +100,8 @@ public sealed class BillSessionGuardsApiTests(HmsApiFactory factory) : IClassFix
             Assert.Equal("stale", (string?)await status.ExecuteScalarAsync());
         }
 
-        Assert.Equal(HttpStatusCode.OK, (await PayCash(admin, accountId, billId, 100, freshId)).Status);
+        var paidFresh = await PayCash(admin, accountId, billId, 100, freshId);
+        Assert.True(paidFresh.Status == HttpStatusCode.OK, $"{paidFresh.Status} {paidFresh.Body}");
 
         // The stale drawer is still counted and closed for its own day.
         var closeStale = await Post(admin, $"/api/v1/counter-sessions/{staleId}/close", new { countedCashPaise = 0 });
