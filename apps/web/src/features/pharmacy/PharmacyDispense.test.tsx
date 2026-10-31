@@ -192,3 +192,95 @@ describe('Pharmacy dispensing', () => {
     expect(screen.queryByRole('link', { name: 'Prescriptions to dispense' })).not.toBeInTheDocument()
   })
 })
+
+// Barcode scanning at the counter. Synthetic GS1 strings only (GTINs 0890123456xxxx are made up).
+describe('Pharmacy dispensing: scan the pack', () => {
+  const yy = String((new Date().getFullYear() + 2) % 100).padStart(2, '0')
+  const item = (id: string, brandName: string, genericName: string) => ({
+    id, code: `ITM-${id}`, itemKind: 'drug', brandName, genericName, strength: null, dosageForm: 'tablet', route: null,
+    manufacturerName: 'Zz-QA Labs', scheduleCode: 'H', hsnCode: '3004', gstRateBp: 1200, baseUomCode: 'TAB',
+    isColdChain: false, isHighAlert: false, isLasa: false, isActive: true, packs: [],
+  })
+  const AMOX = item('it-1', 'Zz-QA Amoxy 500', 'Amoxicillin')
+  const PARA = item('it-2', 'Zz-QA Para 650', 'Paracetamol')
+  const CETI = item('it-3', 'Zz-QA Ceti 10', 'Cetirizine')
+  const links: Record<string, object | null> = { '08901234567807': AMOX, '08901234567814': PARA, '08901234567821': CETI, '09999999999994': null }
+
+  function stubScan() {
+    const routes: Record<string, () => Response> = {
+      'GET /api/v1/me': () => json({ ...meFor({ roles: ['pharmacist'] }), permissions: [...(ROLE_PERMISSIONS.pharmacist ?? [])] }),
+      'GET /api/v1/branches': () => json([{ id: ALPHA_MAIN, code: 'MAIN', name: 'Alpha Main', timezone: 'Asia/Kolkata', isActive: true }]),
+      'GET /api/v1/inventory/pharmacy/queue': () => json(queue),
+      'GET /api/v1/inventory/pharmacy/prescriptions/rx-1': () => json(rx),
+      'GET /api/v1/inventory/stores': () => json([store, ward]),
+      'GET /api/v1/inventory/items': () => json({ items: [AMOX, PARA, CETI], uoms: [] }),
+      'POST /api/v1/inventory/pharmacy/dispenses': () => json(after),
+      'GET /health/live': () => json({ status: 'Healthy' }),
+    }
+    for (const [gtin, linked] of Object.entries(links)) routes[`GET /api/v1/inventory/gtin/${gtin}`] = () => json({ gtin, item: linked })
+    return stubFetch(routes)
+  }
+  async function open() {
+    renderWithProviders(<App />, { path: '/pharmacy/dispense/rx-1', auth: fakeAuthClient({ session: fakeSession() }) })
+    await screen.findByTestId('pharmacy-dispense-page')
+    await waitFor(() => expect(screen.getByTestId('dispense-store')).toHaveValue(store.id))
+  }
+  const scan = async (user: ReturnType<typeof userEvent.setup>, code: string) => {
+    await user.clear(screen.getByTestId('dispense-scan-input'))
+    await user.type(screen.getByTestId('dispense-scan-input'), `${code}{Enter}`)
+  }
+  const posted = (calls: ReturnType<typeof stubFetch>) => calls.find((c) => c.method === 'POST' && c.path === '/api/v1/inventory/pharmacy/dispenses')?.body as { lines: object[] }
+
+  it('a scan selects the prescribed line and its batch, and the batch is sent', async () => {
+    const user = userEvent.setup()
+    const calls = stubScan()
+    await open()
+    await scan(user, `(01)08901234567807(17)${yy}0630(10)ZZQA-B1(21)SN1`)
+    expect(await screen.findByTestId('dispense-scan-matched')).toHaveTextContent('Line 1: Zz-QA Amoxy 500, batch ZZQA-B1')
+    expect(within(screen.getAllByTestId('rx-line')[0]!).getByTestId('rx-line-batch')).toHaveTextContent('Scanned batch ZZQA-B1')
+    await user.type(screen.getByLabelText('Quantity for line 1'), '5')
+    await user.click(screen.getByTestId('dispense-submit'))
+    await waitFor(() => expect(posted(calls)).toBeDefined())
+    expect(posted(calls).lines).toEqual([expect.objectContaining({ lineNo: 1, qtyBase: 5, batchNo: 'ZZQA-B1' })])
+    expect(JSON.stringify(posted(calls))).not.toMatch(/tenant/i)
+  })
+
+  it('a scan fills the item on an unlinked line by medicine name', async () => {
+    const user = userEvent.setup()
+    const calls = stubScan()
+    await open()
+    await scan(user, `]d2010890123456781417${yy}123110ZZQA-P1`)
+    expect(await screen.findByTestId('dispense-scan-matched')).toHaveTextContent('Line 2')
+    await user.type(screen.getByLabelText('Quantity for line 2'), '3')
+    await user.click(screen.getByTestId('dispense-submit'))
+    await waitFor(() => expect(posted(calls)).toBeDefined())
+    expect(posted(calls).lines).toEqual([expect.objectContaining({ lineNo: 2, itemId: 'it-2', qtyBase: 3, batchNo: 'ZZQA-P1' })])
+  })
+
+  it('warns on a drug that is not on the prescription and selects nothing', async () => {
+    const user = userEvent.setup()
+    stubScan()
+    await open()
+    await scan(user, `(01)08901234567821(17)${yy}0630(10)ZZQA-C1`)
+    expect(await screen.findByTestId('dispense-scan-wrong')).toHaveTextContent('Wrong drug? Zz-QA Ceti 10 (Cetirizine) is not on this prescription')
+    expect(screen.queryByTestId('rx-line-batch')).not.toBeInTheDocument()
+  })
+
+  it('blocks an expired pack before looking it up', async () => {
+    const user = userEvent.setup()
+    const calls = stubScan()
+    await open()
+    await scan(user, '(01)08901234567807(17)200131(10)ZZQA-OLD')
+    expect(await screen.findByTestId('dispense-scan-expired')).toHaveTextContent('This pack expired on 2020-01-31')
+    expect(calls.some((c) => c.path.startsWith('/api/v1/inventory/gtin/'))).toBe(false)
+    expect(screen.queryByTestId('rx-line-batch')).not.toBeInTheDocument()
+  })
+
+  it('explains an unlinked barcode', async () => {
+    const user = userEvent.setup()
+    stubScan()
+    await open()
+    await scan(user, `(01)09999999999994(17)${yy}0630(10)ZZQA-X`)
+    expect(await screen.findByTestId('dispense-scan-unlinked')).toHaveTextContent('not linked to a stock item yet')
+  })
+})

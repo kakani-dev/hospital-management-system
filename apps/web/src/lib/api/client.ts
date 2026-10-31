@@ -93,6 +93,7 @@ import type {
   StockItem,
   OwnerKpis,
   StockAlerts,
+  GtinLink,
   StockOnHandRow,
   StockSettings,
   PharmacyQueueRow,
@@ -822,6 +823,10 @@ export class ApiClient {
         `/api/v1/inventory/stores/${encodeURIComponent(storeId)}/items/${encodeURIComponent(itemId)}/reorder`,
         { method: 'PUT', body: JSON.stringify(body) },
       ),
+    /** GS1 GTIN-14 link for barcode scanning; `item` is null until this hospital links it once. */
+    resolveGtin: (gtin: string) => this.request<GtinLink>(`/api/v1/inventory/gtin/${encodeURIComponent(gtin)}`),
+    linkGtin: (body: { gtin: string; itemId: string }) =>
+      this.request<GtinLink>('/api/v1/inventory/gtin', { method: 'POST', body: JSON.stringify(body) }),
   }
 
   /** Pharmacy dispensing (#106). Tenant and branch scope are enforced by the server. */

@@ -40,6 +40,13 @@ public static class InventoryEndpoints
             return Write(db, tenant, HmsPermissions.InventoryCatalog, "select inventory.create_store(@t::uuid, @b::jsonb)::text", body, ct);
         });
         root.MapPost("/opening-stock", PostOpeningAsync);
+        // Pharmacy barcode scanning: a GS1 GTIN-14 links once to a catalogue item in this hospital.
+        root.MapGet("/gtin/{gtin}", (string gtin, InventoryDbContext db, ITenantContext tenant, CancellationToken ct) =>
+            Exec(db, tenant, HmsPermissions.InventoryView, "select inventory.resolve_gtin(@t::uuid, @g)::text", ct, ("g", gtin)));
+        root.MapPost("/gtin", (JsonElement body, InventoryDbContext db, ITenantContext tenant, CancellationToken ct) =>
+            body.ValueKind != JsonValueKind.Object
+                ? Task.FromResult<IResult>(HmsProblems.BadRequest(HmsProblems.Codes.InvalidParameter, "Body must be a JSON object."))
+                : Write(db, tenant, HmsPermissions.InventoryCatalog, "select inventory.link_gtin(@t::uuid, @b::jsonb)::text", body, ct));
         root.MapGet("/stock", (Guid? storeId, Guid? itemId, bool? lowStock, InventoryDbContext db, ITenantContext tenant, CancellationToken ct) =>
             Exec(db, tenant, HmsPermissions.InventoryView,
                 "select inventory.stock_on_hand(@t::uuid, @s::uuid, @i::uuid, @low::boolean)::text", ct,

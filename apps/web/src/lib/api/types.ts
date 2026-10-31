@@ -1374,6 +1374,12 @@ export interface StockPack {
   isSale: boolean
 }
 
+/** A scanned GS1 GTIN and the catalogue item it is linked to in this hospital (null when not linked yet). */
+export interface GtinLink {
+  gtin: string
+  item: StockItem | null
+}
+
 export interface StockItem {
   id: Guid
   code: string
@@ -1794,7 +1800,8 @@ export interface DispenseRequest {
   consultationId: Guid
   storeId: Guid
   note?: string
-  lines: { lineNo: number; itemId?: Guid; qtyBase: number; complete: boolean; overrideReason?: string }[]
+  /** batchNo: a scanned pack; the server then takes only from that batch and refuses it when expired. */
+  lines: { lineNo: number; itemId?: Guid; qtyBase: number; complete: boolean; overrideReason?: string; batchNo?: string }[]
 }
 
 /** #62 GL / Tally export. */
