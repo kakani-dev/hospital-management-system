@@ -69,8 +69,8 @@ public sealed class BillSessionGuardsApiTests(HmsApiFactory factory) : IClassFix
     public async Task Counter_left_open_from_an_earlier_day_is_marked_stale_and_never_reused()
     {
         // #283: relative dates only; the drawer is backdated by one day from whatever "today" is.
-        using var admin = factory.ClientAs(AlphaAdmin, Alpha, AlphaEast);
-        var first = await Post(admin, "/api/v1/counter-sessions/ensure", new { branchId = AlphaEast });
+        using var admin = factory.ClientAs(AlphaAdmin, Alpha, AlphaMain);
+        var first = await Post(admin, "/api/v1/counter-sessions/ensure", new { branchId = AlphaMain });
         Assert.Equal(HttpStatusCode.OK, first.Status);
         var staleId = first.Body.GetProperty("id").GetGuid();
         var today = DateOnly.Parse(first.Body.GetProperty("businessDate").GetString()!);
@@ -84,11 +84,12 @@ public sealed class BillSessionGuardsApiTests(HmsApiFactory factory) : IClassFix
             Assert.Equal(1, await backdate.ExecuteNonQueryAsync());
         }
 
-        var (billId, accountId) = await OpenBill(admin, AlphaEast);
+        var (billId, accountId) = await OpenBill(admin, AlphaMain);
         var onStale = await PayCash(admin, accountId, billId, 100, staleId);
         Assert.Equal(HttpStatusCode.Conflict, onStale.Status);
+        Assert.Contains("earlier business day", onStale.Body.ToString());
 
-        var fresh = await Post(admin, "/api/v1/counter-sessions/ensure", new { branchId = AlphaEast });
+        var fresh = await Post(admin, "/api/v1/counter-sessions/ensure", new { branchId = AlphaMain });
         Assert.Equal(HttpStatusCode.OK, fresh.Status);
         var freshId = fresh.Body.GetProperty("id").GetGuid();
         Assert.NotEqual(staleId, freshId);
