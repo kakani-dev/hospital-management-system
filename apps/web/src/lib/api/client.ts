@@ -90,6 +90,7 @@ import type {
   OpeningStockLine,
   StockCatalog,
   StockItem,
+  OwnerKpis,
   StockAlerts,
   StockOnHandRow,
   StockSettings,
@@ -772,6 +773,8 @@ export class ApiClient {
     signOffDay: (branchId: string, date: string, note?: string) =>
       this.request<DayCloseSummary>(`/api/v1/billing-reports/day-close/signoff${qs({ branchId, date })}`, {
         method: 'POST', body: JSON.stringify({ note }) }),
+    ownerKpis: (query: Record<string, string | undefined>) =>
+      this.request<OwnerKpis>(`/api/v1/billing-reports/owner-kpis${qs(query)}`),
     earnings: (query: Record<string, string | undefined>) =>
       this.request<EarningsReport>(`/api/v1/billing-reports/earnings${qs(query)}`),
     glLedgers: () => this.request<GlLedgerMap>('/api/v1/billing-reports/gl/ledgers'),
