@@ -69,8 +69,15 @@ test.describe('2.1 patients', () => {
     await expect(page.getByTestId('patient-row')).toHaveCount(2)
   })
 
-  test('deleting a patient with an open appointment explains the 409 (receptionist at the branch)', async ({ page }) => {
+  test('reception can edit but has no Delete patient button (#273)', async ({ page }) => {
     await signIn(page, 'reception@alpha.example')
+    await page.goto(`/patients/${patientIds.asha}`)
+    await expect(page.getByRole('button', { name: 'Edit patient' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Delete patient' })).toHaveCount(0)
+  })
+
+  test('deleting a patient with an open appointment explains the 409 (hospital admin)', async ({ page }) => {
+    await signIn(page, 'admin@alpha.example')
     await page.goto(`/patients/${patientIds.asha}`)
     await page.getByRole('button', { name: 'Delete patient' }).click()
     await page.getByRole('alertdialog').getByRole('button', { name: 'Delete patient' }).click()

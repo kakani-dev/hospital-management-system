@@ -90,22 +90,28 @@ select tests.throws_ok(
   '42501', 'reception cannot set deleted_at by direct UPDATE');
 
 -- ---------- soft delete ----------
+-- #273: the front desk cannot delete a patient record; only a hospital admin can.
+select tests.throws_ok(
+  $$select patient.soft_delete_patient('aa000000-0000-4000-8000-000000000003', 'dup')$$,
+  '42501', 'reception cannot delete a patient (hospital admin only) -> 42501');
+select tests.authenticate_as('admin@alpha.example');
 select tests.throws_ok(
   $$select patient.soft_delete_patient('aa000000-0000-4000-8000-000000000002', repeat('x', 501))$$,
   '22023', 'deletion reason over 500 chars -> 22023');
 savepoint meera_alive;
 select patient.soft_delete_patient('aa000000-0000-4000-8000-000000000003', 'dup');
 select tests.ok(
-  not exists (select 1 from patient.patients where id = 'aa000000-0000-4000-8000-000000000003'),
-  'reception (Main) can delete an East-registered patient');
+  not exists (select 1 from patient.patients where id = 'aa000000-0000-4000-8000-000000000003' and deleted_at is null),
+  'hospital admin can delete an East-registered patient');
 rollback to savepoint meera_alive;
 select tests.throws_ok(
   $$select patient.soft_delete_patient('bb000000-0000-4000-8000-000000000001', 'dup')$$,
-  'P0002', 'cross-tenant: Alpha reception deleting a Beta patient -> P0002 (no existence leak)');
+  'P0002', 'cross-tenant: Alpha admin deleting a Beta patient -> P0002 (no existence leak)');
 select tests.throws_ok(
   $$select patient.soft_delete_patient('aa000000-0000-4000-8000-000000000001', 'dup')$$,
   '55000', 'patient with an open (booked) appointment cannot be deleted -> 55000');
 select patient.soft_delete_patient('aa000000-0000-4000-8000-000000000002', 'Duplicate of ALP-0001');
+select tests.authenticate_as('reception@alpha.example');
 select tests.ok(
   not exists (select 1 from patient.patients where id = 'aa000000-0000-4000-8000-000000000002'),
   'deleted patient disappears for reception');
@@ -131,10 +137,10 @@ select tests.throws_ok(
 
 select tests.authenticate_as('admin@alpha.example');
 select tests.ok(
-  (select deleted_at is not null and deleted_by = '0a000000-0000-4000-8000-000000000002'
+  (select deleted_at is not null and deleted_by = '0a000000-0000-4000-8000-000000000001'
           and deletion_reason = 'Duplicate of ALP-0001'
    from patient.patients where id = 'aa000000-0000-4000-8000-000000000002'),
-  'tenant_admin still sees the deleted row with deleted_by/deletion_reason');
+  'tenant_admin still sees the deleted row with deleted_by (the admin who deleted it) and deletion_reason');
 select tests.throws_ok(
   $$select patient.soft_delete_patient('aa000000-0000-4000-8000-000000000002')$$,
   'P0002', 'deleting an already-deleted patient -> P0002');

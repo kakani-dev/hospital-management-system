@@ -142,8 +142,13 @@ public sealed class RbacMatrixInProcessTests(ApiFactory factory) : IClassFixture
             + File.ReadAllText(Path.Combine(dir, "supabase", "migrations", "20261027150000_inventory_pharmacy_dispense.sql"))
             + File.ReadAllText(Path.Combine(dir, "supabase", "migrations", "20261027160000_scheduling_clinical_vitals.sql"))
             + File.ReadAllText(Path.Combine(dir, "supabase", "migrations", "20261027190000_identity_billing_queue_view.sql"));
+        // later revocations (20261031130000: patient delete is hospital-admin only, #273)
+        var revoked = File.ReadAllText(Path.Combine(dir, "supabase", "migrations", "20261031130000_identity_patient_delete_admin_only.sql"));
+        var removed = Regex.Matches(revoked, @"role = '([a-z_]+)' and permission = '([a-z_]+\.[a-z_]+)'")
+            .Select(m => $"{m.Groups[1].Value}:{m.Groups[2].Value}").ToHashSet();
+        Assert.NotEmpty(removed);
         var db = Regex.Matches(sql, @"\('([a-z_]+)', '([a-z_]+\.[a-z_]+)'\)")
-            .Select(m => $"{m.Groups[1].Value}:{m.Groups[2].Value}").Order(StringComparer.Ordinal).ToList();
+            .Select(m => $"{m.Groups[1].Value}:{m.Groups[2].Value}").Where(p => !removed.Contains(p)).Order(StringComparer.Ordinal).ToList();
         var api = HmsPermissions.ByRole.SelectMany(kv => kv.Value.Select(v => $"{kv.Key}:{v}")).Order(StringComparer.Ordinal).ToList();
         Assert.Equal(api, db);
 
