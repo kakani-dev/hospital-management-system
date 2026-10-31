@@ -19,6 +19,7 @@ while (($#)); do
   case "$1" in
     -n) app="$2"; shift 2 ;;
     --secret-name) sname="$2"; shift 2 ;;
+    --revision) echo "rev=$2" >>"$store.revlog"; shift 2 ;;
     --secrets) shift; while (($#)) && [[ "$1" != -* ]]; do pairs+=("$1"); shift; done ;;
     *) shift ;;
   esac
@@ -27,7 +28,8 @@ echo "$verb $app ${#pairs[@]}" >>"$store.log"
 case "$verb" in
   "containerapp secret show") [[ -f "$store/$app/$sname" ]] || exit 3; cat "$store/$app/$sname"; echo ;;
   "containerapp secret list") ls "$store/$app" 2>/dev/null ;;
-  "containerapp revision restart") ;;
+  "containerapp revision restart"|"containerapp revision activate") ;;
+  "containerapp revision show") cat "$store/$app/.active" 2>/dev/null || echo true ;;
   "containerapp secret set") mkdir -p "$store/$app"; for p in "${pairs[@]}"; do printf '%s' "${p#*=}" >"$store/$app/${p%%=*}"; done ;;
   *) exit 9 ;;
 esac
@@ -146,5 +148,21 @@ set_all
 run legacy 'aca_secrets_sync_reused patients ca-hms-patients--s-abc' >/dev/null
 check "legacy reuse of a non-identity app touches nothing" bash -c "! grep -q 'secret set\|revision restart' '$WORK/az.log'"
 check "rollout calls the reuse sync" grep -q 'aca_secrets_sync_reused "\$service" "\$new"' "$HERE/aca-rollout.sh"
+
+# Issue #263: a reused revision gets fresh replicas before the readiness wait.
+set_all
+: >"$WORK/az.log"
+run legacy 'aca_refresh_reused patients ca-hms-patients--s-new ca-hms-patients--s-old' >/dev/null
+check "reused active revision is restarted even with no secret change" test "$(grep -c 'revision restart ca-hms-patients' "$WORK/az.log")" -eq 1
+echo false >"$WORK/az/ca-hms-identity/.active"; : >"$WORK/az.log"
+run legacy 'aca_refresh_reused identity ca-hms-identity--s-new ca-hms-identity--s-old' >/dev/null
+check "reused inactive revision is activated, not restarted" bash -c "grep -q 'revision activate ca-hms-identity' '$WORK/az.log' && ! grep -q 'revision restart' '$WORK/az.log'"
+rm -f "$WORK/az/ca-hms-identity/.active"; : >"$WORK/az.log"
+run legacy 'aca_refresh_reused billing ca-hms-billing--s-same ca-hms-billing--s-same' >/dev/null
+check "serving revision is not restarted" bash -c "! grep -q 'revision' '$WORK/az.log'"
+: >"$WORK/az.log"
+run legacy 'ACA_RESTARTED+=("ca-hms-billing"$'"'"'\t'"'"'"ca-hms-billing--s-new"); aca_refresh_reused billing ca-hms-billing--s-new ca-hms-billing--s-old' >/dev/null
+check "revision already restarted by the secret sync is not restarted twice" bash -c "! grep -q 'revision' '$WORK/az.log'"
+check "rollout refreshes a reused revision before the wait" grep -q 'aca_refresh_reused "\$service" "\$new" "\$prev"' "$HERE/aca-rollout.sh"
 
 echo "---"; ((fails == 0)) && echo "aca-secrets: all checks passed" || { echo "aca-secrets: $fails failed"; exit 1; }
