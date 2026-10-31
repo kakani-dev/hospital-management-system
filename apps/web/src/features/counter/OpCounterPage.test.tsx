@@ -13,12 +13,14 @@ const draft = (duePaise: number, status = 'draft') => ({
   lines: [{ id: 'l1', name: 'Consultation (Zz-QA)', quantity: 1, netPaise: 50000, taxPaise: 0 }], payments: [], rowVersion: 1, createdOn,
 })
 
-function routes(roles: string[], state: { due: number }, branch: string | null = ALPHA_MAIN, activeBranchId: string | null = null) {
+function routes(roles: string[], state: { due: number; many?: number }, branch: string | null = ALPHA_MAIN, activeBranchId: string | null = null) {
   const me = meWithRoles(roles, branch, { activeBranchId })
   return stubFetch({
     'GET /api/v1/me': () => json(me),
     'GET /api/v1/branches': () => json(branchesResponse),
-    'GET /api/v1/bills': () => json(state.due > 0 ? [{ ...draft(state.due), patientName: 'Zz-QA Counter Patient' }] : []),
+    'GET /api/v1/bills': () => json(state.many
+      ? Array.from({ length: state.many }, (_, i) => ({ ...draft(50000), id: `w${i}`, patientId: `p${i}`, patientName: `Zz-QA Waiting ${i}`, createdOn: new Date(Date.now() - (state.many! - i) * 60_000).toISOString() }))
+      : state.due > 0 ? [{ ...draft(state.due), patientName: 'Zz-QA Counter Patient' }] : []),
     'GET /api/v1/bills/b1': () => json(draft(state.due, state.due > 0 ? 'draft' : 'final')),
     'POST /api/v1/bills/b1/finalize': () => json(draft(0, 'final')),
     'GET /api/v1/queue': () => json([]),
@@ -30,6 +32,17 @@ function routes(roles: string[], state: { due: number }, branch: string | null =
 }
 
 describe('OpCounterPage', () => {
+  it('puts the newest unpaid bill on top and shows the rest on demand', async () => {
+    routes(['billing'], { due: 0, many: 14 })
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: '/billing/counter', auth: fakeAuthClient({ session: fakeSession() }) })
+    expect(await screen.findByTestId('opc-waiting-w13')).toBeInTheDocument() // issued a minute ago
+    expect(screen.getByTestId('opc-waiting-count')).toHaveTextContent('14')
+    expect(screen.queryByTestId('opc-waiting-w0')).not.toBeInTheDocument()
+    await user.click(screen.getByTestId('opc-waiting-toggle'))
+    expect(screen.getByTestId('opc-waiting-w0')).toBeInTheDocument()
+  })
+
   it('billing role is collect-only: no register and no doctor tokens, but can collect a waiting bill in cash with change', async () => {
     const calls = routes(['billing'], { due: 50000 })
     const user = userEvent.setup()

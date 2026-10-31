@@ -28,6 +28,8 @@ const chipOn = 'border-primary-600 bg-primary-600 text-white'
 const chipOff = 'border-gray-300 text-gray-700 hover:bg-gray-100 dark:border-dark-450 dark:text-dark-100 dark:hover:bg-dark-600'
 const input = 'h-8 rounded-md border border-gray-300 px-2 text-sm dark:border-dark-450 dark:bg-dark-700'
 const err = errorText
+/** Rows in the side list before "Show all"; newest bills come first so a just-issued token is visible. */
+const WAITING_SHOWN = 12
 
 /** One-screen OP counter: find/register, token (auto-bills), discount, collect, print — keyboard first. */
 export function OpCounterPage() {
@@ -56,6 +58,7 @@ export function OpCounterPage() {
 
   const searchRef = useRef<HTMLInputElement>(null)
   const [term, setTerm] = useState('')
+  const [allWaiting, setAllWaiting] = useState(false)
   const [debounced, setDebounced] = useState('')
   const [active, setActive] = useState(0)
   const [patient, setPatient] = useState<PatientSummary | null>(null)
@@ -406,10 +409,10 @@ export function OpCounterPage() {
       <aside className="space-y-4 text-sm" data-testid="opc-side">
         {canCollect && (
           <div>
-            <h2 className="mb-1 font-semibold">Waiting to pay</h2>
+            <h2 className="mb-1 font-semibold">Waiting to pay{pending.length > 0 && <span className="ml-1 font-normal text-gray-500" data-testid="opc-waiting-count">({pending.length})</span>}</h2>
             <ul className="divide-y rounded-md border border-gray-200 dark:divide-dark-500 dark:border-dark-500" data-testid="opc-waiting">
               {pending.length === 0 && <li className="px-3 py-1.5 text-gray-500">No one waiting.</li>}
-              {pending.slice(0, 12).map(({ bill: b, token: t }) => (
+              {(allWaiting ? pending : pending.slice(0, WAITING_SHOWN)).map(({ bill: b, token: t }) => (
                 <li key={b.id}>
                   <button type="button" className="flex w-full justify-between px-3 py-1.5 text-left hover:bg-gray-50 dark:hover:bg-dark-600" data-testid={`opc-waiting-${b.id}`}
                     onClick={() => void openPending(b.id, t)}>
@@ -419,6 +422,11 @@ export function OpCounterPage() {
                 </li>
               ))}
             </ul>
+            {pending.length > WAITING_SHOWN && (
+              <button type="button" className="mt-1 text-xs text-primary-700 underline" data-testid="opc-waiting-toggle" onClick={() => setAllWaiting((v) => !v)}>
+                {allWaiting ? 'Show fewer' : `Show all ${pending.length}`}
+              </button>
+            )}
           </div>
         )}
         {totals.data && (

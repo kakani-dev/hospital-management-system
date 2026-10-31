@@ -25,6 +25,8 @@ public static class PatientEndpoints
     /// <summary>Soft delete (D1): tenant_admin (tenant-wide) or receptionist AT the patient's branch.</summary>
 
     internal const int SearchMaxLength = 100;
+    /// <summary>A search is split into words; extra words past this are ignored (bounded query size).</summary>
+    internal const int MaxSearchWords = 5;
     internal const int DeletionReasonMaxLength = 500;
 
     public static RouteGroupBuilder MapPatientEndpoints(this RouteGroupBuilder api)
@@ -179,11 +181,17 @@ public static class PatientEndpoints
 
         if (!string.IsNullOrWhiteSpace(request.Search))
         {
-            var term = request.Search.Trim().ToLowerInvariant();
+            // Every word must match MRN, first or last name, so a full name ("Ravi Kumar") finds the
+            // patient even though no single column holds both words.
+            var words = request.Search.Trim().ToLowerInvariant().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+            foreach (var word in words.Distinct().Take(MaxSearchWords))
+            {
+                var term = word;
 #pragma warning disable CA1862 // must stay an EF-translatable expression (lower(x) LIKE %term%) across providers
-            query = query.Where(x =>
-                x.Mrn.ToLower().Contains(term) || x.FirstName.ToLower().Contains(term) || x.LastName.ToLower().Contains(term));
+                query = query.Where(x =>
+                    x.Mrn.ToLower().Contains(term) || x.FirstName.ToLower().Contains(term) || x.LastName.ToLower().Contains(term));
 #pragma warning restore CA1862
+            }
         }
 
         if (phone is not null)
