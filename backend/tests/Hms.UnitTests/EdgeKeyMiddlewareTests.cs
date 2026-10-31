@@ -6,6 +6,8 @@ namespace Hms.UnitTests;
 /// <summary>Issue #68: services accept Edge:Key and, during a rotation, Edge:PreviousKey.</summary>
 public class EdgeKeyMiddlewareTests
 {
+    private static readonly string[] RepeatedHeader = ["new", "old"];
+
     [Fact]
     public void Current_key_only_when_previous_is_unset()
     {
@@ -41,6 +43,6 @@ public class EdgeKeyMiddlewareTests
         var keys = EdgeKeyMiddleware.AcceptedKeys("new", "old");
         Assert.False(EdgeKeyMiddleware.Matches(StringValues.Empty, keys));
         Assert.False(EdgeKeyMiddleware.Matches(new StringValues(string.Empty), keys));
-        Assert.False(EdgeKeyMiddleware.Matches(new StringValues(new[] { "new", "old" }), keys));
+        Assert.False(EdgeKeyMiddleware.Matches(new StringValues(RepeatedHeader), keys));
     }
 }
