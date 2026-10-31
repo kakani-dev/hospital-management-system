@@ -485,4 +485,61 @@ public sealed class PatientsSprint2InProcessTests(ApiFactory factory) : IClassFi
     private sealed record Page(List<Summary> Items, int TotalCount);
 
     private sealed record Dupes(List<Candidate> Candidates);
+
+    [Fact]
+    public async Task Registration_details_round_trip_and_minor_without_guardian_is_refused()
+    {
+        using var client = factory.ClientAs(Admin);
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        // #58: a 10-year-old (relative date) needs a guardian under the default tenant rule (below 18).
+        var minor = await client.PostAsJsonAsync("/api/v1/patients", new
+        {
+            firstName = "Zz-QA", lastName = Unique("Kid"), registeredBranchId = Main, sex = "female",
+            dateOfBirth = today.AddYears(-10).ToString("yyyy-MM-dd"), noPhoneReason = "child, parent's phone below",
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, minor.StatusCode);
+        Assert.Contains("details.guardianName", await minor.Content.ReadAsStringAsync());
+
+        var created = await client.PostAsJsonAsync("/api/v1/patients", new
+        {
+            firstName = "Zz-QA", lastName = Unique("Kid"), registeredBranchId = Main, sex = "female",
+            dateOfBirth = today.AddYears(-10).ToString("yyyy-MM-dd"), noPhoneReason = "child, parent's phone below",
+            details = new
+            {
+                addressLine = "  12, 4th Cross,   Jayanagar ", city = "Bengaluru", state = "Karnataka", pinCode = "560 011",
+                guardianName = "Zz-QA Parent", guardianRelation = "Mother",
+                emergencyContactName = "Zz-QA Parent", emergencyContactRelation = "Mother", emergencyContactPhone = "98450 00011",
+                bloodGroup = "b +ve", referralSource = "doctor", referredBy = "Zz-QA Dr Rao",
+            },
+        });
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var body = await created.Content.ReadFromJsonAsync<JsonElement>();
+        var d = body.GetProperty("details");
+        Assert.Equal("12, 4th Cross, Jayanagar", d.GetProperty("addressLine").GetString());
+        Assert.Equal("560011", d.GetProperty("pinCode").GetString());
+        Assert.Equal("+919845000011", d.GetProperty("emergencyContactPhone").GetString());
+        Assert.Equal("B+", d.GetProperty("bloodGroup").GetString());
+        var id = body.GetProperty("id").GetGuid();
+
+        // Unrelated edits keep the details; a doctor referral without the doctor's name is refused; null clears.
+        Assert.Equal(HttpStatusCode.OK, (await PatchAsync(client, id, new { firstName = "Zz-QA2" })).StatusCode);
+        var kept = await client.GetFromJsonAsync<JsonElement>($"/api/v1/patients/{id}");
+        Assert.Equal("Zz-QA Parent", kept.GetProperty("details").GetProperty("guardianName").GetString());
+        var noReferrer = await PatchAsync(client, id, new { details = new { guardianName = "Zz-QA Parent", referralSource = "doctor" } });
+        Assert.Equal(HttpStatusCode.BadRequest, noReferrer.StatusCode);
+        Assert.Contains("details.referredBy", await noReferrer.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.OK, (await PatchAsync(client, id, new { details = (object?)null })).StatusCode);
+    }
+
+    [Fact]
+    public async Task Registration_settings_are_validated_and_need_settings_manage()
+    {
+        using var client = factory.ClientAs(Admin);
+        var current = await client.GetFromJsonAsync<JsonElement>("/api/v1/patients/registration-settings");
+        Assert.Equal(18, current.GetProperty("guardianRequiredBelowAgeYears").GetInt32());
+        var bad = await client.PutAsJsonAsync("/api/v1/patients/registration-settings", new { guardianRequiredBelowAgeYears = 40 });
+        Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
+        // Saving the defaults back is a no-op for other tests sharing the tenant.
+        Assert.Equal(HttpStatusCode.OK, (await client.PutAsJsonAsync("/api/v1/patients/registration-settings", current)).StatusCode);
+    }
 }

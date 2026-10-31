@@ -13,6 +13,10 @@ import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
 import { FormField } from '../../components/ui/FormField'
 import { SelectField } from '../../components/ui/SelectField'
+import { RegistrationDetailsFields } from './RegistrationDetailsFields'
+import { ageFrom, EMPTY_DETAILS, type DetailsFormValues } from './patientSchema'
+import { useRegistrationSettings } from '../../lib/api/hooks'
+import { localToday } from '../../lib/dates'
 import { PATIENT_SEARCH_DEBOUNCE_MS, useCreatePatient, useTenantCountryCode } from '../../lib/api/hooks'
 import { useDebouncedValue } from '../../lib/useDebouncedValue'
 import { ApiError, apiClient, fieldErrors } from '../../lib/api/client'
@@ -99,6 +103,7 @@ export function RegisterPatientPage({
       whatsappNumber: '',
       abhaNumber: '',
       knownAllergies: '',
+      details: { ...EMPTY_DETAILS },
     },
   })
 
@@ -114,6 +119,16 @@ export function RegisterPatientPage({
   const watchedDob = useWatch({ control, name: 'dateOfBirth' }) ?? ''
   const watchedAbha = useWatch({ control, name: 'abhaNumber' }) ?? ''
   const noPhone = useWatch({ control, name: 'noPhone' }) ?? false
+  const watchedAge = useWatch({ control, name: 'ageYears' }) ?? ''
+  const watchedReferral = useWatch({ control, name: 'details.referralSource' })
+  const registrationSettings = useRegistrationSettings().data
+  const detailsProps = {
+    register: register as unknown as UseFormRegister<{ details?: DetailsFormValues }>,
+    errors: errors as FieldErrors<{ details?: DetailsFormValues }>,
+    settings: registrationSettings,
+    ageYears: ageFrom(watchedDob, watchedAge, localToday()),
+    referralSource: watchedReferral,
+  }
   // WhatsappFields is shared with the edit form; it only touches the phone / WhatsApp fields.
   const whatsappProps = {
     control: control as unknown as Control<PatientFormValues>,
@@ -205,7 +220,7 @@ export function RegisterPatientPage({
       const fields = fieldErrors(error)
       for (const [field, message] of Object.entries(fields)) {
         const key = field === 'whatsapp' ? 'whatsappNumber' : field
-        if (key in values) setError(key as keyof RegisterPatientFormValues, { message })
+        if (key in values || key.startsWith('details.')) setError(key as keyof RegisterPatientFormValues, { message })
       }
       setFormError(
         error instanceof ApiError && error.status === 403
@@ -373,6 +388,7 @@ export function RegisterPatientPage({
             {...register('knownAllergies')}
           />
           {!noPhone && <WhatsappFields {...whatsappProps} />}
+          <RegistrationDetailsFields {...detailsProps} />
         </div>
         {consent}
         <div className="flex flex-wrap gap-2">
@@ -518,6 +534,7 @@ export function RegisterPatientPage({
             {...register('knownAllergies')}
           />
           {!noPhone && <WhatsappFields {...whatsappProps} />}
+          <RegistrationDetailsFields {...detailsProps} />
           {consent && <div className="sm:col-span-2">{consent}</div>}
           <div className="sm:col-span-2">
             <Button type="submit" disabled={isSubmitting || creatingAnyway}>

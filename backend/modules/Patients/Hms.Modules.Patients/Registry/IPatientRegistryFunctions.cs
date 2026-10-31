@@ -33,6 +33,12 @@ public interface IPatientRegistryFunctions
     /// <summary><c>identity.tenant_default_country_code_v1</c>: the caller's own tenant calling code (e.g. +91); null if not a member.</summary>
     Task<string?> DefaultCountryCodeAsync(Guid tenantId, CancellationToken ct);
 
+    /// <summary>#58: the tenant's registration rules (defaults when the tenant has none saved).</summary>
+    Task<RegistrationSettings> RegistrationSettingsAsync(Guid tenantId, CancellationToken ct) => Task.FromResult(RegistrationSettings.Defaults);
+
+    /// <summary>#58: saves the tenant's registration rules (tenant from the server context only).</summary>
+    Task SaveRegistrationSettingsAsync(Guid tenantId, RegistrationSettings settings, CancellationToken ct) => Task.CompletedTask;
+
     /// <summary><c>appointment.patient_last_booked_v1</c>: latest booking time per patient (patients.view), newest first, ≤ 500.</summary>
     Task<IReadOnlyList<(Guid PatientId, DateTimeOffset LastBookedAt)>> LastBookedAsync(Guid tenantId, int limit, CancellationToken ct);
 

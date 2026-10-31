@@ -235,6 +235,17 @@ internal sealed class InMemoryPatientRegistryFunctions(PatientsDbContext db, ITe
         await db.SaveChangesAsync(ct);
     }
 
+    internal static readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, Hms.Modules.Patients.Endpoints.RegistrationSettings> Settings = new();
+
+    public Task<Hms.Modules.Patients.Endpoints.RegistrationSettings> RegistrationSettingsAsync(Guid tenantId, CancellationToken ct) =>
+        Task.FromResult(Settings.TryGetValue(tenantId, out var s) ? s : Hms.Modules.Patients.Endpoints.RegistrationSettings.Defaults);
+
+    public Task SaveRegistrationSettingsAsync(Guid tenantId, Hms.Modules.Patients.Endpoints.RegistrationSettings settings, CancellationToken ct)
+    {
+        Settings[tenantId] = settings;
+        return Task.CompletedTask;
+    }
+
     public Task<string?> DefaultCountryCodeAsync(Guid tenantId, CancellationToken ct) =>
         Task.FromResult<string?>(tenantId == tenant.TenantId ? "+91" : null);
 

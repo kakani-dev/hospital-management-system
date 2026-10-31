@@ -166,6 +166,16 @@ export function useTenantCountryCode(): string | null {
   return useCurrentTenant().data?.defaultCountryCode ?? null
 }
 
+/** #58: the tenant's registration rules (guardian age etc.); cached, rarely changes. */
+export function useRegistrationSettings() {
+  return useQuery({
+    queryKey: ['patients', 'registration-settings'] as const,
+    queryFn: () => apiClient.patients.registrationSettings(),
+    staleTime: 10 * 60_000,
+    retry: false,
+  })
+}
+
 export function usePatient(id: string) {
   return useQuery({ queryKey: queryKeys.patient(id), queryFn: () => apiClient.patients.get(id), enabled: id.length > 0, retry: false })
 }
