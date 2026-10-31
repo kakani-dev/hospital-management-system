@@ -14,7 +14,7 @@ Nothing here talks to Postgres. SQL is written to a 0600 file for an operator to
 (Supabase SQL editor or MCP); it contains only a SCRAM verifier, never a password.
 Passwords and connection strings go from memory to `gh secret set` on stdin, or to 0600
 files under ROTATION_DIR (default /dev/shm/hms-rotation). Output is names, slots and
-short sha256 prefixes only. See docs/runbooks/credential-rotation.md.
+no secret-derived values only. See docs/runbooks/credential-rotation.md.
 """
 from __future__ import annotations
 
@@ -46,10 +46,6 @@ def env(name: str, default: str | None = None) -> str:
     if not value:
         raise RotationError(f"set {name}")
     return value
-
-
-def short_hash(value: str) -> str:
-    return hashlib.sha256(value.encode()).hexdigest()[:12]
 
 
 # --- manifest -------------------------------------------------------------------------
@@ -248,7 +244,7 @@ def cmd_status(service: str) -> None:
     role, _ = split_user(connstr_get(parse_connstr(value), "Username"))
     a, b = slots(role)
     print(f"{service}: app uses {role} (slot {'b' if role == b else 'a'}), standby {standby_of(role)}, "
-          f"{aca} sha256 {short_hash(value)}, GitHub secret {gh}")
+          f"app secret {aca}, GitHub secret {gh}")
 
 
 def cmd_prepare(service: str) -> None:
@@ -263,7 +259,7 @@ def cmd_prepare(service: str) -> None:
     write_private(d / f"{service}.connstr", new)
     write_private(d / f"{service}.prepare.sql", prepare_sql(role, standby, scram_verifier(password)))
     write_private(d / f"{service}.active", role)
-    print(f"{service}: prepared {standby} (active {role}); new connstr sha256 {short_hash(new)}; "
+    print(f"{service}: prepared {standby} (active {role}); "
           f"run {d / (service + '.prepare.sql')} in Supabase, then: publish {service}")
 
 
@@ -274,7 +270,7 @@ def cmd_publish(service: str) -> None:
         raise RotationError(f"run prepare {service} first")
     value = path.read_text()
     gh_secret_set(gh, value)
-    print(f"{service}: {gh} set (sha256 {short_hash(value)}). Dispatch deploy-aca with the current tag and a blank service.")
+    print(f"{service}: {gh} set. Dispatch deploy-aca with the current tag and a blank service.")
 
 
 def cmd_retire(service: str) -> None:
@@ -299,15 +295,15 @@ def cmd_edge_prepare() -> None:
     new = new_password()
     gh_secret_set(gh_prev, current)
     gh_secret_set(gh_cur, new)
-    print(f"edge key: {gh_prev} = live key (sha256 {short_hash(current)}), {gh_cur} = new key "
-          f"(sha256 {short_hash(new)}). Dispatch deploy-aca with the current tag and a blank service (edge rolls last).")
+    print(f"edge key: {gh_prev} = live key, {gh_cur} = new key. "
+          f"Dispatch deploy-aca with the current tag and a blank service (edge rolls last).")
 
 
 def cmd_edge_retire() -> None:
     aca_cur, gh_cur, _, gh_prev = edge_key_secrets()
     current = live_secret(app_name("edge"), aca_cur)
     gh_secret_set(gh_prev, current)
-    print(f"edge key: {gh_prev} = current key (sha256 {short_hash(current)}); previous key retired after the next full deploy.")
+    print(f"edge key: {gh_prev} = current key; previous key retired after the next full deploy.")
 
 
 def cmd_cleanup() -> None:

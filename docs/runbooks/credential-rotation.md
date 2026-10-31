@@ -1,8 +1,8 @@
 # Zero-downtime credential rotation (issue #68)
 
 Tool: `scripts/ops/credential_rotation.py` (tests: `credential_rotation_test.py`, run in CI).
-It never prints a password, key or connection string, only role names, slots and 12-char
-sha256 prefixes. Working files go to `ROTATION_DIR` (default `/dev/shm/hms-rotation`, mode 0700/0600).
+It never prints a password, key, connection string or anything derived from one; only
+service, role and secret names. Working files go to `ROTATION_DIR` (default `/dev/shm/hms-rotation`, mode 0700/0600).
 Env: `RG` (resource group, required), `ROTATION_APP_PREFIX` (default `ca-hms-`).
 Needs `az` (logged in, read secrets) and `gh` (repo secret write).
 
@@ -19,7 +19,7 @@ the deploy already does on failure.
 1. `ACA_SECRETS_SOURCE=github` (in `legacy` the deploy does not write `hms-db`/`hms-edge-key`).
 2. No `deploy-aca` run in flight, and none from other workstreams until you finish. One rotation at a time.
 3. Production healthy: `/health/ready` 200 on all apps, QA smoke passes.
-4. Note the hash prefixes of live secrets (`credential_rotation.py status <svc>`) for the evidence log.
+4. Note which slot each app uses (`credential_rotation.py status <svc>`) for the evidence log.
 
 ## Database logins: blue/green slots
 
