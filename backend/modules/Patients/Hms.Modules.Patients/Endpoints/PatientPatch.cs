@@ -12,7 +12,7 @@ public sealed class PatientPatch
     private static readonly HashSet<string> Known = new(StringComparer.OrdinalIgnoreCase)
     {
         "firstName", "lastName", "dateOfBirth", "sex", "phone", "email", "registeredBranchId", "mrn", "whatsapp", "abhaNumber",
-        "duplicateOverrideReason",
+        "duplicateOverrideReason", "knownAllergies",
     };
 
     // Accepted and ignored everywhere in the API: the tenant always comes from the server context.
@@ -28,6 +28,7 @@ public sealed class PatientPatch
     public Field<string?> Mrn { get; private set; }
     public Field<string?> AbhaNumber { get; private set; }
     public Field<string?> DuplicateOverrideReason { get; private set; }
+    public Field<string?> KnownAllergies { get; private set; }
 
     /// <summary>Absent = unchanged; null = no WhatsApp; object = { sameAsPhone, number }.</summary>
     public Field<WhatsappInput?> Whatsapp { get; private set; }
@@ -66,6 +67,7 @@ public sealed class PatientPatch
                 case "MRN": patch.Mrn = Text(value, "mrn", errors); break;
                 case "ABHANUMBER": patch.AbhaNumber = Text(value, "abhaNumber", errors); break;
                 case "DUPLICATEOVERRIDEREASON": patch.DuplicateOverrideReason = Text(value, "duplicateOverrideReason", errors); break;
+                case "KNOWNALLERGIES": patch.KnownAllergies = Text(value, "knownAllergies", errors); break;
                 case "WHATSAPP": patch.Whatsapp = WhatsappValue(value, errors); break;
                 case "DATEOFBIRTH": patch.DateOfBirth = Date(value, errors); break;
                 case "REGISTEREDBRANCHID": patch.RegisteredBranchId = BranchId(value, errors); break;

@@ -10,6 +10,7 @@ public static partial class CreatePatientValidator
 
     /// <summary>Max email length (RFC 5321 path limit; matches the DB CHECK).</summary>
     public const int EmailMaxLength = 254;
+    public const int AllergiesMaxLength = 500;
 
     /// <summary>
     /// Validates a create request. <paramref name="today"/> is the current date IN THE REGISTERING
@@ -54,6 +55,11 @@ public static partial class CreatePatientValidator
         if (request.Email is { Length: > 0 } email && (email.Length > EmailMaxLength || !email.Contains('@', StringComparison.Ordinal)))
         {
             errors["email"] = [$"Email is not valid (max {EmailMaxLength} characters)."];
+        }
+
+        if (NormalizeAllergies(request.KnownAllergies) is { Length: > AllergiesMaxLength })
+        {
+            errors["knownAllergies"] = [$"Known allergies must be at most {AllergiesMaxLength} characters."];
         }
 
         if (!string.IsNullOrWhiteSpace(request.AbhaNumber) && NormalizeAbha(request.AbhaNumber) is null)
@@ -125,4 +131,7 @@ public static partial class CreatePatientValidator
 
     /// <summary>MRNs are stored upper-case so uniqueness is case-insensitive (DB: unique (tenant_id, upper(mrn))).</summary>
     public static string NormalizeMrn(string mrn) => mrn.Trim().ToUpperInvariant();
+
+    /// <summary>#275: trims known allergies; blank means "not recorded" (null).</summary>
+    public static string? NormalizeAllergies(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }

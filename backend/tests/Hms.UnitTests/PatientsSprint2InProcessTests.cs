@@ -34,6 +34,34 @@ public sealed class PatientsSprint2InProcessTests(ApiFactory factory) : IClassFi
     }
 
     [Fact]
+    public async Task Known_allergies_are_saved_on_create_and_merge_patched_with_a_length_limit()
+    {
+        using var client = factory.ClientAs(Admin);
+        var created = await client.PostAsJsonAsync("/api/v1/patients", new
+        {
+            mrn = Unique("m"), firstName = "Zz-QA", lastName = Unique("Allergy"), registeredBranchId = Main,
+            sex = "unknown", ageYears = 30, noPhoneReason = "test fixture", knownAllergies = "  Penicillin  "
+        });
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var id = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
+        async Task<string?> AllergiesAsync() =>
+            (await client.GetFromJsonAsync<JsonElement>($"/api/v1/patients/{id}")).GetProperty("knownAllergies") is { ValueKind: JsonValueKind.String } v ? v.GetString() : null;
+        Assert.Equal("Penicillin", await AllergiesAsync());
+
+        // A patch without the field keeps it; an explicit value replaces it; blank or null clears it (not recorded).
+        Assert.Equal(HttpStatusCode.OK, (await PatchAsync(client, id, new { firstName = "Zz-QA2" })).StatusCode);
+        Assert.Equal("Penicillin", await AllergiesAsync());
+        Assert.Equal(HttpStatusCode.OK, (await PatchAsync(client, id, new { knownAllergies = "No known allergies" })).StatusCode);
+        Assert.Equal("No known allergies", await AllergiesAsync());
+        Assert.Equal(HttpStatusCode.OK, (await PatchAsync(client, id, new { knownAllergies = "   " })).StatusCode);
+        Assert.Null(await AllergiesAsync());
+
+        var tooLong = await PatchAsync(client, id, new { knownAllergies = new string('a', 501) });
+        Assert.Equal(HttpStatusCode.BadRequest, tooLong.StatusCode);
+        Assert.Contains("knownAllergies", await tooLong.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
     public async Task List_sort_recent_orders_by_the_later_of_registration_and_latest_booking()
     {
         var older = await CreateAsync(Main);

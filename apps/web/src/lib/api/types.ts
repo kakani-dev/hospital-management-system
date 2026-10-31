@@ -393,6 +393,8 @@ export interface PatientDetail extends PatientSummary {
   whatsappSameAsPhone?: boolean
   /** ABHA number, XX-XXXX-XXXX-XXXX (null when not recorded). */
   abhaNumber?: string | null
+  /** #275: free text; null = not recorded. */
+  knownAllergies?: string | null
 }
 
 /**
@@ -411,6 +413,8 @@ export interface UpdatePatientRequest {
   whatsapp?: WhatsappInput | null
   /** Sent when a same-name chart is confirmed as a different person. */
   duplicateOverrideReason?: string | null
+  /** #275: null clears (not recorded). */
+  knownAllergies?: string | null
 }
 
 /** POST /api/v1/patients/duplicates. Email, phone and ABHA are hard matches; name is a warning. */
@@ -1495,7 +1499,7 @@ export interface RecordVitalsRequest {
 /** #106 pharmacy dispensing (inventory service, ADR 0004). */
 export type RxDispenseStatus = 'pending' | 'partial' | 'dispensed'
 
-export interface PharmacyQueueRow {
+export interface PharmacyQueueRow extends PharmacyPatientSafety {
   id: Guid
   branchId: Guid
   patientId: Guid
@@ -1508,6 +1512,16 @@ export interface PharmacyQueueRow {
   expired?: boolean
   lineCount: number
   status: RxDispenseStatus
+}
+
+/** #275: what the pharmacist must see before dispensing (from pharmacy.patient_safety_json). */
+export interface PharmacyPatientSafety {
+  patientSex?: string | null
+  patientDateOfBirth?: string | null
+  patientDobEstimated?: boolean | null
+  patientAgeYears?: number | null
+  /** null = not recorded. */
+  patientAllergies?: string | null
 }
 
 export interface PharmacyRxLine {
@@ -1538,7 +1552,7 @@ export interface PharmacyDispenseRecord {
   lines: { prescriptionLineId: Guid; itemId: Guid; brandName: string; batchId: Guid; batchNo: string; expiryDate: string; qtyBase: number; completesLine: boolean; overrideReason?: string | null }[]
 }
 
-export interface PharmacyPrescription {
+export interface PharmacyPrescription extends PharmacyPatientSafety {
   id: Guid
   branchId: Guid
   patientId: Guid

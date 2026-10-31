@@ -353,6 +353,7 @@ public static class PatientEndpoints
             RegisteredBranchId = request.RegisteredBranchId,
             Email = email,
             AbhaNumber = abha,
+            KnownAllergies = CreatePatientValidator.NormalizeAllergies(request.KnownAllergies),
             DuplicateOverrideReason = storedReason,
             // TenantId is assigned by TenantSaveChangesInterceptor from the resolved context.
             // Audit columns are DB-managed and never sent (see AuditColumnConventions).
@@ -437,7 +438,8 @@ public static class PatientEndpoints
             targetBranch,
             patch.Phone.Or(patient.Phone),
             patch.Email.Or(patient.Email),
-            AbhaNumber: patch.AbhaNumber.Or(patient.AbhaNumber));
+            AbhaNumber: patch.AbhaNumber.Or(patient.AbhaNumber),
+            KnownAllergies: patch.KnownAllergies.Or(patient.KnownAllergies));
 
         var branchTimeZone = tenant.TimeZoneFor(targetBranch);
         errors = CreatePatientValidator.Validate(merged, BranchClock.Today(timeProvider, branchTimeZone));
@@ -537,6 +539,7 @@ public static class PatientEndpoints
         patient.RegisteredBranchId = targetBranch;
         patient.Email = email;
         patient.AbhaNumber = abha;
+        patient.KnownAllergies = CreatePatientValidator.NormalizeAllergies(merged.KnownAllergies);
 
         try
         {

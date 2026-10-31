@@ -22,6 +22,8 @@ public sealed class Patient : AuditableEntity, ITenantOwned
     public string Sex { get; set; } = PatientSex.Unknown;
     public string? Phone { get; set; }
     public string? Email { get; set; }
+    /// <summary>#275: known allergies as recorded by the front desk / admin (free text). Null = not recorded.</summary>
+    public string? KnownAllergies { get; set; }
     /// <summary>Optional ABHA number (Ayushman Bharat Health Account), stored as XX-XXXX-XXXX-XXXX.</summary>
     public string? AbhaNumber { get; set; }
     /// <summary>Why a same-name chart was kept. Null when the name did not match another live patient.</summary>

@@ -17,6 +17,9 @@ export const DOB_ERROR = 'Date of birth must be between 1900-01-01 and today'
 /** "Today" in the branch zone; with no zone known yet, the latest date anywhere (the API re-checks). */
 const todayIn = (timeZone: string | undefined) => (timeZone ? localToday(new Date(), timeZone) : latestToday())
 
+/** Same limit as the API (CreatePatientValidator.AllergiesMaxLength). */
+export const ALLERGIES_MAX = 500
+
 export function createPatientSchema(getTimeZone: TimeZoneGetter = () => undefined) {
   return z.object({
   firstName: z.string().trim().min(1, { error: 'First name is required' }).max(100, { error: 'Max 100 characters' }),
@@ -36,6 +39,8 @@ export function createPatientSchema(getTimeZone: TimeZoneGetter = () => undefine
   whatsappNumber: optionalText(32).refine((v) => v === '' || PHONE_SHAPE.test(v), { error: WHATSAPP_ERROR }),
   /** Optional ABHA number: 14 digits, spaces / dashes allowed while typing. */
   abhaNumber: z.string().trim().optional().refine((v) => !v || toAbha(v) !== null, { error: ABHA_ERROR }),
+  /** #275: free text shown to the pharmacist at dispense. Blank = not recorded. */
+  knownAllergies: z.string().trim().max(ALLERGIES_MAX, { error: `Keep allergies to ${ALLERGIES_MAX} characters` }).optional(),
 })
 }
 
@@ -123,6 +128,7 @@ export function toCreatePatientRequest(v: RegisterPatientFormValues, duplicateOv
     email: v.email || null,
     whatsapp: toWhatsappInput(v),
     abhaNumber: toAbha(v.abhaNumber ?? ''),
+    ...(v.knownAllergies?.trim() ? { knownAllergies: v.knownAllergies.trim() } : {}),
     ...(reason ? { duplicateOverrideReason: reason } : {}),
   }
 }
@@ -145,6 +151,8 @@ export function toUpdatePatientRequest(v: PatientEditValues, duplicateOverrideRe
     email: v.email || null,
     whatsapp: toWhatsappInput(v),
     abhaNumber: toAbha(v.abhaNumber ?? ''),
+    // Cleared = not recorded (null); the pharmacist then sees a warning.
+    knownAllergies: v.knownAllergies?.trim() || null,
     ...(reason ? { duplicateOverrideReason: reason } : {}),
   }
 }

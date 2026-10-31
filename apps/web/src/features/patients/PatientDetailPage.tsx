@@ -97,6 +97,7 @@ export function PatientDetailPage() {
             <PhoneFields patient={p} />
             <Field label="Email" value={p.email ?? '—'} />
             <Field label="ABHA number" value={p.abhaNumber ?? '—'} />
+            <Field label="Known allergies" value={p.knownAllergies ?? 'Not recorded'} />
           </dl>
           {(canWrite || canDelete || canMerge) && (
             <div className="mt-4 flex flex-wrap gap-2">
@@ -285,6 +286,7 @@ function EditPatientForm({
       whatsappSameAsPhone: patient.phones?.length ? !!patient.whatsappSameAsPhone : true,
       whatsappNumber: patient.phones?.find((x) => x.isWhatsapp && !x.isPrimary)?.number ?? '',
       abhaNumber: patient.abhaNumber ?? '',
+      knownAllergies: patient.knownAllergies ?? '',
     },
   })
 
@@ -400,6 +402,14 @@ function EditPatientForm({
           placeholder="XX-XXXX-XXXX-XXXX"
           error={errors.abhaNumber?.message}
           {...register('abhaNumber')}
+        />
+        <FormField
+          label="Known allergies (optional)"
+          autoComplete="off"
+          placeholder="e.g. Penicillin, or No known allergies"
+          data-testid="patient-known-allergies"
+          error={errors.knownAllergies?.message}
+          {...register('knownAllergies')}
         />
         <WhatsappFields control={control} register={register} errors={errors} />
         <div className="flex gap-2 sm:col-span-2">

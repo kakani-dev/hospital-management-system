@@ -8,7 +8,7 @@ import { LoadingBlock } from '../../components/ui/LoadingBlock'
 import { apiClient } from '../../lib/api/client'
 import type { PharmacyPrescription, PharmacyRxLine, StockItem } from '../../lib/api/types'
 import { useCurrentContext } from '../tenancy/useCurrentContext'
-import { problemText, StatusBadge } from './pharmacyUi'
+import { problemText, StatusBadge, AllergyNotice, ageSexText } from './pharmacyUi'
 
 const selectClass = 'mt-1 min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-dark-500 dark:bg-dark-700'
 const DISPENSING_STORES = new Set(['op_pharmacy', 'ip_pharmacy'])
@@ -112,6 +112,8 @@ export function DispensePage() {
         <h1 className="text-xl font-semibold text-gray-900 dark:text-dark-50">{data.patientName} ({data.patientMrn})</h1>
         <StatusBadge status={data.status} />
       </div>
+      {ageSexText(data) && <p className="text-sm text-gray-800 dark:text-dark-100" data-testid="rx-patient-age-sex">{ageSexText(data)}</p>}
+      <AllergyNotice patient={data} />
       <p className="text-sm text-gray-600 dark:text-dark-200" data-testid="rx-meta">
         {data.doctorName} · {new Date(data.finalizedOn).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
       </p>
