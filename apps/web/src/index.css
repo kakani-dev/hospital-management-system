@@ -39,4 +39,6 @@
   body:has([data-print-area]) [data-print-area],
   body:has([data-print-area]) [data-print-area] * { visibility: visible !important; }
   body:has([data-print-area]) [data-print-area] { position: absolute; inset: 0 auto auto 0; width: 100%; margin: 0; padding: 12mm; }
+  /* Prescription: the tenant's @page size/margin set the paper edge, so no extra padding (fits one A5 sheet). */
+  body:has([data-print-area]) [data-print-area].rx-print { padding: 0; }
 }

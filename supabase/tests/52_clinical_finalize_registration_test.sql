@@ -50,6 +50,18 @@ begin
   perform tests.ok(v -> 'doctor' ->> 'registrationNumber' = 'NMC/5200001' and v -> 'doctor' ->> 'council' = 'Synthetic Council'
     and v -> 'patient' ? 'sex' and v -> 'patient' ? 'dateOfBirth',
     'the print payload carries registration, council, patient sex and date of birth');
+  -- 20261031235000: paper size comes from the tenant setting (config default A5), A4 when the hospital sets it.
+  perform tests.ok(v ->> 'paperSize' in ('A5', 'A4'), 'the print payload carries the configured paper size (never empty)');
+  execute 'reset role';
+  insert into appointment.tenant_settings (tenant_id, rx_paper_size, created_by, updated_by)
+    values (t, 'A4', doc, doc)
+    on conflict (tenant_id) do update set rx_paper_size = 'A4';
+  perform pg_temp.act(doc);
+  v := clinical.consultation_print(t, cid);
+  perform tests.ok(v ->> 'paperSize' = 'A4', 'a hospital set to A4 letterhead prints A4');
+  execute 'reset role';
+  perform tests.throws_ok($q$update appointment.tenant_settings set rx_paper_size = 'Letter'$q$, '23514', 'only A5 or A4 are accepted');
+  perform pg_temp.act(doc);
 
   execute 'reset role';
   update appointment.practitioners set registration_number = null where id = 'c1111111-0000-4000-8000-000000000001';
