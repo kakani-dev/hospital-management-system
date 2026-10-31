@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { Textarea } from '@tailux/components/ui'
@@ -11,13 +11,18 @@ import { LoadingBlock } from '../../components/ui/LoadingBlock'
 import { SelectField } from '../../components/ui/SelectField'
 import { ApiError, apiClient } from '../../lib/api/client'
 import type { Consultation, FoodTiming, PrescriptionLine } from '../../lib/api/types'
-import { FOOD_LABEL, emptyLine, toDraft, validateLines, type Draft } from './consultationModel'
+import { DURATION_CHOICES_DAYS, FOLLOW_UP_CHOICES_DAYS, FOOD_LABEL, FREQUENCY_CHOICES, emptyLine, toDraft, validateLines, type Draft } from './consultationModel'
+import { addDays, localToday } from '../../lib/dates'
+import { RxSheet } from './RxSheet'
+import { followUpLabel } from './rxPrintModel'
+import { useVisitVitals } from './vitalsApi'
 import { useCurrentContext } from '../tenancy/useCurrentContext'
 import { VitalsPanel } from './VitalsPanel'
 import {
   clinicalErrorMessage,
   consultationKeys,
   useConsultation,
+  useConsultationPrintPreview,
   useFinalizeConsultation,
   useReviseConsultation,
   useSaveConsultation,
@@ -77,6 +82,46 @@ function Header({ c }: { c: Consultation }) {
   )
 }
 
+function Chip({ on, onClick, children, testId }: { on: boolean; onClick: () => void; children: ReactNode; testId: string }) {
+  return (
+    <button
+      type="button"
+      data-testid={testId}
+      aria-pressed={on}
+      onClick={onClick}
+      className={`rounded-full border px-2 py-0.5 text-xs ${on ? 'border-primary-600 bg-primary-600 text-white dark:border-primary-400 dark:bg-primary-500 dark:text-white' : 'border-gray-300 text-gray-700 hover:bg-gray-100 dark:border-dark-400 dark:text-dark-100 dark:hover:bg-dark-600'}`}
+    >
+      {children}
+    </button>
+  )
+}
+
+/** Live prescription preview: the print layout (RxSheet), fed with the unsaved draft. */
+function LivePreview({ c, draft }: { c: Consultation; draft: Draft }) {
+  const header = useConsultationPrintPreview(c.id)
+  const vitals = useVisitVitals(c.queueEntryId ?? '')
+  const latest = vitals.data?.length ? vitals.data[vitals.data.length - 1] : null
+  const paper = header.data?.paperSize ?? null
+  return (
+    <aside className="self-start lg:sticky lg:top-4" data-testid="rx-live-preview-panel" aria-label="Live prescription preview">
+      <p className="mb-1 text-xs font-semibold uppercase text-gray-600 dark:text-dark-200">
+        Live print preview{paper ? ` (${paper})` : ''}
+      </p>
+      {header.isPending ? (
+        <p className="text-sm text-gray-600 dark:text-dark-200">Loading preview…</p>
+      ) : header.isError ? (
+        <p className="text-sm text-gray-600 dark:text-dark-200" data-testid="rx-live-preview-unavailable">
+          Preview unavailable; the printed copy is unaffected.
+        </p>
+      ) : (
+        <div className={`overflow-hidden rounded border border-gray-300 shadow-sm dark:border-dark-400 ${paper === 'A4' ? 'aspect-[210/297]' : 'aspect-[148/210]'}`}>
+          <RxSheet p={{ ...header.data, ...draft, status: c.status }} vitals={latest} testId="rx-live-preview" className="h-full p-4 text-[11px]" />
+        </div>
+      )}
+    </aside>
+  )
+}
+
 function Editor({ consultation: c }: { consultation: Consultation }) {
   const qc = useQueryClient()
   const save = useSaveConsultation(c.id)
@@ -85,7 +130,24 @@ function Editor({ consultation: c }: { consultation: Consultation }) {
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [message, setMessage] = useState<{ tone: 'info' | 'error'; text: string } | null>(null)
   const [confirm, setConfirm] = useState(false)
+  const persistRef = useRef<(announce?: boolean) => Promise<Consultation | null>>(async () => null)
+  const today = localToday()
   const busy = save.isPending || finalize.isPending
+  // Ctrl/⌘+Enter: finalize (asks to confirm); Ctrl/⌘+S: save draft.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || busy) return
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        setConfirm(true)
+      } else if (e.key.toLowerCase() === 's') {
+        e.preventDefault()
+        void persistRef.current(true)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [busy])
 
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setDraft((d) => ({ ...d, [k]: v }))
   const setLine = (i: number, patch: Partial<PrescriptionLine>) =>
@@ -119,6 +181,10 @@ function Editor({ consultation: c }: { consultation: Consultation }) {
     }
   }
 
+  useEffect(() => {
+    persistRef.current = persist
+  })
+
   const doFinalize = async () => {
     if (busy) return // double-submit guard
     const saved = await persist()
@@ -133,13 +199,14 @@ function Editor({ consultation: c }: { consultation: Consultation }) {
 
   return (
     <form
-      className="max-w-4xl space-y-6"
+      className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(300px,380px)]"
       aria-label="Consultation"
       onSubmit={(e) => {
         e.preventDefault()
         if (!busy) void persist(true)
       }}
     >
+      <div className="min-w-0 space-y-4" data-testid="consultation-one-screen">
       <Header c={c} />
       <ConsultationVitals c={c} />
       {message && <Alert tone={message.tone}>{message.text}</Alert>}
@@ -168,6 +235,21 @@ function Editor({ consultation: c }: { consultation: Consultation }) {
                 error={errors[`line-${i}-durationDays`]}
                 onChange={(e) => setLine(i, { durationDays: e.target.value === '' ? null : Number(e.target.value) })}
               />
+              <div className="flex flex-wrap items-center gap-1 sm:col-span-4" aria-label={`Quick picks for line ${i + 1}`}>
+                {FREQUENCY_CHOICES.map((f) => (
+                  <Chip key={f} testId={`rx-frequency-chip-${i}-${f}`} on={l.frequency === f} onClick={() => setLine(i, { frequency: f })}>
+                    {f}
+                  </Chip>
+                ))}
+                <span className="mx-1 text-gray-400 dark:text-dark-300" aria-hidden>
+                  |
+                </span>
+                {DURATION_CHOICES_DAYS.map((d) => (
+                  <Chip key={d} testId={`rx-duration-chip-${i}-${d}`} on={l.durationDays === d} onClick={() => setLine(i, { durationDays: d })}>
+                    {d} d
+                  </Chip>
+                ))}
+              </div>
               <FormField data-testid="clinical-prescription-route" label="Route" hint="e.g. oral" value={l.route ?? ''} onChange={(e) => setLine(i, { route: blank(e.target.value) })} />
               <SelectField data-testid="clinical-prescription-food-timing" label="Food" value={l.foodTiming ?? ''} onChange={(e) => setLine(i, { foodTiming: (e.target.value || null) as FoodTiming | null })}>
                 <option value="">—</option>
@@ -192,6 +274,16 @@ function Editor({ consultation: c }: { consultation: Consultation }) {
       </Card>
       <Card title="Follow-up">
         <div className="grid gap-4 sm:grid-cols-2">
+          <div className="flex flex-wrap gap-1 sm:col-span-2" aria-label="Follow-up quick picks">
+            {FOLLOW_UP_CHOICES_DAYS.map((d) => {
+              const date = addDays(today, d)
+              return (
+                <Chip key={d} testId={`rx-follow-up-chip-${d}`} on={draft.followUpDate === date} onClick={() => set('followUpDate', date)}>
+                  {d} d · {followUpLabel(date)}
+                </Chip>
+              )
+            })}
+          </div>
           <FormField data-testid="clinical-consultation-follow-up-date" label="Follow-up date" type="date" value={draft.followUpDate ?? ''} onChange={(e) => set('followUpDate', blank(e.target.value))} />
           <Textarea data-testid="clinical-consultation-advice" label="Advice" rows={2} value={draft.advice ?? ''} onChange={(e) => set('advice', blank(e.target.value))} />
         </div>
@@ -200,10 +292,13 @@ function Editor({ consultation: c }: { consultation: Consultation }) {
         <Button type="submit" variant="secondary" disabled={busy}>
           {save.isPending && !confirm ? 'Saving…' : 'Save draft'}
         </Button>
-        <Button disabled={busy} onClick={() => setConfirm(true)}>
+        <Button disabled={busy} onClick={() => setConfirm(true)} title="Ctrl+Enter">
           Finalize
         </Button>
+        <span className="self-center text-xs text-gray-600 dark:text-dark-200">Ctrl+S save · Ctrl+Enter finalize</span>
       </div>
+      </div>
+      <LivePreview c={c} draft={draft} />
       <ConfirmDialog open={confirm} title="Finalize this prescription?" confirmLabel="Finalize" busy={busy} onCancel={() => setConfirm(false)} onConfirm={() => void doFinalize()}>
         <p>A finalized prescription cannot be edited. Corrections create a new version.</p>
       </ConfirmDialog>

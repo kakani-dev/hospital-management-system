@@ -853,6 +853,8 @@ export class ApiClient {
     revise: (id: string) => this.request<Consultation>(`/api/v1/consultations/${encodeURIComponent(id)}/revisions`, { method: 'POST' }),
     /** 409 for a draft: only finalized prescriptions print. */
     print: (id: string) => this.request<ConsultationPrint>(`/api/v1/consultations/${encodeURIComponent(id)}/print`),
+    /** Live preview payload (draft or finalized): hospital, doctor registration, patient, paperSize. */
+    printPreview: (id: string) => this.request<ConsultationPrint>(`/api/v1/consultations/${encodeURIComponent(id)}/print-preview`),
     forPatient: (patientId: string) => this.request<Consultation[]>(`/api/v1/consultations${qs({ patientId })}`),
     /** #104: 400 for an impossible value, 409 for a cancelled/no-show visit, 403 without clinical.vitals. */
     recordVitals: (body: RecordVitalsRequest) =>

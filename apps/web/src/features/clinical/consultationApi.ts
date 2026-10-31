@@ -5,6 +5,7 @@ import type { Consultation, SaveConsultationRequest } from '../../lib/api/types'
 export const consultationKeys = {
   one: (id: string) => ['consultations', id] as const,
   print: (id: string) => ['consultations', id, 'print'] as const,
+  preview: (id: string) => ['consultations', id, 'print-preview'] as const,
   patient: (patientId: string) => ['consultations', 'patient', patientId] as const,
 }
 
@@ -65,4 +66,9 @@ export function clinicalErrorMessage(e: unknown, action: string): string {
     default:
       return detail ?? `Could not ${action}.`
   }
+}
+
+/** Header data for the live preview on the consultation screen (works for drafts). */
+export function useConsultationPrintPreview(id: string) {
+  return useQuery({ queryKey: consultationKeys.preview(id), queryFn: () => apiClient.consultations.printPreview(id), enabled: !!id, retry: false, staleTime: 5 * 60_000 })
 }
