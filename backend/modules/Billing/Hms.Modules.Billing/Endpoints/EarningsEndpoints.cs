@@ -19,6 +19,7 @@ public static class EarningsEndpoints
         var reports = api.MapGroup("/billing-reports").WithTags("Billing").RequireTenant().WithDbTransaction<BillingDbContext>();
         reports.MapGet("/earnings", GetAsync);
         reports.MapGet("/earnings/export", ExportAsync);
+        reports.MapGet("/owner-kpis", OwnerKpisAsync);
         return api;
     }
 
@@ -147,6 +148,52 @@ public static class EarningsEndpoints
         }
 
         return map;
+    }
+
+    /// <summary>Owner dashboard: read-only daily KPIs for a date range (max 92 days) and optional branch.</summary>
+    private static async Task<IResult> OwnerKpisAsync(
+        HttpContext http, BillingDbContext db, ITenantContext tenant, CancellationToken ct)
+    {
+        if (!tenant.Can(HmsPermissions.BillingEarnings))
+        {
+            return HmsProblems.Forbidden();
+        }
+
+        var q = http.Request.Query;
+        if (!DateOnly.TryParseExact(q["from"].ToString(), "yyyy-MM-dd", out var from)
+            || !DateOnly.TryParseExact(q["to"].ToString(), "yyyy-MM-dd", out var to))
+        {
+            return HmsProblems.BadRequest("invalid_range", "from and to must be dates (yyyy-MM-dd).");
+        }
+
+        Guid? branchId = null;
+        var rawBranch = q["branchId"].ToString();
+        if (!string.IsNullOrEmpty(rawBranch))
+        {
+            if (!Guid.TryParse(rawBranch, out var parsedBranch))
+            {
+                return HmsProblems.BadRequest("invalid_branch", "branchId must be a UUID.");
+            }
+
+            branchId = parsedBranch;
+        }
+
+        try
+        {
+            var value = await RawSql.ScalarAsync(
+                db,
+                "select billing.owner_kpis(@t::uuid, @f::date, @u::date, @br::uuid)::text",
+                ct,
+                ("t", tenant.TenantId),
+                ("f", from),
+                ("u", to),
+                ("br", branchId));
+            return Results.Text(value?.ToString() ?? "null", "application/json");
+        }
+        catch (Exception ex) when (HmsProblems.FromDatabase(ex) is { } problem)
+        {
+            return problem;
+        }
     }
 
     private static async Task<string> LoadAsync(BillingDbContext db, ITenantContext tenant, EarningsQuery.Parsed parsed, CancellationToken ct)

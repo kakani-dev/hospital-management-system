@@ -8,6 +8,7 @@ import { useWorkspace } from '../../features/workspace/WorkspaceProvider'
 import {
   BuildingOffice2Icon,
   BanknotesIcon,
+  ChartBarIcon,
   PresentationChartLineIcon,
   CalendarDaysIcon,
   CheckBadgeIcon,
@@ -139,7 +140,10 @@ export function AppShell() {
                 ]
               : []),
             ...(has('billing.earnings')
-              ? [{ id: 'earnings', path: '/billing/earnings', title: 'Earnings', Icon: PresentationChartLineIcon }]
+              ? [
+                  { id: 'owner', path: '/billing/owner', title: 'Owner dashboard', Icon: ChartBarIcon },
+                  { id: 'earnings', path: '/billing/earnings', title: 'Earnings', Icon: PresentationChartLineIcon },
+                ]
               : []),
           ],
     }

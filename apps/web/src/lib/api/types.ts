@@ -1477,6 +1477,29 @@ export interface StockOnHandRow {
   expiryState: 'expired' | 'soon' | 'ok'
 }
 
+export interface OwnerKpiDay {
+  date: string
+  opdVisits: number
+  newPatients: number
+  noShows: number
+  billedPaise: number
+  discountPaise: number
+  creditNotePaise: number
+  collectedPaise: number
+  refundPaise: number
+  pharmacySales: number
+  pharmacySalesPaise: number
+}
+
+export interface OwnerKpis {
+  from: string
+  to: string
+  branchId: string | null
+  totals: Omit<OwnerKpiDay, 'date'>
+  byMode: Record<string, number>
+  days: OwnerKpiDay[]
+}
+
 export interface StockLowAlert {
   kind: 'low_stock'
   storeId: Guid
