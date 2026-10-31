@@ -3,6 +3,9 @@
 -- carry their own round-off (0 for a partial refund; the paid-amount rounding for a full refund).
 -- Bills and quantity credit notes keep rupee rounding.
 
+set local lock_timeout = '5s';
+set local statement_timeout = '120s';
+
 alter table billing.bill add column round_off_override_paise bigint;
 alter table billing.bill add constraint bill_round_off_override_chk
   check (round_off_override_paise is null
