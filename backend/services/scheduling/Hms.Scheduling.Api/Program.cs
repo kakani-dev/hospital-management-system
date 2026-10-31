@@ -1,5 +1,6 @@
 using Hms.Modules.Appointments;
 using Hms.Modules.Appointments.Endpoints;
+using Hms.Modules.Appointments.Reminders;
 using Hms.Platform.Hosting;
 using Hms.Platform.Messaging;
 
@@ -13,7 +14,11 @@ builder.AddHmsServiceDefaults("hms-scheduling");
 builder.Services.AddAppointmentsModule(builder.Configuration);
 builder.Services.AddHmsOutboxDispatcher(builder.Configuration);
 
+// #59 reminders: Hangfire (in-memory) only starts when Reminders:Mode=TestRecipientsOnly; never a live mode.
+builder.Services.AddAppointmentReminders(builder.Configuration);
+
 var app = builder.Build();
 app.UseHmsServiceDefaults();
-app.MapGroup("/api/v1").MapAppointmentsModule().MapPractitionerBranchEndpoints();
+app.MapGroup("/api/v1").MapAppointmentsModule().MapPractitionerBranchEndpoints().MapReminderEndpoints();
+app.UseAppointmentReminderJobs();
 app.Run();

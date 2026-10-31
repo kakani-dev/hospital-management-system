@@ -1334,6 +1334,14 @@ export class MockBackend {
       return reply(200, slots, tenant)
     }
     const apptAction = /^\/api\/v1\/appointments\/([^/]+)\/(cancel|check-in|reschedule|no-show)$/.exec(path)
+    // #59 reminders: settings are read-only defaults here (delivery is server config, off in mocks).
+    if (method === 'GET' && path === '/api/v1/reminders/settings') {
+      return reply(200, { enabled: false, leadHours: 24, sameDayHours: 2, minNoticeMinutes: 120, emailEnabled: true, whatsappEnabled: false, quietStart: '21:00', quietEnd: '08:00', deliveryMode: 'Off', emailAvailable: false, whatsappAvailable: false }, tenant)
+    }
+    const reminderMatch = path.match(/^\/api\/v1\/reminders\/appointments\/([^/]+)$/)
+    if (method === 'GET' && reminderMatch) {
+      return reply(200, { appointmentId: reminderMatch[1], patientId: '00000000-0000-4000-8000-000000000000', optedOut: false, optOutReason: null, reminders: [] }, tenant)
+    }
     if (method === 'GET' && path === '/api/v1/appointments') {
       if (!has(REG_READ)) return forbidden()
       const q = url.searchParams

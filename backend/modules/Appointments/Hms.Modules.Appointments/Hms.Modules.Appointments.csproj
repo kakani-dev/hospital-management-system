@@ -4,6 +4,10 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+    <PackageReference Include="MailKit" />
+    <PackageReference Include="Hangfire.Core" />
+    <PackageReference Include="Hangfire.AspNetCore" />
+    <PackageReference Include="Hangfire.InMemory" />
   </ItemGroup>
   <ItemGroup>
     <!-- Module boundary: depends only on the shared kernel and Hms.Platform, never on another module (MICROSERVICES-PLAN.md §8). -->

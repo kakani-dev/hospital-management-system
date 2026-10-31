@@ -30,6 +30,7 @@ import type {
   UpdateScheduleRequest,
   UpdateTenantRequest,
   WalkInRequest,
+  UpdateReminderSettingsRequest,
 } from './types'
 import { ADD_MEMBER_GENERIC_MESSAGE } from './types'
 
@@ -59,6 +60,8 @@ export const queryKeys = {
   practitionerBranches: (practitionerId: string) => ['practitioner-branches', practitionerId] as const,
   scheduleOverrides: (practitionerId: string) => ['schedule-overrides', practitionerId] as const,
   schedulingSettings: ['scheduling-settings'] as const,
+  reminderSettings: ['reminder-settings'] as const,
+  appointmentReminders: (id: string) => ['appointment-reminders', id] as const,
   myDay: (date: string) => ['my-day', date] as const,
   adminBranches: ['branches', 'admin'] as const,
   inviteLinks: ['members', 'invite-links'] as const,
@@ -820,6 +823,36 @@ export function useUpdateSchedulingSettings() {
   return useMutation({
     mutationFn: (travelBufferMinutes: number) => apiClient.schedulingSettings.update(travelBufferMinutes),
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.schedulingSettings }),
+  })
+}
+
+export function useReminderSettings() {
+  return useQuery({ queryKey: queryKeys.reminderSettings, queryFn: () => apiClient.reminders.settings(), retry: false })
+}
+
+export function useUpdateReminderSettings() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: UpdateReminderSettingsRequest) => apiClient.reminders.updateSettings(body),
+    onSuccess: (data) => qc.setQueryData(queryKeys.reminderSettings, data),
+  })
+}
+
+export function useAppointmentReminders(appointmentId: string | null) {
+  return useQuery({
+    queryKey: queryKeys.appointmentReminders(appointmentId ?? ''),
+    queryFn: () => apiClient.reminders.forAppointment(appointmentId!),
+    enabled: !!appointmentId,
+    retry: false,
+  })
+}
+
+export function useSetReminderOptOut(appointmentId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ patientId, optOut, reason }: { patientId: string; optOut: boolean; reason?: string }) =>
+      optOut ? apiClient.reminders.optOut(patientId, reason) : apiClient.reminders.optIn(patientId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.appointmentReminders(appointmentId) }),
   })
 }
 

@@ -27,6 +27,7 @@ import { useCalendarParams } from './useCalendarParams'
 import { useBookablePractitionersState } from './useBookablePractitioners'
 import { BookingPanel, type BookingDraft } from './BookingPanel'
 import { ReschedulePanel } from './ReschedulePanel'
+import { ReminderPanel } from './ReminderPanel'
 import { Drawer } from '@tailux/components/shared/Drawer'
 import type { ReturnedPatientState } from '../patients/registerReturn'
 import { FOLLOW_UP_STATUSES, followUpInitial } from './followUp'
@@ -411,6 +412,7 @@ export function AppointmentCalendarPage() {
                           )}
                         </div>
                       )}
+                      {a.status === 'booked' && <ReminderPanel appointmentId={a.id} canEdit={canBook} />}
                     </li>
                   )
                 })}

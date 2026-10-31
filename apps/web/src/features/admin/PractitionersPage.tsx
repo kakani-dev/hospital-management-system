@@ -34,6 +34,7 @@ import {
 } from '../../lib/api/hooks'
 import { localToday } from '../../lib/dates'
 import { ApiError, fieldErrors } from '../../lib/api/client'
+import { ReminderSettingsCard } from './ReminderSettingsCard'
 import { practitionerSchema, type PractitionerValues } from './adminSchemas'
 
 const EMPTY: PractitionerValues = {
@@ -218,6 +219,7 @@ export function PractitionersPage() {
           onError: (e) => setMessage({ tone: 'error', text: e instanceof ApiError && e.problem?.detail ? e.problem.detail : 'Could not save the travel buffer.' }),
         })
       }} />
+      <ReminderSettingsCard />
       <DepartmentCard departments={departments.data ?? []} busy={addDepartment.isPending} onAdd={async (name) => {
         setMessage(null)
         try {

@@ -29,6 +29,7 @@ public static class ReferenceETag
         "/api/v1/practitioner-branches",
         "/api/v1/schedule-overrides",
         "/api/v1/scheduling-settings",
+        "/api/v1/reminders/settings",
     ];
 
     public static bool Applies(HttpRequest request) =>
