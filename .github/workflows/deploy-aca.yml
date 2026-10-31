@@ -15,8 +15,9 @@
 # SUPABASE_SERVICE_ROLE_KEY as supabase-service-role, and turns on the email dispatcher.
 # Identity is not rolled if either secret is empty. Other apps do not receive those secrets.
 # The identity hms-db secret (hms_identity_login) is never written. Identity minReplicas
-# stays 1. Registry bindings are not changed: patients keeps its existing ACR identity,
-# scheduling keeps its system-assigned identity.
+# stays 1. ACR bindings are not changed: patients keeps its existing ACR identity,
+# scheduling keeps its system-assigned identity. After a passing smoke, rows in
+# .github/aca-stale-registries.tsv (ghcr.io + its password secret, #68) are removed.
 # Issue #68: with repository variable ACA_SECRETS_SOURCE=github, every app secret in
 # .github/aca-secrets.tsv (hms-db per service, hms-edge-key, the mail pair) is set from
 # the GitHub secrets below as a Container Apps secret plus secretref env var, and the

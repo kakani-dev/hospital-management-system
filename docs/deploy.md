@@ -183,3 +183,8 @@ gh workflow run "Cleanup old artifacts, caches, and revisions" -f dry_run=false
 - Inactive Container Apps revisions beyond the newest 3 are deactivated. A revision with traffic, replicas, or that is still starting is kept.
 
 Artifact uploads in CI set `retention-days: 7`.
+
+
+## Stale registry bindings (#68)
+
+`.github/aca-stale-registries.tsv` lists registry servers (and their password secrets) that a deploy removes from each rolled app. Removal runs only after the full post-deploy smoke passes, only when the app also pulls from the ACR with a managed identity and its serving image is from the ACR, and the secret is removed only when nothing references it. A cleanup failure exits non-zero but does not roll back the healthy deploy. To undo: `az containerapp registry set` with the old server and credentials.
