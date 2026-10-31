@@ -31,6 +31,11 @@ export const createTenantSchema = z.object({
   code: tenantCodeSchema,
   timeZone: zone,
   adminEmail: z.email({ error: 'Enter the first admin’s email' }).max(254),
+  branches: z
+    .array(z.object({ name: z.string().trim().min(1, { error: 'Branch name is required' }).max(120, { error: 'Max 120 characters' }), address: z.string().trim().max(300) }))
+    .min(1, { error: 'Add at least one branch' })
+    .max(20, { error: 'Up to 20 branches' })
+    .refine((b) => new Set(b.map((x) => x.name.trim().toLowerCase())).size === b.length, { error: 'Branch names must be unique' }),
 })
 export type CreateTenantValues = z.infer<typeof createTenantSchema>
 
