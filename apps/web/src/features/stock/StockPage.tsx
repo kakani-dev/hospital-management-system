@@ -7,7 +7,7 @@ import { Card } from '../../components/ui/Card'
 import { FormField } from '../../components/ui/FormField'
 import { LoadingBlock } from '../../components/ui/LoadingBlock'
 import { ApiError, apiClient } from '../../lib/api/client'
-import type { StockItem, StockOnHandRow, StockStore, StockUom } from '../../lib/api/types'
+import type { StockItem, StockLowAlert, StockOnHandRow, StockStore, StockUom } from '../../lib/api/types'
 import { formatPaise, parseRupeesToPaise } from '../billing/money'
 import { useBranches } from '../../lib/api/hooks'
 import { useCurrentContext } from '../tenancy/useCurrentContext'
@@ -53,7 +53,7 @@ const EXPIRY_ROW = {
   ok: '',
 } as const
 
-type Tab = 'items' | 'stores' | 'opening' | 'onhand'
+type Tab = 'alerts' | 'items' | 'stores' | 'opening' | 'onhand'
 
 function problemText(error: unknown): string {
   if (error instanceof ApiError) return error.problem?.detail ?? error.message
@@ -86,7 +86,7 @@ export function StockPage() {
   const canOpen = has('stock.open') && has('stock.approve')
   const [params, setParams] = useSearchParams()
   const requested = params.get('tab')
-  const tab: Tab = requested === 'stores' || requested === 'onhand' || (requested === 'opening' && canOpen) ? requested : 'items'
+  const tab: Tab = requested === 'alerts' || requested === 'stores' || requested === 'onhand' || (requested === 'opening' && canOpen) ? requested : 'items'
 
   const setTab = (next: Tab) => {
     const nextParams = new URLSearchParams(params)
@@ -98,7 +98,9 @@ export function StockPage() {
   const stores = useQuery({ queryKey: ['inventory', 'stores'], queryFn: () => apiClient.inventory.stores() })
   const branches = useBranches()
 
+  const canSettings = has('admin.settings')
   const tabs: { id: Tab; label: string }[] = [
+    { id: 'alerts', label: 'Alerts' },
     { id: 'items', label: 'Items' },
     { id: 'stores', label: 'Stores' },
     ...(canOpen ? [{ id: 'opening' as const, label: 'Opening stock' }] : []),
@@ -125,6 +127,13 @@ export function StockPage() {
           </button>
         ))}
       </div>
+      {tab === 'alerts' && (
+        <AlertsPanel
+          branches={(branches.data ?? []).map((b) => ({ id: b.id, name: b.name }))}
+          canEdit={canEdit}
+          canSettings={canSettings}
+        />
+      )}
       {tab === 'items' && <ItemsPanel catalog={items.data} loading={items.isPending} error={items.error} canEdit={canEdit} stores={stores.data ?? []} uoms={items.data?.uoms ?? []} />}
       {tab === 'stores' && (
         <StoresPanel
@@ -725,5 +734,234 @@ function StockRow({ row }: { row: StockOnHandRow }) {
       <td className="py-2 pr-3">{formatPaise(row.mrpPaise)}</td>
       <td className="py-2">{formatPaise(row.purchaseRatePaise)}</td>
     </tr>
+  )
+}
+
+function AlertsPanel({ branches, canEdit, canSettings }: { branches: { id: string; name: string }[]; canEdit: boolean; canSettings: boolean }) {
+  const [branchId, setBranchId] = useState('')
+  const alerts = useQuery({
+    queryKey: ['inventory', 'alerts', branchId || 'all'],
+    queryFn: () => apiClient.inventory.alerts(branchId || undefined),
+  })
+  const data = alerts.data
+  const expired = data?.expiry.filter((e) => e.kind === 'expired') ?? []
+  const nearing = data?.expiry.filter((e) => e.kind === 'near_expiry') ?? []
+
+  return (
+    <Card title="Stock alerts">
+      <div className="mb-4 flex flex-wrap items-end gap-3">
+        {branches.length > 1 && (
+          <div className="w-56">
+            <SelectField label="Branch" value={branchId} onChange={(e) => setBranchId(e.target.value)} data-testid="alerts-branch">
+              <option value="">All my branches</option>
+              {branches.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </SelectField>
+          </div>
+        )}
+        {data && (
+          <div className="flex flex-wrap gap-2 text-xs" data-testid="alert-counts">
+            <span className="rounded-full bg-red-100 px-2 py-1 font-medium text-red-900">Expired {data.counts.expired}</span>
+            <span className="rounded-full bg-amber-100 px-2 py-1 font-medium text-amber-900">
+              Expiring in {data.nearExpiryDays} days {data.counts.nearExpiry}
+            </span>
+            <span className="rounded-full bg-sky-100 px-2 py-1 font-medium text-sky-900">Below reorder {data.counts.lowStock}</span>
+          </div>
+        )}
+        {canSettings && data && <NearExpiryWindow days={data.nearExpiryDays} />}
+      </div>
+      {alerts.isPending && <LoadingBlock label="Loading alerts" />}
+      {alerts.error && <Alert tone="error">{problemText(alerts.error)}</Alert>}
+      {data && data.lowStock.length === 0 && data.expiry.length === 0 && (
+        <p className="text-sm text-gray-600 dark:text-dark-200" data-testid="alerts-empty">
+          No alerts. Everything is above its reorder level and nothing expires in the next {data.nearExpiryDays} days.
+        </p>
+      )}
+      {data && expired.length > 0 && (
+        <section className="mb-4" aria-label="Expired batches">
+          <h3 className="mb-1 text-sm font-medium text-red-800">Expired: remove from the shelf (cannot be dispensed)</h3>
+          <ExpiryTable rows={expired} />
+        </section>
+      )}
+      {data && nearing.length > 0 && (
+        <section className="mb-4" aria-label="Near-expiry batches">
+          <h3 className="mb-1 text-sm font-medium text-amber-800">Expiring soon: dispensed first (FEFO)</h3>
+          <ExpiryTable rows={nearing} />
+        </section>
+      )}
+      {data && data.lowStock.length > 0 && (
+        <section aria-label="Below reorder level">
+          <h3 className="mb-1 text-sm font-medium text-gray-800 dark:text-dark-100">Below reorder level</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="text-gray-500">
+                  <th className="py-2 pr-3 font-medium">Store</th>
+                  <th className="py-2 pr-3 font-medium">Item</th>
+                  <th className="py-2 pr-3 font-medium">On hand</th>
+                  <th className="py-2 pr-3 font-medium">Reorder level</th>
+                  <th className="py-2 font-medium">Order</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.lowStock.map((row) => (
+                  <LowStockRow key={`${row.storeId}-${row.itemId}`} row={row} canEdit={canEdit} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+    </Card>
+  )
+}
+
+function ExpiryTable({ rows }: { rows: { batchId: string; storeId: string; storeName: string; brandName: string; itemCode: string; batchNo: string; expiryDate: string; daysLeft: number; onHandBase: number; baseUomCode: string; valuePaise: number; kind: string }[] }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-left text-sm">
+        <thead>
+          <tr className="text-gray-500">
+            <th className="py-2 pr-3 font-medium">Store</th>
+            <th className="py-2 pr-3 font-medium">Item</th>
+            <th className="py-2 pr-3 font-medium">Batch</th>
+            <th className="py-2 pr-3 font-medium">Expiry</th>
+            <th className="py-2 pr-3 font-medium">Quantity</th>
+            <th className="py-2 font-medium">MRP value</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={`${r.storeId}-${r.batchId}`} className="border-t border-gray-100 dark:border-dark-500" data-testid="expiry-alert" data-kind={r.kind} data-batch={r.batchNo}>
+              <td className="py-2 pr-3">{r.storeName}</td>
+              <td className="py-2 pr-3">
+                {r.brandName} ({r.itemCode})
+              </td>
+              <td className="py-2 pr-3">{r.batchNo}</td>
+              <td className="py-2 pr-3">
+                {r.expiryDate}{' '}
+                <span className="text-xs text-gray-500">
+                  {r.daysLeft < 0 ? `${-r.daysLeft} days ago` : r.daysLeft === 0 ? 'today' : `in ${r.daysLeft} days`}
+                </span>
+              </td>
+              <td className="py-2 pr-3">
+                {r.onHandBase} {r.baseUomCode}
+              </td>
+              <td className="py-2">{formatPaise(r.valuePaise)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function LowStockRow({ row, canEdit }: { row: StockLowAlert; canEdit: boolean }) {
+  const qc = useQueryClient()
+  const [editing, setEditing] = useState(false)
+  const [level, setLevel] = useState(String(row.reorderLevel))
+  const [qty, setQty] = useState(row.reorderQty == null ? '' : String(row.reorderQty))
+  const save = useMutation({
+    mutationFn: () =>
+      apiClient.inventory.setReorder(row.storeId, row.itemId, {
+        reorderLevel: Number(level),
+        reorderQty: qty.trim() === '' ? null : Number(qty),
+      }),
+    onSuccess: () => {
+      setEditing(false)
+      void qc.invalidateQueries({ queryKey: ['inventory'] })
+    },
+  })
+  const valid = /^\d+$/.test(level.trim()) && (qty.trim() === '' || (/^\d+$/.test(qty.trim()) && Number(qty) > 0))
+  return (
+    <tr className="border-t border-gray-100 dark:border-dark-500" data-testid="low-stock-alert" data-item={row.itemCode}>
+      <td className="py-2 pr-3">{row.storeName}</td>
+      <td className="py-2 pr-3">
+        {row.brandName} ({row.itemCode})
+      </td>
+      <td className="py-2 pr-3">
+        {row.onHandBase} {row.baseUomCode}
+      </td>
+      <td className="py-2 pr-3">
+        {editing ? (
+          <span className="flex flex-wrap items-center gap-1">
+            <input
+              aria-label="Reorder level"
+              className="w-20 rounded border border-gray-300 px-2 py-1 text-sm dark:border-dark-450 dark:bg-dark-800"
+              inputMode="numeric"
+              value={level}
+              onChange={(e) => setLevel(e.target.value)}
+              data-testid="reorder-level-input"
+            />
+            <input
+              aria-label="Order quantity"
+              placeholder="Order qty"
+              className="w-24 rounded border border-gray-300 px-2 py-1 text-sm dark:border-dark-450 dark:bg-dark-800"
+              inputMode="numeric"
+              value={qty}
+              onChange={(e) => setQty(e.target.value)}
+              data-testid="reorder-qty-input"
+            />
+            <button type="button" className="rounded bg-primary-600 px-2 py-1 text-xs text-white disabled:opacity-50" disabled={!valid || save.isPending} onClick={() => save.mutate()} data-testid="reorder-save">
+              Save
+            </button>
+            <button type="button" className="rounded px-2 py-1 text-xs text-gray-700 dark:text-dark-100" onClick={() => setEditing(false)}>
+              Cancel
+            </button>
+            {save.error && <span className="text-xs text-red-700">{problemText(save.error)}</span>}
+          </span>
+        ) : (
+          <span className="flex items-center gap-2">
+            {row.reorderLevel} {row.baseUomCode}
+            {canEdit && (
+              <button type="button" className="rounded px-1.5 py-0.5 text-xs text-primary-700 hover:bg-gray-100 dark:text-primary-300" onClick={() => setEditing(true)} data-testid="reorder-edit">
+                Change
+              </button>
+            )}
+          </span>
+        )}
+      </td>
+      <td className="py-2" data-testid="suggested-qty">
+        {row.suggestedQty} {row.baseUomCode}
+      </td>
+    </tr>
+  )
+}
+
+function NearExpiryWindow({ days }: { days: number }) {
+  const qc = useQueryClient()
+  const [value, setValue] = useState(String(days))
+  const save = useMutation({
+    mutationFn: () => apiClient.inventory.saveSettings({ nearExpiryDays: Number(value) }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['inventory', 'alerts'] }),
+  })
+  const n = Number(value)
+  const valid = /^\d+$/.test(value.trim()) && n >= 1 && n <= 365
+  return (
+    <div className="ml-auto flex items-center gap-1 text-xs">
+      <label htmlFor="near-expiry-days">Warn before expiry (days)</label>
+      <input
+        id="near-expiry-days"
+        className="w-16 rounded border border-gray-300 px-2 py-1 text-sm dark:border-dark-450 dark:bg-dark-800"
+        inputMode="numeric"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        data-testid="near-expiry-days"
+      />
+      <button
+        type="button"
+        className="rounded bg-primary-600 px-2 py-1 text-xs text-white disabled:opacity-50"
+        disabled={!valid || n === days || save.isPending}
+        onClick={() => save.mutate()}
+        data-testid="near-expiry-save"
+      >
+        Save
+      </button>
+      {!valid && <span className="text-red-700">1 to 365</span>}
+      {save.error && <span className="text-red-700">{problemText(save.error)}</span>}
+    </div>
   )
 }

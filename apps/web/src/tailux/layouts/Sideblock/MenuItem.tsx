@@ -45,6 +45,15 @@ export function MenuItem({ data }: { data: NavItem }) {
                 )}
                 <span className="truncate">{title}</span>
               </div>
+              {data.badge != null && data.badge > 0 && (
+                <span
+                  className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium leading-none text-amber-900 dark:bg-amber-500/20 dark:text-amber-200"
+                  aria-label={data.badgeLabel ?? `${data.badge} alerts`}
+                  data-testid={`nav-badge-${data.id}`}
+                >
+                  {data.badge > 99 ? '99+' : data.badge}
+                </span>
+              )}
             </div>
             {isActive && (
               <div className="absolute bottom-1 top-1 w-1 bg-primary-600 dark:bg-primary-400 ltr:left-0 ltr:rounded-r-full rtl:right-0 rtl:rounded-l-lg" />

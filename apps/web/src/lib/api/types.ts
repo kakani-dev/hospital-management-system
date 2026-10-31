@@ -1473,6 +1473,52 @@ export interface StockOnHandRow {
   expiryState: 'expired' | 'soon' | 'ok'
 }
 
+export interface StockLowAlert {
+  kind: 'low_stock'
+  storeId: Guid
+  storeName: string
+  branchId: Guid
+  itemId: Guid
+  itemCode: string
+  brandName: string
+  baseUomCode: string
+  /** Unexpired quantity on hand in the base unit. */
+  onHandBase: number
+  reorderLevel: number
+  reorderQty: number | null
+  suggestedQty: number
+}
+
+export interface StockExpiryAlert {
+  kind: 'expired' | 'near_expiry'
+  storeId: Guid
+  storeName: string
+  branchId: Guid
+  itemId: Guid
+  itemCode: string
+  brandName: string
+  baseUomCode: string
+  batchId: Guid
+  batchNo: string
+  expiryDate: string
+  daysLeft: number
+  onHandBase: number
+  valuePaise: number
+}
+
+export interface StockAlerts {
+  nearExpiryDays: number
+  counts: { lowStock: number; nearExpiry: number; expired: number }
+  lowStock: StockLowAlert[]
+  /** Earliest expiry first (FEFO). */
+  expiry: StockExpiryAlert[]
+}
+
+export interface StockSettings {
+  rxValidityDays: number
+  nearExpiryDays: number
+}
+
 export interface PrivacyPurpose {
   code: string
   label: string

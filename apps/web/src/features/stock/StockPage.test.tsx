@@ -79,8 +79,30 @@ function stub(role: string) {
         approverId: '0a000000-0000-4000-8000-000000000001',
         lines: [],
       }),
+    'GET /api/v1/inventory/stock/alerts': () => json(alerts()),
+    'PUT /api/v1/inventory/stores/st-1/items/it-1/reorder': () => json({ storeId: 'st-1', itemId: 'it-1', reorderLevel: 20, reorderQty: 50 }),
+    'PUT /api/v1/inventory/settings': () => json({ rxValidityDays: 30, nearExpiryDays: 60 }),
     'GET /health/live': () => json({ status: 'Healthy' }),
   })
+}
+
+function isoIn(days: number) {
+  const d = new Date()
+  d.setDate(d.getDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+
+function alerts() {
+  const base = { storeId: store.id, storeName: store.name, itemId: item.id, itemCode: item.code, brandName: item.brandName, baseUomCode: 'TAB', mrpPaise: 1500 }
+  return {
+    nearExpiryDays: 90,
+    counts: { lowStock: 1, nearExpiry: 1, expired: 1 },
+    lowStock: [{ ...base, storeCode: store.code, branchId: ALPHA_MAIN, onHandBase: 4, reorderLevel: 10, reorderQty: null, suggestedQty: 6 }],
+    expiry: [
+      { ...base, kind: 'expired', batchId: 'ba-1', batchNo: 'ZZQA-OLD', expiryDate: isoIn(-3), daysLeft: -3, onHandBase: 4, valuePaise: 6000 },
+      { ...base, kind: 'near_expiry', batchId: 'ba-2', batchNo: 'ZZQA-SOON', expiryDate: isoIn(20), daysLeft: 20, onHandBase: 10, valuePaise: 15000 },
+    ],
+  }
 }
 
 function renderStock(role: string) {
@@ -158,5 +180,38 @@ describe('Stock page', () => {
     renderWithProviders(<App />, { path: '/', auth: fakeAuthClient({ session: fakeSession() }) })
     await screen.findByRole('link', { name: 'Dashboard' })
     expect(screen.queryByRole('link', { name: 'Stock' })).not.toBeInTheDocument()
+  })
+
+  it('shows expiry and low-stock alerts, a nav badge, and saves a reorder level and warning window', async () => {
+    const user = userEvent.setup()
+    const calls = stub('tenant_admin')
+    renderWithProviders(<App />, { path: '/stock?tab=alerts', auth: fakeAuthClient({ session: fakeSession() }) })
+    const rows = await screen.findAllByTestId('expiry-alert')
+    expect(rows.map((r) => r.getAttribute('data-kind'))).toEqual(['expired', 'near_expiry'])
+    expect(screen.getByText('3 days ago')).toBeInTheDocument()
+    expect(screen.getByText('in 20 days')).toBeInTheDocument()
+    expect(await screen.findByTestId('nav-badge-stock')).toHaveTextContent('3')
+    expect(screen.getByTestId('suggested-qty')).toHaveTextContent('6 TAB')
+    await user.click(screen.getByTestId('reorder-edit'))
+    await user.clear(screen.getByTestId('reorder-level-input'))
+    await user.type(screen.getByTestId('reorder-level-input'), '20')
+    await user.type(screen.getByTestId('reorder-qty-input'), '50')
+    await user.click(screen.getByTestId('reorder-save'))
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.path.endsWith('/reorder'))).toBe(true))
+    expect(calls.find((c) => c.path.endsWith('/reorder'))?.body).toEqual({ reorderLevel: 20, reorderQty: 50 })
+    await user.clear(screen.getByTestId('near-expiry-days'))
+    await user.type(screen.getByTestId('near-expiry-days'), '400')
+    expect(screen.getByTestId('near-expiry-save')).toBeDisabled()
+    await user.clear(screen.getByTestId('near-expiry-days'))
+    await user.type(screen.getByTestId('near-expiry-days'), '60')
+    await user.click(screen.getByTestId('near-expiry-save'))
+    await waitFor(() => expect(calls.find((c) => c.method === 'PUT' && c.path === '/api/v1/inventory/settings')?.body).toEqual({ nearExpiryDays: 60 }))
+  })
+
+  it('hides the warning-window setting from staff without settings access', async () => {
+    stub('pharmacist')
+    renderWithProviders(<App />, { path: '/stock?tab=alerts', auth: fakeAuthClient({ session: fakeSession() }) })
+    expect(await screen.findAllByTestId('expiry-alert')).toHaveLength(2)
+    expect(screen.queryByTestId('near-expiry-days')).not.toBeInTheDocument()
   })
 })
