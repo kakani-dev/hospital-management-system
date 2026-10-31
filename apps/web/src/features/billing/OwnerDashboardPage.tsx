@@ -75,7 +75,12 @@ export function OwnerDashboardPage() {
 
   const t = kpis.data?.totals
   const modes = Object.entries(kpis.data?.byMode ?? {}).filter(([, v]) => v !== 0)
-  const outstanding = t ? t.billedPaise - t.collectedPaise + t.refundPaise : 0
+  // Net of collections (after refunds) against billed. A negative net means more money came in
+  // than was billed in the range (advances/deposits, or payments on older bills): that is not
+  // "negative dues", so dues show 0 and the surplus is shown as collected ahead of billing.
+  const net = t ? t.billedPaise - t.collectedPaise + t.refundPaise : 0
+  const outstanding = Math.max(0, net)
+  const ahead = Math.max(0, -net)
 
   return (
     <div className="space-y-4">
@@ -121,7 +126,13 @@ export function OwnerDashboardPage() {
           <section aria-label="Money" className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Tile label="Billed" value={formatPaise(t.billedPaise)} hint="Final bills, after credit notes" testId="kpi-billed" />
             <Tile label="Collected" value={formatPaise(t.collectedPaise)} hint="Payments and advances" testId="kpi-collected" />
-            <Tile label="Billed not collected" value={formatPaise(outstanding)} testId="kpi-outstanding" tone={outstanding > 0 ? 'warn' : undefined} />
+            <Tile
+              label="Billed not collected"
+              value={formatPaise(outstanding)}
+              hint={ahead > 0 ? `${formatPaise(ahead)} collected ahead of billing (advances or older bills)` : undefined}
+              testId="kpi-outstanding"
+              tone={outstanding > 0 ? 'warn' : undefined}
+            />
             <Tile
               label="Refunds and discounts"
               value={formatPaise(t.refundPaise + t.discountPaise)}
