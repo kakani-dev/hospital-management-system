@@ -40,5 +40,8 @@
   body:has([data-print-area]) [data-print-area] * { visibility: visible !important; }
   body:has([data-print-area]) [data-print-area] { position: absolute; inset: 0 auto auto 0; width: 100%; margin: 0; padding: 12mm; }
   /* Prescription: the tenant's @page size/margin set the paper edge, so no extra padding (fits one A5 sheet). */
-  body:has([data-print-area]) [data-print-area].rx-print { padding: 0; }
+  body:has([data-print-area]) [data-print-area].rx-print { position: static; padding: 0; }
+  /* Hidden app chrome still takes up height and adds a blank second sheet; drop everything that is not the
+     prescription or one of its ancestors from layout so a typical Rx is exactly one page (#296). */
+  body:has(.rx-print) *:not(:has(.rx-print)):not(.rx-print):not(.rx-print *) { display: none !important; }
 }
