@@ -17,6 +17,11 @@
 # The identity hms-db secret (hms_identity_login) is never written. Identity minReplicas
 # stays 1. Registry bindings are not changed: patients keeps its existing ACR identity,
 # scheduling keeps its system-assigned identity.
+# Issue #68: with repository variable ACA_SECRETS_SOURCE=github, every app secret in
+# .github/aca-secrets.tsv (hms-db per service, hms-edge-key, the mail pair) is set from
+# the GitHub secrets below as a Container Apps secret plus secretref env var, and the
+# identity hms-db is then managed too. Unset or legacy keeps today's behaviour. The
+# variable is read, not waited on. Missing secrets stop the deploy before any write.
 #
 # Does not deploy the Vercel web app. Does not modify medicore-hms-api and does not
 # read its settings. Refuses the deploy if any container app has the outbox dispatcher
@@ -173,6 +178,15 @@ jobs:
       SERVICES: ${{ needs.plan.outputs.services }}
       SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      # Names must match column 3 of .github/aca-secrets.tsv (checked in CI).
+      ACA_SECRETS_SOURCE: ${{ vars.ACA_SECRETS_SOURCE || 'legacy' }}
+      HMS_EDGE_KEY: ${{ secrets.HMS_EDGE_KEY }}
+      HMS_DB_IDENTITY: ${{ secrets.HMS_DB_IDENTITY }}
+      HMS_DB_PATIENTS: ${{ secrets.HMS_DB_PATIENTS }}
+      HMS_DB_SCHEDULING: ${{ secrets.HMS_DB_SCHEDULING }}
+      HMS_DB_BILLING: ${{ secrets.HMS_DB_BILLING }}
+      HMS_DB_INVENTORY: ${{ secrets.HMS_DB_INVENTORY }}
+      HMS_DB_PRIVACY: ${{ secrets.HMS_DB_PRIVACY }}
     steps:
       - uses: actions/checkout@v7
         with:
