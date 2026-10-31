@@ -1,5 +1,5 @@
 import type { ConsultationPrint, Vitals } from '../../lib/api/types'
-import { formatDayLabel } from '../../lib/dates'
+import { formatDayLabel, localToday } from '../../lib/dates'
 import { ageOn } from '../patients/patientLabel'
 import { followUpLabel, rxLineText, vitalsLine } from './rxPrintModel'
 
@@ -31,7 +31,9 @@ export function RxSheet({
   className?: string
   testId?: string
 }) {
-  const onDate = (p.finalizedOn ?? new Date().toISOString()).slice(0, 10)
+  // The Rx date is the hospital's calendar day (not the UTC day: 00:00–05:30 IST would show yesterday).
+  const zone = p.timeZone ?? undefined
+  const onDate = p.finalizedOn && p.finalizedOn.length === 10 ? p.finalizedOn : localToday(p.finalizedOn ? new Date(p.finalizedOn) : new Date(), zone)
   const regNo = p.doctor?.registrationNumber?.trim() || null
   const vitalsText = vitals ? vitalsLine(vitals) : null
   const diagnosis = p.diagnosisText ? `${p.diagnosisText}${p.diagnosisCode ? ` (${p.diagnosisCode})` : ''}` : null

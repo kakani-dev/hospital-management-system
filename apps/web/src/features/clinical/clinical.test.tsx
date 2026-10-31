@@ -161,6 +161,21 @@ describe('consultation editor', () => {
     expect(await screen.findByText('Finalize this prescription?')).toBeInTheDocument()
   })
 
+  it('the Rx date is the hospital day, not the UTC day (00:00–05:30 IST)', async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-11-01T19:15:00Z') }) // 00:45 IST on 2 Nov
+    try {
+      stubFetch({
+        ...base(['doctor']),
+        [`GET /api/v1/consultations/${CID}`]: () => json(consultation()),
+        [`GET /api/v1/consultations/${CID}/print-preview`]: () => json(previewHeader()),
+      })
+      renderWithProviders(<App />, { path: `/consultations/${CID}`, auth: auth() })
+      expect(await screen.findByTestId('rx-live-preview')).toHaveTextContent('Date Mon, 2 Nov')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('if the preview cannot load, the editor still works and says so', async () => {
     stubFetch({
       ...base(['doctor']),
