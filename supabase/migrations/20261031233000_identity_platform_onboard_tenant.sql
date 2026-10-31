@@ -10,8 +10,14 @@ create table if not exists identity.onboarding_defaults (
     'billing.approval_settings', 'appointment.tenant_settings', 'appointment.reminder_settings',
     'patient.registration_settings', 'pharmacy.tenant_setting')),
   settings jsonb not null default '{}'::jsonb check (jsonb_typeof(settings) = 'object' and not settings ? 'tenant_id'),
-  updated_on timestamptz not null default now()
+  created_on timestamptz not null default now(),
+  created_by uuid not null,
+  updated_on timestamptz not null default now(),
+  updated_by uuid not null,
+  is_deleted boolean not null default false
 );
+create trigger onboarding_defaults_audit_columns before insert or update on identity.onboarding_defaults
+  for each row execute function audit.stamp_audit_columns();
 alter table identity.onboarding_defaults enable row level security;
 revoke all on identity.onboarding_defaults from public, anon, authenticated;
 grant select on identity.onboarding_defaults to service_role;
@@ -76,7 +82,7 @@ begin
   select v_tenant, e->>'code', btrim(e->>'name'), nullif(btrim(e->>'address'), ''), null
     from jsonb_array_elements(p_branches) with ordinality as x(e, i) where x.i > 1;
 
-  for v_d in select d.target, d.settings from identity.onboarding_defaults d order by d.target loop
+  for v_d in select d.target, d.settings from identity.onboarding_defaults d where not d.is_deleted order by d.target loop
     select string_agg(format('%I', k), ', ' order by k) into v_cols from jsonb_object_keys(v_d.settings) k;
     execute format(
       'insert into %s (tenant_id%s) select $1%s from jsonb_populate_record(null::%s, $2) r on conflict do nothing',
