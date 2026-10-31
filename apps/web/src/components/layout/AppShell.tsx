@@ -1,5 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { Outlet, useNavigate } from 'react-router'
+import { useQuery } from '@tanstack/react-query'
+import { apiClient } from '../../lib/api/client'
 import { LoadingBlock } from '../ui/LoadingBlock'
 import { prefetchRoute } from '../../features/workspace/routePrefetch'
 import { useWorkspace } from '../../features/workspace/WorkspaceProvider'
@@ -78,6 +80,17 @@ export function AppShell() {
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [paletteOpen, setPaletteOpen])
 
+  const canSeeStock = !operatorOnly && has('stock.view')
+  const stockAlerts = useQuery({
+    queryKey: ['inventory', 'alerts', 'all'],
+    queryFn: () => apiClient.inventory.alerts(),
+    enabled: canSeeStock,
+    staleTime: 5 * 60_000,
+  })
+  const alertCount = stockAlerts.data
+    ? stockAlerts.data.counts.lowStock + stockAlerts.data.counts.expired + stockAlerts.data.counts.nearExpiry
+    : 0
+
   const navigation = useMemo<NavGroup[]>(() => {
     const clinical: NavGroup = {
       id: 'clinical',
@@ -138,7 +151,9 @@ export function AppShell() {
             ...(has('pharmacy.view')
               ? [{ id: 'pharmacy-dispense', path: '/pharmacy/dispense', title: 'Prescriptions to dispense', Icon: ClipboardDocumentCheckIcon }]
               : []),
-            ...(has('stock.view') ? [{ id: 'stock', path: '/stock', title: 'Stock', Icon: ArchiveBoxIcon }] : []),
+            ...(has('stock.view')
+              ? [{ id: 'stock', path: alertCount > 0 ? '/stock?tab=alerts' : '/stock', title: 'Stock', Icon: ArchiveBoxIcon, badge: alertCount, badgeLabel: `${alertCount} stock alerts` }]
+              : []),
           ],
     }
     // #114: privacy work (data-subject requests) has its own group, not Pharmacy. Same privacy.desk gate.
@@ -187,7 +202,7 @@ export function AppShell() {
       .filter((g) => g.childs.length > 0)
       .map((g) => ({ ...g, childs: g.childs.map((item) => ({ ...item, onPrefetch: () => prefetchRoute(item.path) })) }))
   // eslint-disable-next-line react-hooks/exhaustive-deps -- `has` derives from me.data (roles/permissions)
-  }, [roles, me.data, isPlatformAdmin, operatorOnly])
+  }, [roles, me.data, isPlatformAdmin, operatorOnly, alertCount])
 
   const avatarName = initialsSource(email)
 

@@ -90,7 +90,9 @@ import type {
   OpeningStockLine,
   StockCatalog,
   StockItem,
+  StockAlerts,
   StockOnHandRow,
+  StockSettings,
   PharmacyQueueRow,
   PharmacyPrescription,
   DispenseRequest,
@@ -803,6 +805,16 @@ export class ApiClient {
     stock: (params: { storeId?: string; itemId?: string; lowStock?: boolean } = {}) =>
       this.request<StockOnHandRow[]>(
         `/api/v1/inventory/stock${qs({ storeId: params.storeId, itemId: params.itemId, lowStock: params.lowStock ? true : undefined })}`,
+      ),
+    /** Low stock (below the store reorder level) and expired / near-expiry batches, earliest expiry first. */
+    alerts: (branchId?: string) => this.request<StockAlerts>(`/api/v1/inventory/stock/alerts${qs({ branchId })}`),
+    settings: () => this.request<StockSettings>('/api/v1/inventory/settings'),
+    saveSettings: (body: Partial<StockSettings>) =>
+      this.request<StockSettings>('/api/v1/inventory/settings', { method: 'PUT', body: JSON.stringify(body) }),
+    setReorder: (storeId: string, itemId: string, body: { reorderLevel: number; reorderQty?: number | null }) =>
+      this.request<{ reorderLevel: number; reorderQty: number | null }>(
+        `/api/v1/inventory/stores/${encodeURIComponent(storeId)}/items/${encodeURIComponent(itemId)}/reorder`,
+        { method: 'PUT', body: JSON.stringify(body) },
       ),
   }
 

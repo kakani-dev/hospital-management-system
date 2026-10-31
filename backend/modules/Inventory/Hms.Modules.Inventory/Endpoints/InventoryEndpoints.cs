@@ -44,6 +44,22 @@ public static class InventoryEndpoints
             Exec(db, tenant, HmsPermissions.InventoryView,
                 "select inventory.stock_on_hand(@t::uuid, @s::uuid, @i::uuid, @low::boolean)::text", ct,
                 ("s", storeId), ("i", itemId), ("low", lowStock == true)));
+        // Pharmacy stock and expiry alerts: below reorder level, expired and near-expiry batches (FEFO order).
+        root.MapGet("/stock/alerts", (Guid? branchId, InventoryDbContext db, ITenantContext tenant, CancellationToken ct) =>
+            Exec(db, tenant, HmsPermissions.InventoryView,
+                "select inventory.stock_alerts(@t::uuid, @br::uuid)::text", ct, ("br", branchId)));
+        root.MapGet("/settings", (InventoryDbContext db, ITenantContext tenant, CancellationToken ct) =>
+            Exec(db, tenant, HmsPermissions.InventoryView, "select pharmacy.get_settings(@t::uuid)::text", ct));
+        root.MapPut("/settings", (JsonElement body, InventoryDbContext db, ITenantContext tenant, CancellationToken ct) =>
+            body.ValueKind != JsonValueKind.Object
+                ? Task.FromResult<IResult>(HmsProblems.BadRequest(HmsProblems.Codes.InvalidParameter, "Body must be a JSON object."))
+                : Write(db, tenant, HmsPermissions.SettingsManage, "select pharmacy.set_alert_settings(@t::uuid, @b::jsonb)::text", body, ct));
+        root.MapPut("/stores/{storeId:guid}/items/{itemId:guid}/reorder", (Guid storeId, Guid itemId, JsonElement body, InventoryDbContext db, ITenantContext tenant, CancellationToken ct) =>
+            body.ValueKind != JsonValueKind.Object
+                ? Task.FromResult<IResult>(HmsProblems.BadRequest(HmsProblems.Codes.InvalidParameter, "Body must be a JSON object."))
+                : Exec(db, tenant, HmsPermissions.InventoryCatalog,
+                    "select inventory.set_reorder_policy(@t::uuid, @s::uuid, @i::uuid, @b::jsonb)::text", ct,
+                    ("s", storeId), ("i", itemId), ("b", body.GetRawText())));
         root.MapGet("/fefo", (Guid storeId, Guid itemId, long? qty, InventoryDbContext db, ITenantContext tenant, CancellationToken ct) =>
             Exec(db, tenant, HmsPermissions.InventoryView,
                 "select inventory.fefo_pick_v1(@t::uuid, @s::uuid, @i::uuid, @q::bigint)::text", ct,

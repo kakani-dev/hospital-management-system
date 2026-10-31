@@ -10,6 +10,9 @@ export interface NavItem {
   keys?: string
   /** Warm the route chunk on hover or keyboard focus. */
   onPrefetch?: () => void
+  /** Small count pill after the title (e.g. open stock alerts); hidden when 0 or absent. */
+  badge?: number
+  badgeLabel?: string
 }
 
 export interface NavGroup {
