@@ -43,7 +43,7 @@ export function waitingToPay(bills: BillListItem[], queue: QueueEntry[]) {
   return bills
     .filter((b) => b.status === 'draft' && (b.duePaise ?? 0) > 0)
     .map((b) => ({ bill: b, token: queue.find((q) => q.patientId === b.patientId && q.status !== 'cancelled')?.tokenNo ?? null }))
-    .sort((a, b) => a.bill.createdOn.localeCompare(b.bill.createdOn))
+    .sort((a, b) => b.bill.createdOn.localeCompare(a.bill.createdOn))
 }
 
 /** Today's collection by mode (cash, UPI, card, ...), net of refunds. */
