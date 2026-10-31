@@ -16,7 +16,8 @@
 # supabase-service-role, Auth__Supabase__ServiceRoleKey=secretref:supabase-service-role),
 # and Email__Dispatcher__Enabled=true. Identity is not rolled when either value is empty.
 #
-# Does not change registry bindings. Patients keeps its existing ACR identity.
+# Does not add or rebind registries; after a passing smoke it removes the stale rows in
+# .github/aca-stale-registries.tsv (#68). Patients keeps its existing ACR identity.
 # Scheduling keeps its system-assigned identity. Both already have AcrPull.
 # Does not write the identity app's hms-db secret (that value is hms_identity_login)
 # unless ACA_SECRETS_SOURCE=github (issue #68): then every row of .github/aca-secrets.tsv
@@ -87,11 +88,13 @@ az_retry() {
   local attempt=1 max="${AZ_RETRY_ATTEMPTS:-20}" delay="${AZ_RETRY_DELAY_SECONDS:-15}" err rc
   err="$(mktemp)"
   while :; do
-    if az "$@" 2>"$err"; then
+    # rc must come from az itself: "$?" after an if/fi with no branch taken is 0.
+    rc=0
+    az "$@" 2>"$err" || rc=$?
+    if ((rc == 0)); then
       rm -f "$err"
       return 0
     fi
-    rc=$?
     if grep -q 'ContainerAppOperationInProgress' "$err" && (( attempt < max )); then
       echo "   az $1 $2: operation in progress, retry ${attempt}/${max} in ${delay}s" >&2
       attempt=$((attempt + 1))
@@ -464,6 +467,37 @@ print(rows[0].get("revisionName", "") if rows else "")
   fi
 }
 
+# #68: drop a retired registry binding (and its password secret) listed in
+# .github/aca-stale-registries.tsv. Runs only after the full smoke passed. Never touches the ACR
+# binding. A failure here is reported but does not roll back a healthy deploy.
+STALE_REGISTRIES="${STALE_REGISTRIES:-$ROOT/.github/aca-stale-registries.tsv}"
+drop_stale_registries() {
+  local service="$1" app="ca-hms-$1" server secret servers image refs rc=0
+  [[ -f "$STALE_REGISTRIES" ]] || return 0
+  servers="$(az containerapp show -g "$RG" -n "$app" --query "properties.configuration.registries[].server" -o tsv)" || return 1
+  while IFS=$'\t' read -r server secret; do
+    [[ -z "$server" || "$server" == \#* ]] && continue
+    [[ "$server" == "$ACR_LOGIN_SERVER" ]] && { echo "::error::refusing to drop $ACR_LOGIN_SERVER" >&2; return 1; }
+    if grep -qxF "$server" <<<"$servers"; then
+      grep -qxF "$ACR_LOGIN_SERVER" <<<"$servers" || { echo "::warning::$app has no $ACR_LOGIN_SERVER binding; keeping $server" >&2; continue; }
+      image="$(az containerapp show -g "$RG" -n "$app" --query "properties.template.containers[0].image" -o tsv)"
+      [[ "$image" == "$ACR_LOGIN_SERVER/"* ]] || { echo "::warning::$app serves $image; keeping $server" >&2; continue; }
+      az_retry containerapp registry remove -g "$RG" -n "$app" --server "$server" -o none || { rc=1; continue; }
+      echo "$app removed registry $server"
+    fi
+    [[ -n "$secret" ]] || continue
+    grep -qxF "$secret" <<<"$(secret_names "$app")" || continue
+    refs="$(az containerapp show -g "$RG" -n "$app" --query "length([properties.configuration.registries[?passwordSecretRef=='$secret'], properties.template.containers[].env[?secretRef=='$secret'][]][])" -o tsv)"
+    if [[ "$refs" != "0" ]]; then
+      echo "::warning::$app secret $secret is still referenced; keeping it" >&2
+      continue
+    fi
+    az_retry containerapp secret remove -g "$RG" -n "$app" --secret-names "$secret" -o none || { rc=1; continue; }
+    echo "$app removed secret $secret"
+  done <"$STALE_REGISTRIES"
+  return "$rc"
+}
+
 main() {
   [[ -n "$IMAGE_TAG" ]] || die "IMAGE_TAG is required (sha-<hex>)"
   [[ "$IMAGE_TAG" =~ ^sha-[0-9a-f]{7,40}$ ]] || die "IMAGE_TAG must look like sha-<hex>"
@@ -512,6 +546,13 @@ main() {
     die "post-deploy smoke failed; restoring the previous revisions"
   fi
   echo "deployed $IMAGE_TAG to: ${ordered[*]}"
+  # The deploy is healthy from here on: a cleanup failure must not trigger rollback_all.
+  trap - EXIT
+  local stale_rc=0
+  for service in "${ordered[@]}"; do
+    drop_stale_registries "$service" || { stale_rc=1; echo "::error::$service: stale registry cleanup failed (deploy itself is healthy)" >&2; }
+  done
+  return "$stale_rc"
 }
 
 if [[ "${1:-}" == "--rollback-only" ]]; then

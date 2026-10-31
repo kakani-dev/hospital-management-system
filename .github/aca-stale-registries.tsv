@@ -1,0 +1,5 @@
+# Registry bindings that a successful deploy removes from every rolled container app (#68).
+# server<TAB>password secret name. A row is removed only after the full post-deploy smoke
+# passes, only when the app also pulls from the ACR with a managed identity, and only when the
+# serving image comes from that ACR. The secret is removed only when nothing else references it.
+ghcr.io	ghcrio-kakani-dev

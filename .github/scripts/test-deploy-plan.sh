@@ -374,6 +374,21 @@ if [[ "$all" == webapp\ config\ appsettings\ list* ]]; then
   if [[ -n "${B1_FORCE:-}" ]]; then echo true; else echo false; fi
   exit 0
 fi
+# #68 stale registry cleanup. STALE_GHCR lists the apps that still carry ghcr.io.
+if [[ "$all" == *"registries[].server"* ]]; then
+  [[ " ${STALE_GHCR:-} " == *" $app "* ]] && echo ghcr.io
+  [[ -z "${STALE_NO_ACR:-}" ]] && echo acrmedicorehmsdev.azurecr.io
+  exit 0
+fi
+if [[ "$all" == *"containers[0].image"* ]]; then
+  if [[ -n "${STALE_IMAGE:-}" ]]; then echo "$STALE_IMAGE"; else echo "acrmedicorehmsdev.azurecr.io/hms-x:sha-0123456789ab"; fi
+  exit 0
+fi
+if [[ "$all" == *"passwordSecretRef"* ]]; then echo "${STALE_REFS:-0}"; exit 0; fi
+if [[ "$all" == *"registry remove"* || "$all" == *"secret remove"* ]]; then
+  [[ -n "${STALE_REMOVE_FAIL:-}" ]] && exit 1
+  exit 0
+fi
 if [[ "$all" == *"ingress.fqdn"* ]]; then
   echo "edge.example.test"
   exit 0
@@ -421,6 +436,7 @@ if [[ "$all" == *"secret list"* ]]; then
   else
     printf 'hms-db\nhms-edge-key\n'
   fi
+  [[ " ${STALE_GHCR:-} " == *" $app "* ]] && printf 'ghcrio-kakani-dev\n'
   exit 0
 fi
 if [[ "$all" == *"minReplicas"* ]]; then
@@ -579,6 +595,29 @@ grep -q 'sha-prevprevprev=100' "$ROLLOUT_LOG" && fail "success run rolled traffi
 grep -q 'ReverseProxy__Clusters__billing' "$ROLLOUT_LOG" && fail "a known service stamped edge cluster addresses" || true
 grep -q 'ingress enable' "$ROLLOUT_LOG" && fail "a known service rewrote ingress" || true
 echo "rollout success ok"
+
+# #68: after a passing smoke, a stale ghcr.io binding and its secret are removed.
+STALE_GHCR="ca-hms-patients" run_rollout pass patients
+grep -q 'registry remove -g rg-medicore-hms-dev -n ca-hms-patients --server ghcr.io' "$ROLLOUT_LOG" || fail "stale ghcr.io binding was not removed"
+grep -q 'secret remove -g rg-medicore-hms-dev -n ca-hms-patients --secret-names ghcrio-kakani-dev' "$ROLLOUT_LOG" || fail "stale ghcr secret was not removed"
+grep 'registry remove' "$ROLLOUT_LOG" | grep -q 'azurecr.io' && fail "the ACR binding was removed" || true
+# An app without the stale binding is untouched.
+run_rollout pass patients
+grep -q 'registry remove\|secret remove' "$ROLLOUT_LOG" && fail "cleanup touched an app with no stale binding" || true
+# Serving image not from the ACR, or no ACR binding: keep the binding.
+STALE_GHCR="ca-hms-patients" STALE_IMAGE="ghcr.io/kakani-dev/hms-patients:old" run_rollout pass patients
+grep -q 'registry remove' "$ROLLOUT_LOG" && fail "removed ghcr.io while serving a ghcr image" || true
+# Secret still referenced: keep it.
+STALE_GHCR="ca-hms-patients" STALE_REFS=1 run_rollout pass patients
+grep -q 'secret remove' "$ROLLOUT_LOG" && fail "removed a referenced secret" || true
+# Failed health: no cleanup at all.
+STALE_GHCR="ca-hms-patients" FAIL_READY=1 run_rollout fail patients
+grep -q 'registry remove' "$ROLLOUT_LOG" && fail "cleanup ran after a failed smoke" || true
+# Cleanup failure: non-zero exit but no rollback of the healthy deploy.
+STALE_GHCR="ca-hms-patients" STALE_REMOVE_FAIL=1 run_rollout fail patients
+grep -q 'revision deactivate' "$ROLLOUT_LOG" && fail "cleanup failure rolled back a healthy deploy" || true
+grep -q 'sha-prevprevprev=100' "$ROLLOUT_LOG" && fail "cleanup failure restored old traffic" || true
+echo "rollout stale registry cleanup ok"
 
 # The update returns before Azure finishes provisioning: wait for the expected revision.
 PROVISION_LAG=3 run_rollout pass patients
