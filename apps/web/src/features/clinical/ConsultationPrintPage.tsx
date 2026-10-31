@@ -72,7 +72,7 @@ export function ConsultationPrintPage() {
         data-paper={paper ?? undefined}
       >
         <header className="border-b-2 border-gray-800 pb-1">
-          <p className="text-base font-semibold">{p.branch?.name ?? p.tenantName}</p>
+          <p className="text-base font-semibold" data-testid="print-hospital">{[p.tenantName, p.branch?.name].filter((x, i, all) => x && all.indexOf(x) === i).join(' — ')}</p>
           {p.branch?.address && <p className="text-xs">{p.branch.address}</p>}
         </header>
         <section className="flex justify-between gap-4 border-b border-gray-300 pb-1">

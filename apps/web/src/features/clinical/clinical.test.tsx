@@ -288,6 +288,7 @@ describe('print view', () => {
     renderWithProviders(<App />, { path: `/consultations/${CID}/print`, auth: auth() })
     const sheet = await screen.findByTestId('prescription-print')
     expect(sheet).toHaveTextContent('Alpha Main (synthetic)')
+    expect(screen.getByTestId('print-hospital')).toHaveTextContent('Demo Alpha Hospital — Alpha Main (synthetic)')
     expect(sheet).toHaveTextContent('1 Test Road')
     expect(screen.getByTestId('print-doctor')).toHaveTextContent('Dr. Rao (synthetic)')
     expect(screen.getByTestId('print-doctor')).toHaveTextContent('Reg. no. KMC-00000 (Synthetic Council)')
