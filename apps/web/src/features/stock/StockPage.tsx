@@ -659,7 +659,7 @@ function OpeningPanel({ items, stores }: { items: StockItem[]; stores: StockStor
           </div>
         )}
         <div className="sm:col-span-2">
-          <ScanInput testId="opening-scan" label="Scan the pack barcode (fills item, batch and expiry)" onScan={(scan) => void onScan(scan)} />
+          <ScanInput testId="opening-scan" label="Scan the pack barcode (fills product, batch and expiry)" onScan={(scan) => void onScan(scan)} />
           {scanNote && (
             <p className="mt-1 text-sm text-green-800 dark:text-green-300" data-testid="opening-scan-filled">
               {scanNote}

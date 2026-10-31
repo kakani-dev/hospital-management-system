@@ -28,6 +28,7 @@ create temp table ids on commit drop as
 select (select id from inventory.item where brand_name = 'Zz-QA Scanol 78') as item,
        (select id from inventory.item where brand_name = 'Zz-QA Other 78') as other;
 grant select on ids to public;
+set local role hms_svc_inventory;
 
 select tests.ok(
   inventory.resolve_gtin('11111111-1111-4111-8111-111111111111', '08901234567890') -> 'item' = 'null'::jsonb,
@@ -57,6 +58,7 @@ select tests.throws_ok(
 select set_config('request.jwt.claims',
   jsonb_build_object('sub', '0b000000-0000-4000-8000-000000000001', 'role', 'authenticated')::text, true);
 select set_config('request.jwt.claim.sub', '0b000000-0000-4000-8000-000000000001', true);
+set local role hms_svc_inventory;  -- run as the service so permission checks apply
 select tests.throws_ok(
   $$select inventory.resolve_gtin('11111111-1111-4111-8111-111111111111', '08901234567890')$$,
   '42501', 'another tenant cannot look up this hospital''s links');
