@@ -23,6 +23,7 @@ public static class BillingModule
         services.AddMemoryCache();
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<EarningsReportCache>();
+        services.Configure<Gl.GlExportOptions>(configuration.GetSection(Gl.GlExportOptions.Section));
         services.Configure<BillingPaymentOptions>(configuration.GetSection(BillingPaymentOptions.Section));
         services.TryAddSingleton<IPaymentProvider, StubPaymentProvider>();
         services.TryAddSingleton<IBillShareSender, StubBillShareSender>();

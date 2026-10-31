@@ -1644,3 +1644,38 @@ export interface DispenseRequest {
   note?: string
   lines: { lineNo: number; itemId?: Guid; qtyBase: number; complete: boolean; overrideReason?: string }[]
 }
+
+/** #62 GL / Tally export. */
+export interface GlLedgerRow {
+  key: string
+  name: string
+  group: string | null
+  isDefault: boolean
+  hint?: string | null
+}
+
+export interface GlLastExport {
+  from: string
+  to: string
+  format: string
+  vouchers: number
+  at: string
+}
+
+export interface GlLedgerMap {
+  ledgers: GlLedgerRow[]
+  lastExport: GlLastExport | null
+}
+
+export interface GlPreview {
+  from: string
+  to: string
+  branchId: string | null
+  counts: Record<string, number>
+  vouchers: number
+  debitPaise: number
+  unbalanced: number
+  skippedZero: number
+  ledgers: { name: string; group: string | null; isDefault: boolean; unmapped: boolean; debitPaise: number; creditPaise: number }[]
+  lastExport: GlLastExport | null
+}
