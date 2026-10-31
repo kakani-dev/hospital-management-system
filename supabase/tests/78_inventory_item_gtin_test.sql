@@ -1,4 +1,4 @@
--- Pharmacy barcode scanning: per-tenant GTIN link (20261101001000). Synthetic Zz-QA data; rolls back.
+-- Pharmacy barcode scanning: per-tenant GTIN link (20261101002000). Synthetic Zz-QA data; rolls back.
 begin;
 
 select tests.as_superuser();

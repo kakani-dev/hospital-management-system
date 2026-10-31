@@ -176,7 +176,7 @@ select tests.ok(
          where l.consultation_id = 'c5500000-0000-4000-8000-000000000002'),
   'override reasons are stored only when used and are in the audit log');
 
--- Barcode scanning (20261101001100): a scanned batchNo restricts the pick to that batch.
+-- Barcode scanning (20261101002100): a scanned batchNo restricts the pick to that batch.
 update clinical.consultations set status = 'finalized', finalized_on = now() - interval '30 minutes', finalized_by = '0d000000-0000-4000-8000-000000000001'
 where id = 'c5500000-0000-4000-8000-000000000004';
 do $$
