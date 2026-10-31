@@ -6,14 +6,28 @@ import { Button } from '../../components/ui/Button'
 import { Card } from '../../components/ui/Card'
 import { LoadingBlock } from '../../components/ui/LoadingBlock'
 import { apiClient } from '../../lib/api/client'
-import type { PharmacyPrescription, PharmacyRxLine, StockItem } from '../../lib/api/types'
+import type { DispenseRequest, PharmacyPrescription, PharmacyRxLine, StockItem } from '../../lib/api/types'
 import { useCurrentContext } from '../tenancy/useCurrentContext'
+import { ScanInput } from '../../components/scan/ScanInput'
+import type { Gs1Scan } from '../../lib/gs1'
 import { problemText, StatusBadge, AllergyNotice, ageSexText } from './pharmacyUi'
 
 const selectClass = 'mt-1 min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-dark-500 dark:bg-dark-700'
 const DISPENSING_STORES = new Set(['op_pharmacy', 'ip_pharmacy'])
 
-interface Draft { qty: string; complete: boolean; itemId: string; reason: string }
+interface Draft { qty: string; complete: boolean; itemId: string; reason: string; batchNo?: string; expiry?: string }
+type ScanMsg = { tone: 'ok' | 'warn' | 'error'; text: string; testId: string }
+
+const norm = (v: string | null | undefined) => (v ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+/** True when the prescribed medicine name names this stock item (brand or generic, either way round). */
+function namesItem(medicine: string, item: StockItem): boolean {
+  const m = norm(medicine)
+  return [item.brandName, item.genericName].map(norm).some((n) => n.length > 2 && (m.includes(n) || n.includes(m)))
+}
+function todayIso(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
 
 /** True when giving `qty` now would take the line past what was prescribed (#187). */
 function overPrescribed(l: PharmacyRxLine, qty: number): boolean {
@@ -34,6 +48,7 @@ export function DispensePage() {
   const [key, setKey] = useState(() => crypto.randomUUID())
   const [done, setDone] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
+  const [scanMsg, setScanMsg] = useState<ScanMsg | null>(null)
 
   const stores = useQuery({ queryKey: ['inventory', 'stores'], queryFn: () => apiClient.inventory.stores() })
   const items = useQuery({ queryKey: ['inventory', 'items'], queryFn: () => apiClient.inventory.items() })
@@ -79,7 +94,7 @@ export function DispensePage() {
     setDone(null)
     setFormError(null)
     if (!storeId) return setFormError('Choose the pharmacy store to dispense from.')
-    const lines: { lineNo: number; itemId?: string; qtyBase: number; complete: boolean; overrideReason?: string }[] = []
+    const lines: DispenseRequest['lines'] = []
     for (const l of data.lines) {
       if (l.complete) continue
       const d = draftFor(l)
@@ -96,14 +111,52 @@ export function DispensePage() {
         qtyBase: qty,
         complete: d.complete,
         ...(l.inventoryItemId ? {} : { itemId: d.itemId }),
+        ...(d.batchNo ? { batchNo: d.batchNo } : {}),
         ...(over ? { overrideReason: reason } : {}),
       })
     }
     if (lines.length === 0) return setFormError('Enter a quantity for at least one medicine.')
+    setScanMsg(null)
     dispense.mutate({ consultationId: data.id, storeId, lines, ...(note.trim() ? { note: note.trim() } : {}) })
   }
 
   const drugs: StockItem[] = (items.data?.items ?? []).filter((i) => i.isActive)
+
+  /** A scanned pack picks the matching open line, its item and batch. Expired packs and wrong drugs stop here. */
+  async function onScan(scan: Gs1Scan) {
+    setScanMsg(null)
+    if (scan.expiry && scan.expiry < todayIso()) {
+      return setScanMsg({ tone: 'error', testId: 'dispense-scan-expired', text: `This pack expired on ${scan.expiry}. Do not dispense it; set it aside.` })
+    }
+    let item: StockItem | null
+    try {
+      item = (await apiClient.inventory.resolveGtin(scan.gtin!)).item
+    } catch (err) {
+      return setScanMsg({ tone: 'error', testId: 'dispense-scan-error', text: problemText(err) })
+    }
+    if (!item) {
+      return setScanMsg({
+        tone: 'error',
+        testId: 'dispense-scan-unlinked',
+        text: 'This barcode is not linked to a stock item yet. Ask the store admin to scan it once in Stock, Opening stock.',
+      })
+    }
+    const open = data.lines.filter((l) => !l.complete)
+    const line = open.find((l) => l.inventoryItemId === item.id) ?? open.find((l) => !l.inventoryItemId && namesItem(l.medicineName, item))
+    if (!line) {
+      return setScanMsg({
+        tone: 'warn',
+        testId: 'dispense-scan-wrong',
+        text: `Wrong drug? ${item.brandName} (${item.genericName}) is not on this prescription. Check the pack against the prescription.`,
+      })
+    }
+    setDraft(line, { itemId: item.id, batchNo: scan.batch ?? '', expiry: scan.expiry })
+    setScanMsg({
+      tone: 'ok',
+      testId: 'dispense-scan-matched',
+      text: `Line ${line.lineNo}: ${item.brandName}${scan.batch ? `, batch ${scan.batch}` : ''}${scan.expiry ? `, expires ${scan.expiry}` : ''}. Enter the quantity.`,
+    })
+  }
 
   return (
     <div className="space-y-4" data-testid="pharmacy-dispense-page">
@@ -130,6 +183,16 @@ export function DispensePage() {
               ))}
             </select>
           </label>
+        )}
+        {canDispense && data.status !== 'dispensed' && !data.superseded && (
+          <div className="mb-3 max-w-xl">
+            <ScanInput testId="dispense-scan" label="Scan the pack (selects the medicine and batch)" onScan={(scan) => void onScan(scan)} />
+            {scanMsg && (
+              <div className="mt-2" data-testid={scanMsg.testId}>
+                <Alert tone={scanMsg.tone === 'ok' ? 'info' : scanMsg.tone === 'warn' ? 'warning' : 'error'}>{scanMsg.text}</Alert>
+              </div>
+            )}
+          </div>
         )}
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm" data-testid="rx-lines">
@@ -174,6 +237,14 @@ export function DispensePage() {
                                   <option key={i.id} value={i.id}>{i.brandName} ({i.genericName})</option>
                                 ))}
                               </select>
+                            )}
+                            {d.batchNo && (
+                              <p className="text-xs text-gray-700 dark:text-dark-100" data-testid="rx-line-batch">
+                                Scanned batch {d.batchNo}{d.expiry ? `, exp ${d.expiry}` : ''}{' '}
+                                <button type="button" className="underline" data-testid="rx-line-batch-clear" onClick={() => setDraft(l, { batchNo: '', expiry: undefined })}>
+                                  Use any batch
+                                </button>
+                              </p>
                             )}
                             <input
                               aria-label={`Quantity for line ${l.lineNo}`}

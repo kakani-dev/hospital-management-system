@@ -1800,7 +1800,8 @@ export interface DispenseRequest {
   consultationId: Guid
   storeId: Guid
   note?: string
-  lines: { lineNo: number; itemId?: Guid; qtyBase: number; complete: boolean; overrideReason?: string }[]
+  /** batchNo: a scanned pack; the server then takes only from that batch and refuses it when expired. */
+  lines: { lineNo: number; itemId?: Guid; qtyBase: number; complete: boolean; overrideReason?: string; batchNo?: string }[]
 }
 
 /** #62 GL / Tally export. */
