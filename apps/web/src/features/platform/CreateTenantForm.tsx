@@ -89,7 +89,7 @@ export function CreateTenantForm({ onCreated, onCancel }: { onCreated: (result: 
       />
       <fieldset className="space-y-2" data-testid="onboard-branches">
         <legend className="text-sm font-medium text-gray-800 dark:text-dark-100">Branches</legend>
-        <p className="text-xs text-gray-500">The first branch is the main branch. Default settings (billing approvals, refunds, reminders, registration, pharmacy) are applied from platform config.</p>
+        <p className="text-xs text-gray-600 dark:text-dark-200">The first branch is the main branch. Default settings (billing approvals, refunds, reminders, registration, pharmacy) are applied from platform config.</p>
         {branchRows.fields.map((f, i) => (
           <div key={f.id} className="flex items-start gap-2" data-testid={`onboard-branch-${i}`}>
             <div className="flex-1">
@@ -99,17 +99,17 @@ export function CreateTenantForm({ onCreated, onCancel }: { onCreated: (result: 
               <FormField label={`Branch ${i + 1} address`} hint={i === 0 ? 'Optional' : undefined} {...register(`branches.${i}.address` as const)} />
             </div>
             {branchRows.fields.length > 1 && (
-              <button type="button" className="mt-6 rounded px-2 py-1 text-xs text-red-700 hover:bg-red-50" aria-label={`Remove branch ${i + 1}`} data-testid={`onboard-branch-remove-${i}`} onClick={() => branchRows.remove(i)}>
+              <button type="button" className="mt-6 rounded px-2 py-1 text-xs text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-dark-600" aria-label={`Remove branch ${i + 1}`} data-testid={`onboard-branch-remove-${i}`} onClick={() => branchRows.remove(i)}>
                 Remove
               </button>
             )}
           </div>
         ))}
         {(errors.branches?.message || errors.branches?.root?.message) && (
-          <p className="text-xs text-red-700" role="alert">{errors.branches?.message ?? errors.branches?.root?.message}</p>
+          <p className="text-xs text-red-700 dark:text-red-400" role="alert">{errors.branches?.message ?? errors.branches?.root?.message}</p>
         )}
         {branchRows.fields.length < 20 && (
-          <button type="button" className="rounded px-2 py-1 text-xs font-medium text-primary-700 hover:bg-primary-50" data-testid="onboard-branch-add" onClick={() => branchRows.append({ name: '', address: '' })}>
+          <button type="button" className="rounded px-2 py-1 text-xs font-medium text-primary-700 hover:bg-primary-50 dark:text-primary-300 dark:hover:bg-dark-600" data-testid="onboard-branch-add" onClick={() => branchRows.append({ name: '', address: '' })}>
             + Add branch
           </button>
         )}
