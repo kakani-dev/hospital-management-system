@@ -136,7 +136,7 @@ function DrawerRow({ session: s, reasons, locked, canClose, canReceive, canRecon
         <p>
           <span className="font-medium">{s.counterName ?? 'Counter'}</span>
           {s.mine && <span className="ml-1 text-xs text-primary-600">(you)</span>}
-          {' · '}<span className="capitalize" data-testid="session-status">{s.status}</span>
+          {' · '}<span className="capitalize" data-testid="session-status">{s.status === 'stale' ? 'stale (earlier day)' : s.status}</span>
         </p>
         <p className="text-gray-600 dark:text-dark-200">
           Float {formatPaise(s.openingFloatPaise)} · <span data-testid="session-expected">Expected {formatPaise(s.expectedCashPaise)}</span>
@@ -159,7 +159,7 @@ function DrawerRow({ session: s, reasons, locked, canClose, canReceive, canRecon
         </p>
       )}
       {receive.isError && <Alert tone="error">{errorText(receive.error, 'Could not receive the handover.')}</Alert>}
-      {s.status === 'open' && canClose && !locked && (
+      {(s.status === 'open' || s.status === 'stale') && canClose && !locked && (
         <form noValidate onSubmit={submit} className="mt-2 flex flex-wrap items-end gap-2" data-testid="close-drawer-form">
           <label className="text-xs">Counted ₹
             <input className={`ml-1 w-28 ${input}`} inputMode="decimal" data-testid="close-counted" value={counted}

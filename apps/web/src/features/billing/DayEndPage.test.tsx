@@ -95,6 +95,14 @@ describe('Day end close (all methods)', () => {
     expect(calls.find((c) => c.path.endsWith('/s-open/close'))?.body).toEqual({ countedCashPaise: 9500, handoverPaise: 5000, reason: 'Counting error' })
   })
 
+  it('a drawer left open from an earlier day shows as stale and can still be counted and closed', async () => {
+    const base = summary()
+    renderPage(['billing'], {}, summary({ sessions: [{ ...base.sessions[0]!, status: 'stale' }] }))
+    const row = (await screen.findAllByTestId('day-end-session'))[0]!
+    expect(within(row).getByTestId('session-status')).toHaveTextContent('stale (earlier day)')
+    expect(await screen.findByTestId('close-drawer')).toBeInTheDocument()
+  })
+
   it('one tap fills the expected count and no reason is asked', async () => {
     renderPage(['billing'])
     const user = userEvent.setup()
