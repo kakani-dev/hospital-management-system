@@ -44,6 +44,11 @@ begin
   update appointment.practitioners set registration_number = 'NMC/5200001', council_name = 'Synthetic Council'
   where id = 'c1111111-0000-4000-8000-000000000001';
   perform pg_temp.act(doc);
+  -- 20261101001000: the live preview works on the draft; the printable copy stays finalized-only.
+  v := clinical.consultation_print_preview(t, cid);
+  perform tests.ok(v ->> 'status' = 'draft' and v -> 'doctor' ->> 'registrationNumber' = 'NMC/5200001' and v ->> 'paperSize' in ('A5', 'A4'),
+    'the live preview returns hospital, doctor registration and paper size for a draft');
+  perform tests.throws_ok(format($q$select clinical.consultation_print(%L, %L)$q$, t, cid), '55000', 'a draft still cannot be printed');
   v := clinical.finalize_consultation(t, cid, rv);
   perform tests.ok(v ->> 'status' = 'finalized', 'once the registration number is set, finalize succeeds');
   v := clinical.consultation_print(t, cid);
