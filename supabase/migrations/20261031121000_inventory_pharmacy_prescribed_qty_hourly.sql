@@ -2,6 +2,9 @@
 -- unknown, so those prescriptions had no cap. prescribed_qty now understands them; truly unknown text
 -- (SOS, PRN, STAT) still returns null (no cap) as before.
 
+set local lock_timeout = '5s';
+set local statement_timeout = '120s';
+
 create or replace function pharmacy.prescribed_qty(p_dose text, p_frequency text, p_duration integer)
 returns bigint
 language plpgsql
