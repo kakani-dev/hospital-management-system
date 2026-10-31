@@ -31,6 +31,9 @@ public static class HmsProblems
     /// <summary>Shown for a no-show that the transition rule rejects. The rule itself is unchanged.</summary>
     public const string NoShowNotAllowedDetail = "Only booked appointments that have started can be marked as no-show.";
 
+    public const string OutOfRangeDetail = "A number in the request is outside the allowed range.";
+    public const string BadFormatDetail = "A value in the request is not in the expected format (number, ID or date).";
+
     public static class SqlStates
     {
         public const string InsufficientPrivilege = "42501";
@@ -41,6 +44,10 @@ public static class HmsProblems
         public const string ForeignKeyViolation = "23503";
         public const string ObjectNotInPrerequisiteState = "55000";
         public const string InvalidParameterValue = "22023";
+        public const string NumericValueOutOfRange = "22003";
+        public const string InvalidTextRepresentation = "22P02";
+        public const string InvalidDatetimeFormat = "22007";
+        public const string DatetimeFieldOverflow = "22008";
         public const string DeadlockDetected = "40P01";
         public const string SerializationFailure = "40001";
     }
@@ -112,6 +119,11 @@ public static class HmsProblems
             SqlStates.CheckViolation => CheckViolation(db, message),
             SqlStates.ForeignKeyViolation => BadRequest(Codes.InvalidReference, "A referenced record does not exist in this hospital (or was deleted)."),
             SqlStates.InvalidParameterValue => BadRequest(Codes.InvalidParameter, Sanitize(message) ?? "A parameter value is invalid."),
+            // A body value the database could not cast (too large, not a number or date): the caller's
+            // input is wrong, so 400. The raw Postgres text is not shown.
+            SqlStates.NumericValueOutOfRange => BadRequest(Codes.InvalidParameter, OutOfRangeDetail),
+            SqlStates.InvalidTextRepresentation or SqlStates.InvalidDatetimeFormat or SqlStates.DatetimeFieldOverflow =>
+                BadRequest(Codes.InvalidParameter, BadFormatDetail),
             SqlStates.DeadlockDetected or SqlStates.SerializationFailure =>
                 Conflict(concurrencyCode, concurrencyDetail ?? "A concurrent change conflicted with this request. Reload and try again."),
             _ => null,
