@@ -116,6 +116,27 @@ aca_secrets_sync_reused() {
   ACA_RESTARTED+=("$app"$'\t'"$rev")
 }
 
+# Issue #263: a reused revision that is not serving traffic may hold config it loaded in
+# an earlier rollout. Give it fresh replicas before the readiness wait: activate it when
+# inactive, otherwise restart it. Skipped when it is the serving revision (no blip) or
+# when the secret sync above already restarted it.
+aca_refresh_reused() {
+  local service="$1" rev="$2" prev="$3" app="ca-hms-$1" pair active
+  [[ "$rev" != "$prev" ]] || { echo "   $app revision $rev is serving; not restarted"; return 0; }
+  for pair in ${ACA_RESTARTED[@]+"${ACA_RESTARTED[@]}"}; do
+    [[ "$pair" == "$app"$'\t'"$rev" ]] && return 0
+  done
+  active="$(az containerapp revision show -g "$RG" -n "$app" --revision "$rev" --query properties.active -o tsv)" || return 1
+  if [[ "$active" == "false" ]]; then
+    echo "   activating reused $app revision $rev so it starts fresh"
+    az_retry containerapp revision activate -g "$RG" -n "$app" --revision "$rev" -o none || return 1
+  else
+    echo "   restarting reused $app revision $rev so it loads current config"
+    az_retry containerapp revision restart -g "$RG" -n "$app" --revision "$rev" -o none || return 1
+  fi
+  ACA_RESTARTED+=("$app"$'\t'"$rev")
+}
+
 # Put back secrets this process changed. Only previous values that existed are restored.
 aca_secrets_restore() {
   local key app aca rc=0
