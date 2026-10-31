@@ -53,3 +53,33 @@ public class BillingBodyFieldsTests
         Assert.Contains("branchId", r.ProblemDetails.Detail);
     }
 }
+
+public class BillingEventTenantStampTests
+{
+    private static readonly Guid Session = Guid.NewGuid();
+
+    [Fact]
+    public void Missing_tenant_is_set_from_session()
+    {
+        Assert.True(BodyFields.TryStampTenant("{\"appointment_id\":\"a\"}", Session, out var s));
+        Assert.Equal(Session.ToString(), JsonDocument.Parse(s).RootElement.GetProperty("tenant_id").GetString());
+    }
+
+    [Fact]
+    public void Matching_tenant_is_kept() =>
+        Assert.True(BodyFields.TryStampTenant($"{{\"tenant_id\":\"{Session}\"}}", Session, out _));
+
+    [Theory]
+    [InlineData("{\"tenant_id\":\"11111111-1111-4111-8111-111111111112\"}")]
+    [InlineData("{\"tenant_id\":\"garbage\"}")]
+    [InlineData("{\"tenant_id\":42}")]
+    public void Other_or_malformed_tenant_is_rejected(string payload) =>
+        Assert.False(BodyFields.TryStampTenant(payload, Session, out _));
+
+    [Fact]
+    public void Null_tenant_is_replaced_by_session()
+    {
+        Assert.True(BodyFields.TryStampTenant("{\"tenant_id\":null}", Session, out var s));
+        Assert.Contains(Session.ToString(), s);
+    }
+}
