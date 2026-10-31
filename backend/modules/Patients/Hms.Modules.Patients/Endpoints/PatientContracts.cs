@@ -91,7 +91,9 @@ public sealed record CreatePatientRequest(
 /// phones and DOBs never land in proxy/edge access logs (review Minor 5). Filters are AND-ed.
 /// </summary>
 public sealed record PatientSearchRequest(
-    string? Search, int? Page, int? PageSize, string? Phone = null, DateOnly? DateOfBirth = null, bool? IncludeDeleted = null);
+    string? Search, int? Page, int? PageSize, string? Phone = null, DateOnly? DateOfBirth = null, bool? IncludeDeleted = null,
+    /// <summary>Exact ABHA number (14 digits, dashes optional). OP Counter unified search.</summary>
+    string? Abha = null);
 
 /// <summary>GET /patients/stats: counts for the dashboard (soft-deleted patients excluded).</summary>
 public sealed record PatientStatsDto(long Total, long RegisteredToday);

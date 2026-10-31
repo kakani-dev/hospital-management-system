@@ -121,6 +121,7 @@ export function AppShell() {
         ...(has('queue.checkIn')
           ? [{ id: 'check-in', path: '/reception/check-in', title: 'Check-in', Icon: ClipboardDocumentCheckIcon, keys: 'Alt+C' }]
           : []),
+        ...(has('billing.collect') && !operatorOnly ? [{ id: 'op-counter', path: '/billing/counter', title: 'OP counter', Icon: BanknotesIcon }] : []),
         ...(has('queue.view') ? [{ id: 'queue', path: '/queue', title: 'OPD queue', Icon: QueueListIcon, keys: 'Alt+Q' }] : []),
       ],
     }

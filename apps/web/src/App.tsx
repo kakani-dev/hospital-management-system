@@ -95,6 +95,9 @@ const BillDetailPage = lazy(() =>
 const ReceiptPage = lazy(() =>
   import("./features/billing/ReceiptPage").then((m) => ({ default: m.ReceiptPage })),
 );
+const OpCounterPage = lazy(() =>
+  import("./features/counter/OpCounterPage").then((m) => ({ default: m.OpCounterPage })),
+);
 const AdminDeskPage = lazy(() =>
   import("./features/admin/AdminDeskPage").then((m) => ({ default: m.AdminDeskPage })),
 );
@@ -206,6 +209,9 @@ export function App() {
                 </Lazy>
               }
             />
+          </Route>
+          <Route element={<RequireCapability capability="billing.collect" />}>
+            <Route path="billing/counter" element={<Lazy><OpCounterPage /></Lazy>} />
           </Route>
           <Route element={<RequireCapability capability="billing.approve" />}>
             <Route path="billing/approvals" element={<Lazy><ApprovalsPage /></Lazy>} />
