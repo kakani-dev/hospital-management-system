@@ -110,7 +110,38 @@ describe('Platform console', () => {
     await user.type(form.getByLabelText('First admin email'), 'asha@lotus.example')
     await user.click(form.getByRole('button', { name: 'Create hospital' }))
     expect(await screen.findByTestId('invite-link-url')).toHaveValue(`${window.location.origin}${INVITE.path}`)
-    expect(calls.find((c) => c.method === 'POST')!.body).toEqual({ name: 'Synthetic Lotus Clinic', code: 'synthetic-lotus-clinic', timeZone: 'Asia/Kolkata', adminEmail: 'asha@lotus.example' })
+    expect(calls.find((c) => c.method === 'POST')!.body).toEqual({ name: 'Synthetic Lotus Clinic', code: 'synthetic-lotus-clinic', timeZone: 'Asia/Kolkata', adminEmail: 'asha@lotus.example', branches: [{ code: 'main', name: 'Main', address: null }] })
+  })
+
+  it('onboards a hospital with several branches on the same screen', async () => {
+    const calls = stubFetch({
+      'GET /api/v1/me': () => json(OPERATOR),
+      'GET /api/v1/platform/tenants': () => json([]),
+      'GET /api/v1/platform/hospital-requests': () => json([]),
+      'POST /api/v1/platform/tenants': () => json({ tenantId: LOTUS.id, invite: INVITE }, 201),
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: '/platform', auth: session() })
+    await user.click(await screen.findByRole('button', { name: 'Create hospital' }))
+    const form = within(await screen.findByRole('form', { name: 'Create hospital' }))
+    await user.type(form.getByLabelText('Hospital name'), 'Zz-QA Lotus Hospitals')
+    await user.type(form.getByLabelText('Hospital time zone'), 'Asia/Kolkata')
+    await user.type(form.getByLabelText('First admin email'), 'zz-qa@lotus.example')
+    await user.clear(form.getByLabelText('Branch 1 name'))
+    await user.type(form.getByLabelText('Branch 1 name'), 'Hyderabad Main')
+    await user.click(form.getByTestId('onboard-branch-add'))
+    await user.type(form.getByLabelText('Branch 2 name'), 'hyderabad main')
+    await user.click(form.getByRole('button', { name: 'Create hospital' }))
+    expect(await form.findByText('Branch names must be unique')).toBeInTheDocument()
+    expect(calls.some((c) => c.method === 'POST')).toBe(false)
+    await user.clear(form.getByLabelText('Branch 2 name'))
+    await user.type(form.getByLabelText('Branch 2 name'), 'Bengaluru Koramangala')
+    await user.click(form.getByRole('button', { name: 'Create hospital' }))
+    expect(await screen.findByTestId('invite-link-url')).toBeInTheDocument()
+    expect((calls.find((c) => c.method === 'POST')!.body as { branches: unknown }).branches).toEqual([
+      { code: 'hyderabad-main', name: 'Hyderabad Main', address: null },
+      { code: 'bengaluru-koramangal', name: 'Bengaluru Koramangala', address: null },
+    ])
   })
 
   it('starts the hospital zone at the workstation zone and only accepts listed zones', async () => {
