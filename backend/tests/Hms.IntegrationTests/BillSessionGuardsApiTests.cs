@@ -85,7 +85,7 @@ public sealed class BillSessionGuardsApiTests(HmsApiFactory factory) : IClassFix
         }
 
         var (billId, accountId) = await OpenBill(admin, AlphaEast);
-        var onStale = await PayCash(admin, accountId, billId, 10000, staleId);
+        var onStale = await PayCash(admin, accountId, billId, 100, staleId);
         Assert.Equal(HttpStatusCode.Conflict, onStale.Status);
 
         var fresh = await Post(admin, "/api/v1/counter-sessions/ensure", new { branchId = AlphaEast });
@@ -100,12 +100,12 @@ public sealed class BillSessionGuardsApiTests(HmsApiFactory factory) : IClassFix
             Assert.Equal("stale", (string?)await status.ExecuteScalarAsync());
         }
 
-        Assert.Equal(HttpStatusCode.OK, (await PayCash(admin, accountId, billId, 10000, freshId)).Status);
+        Assert.Equal(HttpStatusCode.OK, (await PayCash(admin, accountId, billId, 100, freshId)).Status);
 
         // The stale drawer is still counted and closed for its own day.
         var closeStale = await Post(admin, $"/api/v1/counter-sessions/{staleId}/close", new { countedCashPaise = 0 });
         Assert.Equal(HttpStatusCode.OK, closeStale.Status);
-        Assert.Equal(HttpStatusCode.OK, (await Post(admin, $"/api/v1/counter-sessions/{freshId}/close", new { countedCashPaise = 10000 })).Status);
+        Assert.Equal(HttpStatusCode.OK, (await Post(admin, $"/api/v1/counter-sessions/{freshId}/close", new { countedCashPaise = 100 })).Status);
     }
 
     private static async Task<(Guid BillId, Guid AccountId)> OpenBill(HttpClient client, Guid? branch = null)
