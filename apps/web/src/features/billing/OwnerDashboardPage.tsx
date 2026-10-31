@@ -53,7 +53,10 @@ export function OwnerDashboardPage() {
   const [params, setParams] = useSearchParams()
   const preset = (PRESETS.find((p) => p.id === params.get('range'))?.id ?? 'today') as Preset
   const branchId = branches.some((b) => b.id === params.get('branch')) ? params.get('branch') : null
-  const today = localToday(new Date(), zones.zoneFor(branchId ?? branches[0]?.id))
+  // Wait for the branch time zone: before it loads, localToday would use the browser's zone and
+  // ask for the wrong day around midnight.
+  const zone = zones.zoneFor(branchId ?? branches[0]?.id)
+  const today = localToday(new Date(), zone)
   const { from, to } = rangeFor(preset, today)
   const set = (k: string, v: string | null) => {
     const next = new URLSearchParams(params)
@@ -65,6 +68,7 @@ export function OwnerDashboardPage() {
   const kpis = useQuery({
     queryKey: ['owner-kpis', from, to, branchId],
     queryFn: () => apiClient.billing.ownerKpis({ from, to, branchId: branchId ?? undefined }),
+    enabled: zone !== undefined,
   })
   const canStock = has('stock.view')
   const alerts = useQuery({
