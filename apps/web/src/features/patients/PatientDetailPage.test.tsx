@@ -27,7 +27,7 @@ const detail = {
 const emptyPage = { items: [], page: 1, pageSize: 25, totalCount: 0 }
 
 describe('PatientDetailPage', () => {
-  it('shows demographics; a receptionist can edit (and delete)', async () => {
+  it('shows demographics; a receptionist can edit but not delete (#273)', async () => {
     const calls = stubFetch({
       'GET /api/v1/me': () => json(meWithRoles(['receptionist'])),
       [`GET /api/v1/patients/${PID}`]: () => json(detail),
@@ -40,7 +40,7 @@ describe('PatientDetailPage', () => {
     const details = await screen.findByTestId('patient-details')
     expect(within(details).getByText('+91 98450 00001')).toBeInTheDocument()
     expect(within(details).getByText('Alpha Main')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Delete patient' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Delete patient' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Merge patient' })).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Edit patient' }))
@@ -127,7 +127,7 @@ describe('PatientDetailPage', () => {
     expect(screen.getByText('Please fix the highlighted fields.')).toBeInTheDocument()
   })
 
-  it('a receptionist at another branch can still edit and delete', async () => {
+  it('a receptionist at another branch can still edit, but not delete', async () => {
     stubFetch({
       'GET /api/v1/me': () => json(meWithRoles(['receptionist'], ALPHA_EAST)),
       [`GET /api/v1/patients/${PID}`]: () => json(detail),
@@ -135,7 +135,7 @@ describe('PatientDetailPage', () => {
     renderWithProviders(<App />, { path: `/patients/${PID}`, auth: fakeAuthClient({ session: fakeSession() }) })
     expect(await screen.findByTestId('patient-details')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Edit patient' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Delete patient' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Delete patient' })).not.toBeInTheDocument()
   })
 
   it('lists visits from every branch and offers a follow-up at the current desk', async () => {
@@ -179,7 +179,7 @@ describe('PatientDetailPage', () => {
 
   it('maps a 409 invalid_state on delete to "cancel open appointments first"', async () => {
     stubFetch({
-      'GET /api/v1/me': () => json(meWithRoles(['receptionist'], ALPHA_MAIN)),
+      'GET /api/v1/me': () => json(meWithRoles(['tenant_admin'], ALPHA_MAIN)),
       [`GET /api/v1/patients/${PID}`]: () => json(detail),
       [`DELETE /api/v1/patients/${PID}`]: () => json({ title: 'Conflict', status: 409, code: 'invalid_state' }, 409),
     })
@@ -194,7 +194,7 @@ describe('PatientDetailPage', () => {
 
   it('soft-deletes after confirmation (cancel first does nothing), sends the reason and returns to the list', async () => {
     const calls = stubFetch({
-      'GET /api/v1/me': () => json(meWithRoles(['receptionist'], ALPHA_MAIN)),
+      'GET /api/v1/me': () => json(meWithRoles(['tenant_admin'], ALPHA_MAIN)),
       [`GET /api/v1/patients/${PID}`]: () => json(detail),
       [`DELETE /api/v1/patients/${PID}`]: () => json(undefined, 204),
       'GET /api/v1/patients': () => json(emptyPage),

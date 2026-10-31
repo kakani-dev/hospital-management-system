@@ -136,7 +136,9 @@ select tests.ok((select count(*) from patient.patient_phones) = 0, 'RLS: a membe
 select tests.authenticate_as('reception@alpha.example');
 select tests.ok(identity.tenant_default_country_code_v1('11111111-1111-4111-8111-111111111111') = '+91',
   'tenant_default_country_code_v1: the member''s own tenant');
+select tests.authenticate_as('admin@alpha.example');
 select patient.soft_delete_patient('aa000000-0000-4000-8000-000000000002', 'synthetic phones');
+select tests.authenticate_as('reception@alpha.example');
 select tests.ok(
   (select count(*) from patient.patient_phones where patient_id = 'aa000000-0000-4000-8000-000000000002') = 0,
   'RLS: phones of a soft-deleted patient are hidden from non-admins (mirrors patients)');

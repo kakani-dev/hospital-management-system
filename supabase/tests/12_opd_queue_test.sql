@@ -294,9 +294,11 @@ select appointment.set_queue_status((select queue_entry_id from t8), 'cancelled'
 select tests.ok(
   (select status = 'cancelled' from appointment.appointments where id = 'e1111111-0000-4000-8000-0000000000b3'),
   'cancelling an in-consultation queue entry cancels the appointment (queue sync)');
+select tests.authenticate_as('admin@alpha.example');
 select tests.throws_ok(
   $$select patient.soft_delete_patient('aa000000-0000-4000-8000-000000000002')$$,
   '55000', 'patient whose only open item is a waiting queue entry cannot be soft-deleted -> 55000');
+select tests.authenticate_as('reception@alpha.example');
 
 -- ---------- outbox events ----------
 select tests.as_superuser();

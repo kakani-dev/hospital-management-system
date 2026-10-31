@@ -1196,7 +1196,7 @@ export class MockBackend {
         return reply(200, detailDto(patient), tenant)
       }
       if (method === 'DELETE') {
-        if (!roles.includes('tenant_admin') && !roles.includes('receptionist')) return forbidden()
+        if (!roles.includes('tenant_admin')) return forbidden() // #273: hospital admin only
         const open = this.appointments.some((a) => a.patientId === patient.id && ['booked', 'checked_in', 'in_consultation'].includes(a.status)) || this.queue.some((q) => q.patientId === patient.id && ['waiting', 'in_consultation'].includes(q.status))
         if (open) return problem(409, 'invalid_state', { detail: 'The patient has open appointments or queue entries.' })
         patient.deletedAt = new Date().toISOString()
