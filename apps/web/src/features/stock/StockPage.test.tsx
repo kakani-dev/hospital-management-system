@@ -82,9 +82,15 @@ function stub(role: string) {
     'GET /api/v1/inventory/stock/alerts': () => json(alerts()),
     'PUT /api/v1/inventory/stores/st-1/items/it-1/reorder': () => json({ storeId: 'st-1', itemId: 'it-1', reorderLevel: 20, reorderQty: 50 }),
     'PUT /api/v1/inventory/settings': () => json({ rxValidityDays: 30, nearExpiryDays: 60 }),
+    'GET /api/v1/inventory/gtin/08901234567890': () => json({ gtin: '08901234567890', item }),
+    'GET /api/v1/inventory/gtin/09999999999994': () => json({ gtin: '09999999999994', item: null }),
+    'POST /api/v1/inventory/gtin': () => json({ gtin: '09999999999994', item }),
     'GET /health/live': () => json({ status: 'Healthy' }),
   })
 }
+
+const GS = '\u001d'
+const yy = (add: number) => String((new Date().getFullYear() + add) % 100).padStart(2, '0')
 
 function isoIn(days: number) {
   const d = new Date()
@@ -151,6 +157,51 @@ describe('Stock page', () => {
       lines: [{ itemId: item.id, batchNo: 'B1', mrpPaise: 1500, purchaseRatePaise: 1250, qtyBase: 10 }],
     })
     expect(posted?.body).not.toHaveProperty('docNo')
+  })
+
+  it('a GS1 scan fills item, batch and expiry on opening stock', async () => {
+    const user = userEvent.setup()
+    renderStock('tenant_admin')
+    await user.click(await screen.findByRole('tab', { name: 'Opening stock' }))
+    const scan = await screen.findByTestId('opening-scan-input')
+    // Synthetic DataMatrix payload from a keyboard-wedge scanner: AIM prefix, FNC1 as GS, Enter at the end.
+    await user.click(scan)
+    await user.paste(`]d2010890123456789017${yy(2)}063010ZZQA-B1${GS}21SN1`)
+    await user.keyboard('{Enter}')
+    expect(await screen.findByTestId('opening-scan-filled')).toHaveTextContent('Scanned Crocin: filled item, batch, expiry')
+    expect(screen.getByLabelText('Batch number on the pack')).toHaveValue('ZZQA-B1')
+    expect(screen.getByLabelText('Expiry')).toHaveValue(`${new Date().getFullYear() + 2}-06-30`)
+  })
+
+  it('an unknown GTIN asks once to link it to a catalogue item, then fills the form', async () => {
+    const user = userEvent.setup()
+    const calls = renderStock('tenant_admin')
+    await user.click(await screen.findByRole('tab', { name: 'Opening stock' }))
+    await user.click(await screen.findByTestId('opening-scan-input'))
+    await user.paste(`(01)09999999999994(17)${yy(1)}1200(10)LOT7`)
+    await user.keyboard('{Enter}')
+    const prompt = await screen.findByTestId('gtin-link-prompt')
+    expect(prompt).toHaveTextContent('09999999999994')
+    await user.selectOptions(screen.getByTestId('gtin-link-item'), item.id)
+    await user.click(screen.getByTestId('gtin-link-save'))
+    expect(await screen.findByTestId('opening-scan-filled')).toHaveTextContent('Crocin')
+    expect(screen.queryByTestId('gtin-link-prompt')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Batch number on the pack')).toHaveValue('LOT7')
+    expect(screen.getByLabelText('Expiry')).toHaveValue(`${new Date().getFullYear() + 1}-12-31`)
+    const posted = calls.find((c) => c.method === 'POST' && c.path === '/api/v1/inventory/gtin')
+    expect(posted?.body).toEqual({ gtin: '09999999999994', itemId: item.id })
+    expect(posted?.body).not.toHaveProperty('tenantId')
+  })
+
+  it('a bad barcode shows why and fills nothing', async () => {
+    const user = userEvent.setup()
+    renderStock('tenant_admin')
+    await user.click(await screen.findByRole('tab', { name: 'Opening stock' }))
+    await user.click(await screen.findByTestId('opening-scan-input'))
+    await user.paste('0108901234567891')
+    await user.keyboard('{Enter}')
+    expect(await screen.findByTestId('opening-scan-error')).toHaveTextContent('check digit')
+    expect(screen.getByLabelText('Batch number on the pack')).toHaveValue('')
   })
 
   it('highlights expired stock and hides catalog edits from a pharmacist', async () => {

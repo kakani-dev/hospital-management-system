@@ -11,6 +11,8 @@ import type { StockItem, StockLowAlert, StockOnHandRow, StockStore, StockUom } f
 import { formatPaise, parseRupeesToPaise } from '../billing/money'
 import { useBranches } from '../../lib/api/hooks'
 import { useCurrentContext } from '../tenancy/useCurrentContext'
+import { ScanInput } from '../../components/scan/ScanInput'
+import type { Gs1Scan } from '../../lib/gs1'
 
 const selectClass = 'mt-1 min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-dark-500 dark:bg-dark-700'
 
@@ -560,6 +562,42 @@ function OpeningPanel({ items, stores }: { items: StockItem[]; stores: StockStor
   const [qty, setQty] = useState('')
   const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [scanNote, setScanNote] = useState<string | null>(null)
+  const [unlinked, setUnlinked] = useState<Gs1Scan | null>(null)
+  const [linkItemId, setLinkItemId] = useState('')
+
+  const applyScan = (scan: Gs1Scan, item: StockItem) => {
+    setItemId(item.id)
+    if (scan.batch) setBatch(scan.batch)
+    if (scan.expiry) setExpiry(scan.expiry)
+    setUnlinked(null)
+    const filled = ['item', scan.batch && 'batch', scan.expiry && 'expiry'].filter(Boolean).join(', ')
+    setScanNote(`Scanned ${item.brandName}: filled ${filled}. Check the prices and quantity, then save.`)
+  }
+
+  const onScan = async (scan: Gs1Scan) => {
+    setScanNote(null)
+    setError(null)
+    try {
+      const link = await apiClient.inventory.resolveGtin(scan.gtin!)
+      if (link.item) {
+        applyScan(scan, link.item)
+      } else {
+        setUnlinked(scan)
+        setLinkItemId(itemId)
+      }
+    } catch (err) {
+      setError(problemText(err))
+    }
+  }
+
+  const link = useMutation({
+    mutationFn: (body: { gtin: string; itemId: string }) => apiClient.inventory.linkGtin(body),
+    onSuccess: (res) => {
+      if (unlinked && res.item) applyScan(unlinked, res.item)
+    },
+    onError: (err) => setError(problemText(err)),
+  })
 
   const save = useMutation({
     mutationFn: (body: { storeId: string; lines: Parameters<typeof apiClient.inventory.opening>[1]['lines'] }) =>
@@ -618,6 +656,42 @@ function OpeningPanel({ items, stores }: { items: StockItem[]; stores: StockStor
         {error && (
           <div className="sm:col-span-2">
             <Alert tone="error">{error}</Alert>
+          </div>
+        )}
+        <div className="sm:col-span-2">
+          <ScanInput testId="opening-scan" label="Scan the pack barcode (fills item, batch and expiry)" onScan={(scan) => void onScan(scan)} />
+          {scanNote && (
+            <p className="mt-1 text-sm text-green-800 dark:text-green-300" data-testid="opening-scan-filled">
+              {scanNote}
+            </p>
+          )}
+        </div>
+        {unlinked && (
+          <div className="sm:col-span-2 rounded-md border border-amber-300 bg-amber-50 p-3 dark:border-amber-700 dark:bg-dark-700" data-testid="gtin-link-prompt">
+            <p className="text-sm">
+              Barcode <span className="font-mono">{unlinked.gtin}</span> is new in this hospital. Choose the catalogue item it belongs to. You do this once per product.
+            </p>
+            <div className="mt-2 flex flex-wrap items-end gap-2">
+              <SelectField label="Catalogue item" value={linkItemId} onChange={(e) => setLinkItemId(e.target.value)} data-testid="gtin-link-item">
+                <option value="">Choose an item</option>
+                {items.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.brandName} ({item.code})
+                  </option>
+                ))}
+              </SelectField>
+              <Button
+                type="button"
+                data-testid="gtin-link-save"
+                disabled={!linkItemId || link.isPending}
+                onClick={() => link.mutate({ gtin: unlinked.gtin!, itemId: linkItemId })}
+              >
+                Link barcode
+              </Button>
+              <Button type="button" variant="secondary" data-testid="gtin-link-cancel" onClick={() => setUnlinked(null)}>
+                Not now
+              </Button>
+            </div>
           </div>
         )}
         <SelectField label="Store" value={storeId} onChange={(e) => setStoreId(e.target.value)}>
