@@ -53,4 +53,24 @@ public class BillingMathTests
         Assert.Equal("OPB2627000000001", number);
         Assert.Throws<ArgumentOutOfRangeException>(() => BillingMath.FormatDocNo("ABCDEFGHIJKL", 'B', "2627", 1));
     }
+
+    [Theory]
+    [InlineData(1, 10_001, 1_800)]
+    [InlineData(3, 3_333, 500)]
+    [InlineData(2, 9_999, 1_200)]
+    public void Gst_is_rounded_per_line_to_the_paisa_and_total_to_the_rupee(int qty, long unit, int rateBp)
+    {
+        // #110: each line's tax is rounded to the paisa on its own; the bill total is rounded to the rupee.
+        var net = BillingMath.LineNet(qty, unit);
+        var tax = BillingMath.LineTax(qty, unit, rateBp);
+        var exact = net * rateBp / 10_000m;
+        Assert.True(Math.Abs(tax - exact) <= 0.5m);
+        var gross = net + tax;
+        var total = BillingMath.Total(gross);
+        Assert.Equal(0, total % 100);
+        Assert.Equal(total - gross, BillingMath.RoundOff(gross));
+        Assert.True(Math.Abs(BillingMath.RoundOff(gross)) <= 50);
+        var sgst = tax / 2; var cgst = tax - sgst;
+        Assert.Equal(tax, cgst + sgst);
+    }
 }

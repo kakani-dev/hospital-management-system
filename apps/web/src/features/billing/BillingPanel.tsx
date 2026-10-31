@@ -292,9 +292,7 @@ export function BillingPanel({
         <span className="font-mono" data-testid="bill-total">{formatPaise(shown.totalPaise)}</span>
       </p>
       {notice && <Alert tone="info">{notice}</Alert>}
-      {shown.roundOffPaise !== 0 && (
-        <p className="text-xs text-gray-500">Round-off {formatPaise(shown.roundOffPaise)}</p>
-      )}
+      <p className="text-xs text-gray-500" data-testid="bill-round-off">Round-off {formatPaise(shown.roundOffPaise)}</p>
       {(run.isError || remove.isError || apply.isError) && (
         <Alert tone="error">{problemText(run.isError ? run.error : apply.isError ? apply.error : remove.error)}</Alert>
       )}

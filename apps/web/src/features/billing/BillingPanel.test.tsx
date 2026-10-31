@@ -49,6 +49,24 @@ const bill = (overrides: Partial<BillDocument> = {}): BillDocument => ({
 })
 
 describe('BillingPanel', () => {
+  it('shows the GST round-off line next to the rupee-rounded total (#110)', async () => {
+    const base = bill()
+    const tax = 9001
+    const exact = base.netPaise + tax
+    const total = Math.round(exact / 100) * 100
+    stubFetch({
+      'POST /api/v1/accounts': () => json(bill({ lines: [], totalPaise: 0, duePaise: 0, netPaise: 0, exactPaise: 0 })),
+      'POST /api/v1/bills/bill-1/lines': () => json(bill({ taxPaise: tax, exactPaise: exact, roundOffPaise: total - exact, totalPaise: total, duePaise: total })),
+    })
+    renderWithProviders(<BillingPanel patientId="patient-1" branchId="branch-1" onBack={() => {}} />, {
+      auth: fakeAuthClient({ session: fakeSession() }),
+    })
+    await userEvent.setup().click(await screen.findByTestId('billing-panel-add-consult'))
+    expect(await screen.findByText('OP consultation')).toBeInTheDocument()
+    expect(screen.getByTestId('bill-round-off').textContent).toContain(((total - exact) / 100).toFixed(2).replace('-', ''))
+    expect(total % 100).toBe(0)
+  })
+
   it('raises an OP consultation and shows the rounded total', async () => {
     stubFetch({
       'POST /api/v1/accounts': () => json(bill({ lines: [], totalPaise: 0, duePaise: 0, netPaise: 0, exactPaise: 0 })),
@@ -60,6 +78,7 @@ describe('BillingPanel', () => {
     await userEvent.setup().click(await screen.findByTestId('billing-panel-add-consult'))
     expect(await screen.findByText('OP consultation')).toBeInTheDocument()
     expect(screen.getByTestId('bill-total')).toHaveTextContent('₹500.00')
+    expect(screen.getByTestId('bill-round-off')).toHaveTextContent('Round-off ₹0.00')
     expect(await screen.findByTestId('collect-cash')).toBeInTheDocument()
     expect(screen.getByTestId('finalize-bill')).toHaveTextContent('Close bill')
   })

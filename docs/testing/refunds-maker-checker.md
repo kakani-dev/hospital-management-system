@@ -6,12 +6,12 @@ Source of truth is shared with the Notion database [Test Cases](https://app.noti
 
 [Notion case](https://app.notion.com/p/404ead9eb8a88173a7dddd728978d2b9)
 
-**Small refund ≤ ₹200 no approval** · P0 · happy · Role: billing
+**Small refund below ₹200 no approval** · P0 · happy · Role: billing
 
 - Preconditions: Paid receipt
-- Steps: Refund ₹200
+- Steps: Refund ₹199.99 (exactly ₹200 needs an approver)
 - Test data: —
-- Expected: Refund completes immediately (threshold strictly above)
+- Expected: Refund completes immediately (threshold inclusive: at or above needs approver; #115)
 - Rule / code: `billing_gst_refunds.sql:54-67 maker_checker_threshold_paise 20000`
 
 ## REF-002
@@ -145,3 +145,12 @@ Source of truth is shared with the Notion database [Test Cases](https://app.noti
 - Test data: —
 - Expected: "cancel refund percent must be between 0 and 10000"
 - Rule / code: `billing_gst_refunds.sql`
+
+
+## Threshold boundary (#115)
+
+A refund or discount equal to the tenant's maker-checker threshold (approval settings, default Rs 200) needs an approver. One paisa below completes directly. Zero never needs approval.
+
+## GST rounding (#110)
+
+GST is rounded per line to the paisa (half away from zero), split CGST = tax - floor(tax/2), SGST = floor(tax/2). The bill total is rounded to the nearest rupee and the difference shows as the Round-off line (data-testid bill-round-off), always visible.
