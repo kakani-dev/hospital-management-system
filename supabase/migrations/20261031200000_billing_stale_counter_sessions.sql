@@ -3,6 +3,9 @@
 -- An open drawer whose business_date is before today is marked 'stale': it takes no new money, stays
 -- on its own day's Day end as a blocker until counted (close it there), and today's collections go
 -- to a fresh session dated today. Cash and refunds are then counted on the same business date.
+set local lock_timeout = '5s';
+set local statement_timeout = '120s';
+
 
 alter table billing.counter_session drop constraint if exists counter_session_status;
 alter table billing.counter_session add constraint counter_session_status
