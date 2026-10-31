@@ -9,6 +9,7 @@ import type { EarningsCard, EarningsCategory, EarningsCategoryKey, EarningsMove,
 import { localToday } from '../../lib/dates'
 import { useBranchTimeZones } from '../../lib/useBranchTimeZone'
 import { useCurrentContext } from '../tenancy/useCurrentContext'
+import { GlExportPanel } from './GlExportPanel'
 import { formatPaise } from './money'
 
 const GRAINS = ['day', 'week', 'month'] as const
@@ -225,6 +226,7 @@ function Overview({
 function Accounts({ report }: { report: EarningsReport }) {
   return (
     <div className="space-y-4">
+      <GlExportPanel from={report.from} to={report.to} branchId={report.branchId ?? null} />
       {report.truncated && <Alert tone="warning">A register was cut at 500 rows. Narrow the dates to export the rest.</Alert>}
       <div className="flex flex-wrap gap-2">
         <ExportButton report={report} section="sales" label="Sales register CSV" format="csv" />

@@ -970,6 +970,19 @@ export class MockBackend {
     } catch {
       body = {}
     }
+    if (path.startsWith('/api/v1/billing-reports/gl/')) {
+      const allowed = roles.includes('tenant_admin') || roles.includes('billing') || roles.includes('accountant')
+      if (!allowed) return reply(403, { title: 'Forbidden', status: 403, code: 'forbidden' })
+      const from = url.searchParams.get('from') ?? ''
+      const to = url.searchParams.get('to') ?? ''
+      if (path.endsWith('/ledgers')) {
+        return reply(200, { ledgers: [{ key: 'round_off', name: 'Round Off', group: 'Indirect Expenses', isDefault: true }], lastExport: null })
+      }
+      if (path.endsWith('/preview')) {
+        return reply(200, { from, to, branchId: null, counts: {}, vouchers: 0, debitPaise: 0, unbalanced: 0, skippedZero: 0, ledgers: [], lastExport: null })
+      }
+      return route.fulfill({ status: 200, headers: { 'content-type': 'application/xml', 'content-disposition': 'attachment; filename="tally-vouchers.xml"' }, body: '<ENVELOPE/>' })
+    }
     if (path === '/api/v1/billing-reports/earnings' || path === '/api/v1/billing-reports/earnings/export') {
       const allowed = roles.includes('tenant_admin') || roles.includes('billing') || roles.includes('accountant')
       if (!allowed) return reply(403, { title: 'Forbidden', status: 403, code: 'forbidden' })

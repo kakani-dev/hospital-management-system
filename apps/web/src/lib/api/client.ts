@@ -64,6 +64,8 @@ import type {
   CashierSession,
   DayEndSession,
   EarningsReport,
+  GlLedgerMap,
+  GlPreview,
   PatientBillingSummary,
   PaymentLink,
   PaymentAccount,
@@ -754,6 +756,13 @@ export class ApiClient {
     dayEnd: (branchId: string, date: string) => this.request<DayEndSession[]>(`/api/v1/billing-reports/day-end${qs({ branchId, date })}`),
     earnings: (query: Record<string, string | undefined>) =>
       this.request<EarningsReport>(`/api/v1/billing-reports/earnings${qs(query)}`),
+    glLedgers: () => this.request<GlLedgerMap>('/api/v1/billing-reports/gl/ledgers'),
+    saveGlLedgers: (ledgers: { key: string; name: string; group: string | null }[]) =>
+      this.request<GlLedgerMap>('/api/v1/billing-reports/gl/ledgers', { method: 'PUT', body: JSON.stringify({ ledgers }) }),
+    glPreview: (query: Record<string, string | undefined>) =>
+      this.request<GlPreview>(`/api/v1/billing-reports/gl/preview${qs(query)}`),
+    glExport: (query: Record<string, string | undefined>) =>
+      this.download(`/api/v1/billing-reports/gl/export${qs(query)}`, `gl-${query.kind ?? 'vouchers'}.${query.format ?? 'xml'}`),
     earningsExport: (query: Record<string, string | undefined>) =>
       this.download(`/api/v1/billing-reports/earnings/export${qs(query)}`, earningsExportName(query)),
     reconcile: (sessionId: string) =>
