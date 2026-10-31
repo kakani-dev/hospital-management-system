@@ -61,6 +61,11 @@ public static class ConsultationEndpoints
             Exec(db, tenant, HmsPermissions.ClinicalView,
                 "select clinical.consultation_print(@t::uuid, @id::uuid)::text", ct, ("id", id)));
 
+        // Live preview while writing (draft or finalized): same payload as /print; the web overlays unsaved edits.
+        g.MapGet("/{id:guid}/print-preview", (Guid id, AppointmentsDbContext db, ITenantContext tenant, CancellationToken ct) =>
+            Exec(db, tenant, HmsPermissions.ClinicalView,
+                "select clinical.consultation_print_preview(@t::uuid, @id::uuid)::text", ct, ("id", id)));
+
         // Patient history. Lives under /consultations (not /patients/...) so the edge routes it to scheduling.
         g.MapGet("/", (Guid patientId, AppointmentsDbContext db, ITenantContext tenant, CancellationToken ct) =>
             Exec(db, tenant, HmsPermissions.ClinicalView,

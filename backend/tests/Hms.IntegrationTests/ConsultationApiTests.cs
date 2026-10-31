@@ -49,6 +49,10 @@ public sealed class ConsultationApiTests(HmsApiFactory factory) : IClassFixture<
         Assert.Equal(HttpStatusCode.Conflict, stale.Status);
 
         Assert.Equal(HttpStatusCode.Conflict, (await doctor.GetAsync($"/api/v1/consultations/{id}/print")).StatusCode);
+        var preview = await Send(doctor, HttpMethod.Get, $"/api/v1/consultations/{id}/print-preview", null);
+        Assert.Equal(HttpStatusCode.OK, preview.Status);
+        Assert.Equal("draft", preview.Body.GetProperty("status").GetString());
+        Assert.True(preview.Body.TryGetProperty("paperSize", out _));
 
         var final1 = await Send(doctor, HttpMethod.Post, $"/api/v1/consultations/{id}/finalize", new { rowVersion = rv });
         var final2 = await Send(doctor, HttpMethod.Post, $"/api/v1/consultations/{id}/finalize", new { rowVersion = rv });

@@ -37,3 +37,11 @@ export function validateLines(lines: PrescriptionLine[]): Record<string, string>
   return errors
 }
 
+
+/**
+ * One-tap choices on the consultation screen. These are UI shortcuts only: every value stays editable in
+ * the field next to it, and the server validates what is saved.
+ */
+export const FREQUENCY_CHOICES = ['1-0-1', '1-1-1', '1-0-0', '0-0-1', 'SOS'] as const
+export const DURATION_CHOICES_DAYS = [3, 5, 7, 10] as const
+export const FOLLOW_UP_CHOICES_DAYS = [3, 5, 7, 14] as const

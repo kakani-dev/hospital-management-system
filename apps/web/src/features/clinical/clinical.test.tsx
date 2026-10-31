@@ -96,6 +96,82 @@ describe('open a consultation from the queue', () => {
 })
 
 describe('consultation editor', () => {
+  const previewHeader = (paperSize: 'A5' | 'A4' = 'A5') => ({
+    ...consultation(),
+    branch: { name: 'Alpha Main (synthetic)', address: null },
+    tenantName: 'Demo Alpha Hospital',
+    timeZone: 'Asia/Kolkata',
+    paperSize,
+    doctor: { name: 'Dr. Rao (synthetic)', registrationNumber: 'KMC-00000', council: null, qualifications: 'MBBS' },
+    patient: { mrn: 'ALP-0001', name: 'Asha Synthetic-Alpha', dateOfBirth: null, sex: 'female' },
+  })
+
+  it('one screen: the live preview uses the print layout and follows unsaved edits, quick picks fill the line', async () => {
+    stubFetch({
+      ...base(['doctor']),
+      [`GET /api/v1/consultations/${CID}`]: () => json(consultation()),
+      [`GET /api/v1/consultations/${CID}/print-preview`]: () => json(previewHeader('A4')),
+      'GET /api/v1/consultations/vitals': () => json([{ id: 'v1', systolic: 120, diastolic: 80, pulse: 76, temperatureC: null, spo2: null, respRate: null, weightKg: null, heightCm: null, bmi: null, note: null, flags: [], recordedOn: new Date().toISOString() }]),
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: `/consultations/${CID}`, auth: auth() })
+    const preview = await screen.findByTestId('rx-live-preview')
+    expect(screen.getByTestId('rx-live-preview-panel')).toHaveTextContent('Live print preview (A4)')
+    expect(preview).toHaveAttribute('data-paper', 'A4')
+    expect(preview).not.toHaveAttribute('data-print-area')
+    expect(within(preview).getByTestId('print-doctor-reg')).toHaveTextContent('Reg. no. KMC-00000')
+    expect(await within(preview).findByTestId('print-vitals')).toHaveTextContent('BP 120/80 · P 76/min')
+    expect(within(preview).getByTestId('print-rx-lines')).toHaveTextContent('Paracetamol 500 mg — 1-0-1 × 3 days, after food')
+
+    const form = screen.getByRole('form', { name: 'Consultation' })
+    await user.click(within(form).getByRole('button', { name: 'Add medicine' }))
+    await user.type(within(form).getByLabelText('Medicine 2'), 'Tab Cetirizine 10 mg')
+    await user.click(screen.getByTestId('rx-frequency-chip-1-0-0-1'))
+    await user.click(screen.getByTestId('rx-duration-chip-1-5'))
+    expect(screen.getByTestId('rx-frequency-chip-1-0-0-1')).toHaveAttribute('aria-pressed', 'true')
+    expect(within(screen.getByRole('listitem', { name: 'Line 2' })).getByLabelText(/Frequency/)).toHaveValue('0-0-1')
+    expect(within(preview).getAllByRole('listitem').map((li) => li.textContent)).toEqual([
+      'Paracetamol 500 mg — 1-0-1 × 3 days, after food',
+      'Tab Cetirizine 10 mg — 0-0-1 × 5 days',
+    ])
+
+    await user.click(screen.getByTestId('rx-follow-up-chip-7'))
+    const in7 = new Date(Date.now() + 7 * 86400000)
+    expect(within(form).getByLabelText('Follow-up date')).toHaveValue(
+      `${in7.getFullYear()}-${String(in7.getMonth() + 1).padStart(2, '0')}-${String(in7.getDate()).padStart(2, '0')}`,
+    )
+    const weekday = new Intl.DateTimeFormat('en-IN', { weekday: 'short' }).format(in7)
+    expect(within(preview).getByTestId('print-follow-up')).toHaveTextContent(weekday)
+  })
+
+  it('Ctrl+Enter asks to finalize and Ctrl+S saves the draft', async () => {
+    const calls = stubFetch({
+      ...base(['doctor']),
+      [`GET /api/v1/consultations/${CID}`]: () => json(consultation()),
+      [`PUT /api/v1/consultations/${CID}`]: (_u, init) => json({ ...consultation(), ...JSON.parse(String(init.body)), rowVersion: 4 }),
+      [`GET /api/v1/consultations/${CID}/print-preview`]: () => json(previewHeader()),
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: `/consultations/${CID}`, auth: auth() })
+    await screen.findByRole('form', { name: 'Consultation' })
+    await user.keyboard('{Control>}s{/Control}')
+    expect(await screen.findByText('Draft saved.')).toBeInTheDocument()
+    expect(calls.filter((c) => c.method === 'PUT')).toHaveLength(1)
+    await user.keyboard('{Control>}{Enter}{/Control}')
+    expect(await screen.findByText('Finalize this prescription?')).toBeInTheDocument()
+  })
+
+  it('if the preview cannot load, the editor still works and says so', async () => {
+    stubFetch({
+      ...base(['doctor']),
+      [`GET /api/v1/consultations/${CID}`]: () => json(consultation()),
+      [`GET /api/v1/consultations/${CID}/print-preview`]: () => problem(500, 'boom'),
+    })
+    renderWithProviders(<App />, { path: `/consultations/${CID}`, auth: auth() })
+    expect(await screen.findByTestId('rx-live-preview-unavailable')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save draft' })).toBeEnabled()
+  })
+
   it('saves header and prescription lines with the row version', async () => {
     const calls = stubFetch({
       ...base(['doctor']),
@@ -288,6 +364,7 @@ describe('print view', () => {
     renderWithProviders(<App />, { path: `/consultations/${CID}/print`, auth: auth() })
     const sheet = await screen.findByTestId('prescription-print')
     expect(sheet).toHaveTextContent('Alpha Main (synthetic)')
+    expect(screen.getByTestId('print-hospital')).toHaveTextContent('Demo Alpha Hospital — Alpha Main (synthetic)')
     expect(sheet).toHaveTextContent('1 Test Road')
     expect(screen.getByTestId('print-doctor')).toHaveTextContent('Dr. Rao (synthetic)')
     expect(screen.getByTestId('print-doctor')).toHaveTextContent('Reg. no. KMC-00000 (Synthetic Council)')
