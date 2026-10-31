@@ -18,20 +18,27 @@ aca_secrets_mode() {
   esac
 }
 
-# Rows for one service (or all with "*") active in the current mode.
+# Rows for one service (or all with "*") active in the current mode. Mode "optional"
+# rows (#68 edge-key rotation) count only in github mode and only while their GitHub
+# secret is non-empty; pass "all" as $2 to list them regardless of value.
 aca_secret_rows() {
-  local want="$1" mode
+  local want="$1" scope="${2:-}" mode rows svc aca name env rmode
   mode="$(aca_secrets_mode)" || return 1
   [[ -r "$ACA_SECRETS_MANIFEST" ]] || { echo "missing $ACA_SECRETS_MANIFEST" >&2; return 1; }
-  awk -F'\t' -v s="$want" -v m="$mode" '
+  rows="$(awk -F'\t' -v s="$want" -v m="$mode" '
     /^#/ || NF == 0 { next }
-    NF != 5 { printf "bad manifest line %d\n", NR > "/dev/stderr"; exit 3 }
+    NF != 5 || ($5 != "legacy" && $5 != "github" && $5 != "optional") { printf "bad manifest line %d\n", NR > "/dev/stderr"; exit 3 }
     (s == "*" || $1 == s) && ($5 == "legacy" || m == "github") { print }
-  ' "$ACA_SECRETS_MANIFEST"
+  ' "$ACA_SECRETS_MANIFEST")" || return 1
+  [[ -n "$rows" ]] || return 0
+  while IFS=$'\t' read -r svc aca name env rmode; do
+    [[ "$rmode" == optional && "$scope" != all && -z "${!name:-}" ]] && continue
+    printf '%s\t%s\t%s\t%s\t%s\n' "$svc" "$aca" "$name" "$env" "$rmode"
+  done <<<"$rows"
 }
 
-# GitHub secret names the current mode needs, sorted, one per line.
-aca_secret_names() { aca_secret_rows "*" | cut -f3 | sort -u; }
+# GitHub secret names the current mode can use (optional ones included), sorted.
+aca_secret_names() { aca_secret_rows "*" all | cut -f3 | sort -u; }
 
 # Mask every value and fail closed (names only) if any needed one is empty.
 aca_secrets_require() {

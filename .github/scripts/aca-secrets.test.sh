@@ -62,10 +62,20 @@ set_all() {
 
 # 1. Manifest shape and names.
 check "manifest rows have 5 fields and valid modes" \
-  bash -c "awk -F'\t' '!/^#/ && NF { if (NF!=5 || (\$5!=\"legacy\" && \$5!=\"github\")) exit 1 }' '$ROOT/.github/aca-secrets.tsv'"
+  bash -c "awk -F'\t' '!/^#/ && NF { if (NF!=5 || (\$5!=\"legacy\" && \$5!=\"github\" && \$5!=\"optional\")) exit 1 }' '$ROOT/.github/aca-secrets.tsv'"
 check "legacy mode needs only the identity mail pair" \
   test "$(bash "$HERE/aca-secrets.sh" names legacy | tr '\n' ' ')" = "SMTP_PASSWORD SUPABASE_SERVICE_ROLE_KEY "
-check "github mode needs 9 names" test "$(bash "$HERE/aca-secrets.sh" names github | wc -l)" -eq 9
+check "github mode needs 9 names plus the optional previous edge key" test "$(bash "$HERE/aca-secrets.sh" names github | wc -l)" -eq 10
+# #68 zero-downtime edge-key rotation: optional rows apply only in github mode and only
+# while their GitHub secret is set, so merging them changes nothing live.
+rows_of() { # rows_of <mode> <previous-key-value> -> count of Edge__PreviousKey rows for patients
+  env -u HMS_EDGE_KEY_PREVIOUS ${2:+HMS_EDGE_KEY_PREVIOUS=$2} ACA_SECRETS_SOURCE="$1" ACA_SECRETS_MANIFEST="$ROOT/.github/aca-secrets.tsv" \
+    bash -c "source '$HERE/aca-secrets.sh'; aca_secret_rows patients" | grep -c Edge__PreviousKey
+}
+check "optional previous edge key is skipped while unset" test "$(rows_of github '')" -eq 0
+check "optional previous edge key applies once set" test "$(rows_of github synthetic-prev)" -eq 1
+check "optional previous edge key never applies in legacy mode" test "$(rows_of legacy synthetic-prev)" -eq 0
+check "edge itself never receives a previous key" bash -c "! grep -qP '^edge\t[^\t]*\t[^\t]*\tEdge__PreviousKey' '$ROOT/.github/aca-secrets.tsv'"
 check "unknown mode is refused" bash -c "! ACA_SECRETS_SOURCE=vault bash '$HERE/aca-secrets.sh' names >/dev/null 2>&1"
 missing_in_workflow=""
 for n in $(bash "$HERE/aca-secrets.sh" names github); do

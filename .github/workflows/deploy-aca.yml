@@ -181,6 +181,7 @@ jobs:
       # Names must match column 3 of .github/aca-secrets.tsv (checked in CI).
       ACA_SECRETS_SOURCE: ${{ vars.ACA_SECRETS_SOURCE || 'legacy' }}
       HMS_EDGE_KEY: ${{ secrets.HMS_EDGE_KEY }}
+      HMS_EDGE_KEY_PREVIOUS: ${{ secrets.HMS_EDGE_KEY_PREVIOUS }}
       HMS_DB_IDENTITY: ${{ secrets.HMS_DB_IDENTITY }}
       HMS_DB_PATIENTS: ${{ secrets.HMS_DB_PATIENTS }}
       HMS_DB_SCHEDULING: ${{ secrets.HMS_DB_SCHEDULING }}
