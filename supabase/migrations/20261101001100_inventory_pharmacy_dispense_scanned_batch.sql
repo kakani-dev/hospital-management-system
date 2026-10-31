@@ -1,16 +1,16 @@
--- cross-schema: approved (pharmacy schema is hosted by the inventory service per docs/adr/0004-pharmacy-dispensing-in-inventory.md; recreated pharmacy.dispense keeps the same clinical/patient/identity/audit/inventory reads and writes as 20261030090000_inventory_pharmacy_dispense_prescribed_cap.sql)
+-- cross-schema: approved (pharmacy schema is hosted by the inventory service per docs/adr/0004-pharmacy-dispensing-in-inventory.md; recreated pharmacy.dispense keeps the same clinical/patient/identity/audit/inventory reads and writes as 20261030100000_inventory_branch_local_dates.sql (branch-local dates kept))
 -- Pharmacy barcode scanning: a dispense line may carry the scanned batchNo. Stock is then taken only from
 -- that batch; an expired batch is refused (55000) and an unknown one is not found (P0002). Without a
 -- batchNo the server keeps picking FEFO over unexpired batches exactly as before.
 set local lock_timeout = '5s';
 set local statement_timeout = '120s';
 
-create or replace function pharmacy.dispense(p_tenant_id uuid, p_key uuid, p_body jsonb)
-returns jsonb
-language plpgsql
-security definer
-set search_path = ''
-as $$
+CREATE OR REPLACE FUNCTION pharmacy.dispense(p_tenant_id uuid, p_key uuid, p_body jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
 declare
   v_rx clinical.consultations%rowtype;
   v_existing uuid;
@@ -88,7 +88,7 @@ begin
   if v_store.store_kind not in ('op_pharmacy', 'ip_pharmacy') or not v_store.is_active then
     raise exception 'dispense from an active pharmacy store' using errcode = '22023';
   end if;
-  if v_store.licence_valid_to is null or v_store.licence_valid_to < current_date then
+  if v_store.licence_valid_to is null or v_store.licence_valid_to < inventory.store_today(v_store.id) then
     raise exception 'the store''s drug licence has expired' using errcode = '55000';
   end if;
 
@@ -145,7 +145,6 @@ begin
       raise exception 'line %: item not found', v_line_no using errcode = 'P0002';
     end if;
 
-    -- A scanned pack: take only from that batch. An expired or unknown batch is refused.
     if v_line ? 'batchNo' and jsonb_typeof(v_line -> 'batchNo') not in ('string', 'null') then
       raise exception 'line %: batchNo must be text', v_line_no using errcode = '22023';
     end if;
@@ -159,12 +158,12 @@ begin
       if v_batch_exp is null then
         raise exception 'line %: batch % of this item is not in stock here', v_line_no, v_batch_no using errcode = 'P0002';
       end if;
-      if v_batch_exp < current_date then
+      if v_batch_exp < inventory.store_today(v_store.id) then
         raise exception 'line %: batch % expired on %; do not dispense it', v_line_no, v_batch_no, v_batch_exp using errcode = '55000';
       end if;
     end if;
 
-    -- FEFO over non-expired batches (or only the scanned batch); the row locks make the availability check race-free.
+    -- FEFO over non-expired batches (only the scanned batch when given); the row locks make the availability check race-free.
     perform 1 from inventory.stock_balance_cache sc
     join inventory.batch b on b.id = sc.batch_id
     where sc.store_id = v_store.id and b.item_id = v_item and sc.on_hand_base > 0
@@ -173,8 +172,8 @@ begin
     from inventory.stock_balance_cache sc
     join inventory.batch b on b.id = sc.batch_id
     where sc.store_id = v_store.id and sc.tenant_id = p_tenant_id and b.item_id = v_item
-      and sc.on_hand_base > 0 and b.expiry_date >= current_date and not b.is_deleted
-        and (v_batch_no is null or b.batch_no = v_batch_no);
+      and sc.on_hand_base > 0 and b.expiry_date >= inventory.store_today(v_store.id) and not b.is_deleted
+      and (v_batch_no is null or b.batch_no = v_batch_no);
     if v_avail < v_qty then
       raise exception 'line %: only % in stock (unexpired) for %; dispense less and mark it partial',
         v_line_no, v_avail, v_rx_line.medicine_name using errcode = '55000';
@@ -210,7 +209,7 @@ begin
       from inventory.stock_balance_cache sc
       join inventory.batch b on b.id = sc.batch_id
       where sc.store_id = v_store.id and sc.tenant_id = p_tenant_id and b.item_id = v_item
-        and sc.on_hand_base > 0 and b.expiry_date >= current_date and not b.is_deleted
+        and sc.on_hand_base > 0 and b.expiry_date >= inventory.store_today(v_store.id) and not b.is_deleted
         and (v_batch_no is null or b.batch_no = v_batch_no)
       order by b.expiry_date, b.created_on, b.id
     loop
@@ -233,7 +232,7 @@ begin
 
   return pharmacy.rx_json(p_tenant_id, v_rx.id, v_store.id);
 end;
-$$;
+$function$;
 
 revoke all on function pharmacy.dispense(uuid, uuid, jsonb) from public, anon, authenticated;
 grant execute on function pharmacy.dispense(uuid, uuid, jsonb) to hms_svc_inventory, service_role;
