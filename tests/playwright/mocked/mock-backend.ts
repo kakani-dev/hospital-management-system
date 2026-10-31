@@ -1499,6 +1499,10 @@ export class MockBackend {
       if (typeof body.name === 'string') this.tenantNames.set(tenant, body.name)
       return reply(200, tenantDto(), tenant)
     }
+    if (method === 'GET' && path === '/api/v1/patients/registration-settings') {
+      // #58 defaults: guardian below 18; nothing else mandatory.
+      return reply(200, { guardianRequiredBelowAgeYears: 18, emergencyContactRequired: false, addressRequired: false, referredByRequiredForReferrals: true }, tenant)
+    }
     if (method === 'GET' && path === '/api/v1/patients/stats') {
       if (!has(REG_READ)) return forbidden()
       const branchId = url.searchParams.get('branchId')
