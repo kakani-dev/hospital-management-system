@@ -55,6 +55,27 @@ public sealed class PostgresPatientRegistryFunctions(PatientsDbContext db) : IPa
     public async Task<string?> DefaultCountryCodeAsync(Guid tenantId, CancellationToken ct) =>
         await RawSql.ScalarAsync(db, "select identity.tenant_default_country_code_v1(@tenant::uuid)", ct, ("tenant", tenantId)) as string;
 
+    public async Task<RegistrationSettings> RegistrationSettingsAsync(Guid tenantId, CancellationToken ct) =>
+        (await RawSql.QueryAsync(
+            db,
+            "select guardian_required_below_age_years, emergency_contact_required, address_required, referred_by_required_for_referrals " +
+            "from patient.registration_settings where tenant_id = @tenant::uuid and not is_deleted",
+            r => new RegistrationSettings(r.GetInt32(0), r.GetBoolean(1), r.GetBoolean(2), r.GetBoolean(3)),
+            ct,
+            ("tenant", tenantId))).SingleOrDefault() ?? RegistrationSettings.Defaults;
+
+    public Task SaveRegistrationSettingsAsync(Guid tenantId, RegistrationSettings settings, CancellationToken ct) =>
+        RawSql.ScalarAsync(
+            db,
+            "insert into patient.registration_settings (tenant_id, guardian_required_below_age_years, emergency_contact_required, " +
+            "address_required, referred_by_required_for_referrals) values (@tenant::uuid, @age::integer, @emergency::boolean, @address::boolean, @referrer::boolean) " +
+            "on conflict (tenant_id) do update set guardian_required_below_age_years = excluded.guardian_required_below_age_years, " +
+            "emergency_contact_required = excluded.emergency_contact_required, address_required = excluded.address_required, " +
+            "referred_by_required_for_referrals = excluded.referred_by_required_for_referrals, is_deleted = false",
+            ct,
+            ("tenant", tenantId), ("age", settings.GuardianRequiredBelowAgeYears), ("emergency", settings.EmergencyContactRequired),
+            ("address", settings.AddressRequired), ("referrer", settings.ReferredByRequiredForReferrals));
+
     public async Task<IReadOnlyList<(Guid PatientId, DateTimeOffset LastBookedAt)>> LastBookedAsync(Guid tenantId, int limit, CancellationToken ct) =>
         await RawSql.QueryAsync(
             db,

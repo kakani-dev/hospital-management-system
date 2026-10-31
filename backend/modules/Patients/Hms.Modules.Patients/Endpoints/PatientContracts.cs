@@ -32,11 +32,11 @@ public sealed record PatientDetailDto(
     Guid Id, string Mrn, string FirstName, string LastName, DateOnly? DateOfBirth, string Sex, Guid RegisteredBranchId,
     string? Phone, DateTimeOffset? DeletedAt, string? Email, DateTimeOffset CreatedOn, DateTimeOffset UpdatedOn,
     IReadOnlyList<PatientPhoneDto> Phones, bool WhatsappSameAsPhone, string? AbhaNumber = null,
-    bool DobEstimated = false, string? NoPhoneReason = null, string? KnownAllergies = null)
+    bool DobEstimated = false, string? NoPhoneReason = null, string? KnownAllergies = null, RegistrationDetails? Details = null)
 {
     public static PatientDetailDto From(Patient p, IReadOnlyList<PatientPhoneDto> phones) =>
         new(p.Id, p.Mrn, p.FirstName, p.LastName, p.DateOfBirth, p.Sex, p.RegisteredBranchId, PrimaryOr(p, phones), p.DeletedAt, p.Email,
-            p.CreatedOn, p.UpdatedOn, phones, PatientPhoneDto.SameAsPhone(phones), p.AbhaNumber, p.DobEstimated, p.NoPhoneReason, p.KnownAllergies);
+            p.CreatedOn, p.UpdatedOn, phones, PatientPhoneDto.SameAsPhone(phones), p.AbhaNumber, p.DobEstimated, p.NoPhoneReason, p.KnownAllergies, RegistrationDetails.From(p));
 
     internal static string? PrimaryOr(Patient p, IReadOnlyList<PatientPhoneDto> phones) =>
         phones.FirstOrDefault(x => x.IsPrimary)?.Number ?? p.Phone;
@@ -47,11 +47,11 @@ public sealed record PatientCreatedDto(
     Guid Id, string Mrn, string FirstName, string LastName, DateOnly? DateOfBirth, string Sex, Guid RegisteredBranchId,
     string? Phone, DateTimeOffset? DeletedAt, string? Email, DateTimeOffset CreatedOn, DateTimeOffset UpdatedOn,
     IReadOnlyList<DuplicateCandidateDto> DuplicateWarnings, IReadOnlyList<PatientPhoneDto> Phones, bool WhatsappSameAsPhone, string? AbhaNumber = null,
-    bool DobEstimated = false, string? NoPhoneReason = null, string? KnownAllergies = null)
+    bool DobEstimated = false, string? NoPhoneReason = null, string? KnownAllergies = null, RegistrationDetails? Details = null)
 {
     public static PatientCreatedDto From(Patient p, IReadOnlyList<DuplicateCandidateDto> warnings, IReadOnlyList<PatientPhoneDto> phones) =>
         new(p.Id, p.Mrn, p.FirstName, p.LastName, p.DateOfBirth, p.Sex, p.RegisteredBranchId, PatientDetailDto.PrimaryOr(p, phones), p.DeletedAt,
-            p.Email, p.CreatedOn, p.UpdatedOn, warnings, phones, PatientPhoneDto.SameAsPhone(phones), p.AbhaNumber, p.DobEstimated, p.NoPhoneReason, p.KnownAllergies);
+            p.Email, p.CreatedOn, p.UpdatedOn, warnings, phones, PatientPhoneDto.SameAsPhone(phones), p.AbhaNumber, p.DobEstimated, p.NoPhoneReason, p.KnownAllergies, RegistrationDetails.From(p));
 }
 
 public sealed record DuplicateCandidateDto(
@@ -82,7 +82,9 @@ public sealed record CreatePatientRequest(
     /// <summary>#190: why the patient has no mobile number. Required when Phone is blank on registration.</summary>
     string? NoPhoneReason = null,
     /// <summary>#275: known allergies (free text, max 500). Blank = not recorded.</summary>
-    string? KnownAllergies = null);
+    string? KnownAllergies = null,
+    /// <summary>#58: address, emergency contact, guardian, blood group, referral. Required parts follow the tenant's registration settings.</summary>
+    RegistrationDetails? Details = null);
 
 /// <summary>
 /// Body of POST /api/v1/patients/search. The terms travel in the body (not the URL) so names, MRNs,

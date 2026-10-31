@@ -60,7 +60,34 @@ export interface PatientPhone {
 }
 
 /** POST /api/v1/patients. There is no MRN: the server generates it (TENANTCODE-000123) and returns it. */
+/** #58: registration details (null / absent = not recorded). The server normalizes PIN, phone and blood group. */
+export interface RegistrationDetails {
+  addressLine?: string | null
+  city?: string | null
+  district?: string | null
+  state?: string | null
+  pinCode?: string | null
+  emergencyContactName?: string | null
+  emergencyContactRelation?: string | null
+  emergencyContactPhone?: string | null
+  guardianName?: string | null
+  guardianRelation?: string | null
+  bloodGroup?: string | null
+  referralSource?: string | null
+  referredBy?: string | null
+}
+
+/** #58: the tenant's registration rules (server-owned). */
+export interface RegistrationSettings {
+  guardianRequiredBelowAgeYears: number
+  emergencyContactRequired: boolean
+  addressRequired: boolean
+  referredByRequiredForReferrals: boolean
+}
+
 export interface CreatePatientRequest {
+  /** #58 */
+  details?: RegistrationDetails
   firstName: string
   lastName: string
   dateOfBirth?: string | null
@@ -395,6 +422,8 @@ export interface PatientDetail extends PatientSummary {
   abhaNumber?: string | null
   /** #275: free text; null = not recorded. */
   knownAllergies?: string | null
+  /** #58: null clears all details. */
+  details?: RegistrationDetails | null
 }
 
 /**
@@ -415,6 +444,8 @@ export interface UpdatePatientRequest {
   duplicateOverrideReason?: string | null
   /** #275: null clears (not recorded). */
   knownAllergies?: string | null
+  /** #58: null clears all details. */
+  details?: RegistrationDetails | null
 }
 
 /** POST /api/v1/patients/duplicates. Email, phone and ABHA are hard matches; name is a warning. */

@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { SEXES, type Sex, type WhatsappInput } from '../../lib/api/types'
+import { SEXES, type Sex, type WhatsappInput, type RegistrationDetails } from '../../lib/api/types'
 import { latestToday, localToday } from '../../lib/dates'
 
 /** Returns the IANA zone "today" is computed in; undefined = the workstation's zone. */
@@ -19,6 +19,48 @@ const todayIn = (timeZone: string | undefined) => (timeZone ? localToday(new Dat
 
 /** Same limit as the API (CreatePatientValidator.AllergiesMaxLength). */
 export const ALLERGIES_MAX = 500
+
+const dText = (max: number) => z.string().trim().max(max, { error: `Max ${max} characters` }).optional()
+export const BLOOD_GROUPS = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'] as const
+export const REFERRAL_SOURCES = ['walk_in', 'self', 'doctor', 'hospital', 'health_camp', 'insurance', 'corporate', 'other'] as const
+export const REFERRAL_LABELS: Record<(typeof REFERRAL_SOURCES)[number], string> = {
+  walk_in: 'Walk-in', self: 'Self / family', doctor: 'Doctor referral', hospital: 'Other hospital',
+  health_camp: 'Health camp', insurance: 'Insurance / TPA', corporate: 'Corporate', other: 'Other',
+}
+export const PIN_ERROR = 'PIN code is 6 digits and does not start with 0'
+const detailsSchema = z.object({
+  addressLine: dText(200), city: dText(100), district: dText(100), state: dText(100),
+  pinCode: z.string().optional().refine((v) => !v?.trim() || /^[1-9]\d{5}$/.test(v.replace(/\s/g, '')), { error: PIN_ERROR }),
+  emergencyContactName: dText(150), emergencyContactRelation: dText(50),
+  emergencyContactPhone: optionalText(32).optional().refine((v) => !v || PHONE_SHAPE.test(v), { error: 'Enter a valid phone number, e.g. 98765 43210' }),
+  guardianName: dText(150), guardianRelation: dText(50),
+  bloodGroup: z.string().optional(), referralSource: z.string().optional(), referredBy: dText(150),
+})
+export type DetailsFormValues = z.infer<typeof detailsSchema>
+export const EMPTY_DETAILS: Required<{ [K in keyof DetailsFormValues]: string }> = {
+  addressLine: '', city: '', district: '', state: '', pinCode: '', emergencyContactName: '', emergencyContactRelation: '',
+  emergencyContactPhone: '', guardianName: '', guardianRelation: '', bloodGroup: '', referralSource: 'walk_in', referredBy: '',
+}
+
+/** Form → API: blanks become null; the whole object is null when nothing beyond the walk-in default was entered. */
+export function toDetailsInput(d: DetailsFormValues | undefined): RegistrationDetails | null {
+  if (!d) return null
+  const out: RegistrationDetails = {}
+  let any = false
+  for (const [k, v] of Object.entries(d)) {
+    const t = typeof v === 'string' ? v.trim() : ''
+    ;(out as Record<string, string | null>)[k] = t || null
+    if (t && !(k === 'referralSource' && t === 'walk_in')) any = true
+  }
+  return any ? out : null
+}
+
+/** API → form (edit). */
+export function fromDetails(d: RegistrationDetails | null | undefined) {
+  const out = { ...EMPTY_DETAILS }
+  for (const k of Object.keys(out) as (keyof typeof out)[]) out[k] = (d?.[k] as string | null | undefined) ?? (k === 'referralSource' ? 'walk_in' : '')
+  return out
+}
 
 export function createPatientSchema(getTimeZone: TimeZoneGetter = () => undefined) {
   return z.object({
@@ -41,6 +83,8 @@ export function createPatientSchema(getTimeZone: TimeZoneGetter = () => undefine
   abhaNumber: z.string().trim().optional().refine((v) => !v || toAbha(v) !== null, { error: ABHA_ERROR }),
   /** #275: free text shown to the pharmacist at dispense. Blank = not recorded. */
   knownAllergies: z.string().trim().max(ALLERGIES_MAX, { error: `Keep allergies to ${ALLERGIES_MAX} characters` }).optional(),
+  /** #58: optional "More details"; the server applies the tenant's required rules. */
+  details: detailsSchema.optional(),
 })
 }
 
@@ -129,6 +173,7 @@ export function toCreatePatientRequest(v: RegisterPatientFormValues, duplicateOv
     whatsapp: toWhatsappInput(v),
     abhaNumber: toAbha(v.abhaNumber ?? ''),
     ...(v.knownAllergies?.trim() ? { knownAllergies: v.knownAllergies.trim() } : {}),
+    ...(toDetailsInput(v.details) ? { details: toDetailsInput(v.details)! } : {}),
     ...(reason ? { duplicateOverrideReason: reason } : {}),
   }
 }
@@ -153,6 +198,18 @@ export function toUpdatePatientRequest(v: PatientEditValues, duplicateOverrideRe
     abhaNumber: toAbha(v.abhaNumber ?? ''),
     // Cleared = not recorded (null); the pharmacist then sees a warning.
     knownAllergies: v.knownAllergies?.trim() || null,
+    details: toDetailsInput(v.details),
     ...(reason ? { duplicateOverrideReason: reason } : {}),
   }
+}
+
+/** Whole years from a yyyy-mm-dd DOB (birthday counts), else the typed age, else null. */
+export function ageFrom(dob: string, typedAge: string, today: string): number | null {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dob)) {
+    const [y, m, d] = dob.split('-').map(Number) as [number, number, number]
+    const [ty, tm, td] = today.split('-').map(Number) as [number, number, number]
+    return ty - y - (tm < m || (tm === m && td < d) ? 1 : 0)
+  }
+  const n = Number(typedAge.trim())
+  return typedAge.trim() && Number.isFinite(n) ? n : null
 }

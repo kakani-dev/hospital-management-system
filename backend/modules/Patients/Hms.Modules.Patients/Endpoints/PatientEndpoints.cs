@@ -39,6 +39,10 @@ public static class PatientEndpoints
             .WithSummary("Duplicate check before registering or editing. Email, phone and ABHA hard-match; the same name warns even when the date of birth is blank.");
         group.MapGet("/stats", StatsAsync).WithName("GetPatientStats")
             .WithSummary("Dashboard counts: live patients and those registered today (each branch's own local day). No PHI.");
+        group.MapGet("/registration-settings", GetRegistrationSettingsAsync).WithName("GetRegistrationSettings")
+            .WithSummary("#58: the tenant's registration rules (guardian age, required emergency contact / address).");
+        group.MapPut("/registration-settings", PutRegistrationSettingsAsync).WithName("PutRegistrationSettings")
+            .WithSummary("#58: change the tenant's registration rules (settings.manage).");
         group.MapGet("/{id:guid}", GetAsync).WithName("GetPatient");
         group.MapPost("/", CreateAsync).WithName("CreatePatient");
         group.MapPatch("/{id:guid}", UpdateAsync).WithName("UpdatePatient")
@@ -313,6 +317,10 @@ public static class PatientEndpoints
         var countryCode = await registry.DefaultCountryCodeAsync(tenant.TenantId, ct) ?? PhoneE164.FallbackCountryCode;
         var phoneE164 = PatientPhones.NormalizePhone(request.Phone, countryCode, errors);
         var (whatsappSame, whatsappE164) = PatientPhones.ResolveWhatsapp(request.Whatsapp, request.Phone, phoneE164, countryCode, errors);
+        // #58: tenant rules come from the server (never the client); age from the DOB or the typed age.
+        var settings = await registry.RegistrationSettingsAsync(tenant.TenantId, ct);
+        var ageNow = request.DateOfBirth is { } typedDob ? RegistrationRules.AgeYears(typedDob, today) : request.AgeYears;
+        var details = RegistrationRules.Normalize(request.Details, settings, ageNow, phoneE164, countryCode, enforceRequired: true, errors);
         if (errors.Count > 0)
         {
             return TypedResults.ValidationProblem(errors);
@@ -358,6 +366,7 @@ public static class PatientEndpoints
             // TenantId is assigned by TenantSaveChangesInterceptor from the resolved context.
             // Audit columns are DB-managed and never sent (see AuditColumnConventions).
         };
+        RegistrationRules.Apply(patient, details);
         db.Patients.Add(patient);
         try
         {
@@ -476,6 +485,20 @@ public static class PatientEndpoints
             }
         }
 
+        // #58: details are re-validated only when the patch sends them (old charts are not blocked on
+        // unrelated edits); tenant "required" rules apply to what is sent.
+        RegistrationDetails? details = null;
+        if (patch.Details.IsSet)
+        {
+            var countryCode = await registry.DefaultCountryCodeAsync(tenant.TenantId, ct) ?? PhoneE164.FallbackCountryCode;
+            var settings = await registry.RegistrationSettingsAsync(tenant.TenantId, ct);
+            var today = BranchClock.Today(timeProvider, branchTimeZone);
+            var ownPhone = phonesChange ? phoneE164 : current.FirstOrDefault(x => x.IsPrimary)?.PhoneE164;
+            details = RegistrationRules.Normalize(
+                patch.Details.Value ?? new RegistrationDetails(), settings, RegistrationRules.AgeYears(merged.DateOfBirth, today), ownPhone, countryCode,
+                enforceRequired: patch.Details.Value is not null, errors);
+        }
+
         if (errors.Count > 0)
         {
             return TypedResults.ValidationProblem(errors);
@@ -540,6 +563,10 @@ public static class PatientEndpoints
         patient.Email = email;
         patient.AbhaNumber = abha;
         patient.KnownAllergies = CreatePatientValidator.NormalizeAllergies(merged.KnownAllergies);
+        if (details is not null)
+        {
+            RegistrationRules.Apply(patient, details);
+        }
 
         try
         {
@@ -795,5 +822,37 @@ public static class PatientEndpoints
         }
 
         return null;
+    }
+
+    private static async Task<Results<Ok<RegistrationSettings>, ProblemHttpResult>> GetRegistrationSettingsAsync(
+        ITenantContext tenant, IPatientRegistryFunctions registry, CancellationToken ct)
+    {
+        // The register form needs the rules, so anyone who can register (or view) may read them.
+        if (!tenant.Can(HmsPermissions.PatientsView) && !tenant.CanAtAnyBranch(HmsPermissions.PatientsCreate))
+        {
+            return HmsProblems.Forbidden();
+        }
+
+        return TypedResults.Ok(await registry.RegistrationSettingsAsync(tenant.TenantId, ct));
+    }
+
+    private static async Task<Results<Ok<RegistrationSettings>, ValidationProblem, ProblemHttpResult>> PutRegistrationSettingsAsync(
+        RegistrationSettings request, ITenantContext tenant, IPatientRegistryFunctions registry, CancellationToken ct)
+    {
+        if (!tenant.Can(HmsPermissions.SettingsManage))
+        {
+            return HmsProblems.Forbidden();
+        }
+
+        if (request.GuardianRequiredBelowAgeYears is < 0 or > RegistrationSettings.MaxGuardianAge)
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["guardianRequiredBelowAgeYears"] = [$"Must be between 0 (never) and {RegistrationSettings.MaxGuardianAge}."],
+            });
+        }
+
+        await registry.SaveRegistrationSettingsAsync(tenant.TenantId, request, ct);
+        return TypedResults.Ok(request);
     }
 }

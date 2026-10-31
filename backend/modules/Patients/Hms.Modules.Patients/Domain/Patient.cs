@@ -24,6 +24,20 @@ public sealed class Patient : AuditableEntity, ITenantOwned
     public string? Email { get; set; }
     /// <summary>#275: known allergies as recorded by the front desk / admin (free text). Null = not recorded.</summary>
     public string? KnownAllergies { get; set; }
+    // #58 registration details (null = not recorded). See Endpoints/RegistrationDetails.cs.
+    public string? AddressLine { get; set; }
+    public string? City { get; set; }
+    public string? District { get; set; }
+    public string? State { get; set; }
+    public string? PinCode { get; set; }
+    public string? EmergencyContactName { get; set; }
+    public string? EmergencyContactRelation { get; set; }
+    public string? EmergencyContactPhone { get; set; }
+    public string? GuardianName { get; set; }
+    public string? GuardianRelation { get; set; }
+    public string? BloodGroup { get; set; }
+    public string? ReferralSource { get; set; }
+    public string? ReferredBy { get; set; }
     /// <summary>Optional ABHA number (Ayushman Bharat Health Account), stored as XX-XXXX-XXXX-XXXX.</summary>
     public string? AbhaNumber { get; set; }
     /// <summary>Why a same-name chart was kept. Null when the name did not match another live patient.</summary>

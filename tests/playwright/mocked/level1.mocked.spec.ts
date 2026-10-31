@@ -229,7 +229,18 @@ test('calendar: cancel asks for a reason, status filter and patient search narro
 const WCAG_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']
 async function seriousViolations(page: Page) {
   // Let dialog/drawer enter transitions finish (mid-fade colours are not the real contrast).
-  await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined))))
+  // Infinite (loading pulse) animations never finish; cap the wait so axe always runs.
+  await page.evaluate(() =>
+    Promise.race([
+      Promise.all(
+        document
+          .getAnimations()
+          .filter((a) => a.effect?.getTiming().iterations !== Infinity)
+          .map((a) => a.finished.catch(() => undefined)),
+      ),
+      new Promise((r) => setTimeout(r, 2000)),
+    ]),
+  )
   const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze()
   return results.violations
     .filter((v) => v.impact === 'serious' || v.impact === 'critical')

@@ -12,7 +12,7 @@ public sealed class PatientPatch
     private static readonly HashSet<string> Known = new(StringComparer.OrdinalIgnoreCase)
     {
         "firstName", "lastName", "dateOfBirth", "sex", "phone", "email", "registeredBranchId", "mrn", "whatsapp", "abhaNumber",
-        "duplicateOverrideReason", "knownAllergies",
+        "duplicateOverrideReason", "knownAllergies", "details",
     };
 
     // Accepted and ignored everywhere in the API: the tenant always comes from the server context.
@@ -29,6 +29,9 @@ public sealed class PatientPatch
     public Field<string?> AbhaNumber { get; private set; }
     public Field<string?> DuplicateOverrideReason { get; private set; }
     public Field<string?> KnownAllergies { get; private set; }
+
+    /// <summary>#58: absent = unchanged; object = replaces all details (send the full set); null = clear all.</summary>
+    public Field<RegistrationDetails?> Details { get; private set; }
 
     /// <summary>Absent = unchanged; null = no WhatsApp; object = { sameAsPhone, number }.</summary>
     public Field<WhatsappInput?> Whatsapp { get; private set; }
@@ -68,6 +71,7 @@ public sealed class PatientPatch
                 case "ABHANUMBER": patch.AbhaNumber = Text(value, "abhaNumber", errors); break;
                 case "DUPLICATEOVERRIDEREASON": patch.DuplicateOverrideReason = Text(value, "duplicateOverrideReason", errors); break;
                 case "KNOWNALLERGIES": patch.KnownAllergies = Text(value, "knownAllergies", errors); break;
+                case "DETAILS": patch.Details = DetailsValue(value, errors); break;
                 case "WHATSAPP": patch.Whatsapp = WhatsappValue(value, errors); break;
                 case "DATEOFBIRTH": patch.DateOfBirth = Date(value, errors); break;
                 case "REGISTEREDBRANCHID": patch.RegisteredBranchId = BranchId(value, errors); break;
@@ -123,6 +127,31 @@ public sealed class PatientPatch
         errors["whatsapp"] = ["Must be { sameAsPhone: boolean, number?: string } or null."];
         return default;
     }
+
+    private static Field<RegistrationDetails?> DetailsValue(JsonElement value, Dictionary<string, string[]> errors)
+    {
+        if (value.ValueKind == JsonValueKind.Null)
+        {
+            return new Field<RegistrationDetails?>(true, null);
+        }
+
+        if (value.ValueKind == JsonValueKind.Object)
+        {
+            try
+            {
+                return new Field<RegistrationDetails?>(true, value.Deserialize<RegistrationDetails>(DetailsJson));
+            }
+            catch (JsonException)
+            {
+                // falls through to the error below
+            }
+        }
+
+        errors["details"] = ["Must be an object of registration details, or null."];
+        return default;
+    }
+
+    private static readonly JsonSerializerOptions DetailsJson = new(JsonSerializerDefaults.Web);
 
     private static Field<DateOnly?> Date(JsonElement value, Dictionary<string, string[]> errors)
     {

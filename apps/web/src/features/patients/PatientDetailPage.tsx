@@ -10,7 +10,9 @@ import { Button } from '../../components/ui/Button'
 import { FormField } from '../../components/ui/FormField'
 import { SelectField } from '../../components/ui/SelectField'
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
-import { useBranches, useDeletePatient, useMergePatient, usePatient, usePatientVisits, usePractitioners, useUpdatePatient } from '../../lib/api/hooks'
+import { useBranches, useDeletePatient, useMergePatient, usePatient, usePatientVisits, usePractitioners, useRegistrationSettings, useUpdatePatient } from '../../lib/api/hooks'
+import { RegistrationDetailsFields } from './RegistrationDetailsFields'
+import { ageFrom, fromDetails, REFERRAL_LABELS } from './patientSchema'
 import { ApiError, apiClient, fieldErrors } from '../../lib/api/client'
 import { SEXES, type Appointment, type DuplicateCandidate, type PatientDetail, type PatientSummary } from '../../lib/api/types'
 import { defaultBranchId, useCurrentContext } from '../tenancy/useCurrentContext'
@@ -98,6 +100,17 @@ export function PatientDetailPage() {
             <Field label="Email" value={p.email ?? '—'} />
             <Field label="ABHA number" value={p.abhaNumber ?? '—'} />
             <Field label="Known allergies" value={p.knownAllergies ?? 'Not recorded'} />
+            {p.details?.bloodGroup && <Field label="Blood group" value={p.details.bloodGroup} />}
+            {p.details?.guardianName && <Field label="Guardian" value={[p.details.guardianName, p.details.guardianRelation].filter(Boolean).join(' · ')} />}
+            {p.details?.emergencyContactName && (
+              <Field label="Emergency contact" value={[p.details.emergencyContactName, p.details.emergencyContactRelation, p.details.emergencyContactPhone].filter(Boolean).join(' · ')} />
+            )}
+            {(p.details?.addressLine || p.details?.pinCode) && (
+              <Field label="Address" value={[p.details.addressLine, p.details.city, p.details.district, p.details.state, p.details.pinCode].filter(Boolean).join(', ')} />
+            )}
+            {p.details?.referralSource && p.details.referralSource !== 'walk_in' && (
+              <Field label="Came via" value={[REFERRAL_LABELS[p.details.referralSource as keyof typeof REFERRAL_LABELS] ?? p.details.referralSource, p.details.referredBy].filter(Boolean).join(' · ')} />
+            )}
           </dl>
           {(canWrite || canDelete || canMerge) && (
             <div className="mt-4 flex flex-wrap gap-2">
@@ -287,11 +300,15 @@ function EditPatientForm({
       whatsappNumber: patient.phones?.find((x) => x.isWhatsapp && !x.isPrimary)?.number ?? '',
       abhaNumber: patient.abhaNumber ?? '',
       knownAllergies: patient.knownAllergies ?? '',
+      details: fromDetails(patient.details),
     },
   })
 
   // DOB "today" is the selected branch's date — the API validates in the branch's zone.
   const branchToday = useBranchToday(useWatch({ control, name: 'registeredBranchId' }))
+  const registrationSettings = useRegistrationSettings().data
+  const editDob = useWatch({ control, name: 'dateOfBirth' }) ?? ''
+  const editReferral = useWatch({ control, name: 'details.referralSource' })
 
   const onSubmit = async (values: PatientEditValues) => {
     setFormError(null)
@@ -330,7 +347,7 @@ function EditPatientForm({
       const fields = fieldErrors(error)
       for (const [field, message] of Object.entries(fields)) {
         const key = field === 'whatsapp' ? 'whatsappNumber' : field
-        if (key in values) setError(key as keyof PatientEditValues, { message })
+        if (key in values || key.startsWith('details.')) setError(key as keyof PatientEditValues, { message })
       }
       setFormError(
         error instanceof ApiError && error.status === 403
@@ -412,6 +429,13 @@ function EditPatientForm({
           {...register('knownAllergies')}
         />
         <WhatsappFields control={control} register={register} errors={errors} />
+        <RegistrationDetailsFields
+          register={register}
+          errors={errors}
+          settings={registrationSettings}
+          ageYears={ageFrom(editDob, '', branchToday)}
+          referralSource={editReferral}
+        />
         <div className="flex gap-2 sm:col-span-2">
           <Button type="submit" disabled={isSubmitting}>
             {isSubmitting ? 'Saving…' : 'Save changes'}
