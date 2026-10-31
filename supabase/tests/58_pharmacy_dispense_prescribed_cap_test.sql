@@ -176,4 +176,48 @@ select tests.ok(
          where l.consultation_id = 'c5500000-0000-4000-8000-000000000002'),
   'override reasons are stored only when used and are in the audit log');
 
+-- Barcode scanning (20261101001100): a scanned batchNo restricts the pick to that batch.
+update clinical.consultations set status = 'finalized', finalized_on = now() - interval '30 minutes', finalized_by = '0d000000-0000-4000-8000-000000000001'
+where id = 'c5500000-0000-4000-8000-000000000004';
+do $$
+declare
+  t uuid := '11111111-1111-4111-8111-111111111111';
+  rx4 uuid := 'c5500000-0000-4000-8000-000000000004';
+  store uuid := current_setting('zz.store')::uuid;
+  v jsonb;
+begin
+  perform pg_temp.act('0e550000-0000-4000-8000-000000000001');
+  begin
+    perform pharmacy.dispense(t, gen_random_uuid(), jsonb_build_object('consultationId', rx4, 'storeId', store,
+      'lines', '[{"lineNo":1,"qtyBase":1,"batchNo":"ZZ-EXPIRED"}]'::jsonb));
+    perform tests.ok(false, 'a scanned expired batch is refused');
+  exception when sqlstate '55000' then perform tests.ok(true, 'a scanned expired batch is refused');
+  end;
+  begin
+    perform pharmacy.dispense(t, gen_random_uuid(), jsonb_build_object('consultationId', rx4, 'storeId', store,
+      'lines', '[{"lineNo":1,"qtyBase":1,"batchNo":"ZZ-NOPE"}]'::jsonb));
+    perform tests.ok(false, 'an unknown scanned batch is not found');
+  exception when sqlstate 'P0002' then perform tests.ok(true, 'an unknown scanned batch is not found');
+  end;
+  begin
+    perform pharmacy.dispense(t, gen_random_uuid(), jsonb_build_object('consultationId', rx4, 'storeId', store,
+      'lines', '[{"lineNo":1,"qtyBase":1,"batchNo":42}]'::jsonb));
+    perform tests.ok(false, 'a non-text batchNo is refused');
+  exception when sqlstate '22023' then perform tests.ok(true, 'a non-text batchNo is refused');
+  end;
+  begin
+    perform pharmacy.dispense(t, gen_random_uuid(), jsonb_build_object('consultationId', rx4, 'storeId', store,
+      'lines', '[{"lineNo":1,"qtyBase":1,"batchNo":"ZZ-SOON"}]'::jsonb));
+    perform tests.ok(false, 'an empty scanned batch is not topped up from another');
+  exception when sqlstate '55000' then perform tests.ok(true, 'a scanned batch with no stock is not topped up from another batch');
+  end;
+  v := pharmacy.dispense(t, gen_random_uuid(), jsonb_build_object('consultationId', rx4, 'storeId', store,
+    'lines', '[{"lineNo":1,"qtyBase":2,"batchNo":" ZZ-LATE "}]'::jsonb));
+  perform tests.ok(v -> 'dispenses' -> 0 -> 'lines' -> 0 ->> 'batchNo' = 'ZZ-LATE'
+    and (v -> 'dispenses' -> 0 -> 'lines' -> 0 ->> 'qtyBase')::int = 2,
+    'the scanned batch is the one taken');
+  execute 'reset role';
+end;
+$$;
+
 rollback;
