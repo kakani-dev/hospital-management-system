@@ -56,9 +56,11 @@ public static class BillingEndpoints
             Exec(db, tenant, HmsPermissions.BillingPricelistManage, "select billing.import_prices(@t::uuid, @b::jsonb)::text", ct,
                 ("b", ServiceCodeRules.WithoutImportCodes(body.GetRawText()))));
         lists.MapPut("/branches/{branchId:guid}/prefix", (Guid branchId, JsonElement body, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
-            Exec(db, tenant, HmsPermissions.BillingPricelistManage,
-                "select billing.set_branch_prefix(@t::uuid, @b::uuid, @p::text)::text", ct,
-                ("b", branchId), ("p", body.GetProperty("docPrefix").GetString())));
+            BodyFields.TryString(body, "docPrefix", out var prefix)
+                ? Exec(db, tenant, HmsPermissions.BillingPricelistManage,
+                    "select billing.set_branch_prefix(@t::uuid, @b::uuid, @p::text)::text", ct,
+                    ("b", branchId), ("p", prefix))
+                : BodyFields.Invalid("docPrefix", "a non-empty string"));
         lists.MapGet("/branches/{branchId:guid}/profile", (Guid branchId, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
             Exec(db, tenant, HmsPermissions.BillingView,
                 "select billing.branch_profile_json(@t::uuid, @br::uuid)::text", ct, ("br", branchId)));
@@ -88,12 +90,14 @@ public static class BillingEndpoints
         accounts.MapPost("/", (JsonElement body, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
             Write(db, tenant, HmsPermissions.BillingBill, "select billing.open_account(@t::uuid, @b::jsonb)::text", body, ct));
         accounts.MapPost("/from-appointment", (JsonElement body, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
-            Exec(db, tenant, HmsPermissions.BillingBill, "select billing.ensure_draft(@t::uuid, @a::uuid)::text", ct,
-                ("a", body.GetProperty("appointmentId").GetGuid())));
+            BodyFields.TryGuid(body, "appointmentId", out var appointmentId)
+                ? Exec(db, tenant, HmsPermissions.BillingBill, "select billing.ensure_draft(@t::uuid, @a::uuid)::text", ct, ("a", appointmentId))
+                : BodyFields.Invalid("appointmentId", "a UUID"));
         // Walk-in tokens (#169): the server reads the queue entry; tenant comes from the request context.
         accounts.MapPost("/from-queue-entry", (JsonElement body, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
-            Exec(db, tenant, HmsPermissions.BillingBill, "select billing.ensure_walk_in_draft(@t::uuid, @q::uuid)::text", ct,
-                ("q", body.GetProperty("queueEntryId").GetGuid())));
+            BodyFields.TryGuid(body, "queueEntryId", out var queueEntryId)
+                ? Exec(db, tenant, HmsPermissions.BillingBill, "select billing.ensure_walk_in_draft(@t::uuid, @q::uuid)::text", ct, ("q", queueEntryId))
+                : BodyFields.Invalid("queueEntryId", "a UUID"));
         accounts.MapGet("/{patientId:guid}/summary", (Guid patientId, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
             Exec(db, tenant, HmsPermissions.BillingView, "select billing.patient_summary(@t::uuid, @p::uuid)::text", ct, ("p", patientId)));
 
@@ -105,9 +109,10 @@ public static class BillingEndpoints
         bills.MapGet("/{id:guid}", (Guid id, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
             Exec(db, tenant, HmsPermissions.BillingView, "select billing.bill_document(@t::uuid, @b::uuid)::text", ct, ("b", id)));
         bills.MapPut("/{id:guid}/place-of-supply", (Guid id, JsonElement body, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
-            Exec(db, tenant, HmsPermissions.BillingBill,
-                "select billing.set_place_of_supply(@t::uuid, @b::uuid, @s::text)::text", ct,
-                ("b", id), ("s", body.GetProperty("stateCode").GetString())));
+            BodyFields.TryString(body, "stateCode", out var stateCode)
+                ? Exec(db, tenant, HmsPermissions.BillingBill,
+                    "select billing.set_place_of_supply(@t::uuid, @b::uuid, @s::text)::text", ct, ("b", id), ("s", stateCode))
+                : BodyFields.Invalid("stateCode", "a non-empty string"));
         bills.MapPost("/{id:guid}/lines", (Guid id, JsonElement body, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
             Exec(db, tenant, HmsPermissions.BillingBill, "select billing.add_line(@t::uuid, @b::uuid, @j::jsonb)::text", ct, ("b", id), ("j", body.GetRawText())));
         bills.MapDelete("/{id:guid}/lines/{lineId:guid}", (Guid id, Guid lineId, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
@@ -150,8 +155,9 @@ public static class BillingEndpoints
         sessions.MapGet("/open", (Guid branchId, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
             Exec(db, tenant, HmsPermissions.BillingCollect, "select billing.find_cashier_session(@t::uuid, @b::uuid)::text", ct, ("b", branchId)));
         sessions.MapPost("/ensure", (JsonElement body, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
-            Exec(db, tenant, HmsPermissions.BillingCollect, "select billing.ensure_cashier_session(@t::uuid, @b::uuid)::text", ct,
-                ("b", body.GetProperty("branchId").GetGuid())));
+            BodyFields.TryGuid(body, "branchId", out var branchId)
+                ? Exec(db, tenant, HmsPermissions.BillingCollect, "select billing.ensure_cashier_session(@t::uuid, @b::uuid)::text", ct, ("b", branchId))
+                : BodyFields.Invalid("branchId", "a UUID"));
         sessions.MapPost("/", (JsonElement body, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
             Write(db, tenant, HmsPermissions.BillingCollect, "select billing.open_session(@t::uuid, @b::jsonb)::text", body, ct));
         sessions.MapPost("/{id:guid}/close", (Guid id, JsonElement body, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
@@ -171,11 +177,12 @@ public static class BillingEndpoints
             .WithTags("Billing").RequireTenant().WithDbTransaction<BillingDbContext>();
 
         api.MapPost("/billing-events", (JsonElement body, BillingDbContext db, ITenantContext tenant, CancellationToken ct) =>
-            Exec(db, tenant, HmsPermissions.BillingBill,
+            !BodyFields.TryGuid(body, "eventId", out var eventId) ? BodyFields.Invalid("eventId", "a UUID")
+            : !BodyFields.TryString(body, "eventType", out var eventType) ? BodyFields.Invalid("eventType", "a non-empty string")
+            : !BodyFields.TryObject(body, "payload", out var payload) ? BodyFields.Invalid("payload", "a JSON object")
+            : Exec(db, tenant, HmsPermissions.BillingBill,
                 "select billing.consume_event(@e::uuid, @y::text, @j::jsonb)::text", ct,
-                ("e", body.GetProperty("eventId").GetGuid()),
-                ("y", body.GetProperty("eventType").GetString()),
-                ("j", body.GetProperty("payload").GetRawText())))
+                ("e", eventId), ("y", eventType), ("j", payload)))
             .WithTags("Billing").RequireTenant().WithDbTransaction<BillingDbContext>();
 
         var pub = api.MapGroup("/billing-public").WithTags("Billing").AllowAnonymous().WithDbTransaction<BillingDbContext>();
@@ -224,7 +231,7 @@ public static class BillingEndpoints
         node["upiUri"] = vpa is null ? null : provider.UpiUri(due, node["providerOrderId"]?.GetValue<string>() ?? "", vpa, payee?["payeeName"]?.GetValue<string>());
         if (channel is "whatsapp" or "sms")
         {
-            var destination = body.TryGetProperty("destination", out var dest) ? dest.GetString() ?? "" : "";
+            var destination = BodyFields.TryString(body, "destination", out var dest) ? dest : "";
             var share = await sender.SendAsync(channel, destination, node["path"]?.GetValue<string>() ?? "", ct);
             node["shareStatus"] = share.Status;
         }
