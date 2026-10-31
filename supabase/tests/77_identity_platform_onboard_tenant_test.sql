@@ -1,4 +1,4 @@
--- New tenant support: identity.platform_onboard_tenant (migration 20261031230000).
+-- New tenant support: identity.platform_onboard_tenant (migration 20261031233000).
 -- Self-contained synthetic operator; checks atomic creation, config-seeded defaults and tenant isolation.
 begin;
 

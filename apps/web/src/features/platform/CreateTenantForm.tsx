@@ -10,19 +10,10 @@ import { fieldErrors, problemCode } from '../../lib/api/client'
 import { codeFromName, defaultZone } from '../../lib/timeZones'
 import type { HospitalApproved } from '../../lib/api/types'
 import { createTenantSchema, type CreateTenantValues } from '../onboarding/onboardingSchemas'
+import { branchPayload } from './branchPayload'
 
 const FIELDS = ['name', 'code', 'timeZone', 'adminEmail'] as const
 
-/** Branch codes are derived from names (unique per hospital), so the operator types names only. */
-export function branchPayload(branches: CreateTenantValues['branches']) {
-  const used = new Set<string>()
-  return branches.map((b, i) => {
-    let code = codeFromName(b.name).slice(0, 20).replace(/-+$/, '')
-    if (code.length < 2 || used.has(code)) code = `${code.slice(0, 16) || 'br'}-${i + 1}`
-    used.add(code)
-    return { code, name: b.name.trim(), address: b.address.trim() || null }
-  })
-}
 
 /** Operator creates a hospital directly: identity.create_tenant (required zone) + first-admin invite link. */
 export function CreateTenantForm({ onCreated, onCancel }: { onCreated: (result: HospitalApproved, values: CreateTenantValues) => void; onCancel: () => void }) {
