@@ -68,11 +68,12 @@ public sealed class QaPatientEditDeleteApiTests(HmsApiFactory factory) : IClassF
         var patient = await Qa.CreatePatientAsync(reception, AlphaMain, "Deleted", Qa.NewSurname("Soft"));
 
         var delete = new HttpRequestMessage(HttpMethod.Delete, QaRoutes.Patient(patient.Id)) { Content = JsonContent.Create(new { reason = "Registered twice (synthetic)" }) };
-        Assert.Equal(HttpStatusCode.NoContent, (await reception.SendAsync(delete)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await reception.DeleteAsync(QaRoutes.Patient(patient.Id))).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await admin.SendAsync(delete)).StatusCode);
 
         // Persisted: deleted_at/deleted_by/deletion_reason set by the RPC, row still there.
         Assert.NotNull(await Qa.ScalarAsync<DateTimeOffset?>("select deleted_at from patient.patients where id = @id", ("id", patient.Id)));
-        Assert.Equal(AlphaReception, await Qa.ScalarAsync<Guid>("select deleted_by from patient.patients where id = @id", ("id", patient.Id)));
+        Assert.Equal(AlphaAdmin, await Qa.ScalarAsync<Guid>("select deleted_by from patient.patients where id = @id", ("id", patient.Id)));
         Assert.Equal("Registered twice (synthetic)", await Qa.ScalarAsync<string>("select deletion_reason from patient.patients where id = @id", ("id", patient.Id)));
 
         // Hidden from detail (admins too), list and search; a second delete and an edit are 404.
@@ -120,7 +121,7 @@ public sealed class QaPatientEditDeleteApiTests(HmsApiFactory factory) : IClassF
     }
 
     [Fact]
-    public async Task Delete_is_any_receptionist_in_the_hospital_and_not_a_view_only_role()
+    public async Task Delete_is_hospital_admin_only_not_receptionists_or_clinical_roles()
     {
         using var admin = factory.ClientAs(AlphaAdmin, Alpha);
         var patient = await Qa.CreatePatientAsync(admin, AlphaEast, "Delete", Qa.NewSurname("Who"));
@@ -129,7 +130,7 @@ public sealed class QaPatientEditDeleteApiTests(HmsApiFactory factory) : IClassF
         var nurseAtEast = await CreateUserAsync("s2qa-del-nurse-east", (Alpha, AlphaEast, "nurse"));
         var doctorTenantWide = await CreateUserAsync("s2qa-del-doctor", (Alpha, null, "doctor"));
 
-        foreach (var user in new[] { nurseAtEast, doctorTenantWide })
+        foreach (var user in new[] { receptionAtMain, nurseAtEast, doctorTenantWide })
         {
             using var client = factory.ClientAs(user, Alpha);
             Assert.Equal(HttpStatusCode.Forbidden, (await client.DeleteAsync(QaRoutes.Patient(patient.Id))).StatusCode);
@@ -137,7 +138,7 @@ public sealed class QaPatientEditDeleteApiTests(HmsApiFactory factory) : IClassF
 
         Assert.Null(await Qa.ScalarAsync<DateTimeOffset?>("select deleted_at from patient.patients where id = @id", ("id", patient.Id)));
 
-        using var allowed = factory.ClientAs(receptionAtMain, Alpha);
+        using var allowed = factory.ClientAs(AlphaAdmin, Alpha);
         var tooLong = new HttpRequestMessage(HttpMethod.Delete, QaRoutes.Patient(patient.Id)) { Content = JsonContent.Create(new { reason = new string('x', 501) }) };
         Assert.Equal(HttpStatusCode.BadRequest, (await allowed.SendAsync(tooLong)).StatusCode);
         Assert.Equal(HttpStatusCode.NoContent, (await allowed.DeleteAsync(QaRoutes.Patient(patient.Id))).StatusCode);

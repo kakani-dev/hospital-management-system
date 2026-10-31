@@ -89,19 +89,20 @@ public sealed class S2PatientApiTests(HmsApiFactory factory) : IClassFixture<Hms
     {
         var receptionEast = await CreateUserAsync("s2-reception-east", (Alpha, AlphaEast, "receptionist"));
         using var reception = factory.ClientAs(receptionEast, Alpha);
-        using var mainReception = factory.ClientAs(AlphaReception, Alpha); // receptionist at Main only
+        using var hospitalAdmin = factory.ClientAs(AlphaAdmin, Alpha); // only the hospital admin deletes (#273)
         var last = S2.Unique("Del");
         var patient = await S2.CreatePatientAsync(reception, AlphaEast, lastName: last, dob: "1977-07-07", phone: "080 4000 7777");
 
         using var delete = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/patients/{patient.Id}") { Content = JsonContent.Create(new { reason = "Duplicate registration" }) };
-        Assert.Equal(HttpStatusCode.NoContent, (await mainReception.SendAsync(delete)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await reception.DeleteAsync($"/api/v1/patients/{patient.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await hospitalAdmin.SendAsync(delete)).StatusCode);
         var audit = await AuditAsync(patient.Id);
         Assert.Equal("Duplicate registration", audit.DeletionReason);
-        Assert.Equal(AlphaReception, audit.DeletedBy);
+        Assert.Equal(AlphaAdmin, audit.DeletedBy);
 
         Assert.Equal(HttpStatusCode.NotFound, (await reception.GetAsync($"/api/v1/patients/{patient.Id}")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await reception.PatchAsJsonAsync($"/api/v1/patients/{patient.Id}", new { lastName = "X" })).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await reception.DeleteAsync($"/api/v1/patients/{patient.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await hospitalAdmin.DeleteAsync($"/api/v1/patients/{patient.Id}")).StatusCode);
         var page = await (await reception.PostAsJsonAsync("/api/v1/patients/search", new { search = last })).Content.ReadFromJsonAsync<S2Page<S2Patient>>();
         Assert.Empty(page!.Items);
         var byPhone = await (await reception.PostAsJsonAsync("/api/v1/patients/search", new { phone = "08040007777" })).Content.ReadFromJsonAsync<S2Page<S2Patient>>();

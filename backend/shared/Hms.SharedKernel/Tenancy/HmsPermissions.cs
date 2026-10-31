@@ -80,7 +80,7 @@ public static class HmsPermissions
             PrivacyView, PrivacyConsent, PrivacyNotice, PrivacyRequest, PrivacyFulfil, PrivacyErase,
             ClinicalView, ClinicalVitals),
         [HmsRoles.Receptionist] = Set([.. ReadOnlyOps,
-            PatientsView, PatientsCreate, PatientsEdit, PatientsDelete,
+            PatientsView, PatientsCreate, PatientsEdit,
             AppointmentsView, AppointmentsBook, AppointmentsReschedule, AppointmentsCancel, AppointmentsCheckIn, AppointmentsNoShow,
             QueueView, QueueManage,
             BillingView, BillingBill, BillingCollect, BillingDiscountRequest,

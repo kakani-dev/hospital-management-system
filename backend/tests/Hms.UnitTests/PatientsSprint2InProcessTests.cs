@@ -192,12 +192,13 @@ public sealed class PatientsSprint2InProcessTests(ApiFactory factory) : IClassFi
         var last = Unique("Del");
         var patient = await CreateAsync(East, lastName: last, dob: "1985-05-05", phone: "080-4111-2222");
         using var reception = factory.ClientAs(DoctorMainReceptionEast);
+        using var admin = factory.ClientAs(Admin); // #273: only the hospital admin deletes
 
         using var request = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/patients/{patient.Id}")
         {
             Content = JsonContent.Create(new { reason = "Registered twice" }),
         };
-        Assert.Equal(HttpStatusCode.NoContent, (await reception.SendAsync(request)).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await admin.SendAsync(request)).StatusCode);
 
         Assert.Equal(HttpStatusCode.NotFound, (await reception.GetAsync($"/api/v1/patients/{patient.Id}")).StatusCode);
         var list = await reception.GetFromJsonAsync<Page>("/api/v1/patients?pageSize=100");
@@ -210,10 +211,9 @@ public sealed class PatientsSprint2InProcessTests(ApiFactory factory) : IClassFi
         Assert.Equal(HttpStatusCode.NotFound, (await PatchAsync(reception, patient.Id, new { lastName = "X" })).StatusCode);
 
         // Deleting again: 404 (already deleted is indistinguishable from unknown).
-        Assert.Equal(HttpStatusCode.NotFound, (await reception.DeleteAsync($"/api/v1/patients/{patient.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await admin.DeleteAsync($"/api/v1/patients/{patient.Id}")).StatusCode);
 
         // Admin can find it with includeDeleted, and restore it.
-        using var admin = factory.ClientAs(Admin);
         var deleted = await (await admin.PostAsJsonAsync("/api/v1/patients/search", new { search = last, includeDeleted = true })).Content.ReadFromJsonAsync<Page>();
         Assert.NotNull(Assert.Single(deleted!.Items).DeletedAt);
         Assert.Equal(HttpStatusCode.NoContent, (await admin.PostAsync($"/api/v1/patients/{patient.Id}/restore", null)).StatusCode);
@@ -227,17 +227,21 @@ public sealed class PatientsSprint2InProcessTests(ApiFactory factory) : IClassFi
         var atMain = await CreateAsync(Main);
         var atEast = await CreateAsync(East);
 
-        using var doctorMain = factory.ClientAs(DoctorMainReceptionEast); // receptionist role anywhere in the hospital may delete
+        using var doctorMain = factory.ClientAs(DoctorMainReceptionEast); // #273: receptionist may edit but not delete
         Assert.Equal(HttpStatusCode.OK, (await PatchAsync(doctorMain, atMain.Id, new { lastName = Unique("Ed") })).StatusCode);
-        Assert.Equal(HttpStatusCode.NoContent, (await doctorMain.DeleteAsync($"/api/v1/patients/{atMain.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await doctorMain.DeleteAsync($"/api/v1/patients/{atMain.Id}")).StatusCode);
+        using var hospitalAdmin = factory.ClientAs(Admin);
+        Assert.Equal(HttpStatusCode.NoContent, (await hospitalAdmin.DeleteAsync($"/api/v1/patients/{atMain.Id}")).StatusCode);
 
         using var nurse = factory.ClientAs(MixedUser);
         Assert.Equal(HttpStatusCode.Forbidden, (await nurse.DeleteAsync($"/api/v1/patients/{atEast.Id}")).StatusCode);
 
         using var reception = factory.ClientAs(DoctorMainReceptionEast);
         using var tooLong = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/patients/{atEast.Id}") { Content = JsonContent.Create(new { reason = new string('r', 501) }) };
-        Assert.Equal(HttpStatusCode.BadRequest, (await reception.SendAsync(tooLong)).StatusCode);
-        Assert.Equal(HttpStatusCode.NoContent, (await reception.DeleteAsync($"/api/v1/patients/{atEast.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await reception.SendAsync(tooLong)).StatusCode);
+        using var tooLongAdmin = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/patients/{atEast.Id}") { Content = JsonContent.Create(new { reason = new string('r', 501) }) };
+        Assert.Equal(HttpStatusCode.BadRequest, (await hospitalAdmin.SendAsync(tooLongAdmin)).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await hospitalAdmin.DeleteAsync($"/api/v1/patients/{atEast.Id}")).StatusCode);
 
         // Restore is tenant_admin only.
         Assert.Equal(HttpStatusCode.Forbidden, (await reception.PostAsync($"/api/v1/patients/{atEast.Id}/restore", null)).StatusCode);

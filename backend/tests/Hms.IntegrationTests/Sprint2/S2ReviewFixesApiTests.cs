@@ -46,7 +46,7 @@ public sealed class S2ReviewFixesApiTests(HmsApiFactory factory) : IClassFixture
         Assert.Equal("invalid_transition", await S2.CodeAsync(call));
 
         // The patient can now be soft-deleted (before the fix: 409 because the queue entry stayed waiting).
-        Assert.Equal(HttpStatusCode.NoContent, (await reception.DeleteAsync($"/api/v1/patients/{patient.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await admin.DeleteAsync($"/api/v1/patients/{patient.Id}")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await reception.GetAsync($"/api/v1/patients/{patient.Id}")).StatusCode);
 
         // Restore so other tests that assert every entry on today's Alpha East board embeds a patient stay independent.
