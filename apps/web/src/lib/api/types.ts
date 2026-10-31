@@ -1374,6 +1374,12 @@ export interface StockPack {
   isSale: boolean
 }
 
+/** A scanned GS1 GTIN and the catalogue item it is linked to in this hospital (null when not linked yet). */
+export interface GtinLink {
+  gtin: string
+  item: StockItem | null
+}
+
 export interface StockItem {
   id: Guid
   code: string
