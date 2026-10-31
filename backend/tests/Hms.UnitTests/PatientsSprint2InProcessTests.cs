@@ -276,6 +276,23 @@ public sealed class PatientsSprint2InProcessTests(ApiFactory factory) : IClassFi
         Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync("/api/v1/patients/search", new { phone = "12-34" })).StatusCode);
     }
 
+    [Theory]
+    [InlineData("12345678901234", "12-3456-7890-1234")]
+    [InlineData("12-3456-7890-1234", "12-3456-7890-1234")]
+    [InlineData("12 3456 7890 1234", "12-3456-7890-1234")]
+    [InlineData("1234567890123", null)]
+    [InlineData("12-3456-7890-12a4", null)]
+    public void Abha_search_term_is_normalized_to_the_stored_form(string raw, string? expected) =>
+        Assert.Equal(expected, Hms.Modules.Patients.Endpoints.PatientEndpoints.NormalizeAbha(raw));
+
+    [Fact]
+    public async Task Search_rejects_a_malformed_abha()
+    {
+        using var client = factory.ClientAs(Admin);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync("/api/v1/patients/search", new { abha = "12-34" })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/api/v1/patients/search", new { abha = "99999999999999" })).StatusCode);
+    }
+
     [Fact]
     public async Task Create_blocks_shared_phone_and_requires_a_reason_for_the_same_name()
     {

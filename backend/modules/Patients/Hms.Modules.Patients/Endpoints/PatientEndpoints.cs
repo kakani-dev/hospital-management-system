@@ -113,6 +113,20 @@ public static class PatientEndpoints
         return new PagedResult<PatientSummaryDto>(items, p, size, await live.CountAsync(ct));
     }
 
+    /// <summary>"12345678901234" or "12-3456-7890-1234" -> the stored XX-XXXX-XXXX-XXXX form; null when not 14 digits.</summary>
+    internal static string? NormalizeAbha(string raw)
+    {
+        if (raw.Length > 40)
+        {
+            return null;
+        }
+
+        var digits = new string([.. raw.Where(char.IsAsciiDigit)]);
+        return digits.Length == 14 && raw.All(c => char.IsAsciiDigit(c) || c is '-' or ' ')
+            ? $"{digits[..2]}-{digits[2..6]}-{digits[6..10]}-{digits[10..]}"
+            : null;
+    }
+
     private static async Task<Results<Ok<PagedResult<PatientSummaryDto>>, ValidationProblem, ProblemHttpResult>> SearchAsync(
         PatientSearchRequest request, PatientsDbContext db, ITenantContext tenant, CancellationToken ct)
     {
@@ -140,6 +154,16 @@ public static class PatientEndpoints
             if (phone is null)
             {
                 errors["phone"] = [$"Phone must contain at least {PatientPhone.MinDigits} digits (max {CreatePatientValidator.PhoneMaxLength} characters)."];
+            }
+        }
+
+        string? abha = null;
+        if (!string.IsNullOrWhiteSpace(request.Abha))
+        {
+            abha = NormalizeAbha(request.Abha);
+            if (abha is null)
+            {
+                errors["abha"] = ["ABHA number must have 14 digits."];
             }
         }
 
@@ -173,6 +197,11 @@ public static class PatientEndpoints
         if (request.DateOfBirth is { } dob)
         {
             query = query.Where(x => x.DateOfBirth == dob);
+        }
+
+        if (abha is not null)
+        {
+            query = query.Where(x => x.AbhaNumber == abha);
         }
 
         return TypedResults.Ok(await PageAsync(query, request.Page, request.PageSize, ct));

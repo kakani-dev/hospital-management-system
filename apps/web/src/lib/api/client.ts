@@ -65,6 +65,7 @@ import type {
   DayCloseSettlementInput,
   DayCloseSummary,
   DayEndSession,
+  DayEndAccounts,
   EarningsReport,
   GlLedgerMap,
   GlPreview,
@@ -758,6 +759,8 @@ export class ApiClient {
       this.request<ApprovalSettings>('/api/v1/approvals/settings', { method: 'PUT', body: JSON.stringify(body) }),
     decide: (id: string, body: { status: 'approved' | 'rejected'; note?: string }) =>
       this.request<BillDocument | Receipt>(`/api/v1/approvals/${encodeURIComponent(id)}/decide`, { method: 'POST', body: JSON.stringify(body) }),
+    dayEndAccounts: (branchId: string, date: string) =>
+      this.request<DayEndAccounts>(`/api/v1/billing-reports/day-end/accounts${qs({ branchId, date })}`),
     dayEnd: (branchId: string, date: string) => this.request<DayEndSession[]>(`/api/v1/billing-reports/day-end${qs({ branchId, date })}`),
     dayClose: (branchId: string, date: string) =>
       this.request<DayCloseSummary>(`/api/v1/billing-reports/day-close${qs({ branchId, date })}`),

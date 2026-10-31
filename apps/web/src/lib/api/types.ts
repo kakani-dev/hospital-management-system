@@ -268,6 +268,8 @@ export interface PatientSearchRequest {
   phone?: string
   /** Sprint 2: exact date of birth, YYYY-MM-DD. */
   dateOfBirth?: string
+  /** OP Counter: exact ABHA number (14 digits, dashes optional). */
+  abha?: string
   /** Sprint 2: tenant_admin only (403 otherwise); deleted rows come back with deletedAt set. */
   includeDeleted?: boolean
   page?: number
@@ -1031,6 +1033,8 @@ export interface Receipt {
   /** Newer API (#183): when the money was received and the collecting user's id. */
   receivedAt?: string | null
   collectedBy?: Guid | null
+  /** OP Counter: the collector's display name (never the email); null when unknown. */
+  collectedByName?: string | null
 }
 
 export interface CashierSession {
@@ -1822,4 +1826,21 @@ export interface GlPreview {
   skippedZero: number
   ledgers: { name: string; group: string | null; isDefault: boolean; unmapped: boolean; debitPaise: number; creditPaise: number }[]
   lastExport: GlLastExport | null
+}
+
+/** GET /billing-reports/day-end/accounts: money received per mode and account for one branch-local day. */
+export interface DayEndAccountTotal {
+  branchId: Guid
+  mode: string
+  paymentAccountId: Guid | null
+  label: string
+  receivedPaise: number | null
+  refundedPaise: number
+  netPaise: number | null
+  count: number
+}
+export interface DayEndAccounts {
+  branchId: Guid
+  date: string
+  accounts: DayEndAccountTotal[]
 }

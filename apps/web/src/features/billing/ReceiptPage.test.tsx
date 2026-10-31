@@ -44,9 +44,18 @@ describe('ReceiptPage (#183)', () => {
     expect(screen.getByTestId('billing-receipt-bill-total')).toHaveTextContent('₹700.00')
     expect(screen.getByTestId('billing-receipt-amount')).toHaveTextContent('₹700.00')
     expect(screen.getByTestId('billing-receipt-tenders')).toHaveTextContent('Mode: Cash')
-    expect(screen.getByTestId('billing-receipt-collector')).toHaveTextContent(me.email!)
+    expect(screen.getByTestId('billing-receipt-collector')).toHaveTextContent(`Staff ${me.userId.slice(0, 8)}`)
+    expect(screen.getByTestId('billing-receipt-collector')).not.toHaveTextContent(me.email!)
     expect(screen.getByTestId('receipt')).toHaveAttribute('data-print-area')
     await waitFor(() => expect(print).toHaveBeenCalledTimes(1))
+  })
+
+  it('shows the collector name from the server, never the email', async () => {
+    routes({ ...receipt([tender('cash', 70000)], me.userId), collectedByName: 'Zz-QA Counter' })
+    vi.spyOn(window, 'print').mockImplementation(() => {})
+    renderWithProviders(<App />, { path: '/billing/receipts/r1', auth: fakeAuthClient({ session: fakeSession() }) })
+    expect(await screen.findByTestId('billing-receipt-collector')).toHaveTextContent('Zz-QA Counter')
+    expect(screen.getByTestId('billing-receipt-collector')).not.toHaveTextContent('@')
   })
 
   it('labels a split payment and shows a short staff id for another collector', async () => {
