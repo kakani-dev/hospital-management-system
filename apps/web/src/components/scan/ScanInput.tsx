@@ -23,6 +23,10 @@ export function ScanInput({
   const [value, setValue] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [camera, setCamera] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (autoFocus) inputRef.current?.focus()
+  }, [autoFocus])
 
   const submit = (raw: string) => {
     const scan = parseGs1(raw)
@@ -64,7 +68,7 @@ export function ScanInput({
           placeholder="Point the scanner here, or type the code and press Enter"
           autoComplete="off"
           spellCheck={false}
-          autoFocus={autoFocus}
+          ref={inputRef}
         />
         <button
           type="button"
@@ -100,7 +104,9 @@ export function ScanInput({
 function CameraScanner({ onText, onError, testId }: { onText: (t: string) => void; onError: (m: string) => void; testId: string }) {
   const video = useRef<HTMLVideoElement>(null)
   const done = useRef({ onText, onError })
-  done.current = { onText, onError }
+  useEffect(() => {
+    done.current = { onText, onError }
+  })
 
   useEffect(() => {
     let stop: (() => void) | undefined

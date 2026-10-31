@@ -58,7 +58,7 @@ export function parseGs1(raw: string, now: Date = new Date()): Gs1Scan {
   let data = raw.replace(/[\r\n]+$/g, '').trim()
   if (!data) return { error: 'Nothing was scanned.' }
   data = data.replace(/^\][A-Za-z]\d/, '') // AIM symbology identifier
-  data = data.replace(/^\u001d+/, '')
+  while (data.startsWith('\u001d')) data = data.slice(1)
 
   // Human-readable form: (01)...(17)...
   if (data.startsWith('(')) {
