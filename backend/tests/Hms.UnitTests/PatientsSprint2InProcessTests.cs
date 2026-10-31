@@ -12,12 +12,12 @@ public sealed class PatientsSprint2InProcessTests(ApiFactory factory) : IClassFi
     private static string Unique(string prefix) => $"{prefix}{Guid.NewGuid():N}"[..18];
 
     private async Task<Detail> CreateAsync(
-        Guid branch, string? lastName = null, string? dob = null, string? phone = null, Guid? asUser = null, string? duplicateOverrideReason = null)
+        Guid branch, string? lastName = null, string? dob = null, string? phone = null, Guid? asUser = null, string? duplicateOverrideReason = null, string firstName = "Ravi")
     {
         using var client = factory.ClientAs(asUser ?? Admin);
         var response = await client.PostAsJsonAsync("/api/v1/patients", new
         {
-            mrn = Unique("m"), firstName = "Ravi", lastName = lastName ?? Unique("L"), registeredBranchId = branch,
+            mrn = Unique("m"), firstName, lastName = lastName ?? Unique("L"), registeredBranchId = branch,
             dateOfBirth = dob, phone, email = $"ravi-{Guid.NewGuid():N}@synthetic.example", duplicateOverrideReason, sex = "unknown", ageYears = 30, noPhoneReason = "test fixture"
         });
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
@@ -247,6 +247,22 @@ public sealed class PatientsSprint2InProcessTests(ApiFactory factory) : IClassFi
         Assert.Equal(HttpStatusCode.Forbidden, (await reception.PostAsync($"/api/v1/patients/{atEast.Id}/restore", null)).StatusCode);
         // Search incl. deleted is tenant_admin only.
         Assert.Equal(HttpStatusCode.Forbidden, (await reception.PostAsJsonAsync("/api/v1/patients/search", new { includeDeleted = true })).StatusCode);
+    }
+
+    [Fact]
+    public async Task Search_by_full_name_matches_every_word_across_first_and_last_name()
+    {
+        var last = Unique("Fn");
+        var target = await CreateAsync(Main, firstName: "Zz-QA", lastName: last);
+        _ = await CreateAsync(Main, firstName: "Other", lastName: last);
+        using var client = factory.ClientAs(MixedUser);
+        async Task<List<Summary>> Search(string term) =>
+            (await (await client.PostAsJsonAsync("/api/v1/patients/search", new { search = term })).Content.ReadFromJsonAsync<Page>())!.Items;
+
+        Assert.Equal(target.Id, Assert.Single(await Search($"Zz-QA {last}")).Id);
+        Assert.Equal(target.Id, Assert.Single(await Search($"  {last.ToUpperInvariant()}   zz-qa ")).Id); // order, case, spacing
+        Assert.Equal(2, (await Search(last)).Count);
+        Assert.Empty(await Search($"Zz-QA {last} nobody"));
     }
 
     [Fact]

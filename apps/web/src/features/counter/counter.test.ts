@@ -38,11 +38,11 @@ describe('side panel helpers', () => {
   const q = (patientId: string, practitionerId: string, status: string, tokenNo: number) =>
     ({ patientId, practitionerId, status, tokenNo }) as unknown as QueueEntry
 
-  it('lists unpaid drafts oldest first with their token', () => {
+  it('lists unpaid drafts newest first with their token', () => {
     const rows = waitingToPay([bill('b', 100, 5), bill('a', 100, 30), bill('c', 0, 40), bill('d', 100, 50, 'final')], [q('p-a', 'd1', 'waiting', 7)])
-    expect(rows.map((r) => r.bill.id)).toEqual(['a', 'b'])
-    expect(rows[0]?.token).toBe(7)
-    expect(rows[1]?.token).toBeNull()
+    expect(rows.map((r) => r.bill.id)).toEqual(['b', 'a']) // newest first: a just-issued token is on top
+    expect(rows[1]?.token).toBe(7)
+    expect(rows[0]?.token).toBeNull()
   })
   it('sums collection by mode, biggest first', () => {
     const rows = collectionByMode([
