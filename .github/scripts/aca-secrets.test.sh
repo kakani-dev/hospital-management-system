@@ -27,6 +27,7 @@ echo "$verb $app ${#pairs[@]}" >>"$store.log"
 case "$verb" in
   "containerapp secret show") [[ -f "$store/$app/$sname" ]] || exit 3; cat "$store/$app/$sname"; echo ;;
   "containerapp secret list") ls "$store/$app" 2>/dev/null ;;
+  "containerapp revision restart") ;;
   "containerapp secret set") mkdir -p "$store/$app"; for p in "${pairs[@]}"; do printf '%s' "${p#*=}" >"$store/$app/${p%%=*}"; done ;;
   *) exit 9 ;;
 esac
@@ -119,5 +120,31 @@ rc=0; run github 'aca_secrets_guard_shared patients' >/dev/null 2>&1 || rc=$?
 check "changed shared key refused on partial rollout" test "$rc" -ne 0
 check "changed shared key allowed on full rollout" \
   run github 'aca_secrets_guard_shared identity patients scheduling billing inventory privacy edge'
+
+# 6. Reused revision (#256): sync secrets, restart only when a value changed.
+set_all; for s in identity patients scheduling billing inventory privacy; do seed "ca-hms-$s" hms-db "db-old-$s"; seed "ca-hms-$s" hms-edge-key edge-old; done
+seed ca-hms-edge hms-edge-key edge-old
+: >"$WORK/az.log"
+out="$(run github 'aca_secrets_sync_reused patients ca-hms-patients--s-abc' 2>&1)"
+check "reuse with equal values says already match" grep -q "ca-hms-patients secrets already match GitHub" <<<"$out"
+check "reuse with equal values writes nothing" bash -c "! grep -q 'secret set' '$WORK/az.log'"
+check "reuse with equal values does not restart" bash -c "! grep -q 'revision restart' '$WORK/az.log'"
+export HMS_DB_PATIENTS=db-rotated
+: >"$WORK/az.log"
+out="$(run github 'aca_secrets_sync_reused patients ca-hms-patients--s-abc; echo "changed=$ACA_SECRETS_CHANGED"' 2>&1)"
+check "reuse with a changed value writes it" test "$(cat "$WORK/az/ca-hms-patients/hms-db")" = db-rotated
+check "reuse with a changed value counts one change" grep -qx "changed=1" <<<"$out"
+check "reuse with a changed value restarts the revision once" test "$(grep -c 'revision restart ca-hms-patients' "$WORK/az.log")" -eq 1
+check "no value printed on reuse" bash -c "! grep -q 'db-rotated\|db-old' <<<'$out'"
+seed ca-hms-patients hms-db db-old-patients
+: >"$WORK/az.log"
+run github 'aca_secrets_sync_reused patients ca-hms-patients--s-abc >/dev/null; aca_secrets_restore >/dev/null'
+check "rollback after reuse restores the old value" test "$(cat "$WORK/az/ca-hms-patients/hms-db")" = db-old-patients
+check "rollback after reuse restarts the revision again" test "$(grep -c 'revision restart ca-hms-patients' "$WORK/az.log")" -eq 2
+set_all
+: >"$WORK/az.log"
+run legacy 'aca_secrets_sync_reused patients ca-hms-patients--s-abc' >/dev/null
+check "legacy reuse of a non-identity app touches nothing" bash -c "! grep -q 'secret set\|revision restart' '$WORK/az.log'"
+check "rollout calls the reuse sync" grep -q 'aca_secrets_sync_reused "\$service" "\$new"' "$HERE/aca-rollout.sh"
 
 echo "---"; ((fails == 0)) && echo "aca-secrets: all checks passed" || { echo "aca-secrets: $fails failed"; exit 1; }
