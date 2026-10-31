@@ -1,6 +1,5 @@
 -- Refunds follow the tenant maker-checker threshold (#145, REF-001/002/006/007). Rolls back.
--- The exact boundary (#115) is whatever billing.needs_checker says; this file only checks
--- clearly-below / clearly-above amounts plus the configured threshold value itself.
+-- #115: the boundary is inclusive (at the threshold needs a checker), checked at T-1, T, T+1.
 begin;
 
 insert into auth.users (id, email, role, aud) values
@@ -54,6 +53,15 @@ begin
   -- REF-002: above the threshold needs a checker.
   v_doc := billing.request_refund(t, v_upi, '{"amountPaise": 20001, "mode": "upi"}');
   perform tests.ok(v_doc ->> 'status' = 'pending' and v_doc ? 'approvalId', 'a Rs 200.01 refund goes to pending approval');
+
+  -- #115: the boundary is inclusive and read from the tenant setting (no literal Rs 200).
+  select s.maker_checker_threshold_paise into v_n from billing.approval_settings s where s.tenant_id = t and not s.is_deleted;
+  perform tests.ok(not billing.needs_checker(t, v_n - 1), 'one paisa below the threshold needs no checker (#115)');
+  perform tests.ok(billing.needs_checker(t, v_n), 'exactly the threshold needs a checker (#115)');
+  perform tests.ok(billing.needs_checker(t, v_n + 1), 'one paisa above the threshold needs a checker (#115)');
+  perform tests.ok(not billing.needs_checker(t, 0), 'a zero amount never needs a checker');
+  v_doc := billing.request_refund(t, v_cash, jsonb_build_object('amountPaise', v_n, 'mode', 'cash'));
+  perform tests.ok(v_doc ->> 'status' = 'pending', 'a refund of exactly the threshold goes to pending approval (#115)');
 
   -- The configured threshold is what counts, not a hard-coded Rs 200.
   perform pg_temp.act(v_admin);

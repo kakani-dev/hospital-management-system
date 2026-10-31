@@ -145,3 +145,12 @@ Source of truth is shared with the Notion database [Test Cases](https://app.noti
 - Test data: —
 - Expected: "cancel refund percent must be between 0 and 10000"
 - Rule / code: `billing_gst_refunds.sql`
+
+
+## Threshold boundary (#115)
+
+A refund or discount equal to the tenant's maker-checker threshold (approval settings, default Rs 200) needs an approver. One paisa below completes directly. Zero never needs approval.
+
+## GST rounding (#110)
+
+GST is rounded per line to the paisa (half away from zero), split CGST = tax - floor(tax/2), SGST = floor(tax/2). The bill total is rounded to the nearest rupee and the difference shows as the Round-off line (data-testid bill-round-off), always visible.

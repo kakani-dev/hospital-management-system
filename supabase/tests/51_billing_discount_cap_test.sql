@@ -29,7 +29,7 @@ begin
   perform set_config('request.jwt.claim.sub', '0a000000-0000-4000-8000-000000000001', true);
   execute 'set local role hms_svc_billing';
   perform billing.ensure_defaults(v_tenant);
-  perform billing.set_approval_settings(v_tenant, jsonb_build_object('makerCheckerThresholdPaise', 1000));
+  perform billing.set_approval_settings(v_tenant, jsonb_build_object('makerCheckerThresholdPaise', 1001));
 
   v_doc := billing.open_account(v_tenant, jsonb_build_object('patientId', v_patient, 'branchId', v_branch));
   v_bill := (v_doc ->> 'id')::uuid;
