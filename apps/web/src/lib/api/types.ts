@@ -1673,6 +1673,8 @@ export interface ConsultationPrint extends Consultation {
   timeZone: string | null
   doctor: { name: string; registrationNumber: string | null; council: string | null; qualifications: string | null } | null
   patient: { mrn: string; name: string; dateOfBirth: string | null; sex: string | null } | null
+  /** Tenant setting appointment.tenant_settings.rx_paper_size (config default). */
+  paperSize?: 'A5' | 'A4' | null
 }
 
 /** #104 triage vitals for one visit. Units: mmHg, /min, °C, kg, cm, %. */

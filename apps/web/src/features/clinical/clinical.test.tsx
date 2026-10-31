@@ -294,7 +294,49 @@ describe('print view', () => {
     expect(screen.getByTestId('print-patient')).toHaveTextContent('MRN ALP-0001')
     expect(screen.getByTestId('print-patient-age-sex')).toHaveTextContent('Age — · Female')
     expect(screen.queryByTestId('print-missing-reg')).not.toBeInTheDocument()
-    expect(within(sheet).getByTestId('prescription-table')).toHaveTextContent('Paracetamol 500 mg')
+    expect(within(sheet).getByTestId('print-rx-lines')).toHaveTextContent('Paracetamol 500 mg — 1-0-1 × 3 days, after food')
+  })
+
+  it('prints only the prescription, sized from the tenant setting, with numbered ℞ lines, vitals, review date and signature', async () => {
+    const followUp = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10)
+    stubFetch({
+      ...base(['doctor']),
+      [`GET /api/v1/consultations/${CID}/print`]: () =>
+        json({
+          ...finalized({
+            version: 2,
+            followUpDate: followUp,
+            advice: 'Plenty of fluids',
+            lines: [
+              { lineNo: 1, medicineName: 'Tab Paracetamol', strength: '650 mg', dose: null, frequency: '1-1-1', durationDays: 5, route: null, foodTiming: 'after_food', instructions: null },
+              { lineNo: 2, medicineName: 'Cap Omeprazole', strength: null, dose: null, frequency: '1-0-0', durationDays: null, route: null, foodTiming: 'before_food', instructions: null },
+            ],
+          }),
+          branch: { name: 'Alpha Main (synthetic)', address: null },
+          tenantName: 'Demo Alpha Hospital',
+          timeZone: 'Asia/Kolkata',
+          paperSize: 'A4',
+          doctor: { name: 'Dr. Rao (synthetic)', registrationNumber: 'KMC-00000', council: null, qualifications: null },
+          patient: { mrn: 'ALP-0001', name: 'Asha Synthetic-Alpha', dateOfBirth: null, sex: 'female' },
+        }),
+      'GET /api/v1/consultations/vitals': () => json([{ id: 'v1', systolic: 128, diastolic: 84, pulse: 92, temperatureC: 38.2, spo2: 98, respRate: null, weightKg: 72, heightCm: null, bmi: null }]),
+    })
+    renderWithProviders(<App />, { path: `/consultations/${CID}/print`, auth: auth() })
+    const sheet = await screen.findByTestId('prescription-print')
+    expect(sheet).toHaveAttribute('data-print-area')
+    expect(sheet).toHaveAttribute('data-paper', 'A4')
+    expect(screen.getByTestId('print-page-size').textContent).toContain('size: A4')
+    const items = within(screen.getByTestId('print-rx-lines')).getAllByRole('listitem')
+    expect(items.map((li) => li.textContent)).toEqual(['Tab Paracetamol 650 mg — 1-1-1 × 5 days, after food', 'Cap Omeprazole — 1-0-0, before food'])
+    expect(await screen.findByTestId('print-vitals')).toHaveTextContent('BP 128/84 · P 92/min · T 38.2 °C · SpO₂ 98% · Wt 72 kg')
+    const weekday = new Intl.DateTimeFormat('en-IN', { weekday: 'short', timeZone: 'UTC' }).format(new Date(`${followUp}T00:00:00Z`))
+    expect(screen.getByTestId('print-follow-up')).toHaveTextContent(weekday)
+    expect(screen.getByTestId('print-follow-up')).not.toHaveTextContent(followUp)
+    expect(screen.getByTestId('print-signature')).toHaveTextContent('Signature & stamp')
+    expect(sheet).not.toHaveTextContent('Version')
+    expect(sheet).not.toHaveTextContent('——')
+    expect(within(sheet).queryByRole('cell', { name: '—' })).not.toBeInTheDocument()
+    expect(within(sheet).queryByRole('button', { name: 'Print' })).not.toBeInTheDocument()
   })
 
   it('shows patient age on the prescription date and sex (#128)', async () => {
@@ -317,7 +359,7 @@ describe('print view', () => {
     expect(screen.getByTestId('print-doctor-reg')).not.toHaveTextContent('(')
   })
 
-  it('an older prescription without a registration number shows "—" and an on-screen warning only (#128)', async () => {
+  it('an older prescription without a registration number prints no filler and warns on screen only (#128)', async () => {
     stubFetch({
       ...base(['doctor']),
       [`GET /api/v1/consultations/${CID}/print`]: () =>
@@ -331,8 +373,8 @@ describe('print view', () => {
         }),
     })
     renderWithProviders(<App />, { path: `/consultations/${CID}/print`, auth: auth() })
-    expect(await screen.findByTestId('print-doctor-reg')).toHaveTextContent('Reg. no. —')
-    expect(screen.getByTestId('print-missing-reg')).toHaveClass('print:hidden')
+    expect(await screen.findByTestId('print-missing-reg')).toHaveClass('print:hidden')
+    expect(screen.queryByTestId('print-doctor-reg')).not.toBeInTheDocument()
     expect(screen.getByTestId('print-patient-age-sex')).toHaveTextContent('Age — · Sex —')
   })
 
