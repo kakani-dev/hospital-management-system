@@ -477,6 +477,9 @@ export class ApiClient {
     /** Soft delete: the membership grants nothing afterwards. */
     remove: (id: string) => this.request<void>(`/api/v1/members/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     /** 202 { expiresOn }: emails a one-time reset link and signs them out. 403 other hospital / platform admin, 404 unknown, 409 self_reset, 429 rate_limited. */
+    /** 204: sets a password they must change at next sign-in and signs them out. 400 weak_password, 403, 404, 409 self_reset, 429 rate_limited. */
+    setPassword: (id: string, password: string) =>
+      this.request<void>(`/api/v1/members/${encodeURIComponent(id)}/password`, { method: 'POST', body: JSON.stringify({ password }), retry: false }),
     resetPassword: (id: string) =>
       this.request<{ expiresOn: string }>(`/api/v1/members/${encodeURIComponent(id)}/password-reset`, { method: 'POST', retry: false }),
     inviteLinks: {

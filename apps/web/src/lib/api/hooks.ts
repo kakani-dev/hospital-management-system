@@ -929,6 +929,10 @@ export function useRemoveMember() {
   return useMutation({ mutationFn: (id: string) => apiClient.members.remove(id), onSettled: () => qc.invalidateQueries({ queryKey: queryKeys.members }) })
 }
 
+export function useSetMemberPassword() {
+  return useMutation({ mutationFn: ({ id, password }: { id: string; password: string }) => apiClient.members.setPassword(id, password) })
+}
+
 export function useResetMemberPassword() {
   return useMutation({ mutationFn: (id: string) => apiClient.members.resetPassword(id) })
 }

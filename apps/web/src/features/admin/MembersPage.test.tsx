@@ -137,8 +137,8 @@ describe('Members page: reset password (#309)', () => {
     const user = userEvent.setup()
     renderWithProviders(<App />, { path: '/admin/members', auth: fakeAuthClient({ session: fakeSession() }) })
     expect(await screen.findAllByTestId('member-reset-password')).toHaveLength(1)
-    expect(screen.queryByRole('button', { name: 'Reset password for self@synthetic.example' })).not.toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Reset password for zz-qa-peer@synthetic.example' }))
+    expect(screen.queryByRole('button', { name: 'Email reset link to self@synthetic.example' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Email reset link to zz-qa-peer@synthetic.example' }))
     expect(screen.getByTestId('reset-password-confirm-text')).toBeInTheDocument()
     expect(calls.some((c) => c.path.endsWith('/password-reset'))).toBe(false)
     await user.click(screen.getByRole('button', { name: 'Send reset link' }))
@@ -150,8 +150,61 @@ describe('Members page: reset password (#309)', () => {
     stubFetch(base(() => json({ title: 'Too Many Requests', status: 429, code: 'rate_limited' }, 429)))
     const user = userEvent.setup()
     renderWithProviders(<App />, { path: '/admin/members', auth: fakeAuthClient({ session: fakeSession() }) })
-    await user.click(await screen.findByRole('button', { name: 'Reset password for zz-qa-peer@synthetic.example' }))
+    await user.click(await screen.findByRole('button', { name: 'Email reset link to zz-qa-peer@synthetic.example' }))
     await user.click(screen.getByRole('button', { name: 'Send reset link' }))
     expect(await screen.findByText('Too many password resets. Try again later.')).toBeInTheDocument()
+  })
+})
+
+describe('Members page: set new password (#311)', () => {
+  const peer = { id: 'm-peer', userId: 'u-peer', email: 'zz-qa-peer@synthetic.example', displayName: null, role: 'nurse', branchId: null, branchName: null, status: 'active' }
+  const base = (set: () => Response, me = meFor()) => ({
+    'GET /api/v1/me': () => json(me),
+    'GET /api/v1/branches': () => json([]),
+    'GET /api/v1/members': () => json([peer, { ...peer, id: 'm-self', userId: me.userId, email: 'self@synthetic.example', role: 'tenant_admin' }]),
+    'POST /api/v1/members/m-peer/password': set,
+  })
+
+  it('is the main action; blocks a weak password, then sets a generated one', async () => {
+    const calls = stubFetch(base(() => new Response(null, { status: 204 })))
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: '/admin/members', auth: fakeAuthClient({ session: fakeSession() }) })
+    expect(await screen.findAllByTestId('member-set-password')).toHaveLength(1)
+    expect(screen.queryByRole('button', { name: 'Set new password for self@synthetic.example' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Set new password for zz-qa-peer@synthetic.example' }))
+    await user.type(screen.getByTestId('set-password-input'), 'short1')
+    await user.click(screen.getByRole('button', { name: 'Set password' }))
+    expect(screen.getByTestId('set-password-help')).toHaveTextContent('at least one letter and one digit')
+    expect(calls.some((c) => c.path.endsWith('/password'))).toBe(false)
+    await user.click(screen.getByTestId('set-password-generate'))
+    const generated = (screen.getByTestId('set-password-input') as HTMLInputElement).value
+    expect(generated).toMatch(/^(?=.*[A-Za-z])(?=.*\d).{14}$/)
+    await user.click(screen.getByRole('button', { name: 'Set password' }))
+    expect(await screen.findByText(/New password set for zz-qa-peer@synthetic.example/)).toBeInTheDocument()
+    const sent = calls.filter((c) => c.path === '/api/v1/members/m-peer/password')
+    expect(sent).toHaveLength(1)
+    expect(sent[0]?.body).toEqual({ password: generated })
+  })
+
+  it('shows the 403 message for an account it cannot change', async () => {
+    stubFetch(base(() => json({ title: 'Forbidden', status: 403 }, 403)))
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: '/admin/members', auth: fakeAuthClient({ session: fakeSession() }) })
+    await user.click(await screen.findByRole('button', { name: 'Set new password for zz-qa-peer@synthetic.example' }))
+    await user.type(screen.getByTestId('set-password-input'), 'Synthetic1234')
+    await user.click(screen.getByRole('button', { name: 'Set password' }))
+    expect(await screen.findByText('You cannot set the password of this account.')).toBeInTheDocument()
+  })
+})
+
+describe('Forced password change (#311)', () => {
+  it('shows the change-password screen instead of the app while needs_password is set', async () => {
+    stubFetch({ 'GET /api/v1/me': () => json(meFor()), 'GET /api/v1/branches': () => json([]), 'GET /api/v1/members': () => json([]) })
+    renderWithProviders(<App />, {
+      path: '/admin/members',
+      auth: fakeAuthClient({ session: fakeSession('zz-qa@synthetic.example', 'token-1', { needs_password: true }) }),
+    })
+    expect(await screen.findByTestId('change-password-required')).toBeInTheDocument()
+    expect(screen.queryByTestId('member-row')).not.toBeInTheDocument()
   })
 })

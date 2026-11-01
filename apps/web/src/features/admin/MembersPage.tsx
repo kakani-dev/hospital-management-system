@@ -8,8 +8,9 @@ import { FormField } from '../../components/ui/FormField'
 import { SelectField } from '../../components/ui/SelectField'
 import { Badge, Select } from '@tailux/components/ui'
 import { DataTable, type ColumnDef } from '../../components/table/DataTable'
-import { useAddMember, useBranches, useMembers, useRemoveMember, useResetMemberPassword, useUpdateMember } from '../../lib/api/hooks'
+import { useAddMember, useBranches, useMembers, useRemoveMember, useResetMemberPassword, useSetMemberPassword, useUpdateMember } from '../../lib/api/hooks'
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
+import { generatePassword, isStrongEnough, PASSWORD_POLICY_TEXT } from '../../lib/passwordPolicy'
 import { InviteLinksCard } from './InviteLinksCard'
 import { ApiError, fieldErrors } from '../../lib/api/client'
 import { ROLES, type Member, type Role, type UpdateMemberRequest } from '../../lib/api/types'
@@ -28,6 +29,12 @@ export function MembersPage({ embedded = false, hideDirectory = false }: { embed
   const [removing, setRemoving] = useState<Member | null>(null)
   const resetPassword = useResetMemberPassword()
   const [resetting, setResetting] = useState<Member | null>(null)
+  const setMemberPassword = useSetMemberPassword()
+  const [settingFor, setSettingFor] = useState<Member | null>(null)
+  const [newPassword, setNewPassword] = useState('')
+  const [showNewPassword, setShowNewPassword] = useState(false)
+  const [newPasswordError, setNewPasswordError] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
   const activeBranches = branches.data?.filter((b) => b.isActive) ?? []
   const [message, setMessage] = useState<{ tone: 'info' | 'error'; text: string } | null>(null)
   const {
@@ -101,6 +108,60 @@ export function MembersPage({ embedded = false, hideDirectory = false }: { embed
         }),
       onSettled: () => setRemoving(null),
     })
+  }
+
+  const openSetPassword = (m: Member) => {
+    setNewPassword('')
+    setShowNewPassword(false)
+    setNewPasswordError(null)
+    setCopied(false)
+    setSettingFor(m)
+  }
+
+  const closeSetPassword = () => {
+    setSettingFor(null)
+    setNewPassword('')
+    setNewPasswordError(null)
+  }
+
+  const onSetPassword = () => {
+    if (!settingFor) return
+    if (!isStrongEnough(newPassword)) {
+      setNewPasswordError(PASSWORD_POLICY_TEXT)
+      return
+    }
+    const m = settingFor
+    setMemberPassword.mutate(
+      { id: m.id, password: newPassword },
+      {
+        onSuccess: () => {
+          setMessage({
+            tone: 'info',
+            text: `New password set for ${m.email ?? 'the member'}. They were signed out and must choose their own password at next sign-in. Share it with them privately.`,
+          })
+          closeSetPassword()
+        },
+        onError: (error) => {
+          const text =
+            error instanceof ApiError && error.status === 400
+              ? PASSWORD_POLICY_TEXT
+              : error instanceof ApiError && error.status === 429
+                ? 'Too many password changes. Try again later.'
+                : error instanceof ApiError && error.status === 409
+                  ? 'You cannot set your own password here.'
+                  : error instanceof ApiError && error.status === 403
+                    ? 'You cannot set the password of this account.'
+                    : error instanceof ApiError && error.status === 404
+                      ? 'This member no longer has an active account here.'
+                      : 'Could not set the password.'
+          if (error instanceof ApiError && error.status === 400) setNewPasswordError(text)
+          else {
+            setMessage({ tone: 'error', text })
+            closeSetPassword()
+          }
+        },
+      },
+    )
   }
 
   const onResetPassword = () => {
@@ -217,14 +278,25 @@ export function MembersPage({ embedded = false, hideDirectory = false }: { embed
           )}
           {m.userId !== me.data?.userId && m.status !== 'invited' && (
             <Button
-              variant="secondary"
+              className="h-8"
+              data-testid="member-set-password"
+              aria-label={`Set new password for ${m.email ?? 'member'}`}
+              disabled={setMemberPassword.isPending}
+              onClick={() => openSetPassword(m)}
+            >
+              Set new password
+            </Button>
+          )}
+          {m.userId !== me.data?.userId && m.status !== 'invited' && (
+            <Button
+              variant="ghost"
               className="h-8"
               data-testid="member-reset-password"
-              aria-label={`Reset password for ${m.email ?? 'member'}`}
+              aria-label={`Email reset link to ${m.email ?? 'member'}`}
               disabled={resetPassword.isPending}
               onClick={() => setResetting(m)}
             >
-              Reset password
+              Email reset link
             </Button>
           )}
           {m.userId !== me.data?.userId && (
@@ -299,8 +371,82 @@ export function MembersPage({ embedded = false, hideDirectory = false }: { embed
         </p>
       </ConfirmDialog>
       <ConfirmDialog
+        open={settingFor !== null}
+        title={`Set new password for ${settingFor?.email ?? 'member'}`}
+        confirmLabel="Set password"
+        busy={setMemberPassword.isPending}
+        onCancel={closeSetPassword}
+        onConfirm={onSetPassword}
+      >
+        <div className="space-y-3" data-testid="set-password-dialog">
+          <p className="text-sm text-gray-600 dark:text-dark-200">
+            They are signed out everywhere and must choose their own password the next time they sign in. Tell them this password privately; it
+            is not emailed or shown again.
+          </p>
+          <label className="block text-sm font-medium text-gray-700 dark:text-dark-100" htmlFor="set-password-input">
+            New password
+          </label>
+          <div className="flex gap-2">
+            <input
+              id="set-password-input"
+              data-testid="set-password-input"
+              type={showNewPassword ? 'text' : 'password'}
+              autoComplete="new-password"
+              spellCheck={false}
+              className="h-9 min-w-0 flex-1 rounded-md border border-gray-300 bg-white px-3 font-mono text-sm text-gray-900 dark:border-dark-450 dark:bg-dark-900 dark:text-dark-50"
+              value={newPassword}
+              aria-invalid={newPasswordError ? true : undefined}
+              aria-describedby="set-password-help"
+              onChange={(event) => {
+                setNewPassword(event.target.value)
+                setNewPasswordError(null)
+                setCopied(false)
+              }}
+            />
+            <Button
+              type="button"
+              variant="secondary"
+              className="h-9"
+              data-testid="set-password-generate"
+              onClick={() => {
+                setNewPassword(generatePassword())
+                setShowNewPassword(true)
+                setNewPasswordError(null)
+                setCopied(false)
+              }}
+            >
+              Generate
+            </Button>
+          </div>
+          <div className="flex gap-3 text-sm">
+            <button
+              type="button"
+              className="font-medium text-primary-600 underline dark:text-primary-400"
+              data-testid="set-password-toggle"
+              onClick={() => setShowNewPassword((v) => !v)}
+            >
+              {showNewPassword ? 'Hide' : 'Show'}
+            </button>
+            <button
+              type="button"
+              className="font-medium text-primary-600 underline disabled:opacity-50 dark:text-primary-400"
+              data-testid="set-password-copy"
+              disabled={!newPassword}
+              onClick={() => {
+                void navigator.clipboard?.writeText(newPassword).then(() => setCopied(true), () => setCopied(false))
+              }}
+            >
+              {copied ? 'Copied' : 'Copy'}
+            </button>
+          </div>
+          <p id="set-password-help" data-testid="set-password-help" className={newPasswordError ? 'text-sm text-error-darker dark:text-error-lighter' : 'text-xs text-gray-500 dark:text-dark-300'}>
+            {newPasswordError ?? PASSWORD_POLICY_TEXT}
+          </p>
+        </div>
+      </ConfirmDialog>
+      <ConfirmDialog
         open={resetting !== null}
-        title={`Reset password for ${resetting?.email ?? 'member'}?`}
+        title={`Email a reset link to ${resetting?.email ?? 'member'}?`}
         confirmLabel="Send reset link"
         busy={resetPassword.isPending}
         onCancel={() => setResetting(null)}
