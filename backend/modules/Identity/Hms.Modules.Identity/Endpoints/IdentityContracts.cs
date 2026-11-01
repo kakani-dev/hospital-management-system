@@ -80,3 +80,6 @@ public sealed record InvitationDto(Guid MembershipId, Guid TenantId, string Tena
 /// <param name="BranchId">Move the membership to this branch (branch-scoped staff).</param>
 /// <param name="AllBranches">true = make the membership tenant-wide (branchId null).</param>
 public sealed record UpdateMemberRequest(string? Role, string? Status, Guid? BranchId = null, bool? AllBranches = null);
+
+/// <summary>Response of POST /api/v1/members/{id}/password-reset: when the emailed link expires.</summary>
+public sealed record PasswordResetIssuedDto(DateTimeOffset ExpiresOn);

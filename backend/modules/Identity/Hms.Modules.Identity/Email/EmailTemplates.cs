@@ -21,6 +21,7 @@ public static partial class EmailTemplates
             "signup_received" => Received(hospital, contact),
             "signup_approved" => Approved(hospital, contact, Link(variables, publicBaseUrl), Require(variables, "expiresOn")),
             "signup_rejected" => Rejected(hospital, contact, Require(variables, "reason")),
+            "password_reset" => PasswordReset(hospital, Link(variables, publicBaseUrl, "reset-password"), Require(variables, "expiresOn")),
             "sign_in_code" => SignInCode(hospital, Require(variables, "code"), Link(variables, publicBaseUrl), Require(variables, "expiresOn")),
             _ => throw new InvalidOperationException("Unknown email template."),
         };
@@ -133,7 +134,27 @@ public static partial class EmailTemplates
         return new RenderedEmail(subject, text, html);
     }
 
-    private static string Link(JsonElement variables, string publicBaseUrl)
+    private static RenderedEmail PasswordReset(string? hospital, string link, string expiresOn)
+    {
+        var where = string.IsNullOrWhiteSpace(hospital) ? "your hospital" : hospital;
+        var when = FormatWhen(expiresOn);
+        const string subject = "Reset your MediCore HMS password";
+        var text =
+            $"An administrator at {where} reset your MediCore HMS password. You have been signed out everywhere and your old password no longer works.\n\n" +
+            $"Open this link to choose a new password. It works once and expires {when}. We never email a password.\n\n" +
+            $"{link}\n\n" +
+            "If you did not expect this, contact your hospital administrator.\n";
+        var html = Document(subject, $"""
+            <p>An administrator at <strong>{H(where)}</strong> reset your MediCore HMS password.
+            You have been signed out everywhere and your old password no longer works.</p>
+            <p>The link works once and expires {H(when)}. We never email a password.</p>
+            {Button("Choose a new password", link)}
+            <p>If you did not expect this, contact your hospital administrator.</p>
+            """);
+        return new RenderedEmail(subject, text, html);
+    }
+
+    private static string Link(JsonElement variables, string publicBaseUrl, string path = "invite")
     {
         if (!Uri.TryCreate(publicBaseUrl?.Trim(), UriKind.Absolute, out var uri)
             || uri.UserInfo.Length > 0
@@ -148,7 +169,7 @@ public static partial class EmailTemplates
             throw new InvalidOperationException("Invite email is missing a token.");
         }
 
-        return $"{uri.GetLeftPart(UriPartial.Authority).TrimEnd('/')}{uri.AbsolutePath.TrimEnd('/')}/invite/{token}";
+        return $"{uri.GetLeftPart(UriPartial.Authority).TrimEnd('/')}{uri.AbsolutePath.TrimEnd('/')}/{path}/{token}";
     }
 
     private static string Document(string title, string body) =>

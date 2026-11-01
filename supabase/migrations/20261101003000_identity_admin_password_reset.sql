@@ -218,7 +218,7 @@ begin
 end;
 $$;
 revoke all on function identity.admin_reset_member_password(uuid, uuid) from public, anon;
-grant execute on function identity.admin_reset_member_password(uuid, uuid) to authenticated, service_role;
+grant execute on function identity.admin_reset_member_password(uuid, uuid) to authenticated, service_role, hms_svc_identity;
 
 -- --------------------------------------------------------- consume the link ----
 -- Returns the account email for a live link and burns it. Unknown, used or expired: P0002.
