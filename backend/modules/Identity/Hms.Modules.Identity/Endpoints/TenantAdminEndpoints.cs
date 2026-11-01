@@ -41,6 +41,9 @@ public static class TenantAdminEndpoints
         members.MapDelete("/{id:guid}", DeleteMemberAsync).WithName("DeleteMember")
             .WithSummary("Soft delete (identity.soft_delete_membership): the membership grants nothing afterwards.");
         members.MapPost("/{id:guid}/restore", RestoreMemberAsync).WithName("RestoreMember");
+        members.MapPost("/{id:guid}/password-reset", ResetMemberPasswordAsync).WithName("ResetMemberPassword")
+            .WithSummary("Tenant admin: sign the member out everywhere, disable the old password and email a single-use reset link. "
+                + "403 not an admin / other hospital / platform admin, 404 unknown member, 409 own account, 429 rate limited.");
 
         return api;
     }
@@ -129,6 +132,47 @@ public static class TenantAdminEndpoints
         }
 
         return await SoftDeleteAsync(db, tenant, "select identity.soft_delete_membership(@id)", id, HmsPermissions.MembersManage, "Only tenant admins can manage branches and members.", ct);
+    }
+
+    private static async Task<Results<Accepted<PasswordResetIssuedDto>, NotFound, ProblemHttpResult>> ResetMemberPasswordAsync(
+        Guid id, IdentityDbContext db, ITenantContext tenant, CancellationToken ct)
+    {
+        if (!tenant.Can(HmsPermissions.MembersManage))
+        {
+            return HmsProblems.Forbidden("Only tenant admins can reset passwords.");
+        }
+
+        try
+        {
+            // The tenant is the server-resolved one; the database re-checks it against the caller's memberships.
+            var value = await RawSql.ScalarAsync(db, "select identity.admin_reset_member_password(@tenant, @id)", ct,
+                ("tenant", tenant.TenantId), ("id", id));
+            var expires = value switch
+            {
+                DateTimeOffset d => d,
+                DateTime d => new DateTimeOffset(DateTime.SpecifyKind(d, DateTimeKind.Utc)),
+                _ => throw new InvalidOperationException("Password reset expiry was not returned."),
+            };
+            return TypedResults.Accepted((string?)null, new PasswordResetIssuedDto(expires));
+        }
+        catch (PostgresException ex) when (ex.SqlState == "P0002")
+        {
+            return TypedResults.NotFound();
+        }
+        catch (PostgresException ex) when (ex.SqlState == "42501")
+        {
+            return HmsProblems.Forbidden("You cannot reset this user's password.");
+        }
+        catch (PostgresException ex) when (ex.SqlState == "55000")
+        {
+            return TypedResults.Problem(title: "Conflict", detail: "Use your own account settings to change your own password.",
+                statusCode: StatusCodes.Status409Conflict, extensions: new Dictionary<string, object?> { ["code"] = "self_reset" });
+        }
+        catch (PostgresException ex) when (ex.SqlState == "54000")
+        {
+            return TypedResults.Problem(title: "Too many requests", detail: "Too many password resets. Try again later.",
+                statusCode: StatusCodes.Status429TooManyRequests, extensions: new Dictionary<string, object?> { ["code"] = "rate_limited" });
+        }
     }
 
     private static async Task<Results<NoContent, ProblemHttpResult>> RestoreMemberAsync(Guid id, IdentityDbContext db, ITenantContext tenant, CancellationToken ct) =>

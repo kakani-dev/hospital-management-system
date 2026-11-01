@@ -17,6 +17,7 @@ import { RequireCapability } from "./features/auth/RequireCapability";
 import { WakingBanner } from "./components/layout/WakingBanner";
 import { RegisterHospitalPage } from "./features/onboarding/RegisterHospitalPage";
 import { InvitePage } from "./features/invitations/InvitePage";
+import { ResetPasswordPage } from "./features/invitations/ResetPasswordPage";
 import { PublicPaymentPage } from "./features/billing/PublicPaymentPage";
 import { PublicConsentPage } from "./features/privacy/PublicConsentPage";
 import { RequirePlatformAdmin } from "./features/platform/RequirePlatformAdmin";
@@ -141,6 +142,7 @@ export function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register-hospital" element={<RegisterHospitalPage />} />
       <Route path="/invite/:token" element={<InvitePage />} />
+      <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
       <Route path="/pay/:token" element={<PublicPaymentPage />} />
       <Route path="/privacy/consent/:token" element={<PublicConsentPage />} />
       <Route element={<RequireAuth />}>

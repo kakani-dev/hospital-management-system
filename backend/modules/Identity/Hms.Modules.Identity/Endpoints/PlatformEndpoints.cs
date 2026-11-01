@@ -57,6 +57,8 @@ public static partial class PlatformEndpoints
             .WithSummary("Email a one-time sign-in code for this invite. 202 with an expiry; 404 unknown; 429 too many codes.");
         pub.MapPost("/invites/{token}/sign-in", ExchangeInviteSignInCodeAsync).WithName("ExchangeInviteSignInCode").RequireRateLimiting(PublicPolicy)
             .WithSummary("Check the emailed code and return a GoTrue magic-link token hash. The invitee then chooses their own password.");
+        pub.MapPost("/password-resets/{token}/sign-in", ExchangePasswordResetAsync).WithName("ExchangePasswordReset").RequireRateLimiting(PublicPolicy)
+            .WithSummary("Burn an admin-issued reset link and return a GoTrue magic-link token hash. The user must then choose a new password. 404 unknown/used/expired.");
 
         var platform = api.MapGroup("/platform").WithTags("Platform").RequireAuthorization().WithDbTransaction<IdentityDbContext>();
         platform.AddEndpointFilter(async (context, next) =>

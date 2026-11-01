@@ -122,3 +122,36 @@ describe('Members page: add member (B1, no account enumeration)', () => {
     expect(await screen.findByText(detail)).toBeInTheDocument()
   })
 })
+
+describe('Members page: reset password (#309)', () => {
+  const peer = { id: 'm-peer', userId: 'u-peer', email: 'zz-qa-peer@synthetic.example', displayName: null, role: 'nurse', branchId: null, branchName: null, status: 'active' }
+  const base = (reset: () => Response, me = meFor()) => ({
+    'GET /api/v1/me': () => json(me),
+    'GET /api/v1/branches': () => json([]),
+    'GET /api/v1/members': () => json([peer, { ...peer, id: 'm-self', userId: me.userId, email: 'self@synthetic.example', role: 'tenant_admin' }]),
+    'POST /api/v1/members/m-peer/password-reset': reset,
+  })
+
+  it('confirms, then sends the reset and shows that a link was emailed; hidden for your own row', async () => {
+    const calls = stubFetch(base(() => json({ expiresOn: new Date(Date.now() + 3_600_000).toISOString() }, 202)))
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: '/admin/members', auth: fakeAuthClient({ session: fakeSession() }) })
+    expect(await screen.findAllByTestId('member-reset-password')).toHaveLength(1)
+    expect(screen.queryByRole('button', { name: 'Reset password for self@synthetic.example' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Reset password for zz-qa-peer@synthetic.example' }))
+    expect(screen.getByTestId('reset-password-confirm-text')).toBeInTheDocument()
+    expect(calls.some((c) => c.path.endsWith('/password-reset'))).toBe(false)
+    await user.click(screen.getByRole('button', { name: 'Send reset link' }))
+    expect(await screen.findByText(/password reset link was emailed to zz-qa-peer@synthetic.example/)).toBeInTheDocument()
+    expect(calls.filter((c) => c.path === '/api/v1/members/m-peer/password-reset')).toHaveLength(1)
+  })
+
+  it('shows the rate-limit message on 429', async () => {
+    stubFetch(base(() => json({ title: 'Too Many Requests', status: 429, code: 'rate_limited' }, 429)))
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: '/admin/members', auth: fakeAuthClient({ session: fakeSession() }) })
+    await user.click(await screen.findByRole('button', { name: 'Reset password for zz-qa-peer@synthetic.example' }))
+    await user.click(screen.getByRole('button', { name: 'Send reset link' }))
+    expect(await screen.findByText('Too many password resets. Try again later.')).toBeInTheDocument()
+  })
+})

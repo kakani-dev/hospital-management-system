@@ -35,6 +35,12 @@ public sealed class InviteSignInStore(NpgsqlDataSource dataSource) : IInviteSign
         return value as string ?? throw new InvalidOperationException("Sign-in code check did not return an address.");
     }
 
+    public async Task<string> ConsumePasswordResetAsync(string token, CancellationToken cancellationToken)
+    {
+        var value = await ScalarAsync("select identity.consume_password_reset(@token)", cancellationToken, ("token", token));
+        return value as string ?? throw new InvalidOperationException("Password reset did not return an address.");
+    }
+
     private async Task<object?> ScalarAsync(string sql, CancellationToken cancellationToken, params (string Name, object Value)[] parameters)
     {
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
@@ -71,4 +77,7 @@ public interface IInviteSignInStore
 
     /// <returns>The invited email. The code is burned, including after five mismatches.</returns>
     Task<string> ConsumeAsync(string token, string code, CancellationToken cancellationToken);
+
+    /// <returns>The account email for an admin-issued reset link; the link is burned. P0002 when unknown, used or expired.</returns>
+    Task<string> ConsumePasswordResetAsync(string token, CancellationToken cancellationToken);
 }

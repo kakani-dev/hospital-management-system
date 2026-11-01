@@ -12,6 +12,20 @@ public sealed class EmailTemplateTests
     private const string Token = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
     [Fact]
+    public void Password_reset_links_to_the_reset_page_and_encodes_html()
+    {
+        using var document = JsonDocument.Parse(
+            $$"""{"hospitalName":"Ward <b>","token":"{{Token}}","expiresOn":"2026-11-01T00:00:00Z"}""");
+        var rendered = EmailTemplates.Render("password_reset", document.RootElement, "https://links.example.test/");
+
+        Assert.Contains("https://links.example.test/reset-password/" + Token, rendered.TextBody, StringComparison.Ordinal);
+        Assert.Contains("https://links.example.test/reset-password/" + Token, rendered.HtmlBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("/invite/", rendered.TextBody, StringComparison.Ordinal);
+        Assert.Contains("Ward &lt;b&gt;", rendered.HtmlBody, StringComparison.Ordinal);
+        Assert.False(string.IsNullOrWhiteSpace(rendered.Subject));
+    }
+
+    [Fact]
     public void Links_use_the_configured_base_url_and_html_is_encoded()
     {
         using var document = JsonDocument.Parse(

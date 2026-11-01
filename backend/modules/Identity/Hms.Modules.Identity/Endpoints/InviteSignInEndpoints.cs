@@ -96,6 +96,43 @@ public static partial class PlatformEndpoints
         }
     }
 
+    private static async Task<Results<Ok<InviteSignInProofDto>, NotFound, ProblemHttpResult>> ExchangePasswordResetAsync(
+        string token, IInviteSignInStore store, IPasswordlessSessionIssuer issuer, CancellationToken cancellationToken)
+    {
+        if (!TokenPattern().IsMatch(token))
+        {
+            return TypedResults.NotFound();
+        }
+
+        if (!issuer.IsConfigured)
+        {
+            return SignInNotConfigured();
+        }
+
+        string email;
+        try
+        {
+            email = await store.ConsumePasswordResetAsync(token, cancellationToken);
+        }
+        catch (PostgresException ex) when (ex.SqlState == "P0002")
+        {
+            return TypedResults.NotFound();
+        }
+
+        try
+        {
+            var proof = await issuer.CreateAsync(email, cancellationToken);
+            return TypedResults.Ok(new InviteSignInProofDto(proof.TokenHash, proof.VerificationType));
+        }
+        catch (InvalidOperationException)
+        {
+            return TypedResults.Problem(
+                title: "Sign-in unavailable",
+                detail: "The link was accepted but sign-in could not be completed. Ask your administrator for a new reset link.",
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+    }
+
     private static ProblemHttpResult SignInNotConfigured() =>
         TypedResults.Problem(
             title: "Sign-in unavailable",

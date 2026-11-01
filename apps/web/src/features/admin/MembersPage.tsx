@@ -8,7 +8,7 @@ import { FormField } from '../../components/ui/FormField'
 import { SelectField } from '../../components/ui/SelectField'
 import { Badge, Select } from '@tailux/components/ui'
 import { DataTable, type ColumnDef } from '../../components/table/DataTable'
-import { useAddMember, useBranches, useMembers, useRemoveMember, useUpdateMember } from '../../lib/api/hooks'
+import { useAddMember, useBranches, useMembers, useRemoveMember, useResetMemberPassword, useUpdateMember } from '../../lib/api/hooks'
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 import { InviteLinksCard } from './InviteLinksCard'
 import { ApiError, fieldErrors } from '../../lib/api/client'
@@ -26,6 +26,8 @@ export function MembersPage({ embedded = false, hideDirectory = false }: { embed
   const updateMember = useUpdateMember()
   const removeMember = useRemoveMember()
   const [removing, setRemoving] = useState<Member | null>(null)
+  const resetPassword = useResetMemberPassword()
+  const [resetting, setResetting] = useState<Member | null>(null)
   const activeBranches = branches.data?.filter((b) => b.isActive) ?? []
   const [message, setMessage] = useState<{ tone: 'info' | 'error'; text: string } | null>(null)
   const {
@@ -98,6 +100,33 @@ export function MembersPage({ embedded = false, hideDirectory = false }: { embed
           text: error instanceof ApiError && error.status === 409 ? (error.problem?.detail ?? 'This member cannot be removed.') : 'Could not remove the member.',
         }),
       onSettled: () => setRemoving(null),
+    })
+  }
+
+  const onResetPassword = () => {
+    if (!resetting) return
+    const m = resetting
+    resetPassword.mutate(m.id, {
+      onSuccess: () =>
+        setMessage({
+          tone: 'info',
+          text: `A password reset link was emailed to ${m.email ?? 'the member'}. It works once and expires in 1 hour. They were signed out.`,
+        }),
+      onError: (error) =>
+        setMessage({
+          tone: 'error',
+          text:
+            error instanceof ApiError && error.status === 429
+              ? 'Too many password resets. Try again later.'
+              : error instanceof ApiError && error.status === 409
+                ? 'You cannot reset your own password here.'
+                : error instanceof ApiError && error.status === 403
+                  ? 'You cannot reset the password of this account.'
+                  : error instanceof ApiError && error.status === 404
+                    ? 'This member no longer has an active account here.'
+                    : 'Could not reset the password.',
+        }),
+      onSettled: () => setResetting(null),
     })
   }
 
@@ -186,6 +215,18 @@ export function MembersPage({ embedded = false, hideDirectory = false }: { embed
               {m.status === 'active' ? 'Suspend' : 'Reactivate'}
             </Button>
           )}
+          {m.userId !== me.data?.userId && m.status !== 'invited' && (
+            <Button
+              variant="secondary"
+              className="h-8"
+              data-testid="member-reset-password"
+              aria-label={`Reset password for ${m.email ?? 'member'}`}
+              disabled={resetPassword.isPending}
+              onClick={() => setResetting(m)}
+            >
+              Reset password
+            </Button>
+          )}
           {m.userId !== me.data?.userId && (
             <Button variant="ghost" className="h-8" aria-label={`Remove ${m.email ?? 'member'}`} disabled={removeMember.isPending} onClick={() => setRemoving(m)}>
               Remove
@@ -255,6 +296,19 @@ export function MembersPage({ embedded = false, hideDirectory = false }: { embed
         <p>
           They lose access to this hospital{removing?.branchName ? ` (${removing.branchName})` : ''} immediately. Their account and the records they
           created are kept.
+        </p>
+      </ConfirmDialog>
+      <ConfirmDialog
+        open={resetting !== null}
+        title={`Reset password for ${resetting?.email ?? 'member'}?`}
+        confirmLabel="Send reset link"
+        busy={resetPassword.isPending}
+        onCancel={() => setResetting(null)}
+        onConfirm={onResetPassword}
+      >
+        <p data-testid="reset-password-confirm-text">
+          Their current password stops working and they are signed out. We email them a one-time link to choose a new password. You never see
+          the password.
         </p>
       </ConfirmDialog>
     </div>
