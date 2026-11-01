@@ -17,15 +17,22 @@ const LETTERS = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ'
 const DIGITS = '23456789'
 const ALL = LETTERS + DIGITS
 
-function pick(chars: string, random: Uint32Array, i: number) {
-  return chars[(random[i] ?? 0) % chars.length] ?? chars[0]
+/** Uniform pick: bytes at or above the largest multiple of the alphabet size are rejected (no modulo bias). */
+function randomChars(chars: string, length: number): string {
+  const limit = 256 - (256 % chars.length)
+  let out = ''
+  while (out.length < length) {
+    for (const byte of crypto.getRandomValues(new Uint8Array(length * 2))) {
+      if (byte < limit && out.length < length) out += chars.charAt(byte % chars.length)
+    }
+  }
+  return out
 }
 
 /** A random 14-character password from crypto.getRandomValues that always meets the policy. */
 export function generatePassword(length = 14): string {
   for (;;) {
-    const random = crypto.getRandomValues(new Uint32Array(length))
-    const out = Array.from({ length }, (_, i) => pick(ALL, random, i)).join('')
+    const out = randomChars(ALL, length)
     if (isStrongEnough(out)) return out
   }
 }
