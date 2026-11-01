@@ -35,6 +35,27 @@ public sealed partial class TenantResolutionMiddleware(RequestDelegate next, ILo
 
         dbSession.SetUser(userId, context.User.FindFirst(HmsClaimTypes.Email)?.Value);
 
+        // Security: enforced on the server, not by the web app. A token issued before an admin reset is
+        // revoked (401), and while the user must choose a new password only that endpoint works (403).
+        if (await membershipStore.FindPasswordStateAsync(context.RequestAborted) is { } state)
+        {
+            if (state.SessionsInvalidatedEpoch is { } invalidated
+                && (!long.TryParse(context.User.FindFirst("iat")?.Value, out var iat) || iat < invalidated))
+            {
+                LogResolutionFailed(logger, "session_revoked");
+                await WriteProblemAsync(context, StatusCodes.Status401Unauthorized, "session_revoked",
+                    "Your password was reset. Sign in again.");
+                return;
+            }
+
+            if (state.MustChangePassword && !IsAllowedWhilePasswordChangeRequired(context.Request))
+            {
+                await WriteProblemAsync(context, StatusCodes.Status403Forbidden, "password_change_required",
+                    "Choose a new password before continuing.");
+                return;
+            }
+        }
+
         Guid tenantId;
         Guid? branchId;
         var result = ClaimsTenantResolver.Resolve(context.User);
@@ -79,6 +100,20 @@ public sealed partial class TenantResolutionMiddleware(RequestDelegate next, ILo
         {
             await next(context);
         }
+    }
+
+    internal const string ChangeOwnPasswordPath = "/api/v1/me/password";
+
+    internal static bool IsAllowedWhilePasswordChangeRequired(HttpRequest request) =>
+        HttpMethods.IsPost(request.Method)
+        && string.Equals(request.Path.Value?.TrimEnd('/'), ChangeOwnPasswordPath, StringComparison.OrdinalIgnoreCase);
+
+    private static Task WriteProblemAsync(HttpContext context, int status, string code, string detail)
+    {
+        context.Response.StatusCode = status;
+        return context.Response.WriteAsJsonAsync(
+            new { type = "about:blank", title = code, status, detail, code },
+            options: null, contentType: "application/problem+json", cancellationToken: context.RequestAborted);
     }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Tenant resolution failed: {Reason}")]

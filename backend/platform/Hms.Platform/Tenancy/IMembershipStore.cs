@@ -14,6 +14,10 @@ public sealed record MembershipGrant(
 
 public sealed record ActiveContext(Guid TenantId, Guid? BranchId);
 
+/// <param name="MustChangePassword">An admin set this user's password; they must choose their own first.</param>
+/// <param name="SessionsInvalidatedEpoch">Tokens issued (iat) before this Unix time are revoked.</param>
+public sealed record PasswordState(bool MustChangePassword, long? SessionsInvalidatedEpoch);
+
 public interface IMembershipStore
 {
     /// <summary>
@@ -27,4 +31,7 @@ public interface IMembershipStore
     /// else first membership) — used when a token predates the custom access token hook.
     /// </summary>
     Task<ActiveContext?> FindDefaultContextAsync(CancellationToken cancellationToken);
+
+    /// <summary>Server-owned password state of the CURRENT database user (null when unknown).</summary>
+    Task<PasswordState?> FindPasswordStateAsync(CancellationToken cancellationToken) => Task.FromResult<PasswordState?>(null);
 }
