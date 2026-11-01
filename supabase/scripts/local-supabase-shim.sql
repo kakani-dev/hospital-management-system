@@ -39,6 +39,26 @@ begin
     );
   end if;
 
+  -- Columns/tables the hosted auth schema has and identity.admin_reset_member_password touches.
+  alter table auth.users add column if not exists encrypted_password varchar(255);
+  alter table auth.users add column if not exists raw_user_meta_data jsonb;
+  if not exists (select 1 from information_schema.tables where table_schema = 'auth' and table_name = 'sessions') then
+    create table auth.sessions (
+      id uuid primary key,
+      user_id uuid not null references auth.users (id) on delete cascade,
+      created_at timestamptz default now()
+    );
+  end if;
+  if not exists (select 1 from information_schema.tables where table_schema = 'auth' and table_name = 'refresh_tokens') then
+    create table auth.refresh_tokens (
+      id bigserial primary key,
+      token varchar(255),
+      user_id varchar(255),
+      session_id uuid references auth.sessions (id) on delete cascade,
+      revoked boolean
+    );
+  end if;
+
   if not exists (
     select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'auth' and p.proname = 'uid'
