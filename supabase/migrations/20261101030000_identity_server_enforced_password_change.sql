@@ -6,11 +6,21 @@ set local statement_timeout = '120s';
 create table if not exists identity.user_security (
   user_id uuid primary key references auth.users (id) on delete cascade,
   must_change_password boolean not null default false,
-  sessions_invalidated_on timestamptz
+  sessions_invalidated_on timestamptz,
+  created_on    timestamptz not null default now(),
+  created_by    uuid not null,
+  updated_on    timestamptz not null default now(),
+  updated_by    uuid not null,
+  is_deleted    boolean not null default false
 );
+comment on table identity.user_security is
+  'Server-owned password state per user: must change the password, and when older tokens were revoked. Not readable by clients.';
 alter table identity.user_security enable row level security;
 revoke all on identity.user_security from public, anon, authenticated;
-grant select, insert, update, delete on identity.user_security to service_role;
+grant all on identity.user_security to service_role;
+create trigger user_security_audit_columns
+  before insert or update on identity.user_security
+  for each row execute function audit.stamp_audit_columns();
 
 create or replace function identity.admin_set_member_password(p_tenant_id uuid, p_membership_id uuid, p_password text)
 returns void
@@ -120,7 +130,10 @@ as $$
    where me.uid is not null;
 $$;
 revoke all on function identity.my_password_state() from public, anon;
-grant execute on function identity.my_password_state() to authenticated, service_role, hms_svc_identity;
+grant execute on function identity.my_password_state() to authenticated, service_role;
+-- Every service checks it during tenant resolution, as its own DB role (like my_tenant_grant_v1).
+grant execute on function identity.my_password_state()
+  to hms_svc_identity, hms_svc_patients, hms_svc_scheduling, hms_svc_billing, hms_svc_inventory, hms_svc_privacy;
 
 -- The only way to clear the flag: the signed-in user sets a new password that meets the policy.
 create or replace function identity.change_own_password(p_password text)
