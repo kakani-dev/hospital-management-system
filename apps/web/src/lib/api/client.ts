@@ -467,6 +467,12 @@ export class ApiClient {
       this.request<void>(`/api/v1/me/invitations/${encodeURIComponent(membershipId)}/accept`, { method: 'POST' }),
   }
 
+  account = {
+    /** 204: sets your own password and clears the server-side must-change flag. 400 weak_password. */
+    changePassword: (password: string) =>
+      this.request<void>('/api/v1/me/password', { method: 'POST', body: JSON.stringify({ password }), retry: false }),
+  }
+
   members = {
     list: () => this.request<Member[]>('/api/v1/members'),
     /** Always 202 + a generic message (no account / invited / already a member look the same). */

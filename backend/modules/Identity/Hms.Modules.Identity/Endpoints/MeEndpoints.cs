@@ -24,6 +24,14 @@ public static class MeEndpoints
             .WithName("GetCurrentUser")
             .WithSummary("Current user, resolved tenant/branch and all memberships (drives the switcher).");
 
+        // The one call allowed while an admin-set password must be replaced (TenantResolutionMiddleware).
+        api.MapPost("/me/password", ChangeOwnPasswordAsync)
+            .RequireAuthorization()
+            .WithDbTransaction<IdentityDbContext>()
+            .WithTags("Identity")
+            .WithName("ChangeOwnPassword")
+            .WithSummary("Set your own password (10-72 chars, letters and digits). Clears the must-change flag on the server. 204, 400 weak_password.");
+
         api.MapPost("/me/context", SwitchContextAsync)
             .RequireAuthorization()
             .WithDbTransaction<IdentityDbContext>()
@@ -227,4 +235,29 @@ public static class MeEndpoints
 
     private static CurrentTenantDto TenantDto(Tenant row, ITenantContext tenant, string? zone = null) =>
         new(row.Id, row.Code, row.Name, tenant.BranchId, [.. tenant.Roles.Order(StringComparer.Ordinal)], zone ?? row.TimeZone, row.DefaultCountryCode, row.SetupStep, row.SetupCompletedOn);
+
+    private static async Task<Results<NoContent, ProblemHttpResult>> ChangeOwnPasswordAsync(
+        SetMemberPasswordRequest? body, IdentityDbContext db, CancellationToken ct)
+    {
+        var password = body?.Password;
+        if (!MemberPasswordPolicy.IsValid(password))
+        {
+            return WeakPassword();
+        }
+
+        try
+        {
+            // Parameterised; the password is never logged, stored in clear or returned.
+            await RawSql.ScalarAsync(db, "select identity.change_own_password(@password)", ct, ("password", password!));
+            return TypedResults.NoContent();
+        }
+        catch (Npgsql.PostgresException ex) when (ex.SqlState == "22023")
+        {
+            return WeakPassword();
+        }
+    }
+
+    private static ProblemHttpResult WeakPassword() =>
+        TypedResults.Problem(title: "Bad request", detail: MemberPasswordPolicy.Message,
+            statusCode: StatusCodes.Status400BadRequest, extensions: new Dictionary<string, object?> { ["code"] = "weak_password" });
 }

@@ -20,6 +20,7 @@ public sealed class NpgsqlMembershipStore(
     // cross-schema: approved — identity.my_tenant_grant_v1 and identity.my_active_context (docs/contracts/db.md).
     private readonly string _authenticatedRole = options?.AuthenticatedRole ?? DatabaseSessionOptions.DefaultRole;
     internal const string GrantSql = "select identity.my_tenant_grant_v1(@tenant)::text";
+    internal const string PasswordStateSql = "select must_change_password, sessions_invalidated_epoch from identity.my_password_state()";
     internal const string DefaultContextSql = "select tenant_id, branch_id from identity.my_active_context()";
 
     public async Task<MembershipGrant?> FindActiveGrantAsync(Guid userId, Guid tenantId, Guid? branchId, CancellationToken cancellationToken)
@@ -50,6 +51,18 @@ public sealed class NpgsqlMembershipStore(
                 await using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
                 return await reader.ReadAsync(ct).ConfigureAwait(false)
                     ? new ActiveContext(reader.GetGuid(0), reader.IsDBNull(1) ? null : reader.GetGuid(1))
+                    : null;
+            },
+            cancellationToken);
+
+    public Task<PasswordState?> FindPasswordStateAsync(CancellationToken cancellationToken) =>
+        InUserTransactionAsync<PasswordState?>(
+            async (connection, tx, ct) =>
+            {
+                await using var command = new NpgsqlCommand(PasswordStateSql, connection, tx);
+                await using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+                return await reader.ReadAsync(ct).ConfigureAwait(false)
+                    ? new PasswordState(reader.GetBoolean(0), reader.IsDBNull(1) ? null : reader.GetInt64(1))
                     : null;
             },
             cancellationToken);

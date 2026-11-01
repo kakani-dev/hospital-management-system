@@ -42,6 +42,7 @@ begin
   -- Columns/tables the hosted auth schema has and identity.admin_reset_member_password touches.
   alter table auth.users add column if not exists encrypted_password varchar(255);
   alter table auth.users add column if not exists raw_user_meta_data jsonb;
+  alter table auth.users add column if not exists raw_app_meta_data jsonb;
   if not exists (select 1 from information_schema.tables where table_schema = 'auth' and table_name = 'sessions') then
     create table auth.sessions (
       id uuid primary key,
