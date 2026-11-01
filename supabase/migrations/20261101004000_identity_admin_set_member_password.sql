@@ -1,5 +1,7 @@
 -- cross-schema: approved (admin password reset revokes auth sessions, scrambles the old password, enqueues identity email and writes audit.audit_log)
 -- #311: a hospital admin sets a new password for a staff member of the same hospital.
+set local lock_timeout = '5s';
+set local statement_timeout = '120s';
 create or replace function identity.admin_set_member_password(p_tenant_id uuid, p_membership_id uuid, p_password text)
 returns void
 language plpgsql
