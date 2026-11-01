@@ -14,6 +14,7 @@ export function RequireAuth() {
   }
   if (!session) return <Navigate to="/login" replace state={{ from: location.pathname }} />
   // An admin set this password (#311): the person must choose their own before using the app.
-  if (session.user.user_metadata?.needs_password === true) return <ChangePasswordRequired />
+  // app_metadata is server-owned (users cannot clear it); the API also refuses other calls meanwhile.
+  if (session.user.app_metadata?.must_change_password === true || session.user.user_metadata?.needs_password === true) return <ChangePasswordRequired />
   return <Outlet />
 }
