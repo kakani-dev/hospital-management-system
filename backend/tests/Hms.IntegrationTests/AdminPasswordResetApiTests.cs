@@ -91,4 +91,47 @@ public sealed class AdminPasswordResetApiTests(HmsApiFactory factory) : IClassFi
         var response = await client.PostAsync($"/api/v1/public/password-resets/{new string('a', 64)}/sign-in", null);
         Assert.True(response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.ServiceUnavailable, $"got {(int)response.StatusCode}");
     }
+
+    private static string SetPath(Guid membershipId) => $"/api/v1/members/{membershipId}/password";
+
+    [Fact]
+    public async Task Admin_sets_a_password_that_must_be_changed_and_it_is_audited_without_the_password()
+    {
+        var (userId, membershipId) = await NewAlphaStaffAsync();
+        using var client = factory.ClientAs(AlphaAdmin, Alpha);
+        var password = $"Zz{Guid.NewGuid():N}"[..16] + "7";
+
+        var response = await client.PostAsJsonAsync(SetPath(membershipId), new { password });
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.True(await ATz.ScalarAsync<bool>(
+            "select (raw_user_meta_data ->> 'needs_password')::boolean and encrypted_password like '$2%' from auth.users where id = @u", ("u", userId)));
+        Assert.Equal(1L, await ATz.ScalarAsync<long>(
+            "select count(*) from audit.audit_log where new_data ->> 'event' = 'admin_password_set' and new_data ->> 'target_user_id' = @u::text and position(@p in new_data::text) = 0",
+            ("u", userId), ("p", password)));
+    }
+
+    [Theory]
+    [InlineData("short1")]
+    [InlineData("onlyletterspassword")]
+    [InlineData("12345678901234")]
+    public async Task Weak_password_is_400(string password)
+    {
+        var (_, membershipId) = await NewAlphaStaffAsync();
+        using var client = factory.ClientAs(AlphaAdmin, Alpha);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync(SetPath(membershipId), new { password })).StatusCode);
+    }
+
+    [Fact]
+    public async Task Set_password_is_403_across_hospitals_and_for_non_admins_and_409_for_self()
+    {
+        var betaDoctorMembership = await MembershipOfAsync(Beta, BetaDoctor);
+        var (_, membershipId) = await NewAlphaStaffAsync();
+        using var admin = factory.ClientAs(AlphaAdmin, Alpha);
+        using var reception = factory.ClientAs(AlphaReception, Alpha);
+        var body = new { password = "Synthetic1234" };
+        Assert.Equal(HttpStatusCode.Forbidden, (await admin.PostAsJsonAsync(SetPath(betaDoctorMembership), body)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await reception.PostAsJsonAsync(SetPath(membershipId), body)).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await admin.PostAsJsonAsync(SetPath(await MembershipOfAsync(Alpha, AlphaAdmin)), body)).StatusCode);
+    }
 }

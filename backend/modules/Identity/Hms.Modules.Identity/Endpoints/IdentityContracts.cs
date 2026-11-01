@@ -83,3 +83,24 @@ public sealed record UpdateMemberRequest(string? Role, string? Status, Guid? Bra
 
 /// <summary>Response of POST /api/v1/members/{id}/password-reset: when the emailed link expires.</summary>
 public sealed record PasswordResetIssuedDto(DateTimeOffset ExpiresOn);
+
+/// <summary>Body of POST /api/v1/members/{id}/password. Never logged or echoed.</summary>
+public sealed record SetMemberPasswordRequest(string? Password)
+{
+    public override string ToString() => "SetMemberPasswordRequest { Password = *** }";
+}
+
+/// <summary>Admin-set password policy (#311); the database enforces the same rule.</summary>
+public static class MemberPasswordPolicy
+{
+    public const int MinLength = 10;
+    public const int MaxBytes = 72;
+    public const string Message = "Use 10-72 characters with at least one letter and one digit.";
+
+    public static bool IsValid(string? password) =>
+        password is not null
+        && password.Length >= MinLength
+        && System.Text.Encoding.UTF8.GetByteCount(password) <= MaxBytes
+        && password.Any(c => c is (>= 'a' and <= 'z') or (>= 'A' and <= 'Z'))
+        && password.Any(char.IsAsciiDigit);
+}

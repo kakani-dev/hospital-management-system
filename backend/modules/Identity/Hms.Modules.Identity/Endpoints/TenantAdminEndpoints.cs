@@ -41,6 +41,9 @@ public static class TenantAdminEndpoints
         members.MapDelete("/{id:guid}", DeleteMemberAsync).WithName("DeleteMember")
             .WithSummary("Soft delete (identity.soft_delete_membership): the membership grants nothing afterwards.");
         members.MapPost("/{id:guid}/restore", RestoreMemberAsync).WithName("RestoreMember");
+        members.MapPost("/{id:guid}/password", SetMemberPasswordAsync).WithName("SetMemberPassword")
+            .WithSummary("Tenant admin: set a new password (10-72 chars, letters and digits) that the member must change at next sign-in; "
+                + "signs them out everywhere. 400 weak_password, 403, 404, 409 own account, 429 rate limited.");
         members.MapPost("/{id:guid}/password-reset", ResetMemberPasswordAsync).WithName("ResetMemberPassword")
             .WithSummary("Tenant admin: sign the member out everywhere, disable the old password and email a single-use reset link. "
                 + "403 not an admin / other hospital / platform admin, 404 unknown member, 409 own account, 429 rate limited.");
@@ -132,6 +135,53 @@ public static class TenantAdminEndpoints
         }
 
         return await SoftDeleteAsync(db, tenant, "select identity.soft_delete_membership(@id)", id, HmsPermissions.MembersManage, "Only tenant admins can manage branches and members.", ct);
+    }
+
+    private static async Task<Results<NoContent, NotFound, ProblemHttpResult>> SetMemberPasswordAsync(
+        Guid id, SetMemberPasswordRequest? body, IdentityDbContext db, ITenantContext tenant, CancellationToken ct)
+    {
+        if (!tenant.Can(HmsPermissions.MembersManage))
+        {
+            return HmsProblems.Forbidden("Only tenant admins can set passwords.");
+        }
+
+        var password = body?.Password;
+        if (!MemberPasswordPolicy.IsValid(password))
+        {
+            return TypedResults.Problem(title: "Bad request", detail: MemberPasswordPolicy.Message,
+                statusCode: StatusCodes.Status400BadRequest, extensions: new Dictionary<string, object?> { ["code"] = "weak_password" });
+        }
+
+        try
+        {
+            // Parameterised; the password is never logged, stored in clear or returned.
+            await RawSql.ScalarAsync(db, "select identity.admin_set_member_password(@tenant, @id, @password)", ct,
+                ("tenant", tenant.TenantId), ("id", id), ("password", password!));
+            return TypedResults.NoContent();
+        }
+        catch (PostgresException ex) when (ex.SqlState == "P0002")
+        {
+            return TypedResults.NotFound();
+        }
+        catch (PostgresException ex) when (ex.SqlState == "22023")
+        {
+            return TypedResults.Problem(title: "Bad request", detail: MemberPasswordPolicy.Message,
+                statusCode: StatusCodes.Status400BadRequest, extensions: new Dictionary<string, object?> { ["code"] = "weak_password" });
+        }
+        catch (PostgresException ex) when (ex.SqlState == "42501")
+        {
+            return HmsProblems.Forbidden("You cannot set this user's password.");
+        }
+        catch (PostgresException ex) when (ex.SqlState == "55000")
+        {
+            return TypedResults.Problem(title: "Conflict", detail: "Use your own account settings to change your own password.",
+                statusCode: StatusCodes.Status409Conflict, extensions: new Dictionary<string, object?> { ["code"] = "self_reset" });
+        }
+        catch (PostgresException ex) when (ex.SqlState == "54000")
+        {
+            return TypedResults.Problem(title: "Too many requests", detail: "Too many password changes. Try again later.",
+                statusCode: StatusCodes.Status429TooManyRequests, extensions: new Dictionary<string, object?> { ["code"] = "rate_limited" });
+        }
     }
 
     private static async Task<Results<Accepted<PasswordResetIssuedDto>, NotFound, ProblemHttpResult>> ResetMemberPasswordAsync(
