@@ -476,6 +476,9 @@ export class ApiClient {
       this.request<Member>(`/api/v1/members/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
     /** Soft delete: the membership grants nothing afterwards. */
     remove: (id: string) => this.request<void>(`/api/v1/members/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    /** 202 { expiresOn }: emails a one-time reset link and signs them out. 403 other hospital / platform admin, 404 unknown, 409 self_reset, 429 rate_limited. */
+    resetPassword: (id: string) =>
+      this.request<{ expiresOn: string }>(`/api/v1/members/${encodeURIComponent(id)}/password-reset`, { method: 'POST', retry: false }),
     inviteLinks: {
       list: () => this.request<InviteLink[]>('/api/v1/members/invite-links'),
       /** 201 with the one-time token; works whether or not the person has an account yet. */
@@ -500,6 +503,13 @@ export class ApiClient {
       this.request<{ tokenHash: string; verificationType: string }>(`/api/v1/public/invites/${encodeURIComponent(token)}/sign-in`, {
         method: 'POST',
         body: JSON.stringify({ code }),
+        auth: false,
+        retry: false,
+      }),
+    /** 200 { tokenHash, verificationType } for a one-time password reset link. 404 used, expired or unknown. 503 not configured. */
+    exchangePasswordReset: (token: string) =>
+      this.request<{ tokenHash: string; verificationType: string }>(`/api/v1/public/password-resets/${encodeURIComponent(token)}/sign-in`, {
+        method: 'POST',
         auth: false,
         retry: false,
       }),
