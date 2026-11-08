@@ -166,6 +166,7 @@ public class TenantResolutionMiddlewareTests
         Assert.True(called);
         Assert.False(session.IsAuthenticated);
     }
+
     [Theory]
     [InlineData(-1, false, false, 401)]
     [InlineData(0, false, false, 401)]
@@ -188,6 +189,8 @@ public class TenantResolutionMiddlewareTests
     [Theory]
     [InlineData(null)]
     [InlineData("not-an-epoch")]
+    [InlineData("")]
+    [InlineData("1.5")]
     [InlineData("9223372036854775808")]
     public async Task Missing_or_invalid_issued_at_is_revoked_after_reset(string? issuedAt)
     {
@@ -201,14 +204,32 @@ public class TenantResolutionMiddlewareTests
         await AssertPasswordGate(new PasswordState(false, null), null, false, StatusCodes.Status200OK);
     }
 
-    private static async Task AssertPasswordGate(PasswordState state, string? issuedAt, bool changePassword, int expectedStatus)
+    [Theory]
+    [InlineData("POST", "/api/v1/me/password/", true)]
+    [InlineData("POST", "/API/V1/ME/PASSWORD", true)]
+    [InlineData("GET", "/api/v1/me/password", false)]
+    [InlineData("PUT", "/api/v1/me/password", false)]
+    [InlineData("OPTIONS", "/api/v1/me/password", false)]
+    [InlineData("POST", "/api/v1/me/password/extra", false)]
+    public async Task Password_endpoint_variants_never_bypass_revocation(string method, string path, bool allowedAfterReset)
+    {
+        var cutoff = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var state = new PasswordState(true, cutoff);
+        await AssertPasswordGate(state, cutoff.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            false, StatusCodes.Status401Unauthorized, method, path);
+        await AssertPasswordGate(state, (cutoff + 1).ToString(System.Globalization.CultureInfo.InvariantCulture),
+            false, allowedAfterReset ? StatusCodes.Status200OK : StatusCodes.Status403Forbidden, method, path);
+    }
+
+    private static async Task AssertPasswordGate(PasswordState state, string? issuedAt, bool changePassword, int expectedStatus,
+        string? method = null, string? path = null)
     {
         var claims = new List<(string, string)> { ("sub", User.ToString()), ("tenant_id", Alpha.ToString()) };
         if (issuedAt is not null) claims.Add(("iat", issuedAt));
         var http = NewHttpContext(new RecordingResponseFeature(), claims.ToArray());
         http.Response.Body = new MemoryStream();
-        http.Request.Method = changePassword ? HttpMethods.Post : HttpMethods.Get;
-        http.Request.Path = changePassword ? "/api/v1/me/password" : "/api/v1/me";
+        http.Request.Method = method ?? (changePassword ? HttpMethods.Post : HttpMethods.Get);
+        http.Request.Path = path ?? (changePassword ? "/api/v1/me/password" : "/api/v1/me");
         var called = false;
         var middleware = new TenantResolutionMiddleware(_ => { called = true; return Task.CompletedTask; },
             NullLogger<TenantResolutionMiddleware>.Instance);
