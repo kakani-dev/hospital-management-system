@@ -14,7 +14,8 @@ public sealed class PostgresAppointmentFunctions(AppointmentsDbContext db) : IAp
             "select practitioner_id, branch_id, slot_start, slot_end from appointment.available_slots_v2(@t::uuid, @b::uuid, @f::date, @to::date, @p::uuid, @m::integer)",
             r => new FreeSlot(r.GetGuid(0), r.GetGuid(1), r.GetFieldValue<DateTimeOffset>(2), r.GetFieldValue<DateTimeOffset>(3)),
             ct,
-            ("t", tenantId), ("b", branchId), ("f", fromDate), ("to", toDate), ("p", practitionerId), ("m", durationMinutes));
+            ("t", tenantId), ("b", branchId), ("f", fromDate), ("to", toDate), ("p", practitionerId),
+            ("m", durationMinutes ?? await ConsultDurationAsync(tenantId, branchId, ct)));
 
     public async Task<IssuedToken> CheckInAsync(Guid tenantId, Guid branchId, Guid patientId, Guid appointmentId, CancellationToken ct) =>
         (await RawSql.QueryAsync(
@@ -46,6 +47,23 @@ public sealed class PostgresAppointmentFunctions(AppointmentsDbContext db) : IAp
     public Task AssertBookableWindowAsync(Guid tenantId, Guid branchId, Guid practitionerId, DateTimeOffset startsAt, DateTimeOffset endsAt, bool overrideHours, CancellationToken ct) =>
         RawSql.ScalarAsync(db, "select appointment.assert_bookable_window_v2(@t::uuid, @b::uuid, @p::uuid, @s::timestamptz, @e::timestamptz, @o::boolean)", ct,
             ("t", tenantId), ("b", branchId), ("p", practitionerId), ("s", startsAt), ("e", endsAt), ("o", overrideHours));
+
+    /// <summary>Configured new_consult duration for the branch (override, else type). Null if the type is missing.</summary>
+    private async Task<int?> ConsultDurationAsync(Guid tenantId, Guid branchId, CancellationToken ct)
+    {
+        var value = await RawSql.ScalarAsync(
+            db,
+            "select appointment.effective_consult_duration_minutes(@t::uuid, @b::uuid)",
+            ct,
+            ("t", tenantId), ("b", branchId));
+        return value switch
+        {
+            int minutes => minutes,
+            short minutes => minutes,
+            long minutes => (int)minutes,
+            _ => null,
+        };
+    }
 
     private static IssuedToken Token(DbDataReader r) => new(r.GetGuid(0), r.GetInt32(1), r.GetFieldValue<DateOnly>(2));
 }
