@@ -1,6 +1,9 @@
 -- #316: adding a line to a finalized bill tells staff the bill is immutable
 -- and to issue a credit note (BIL-007). A cancelled draft still uses the
 -- existing "only a draft bill accepts lines" message.
+-- cross-schema: approved (this only replaces billing.add_line; the body still reads
+-- the published identity.branch_local_date_v1 and appointment.appointment_consultation_fee_v2
+-- contracts, same as 20261027170000. No new cross-schema surface.)
 set local lock_timeout = '5s';
 set local statement_timeout = '120s';
 
