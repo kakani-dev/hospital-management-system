@@ -35,12 +35,14 @@ public sealed partial class TenantResolutionMiddleware(RequestDelegate next, ILo
 
         dbSession.SetUser(userId, context.User.FindFirst(HmsClaimTypes.Email)?.Value);
 
-        // Security: enforced on the server, not by the web app. A token issued before an admin reset is
-        // revoked (401), and while the user must choose a new password only that endpoint works (403).
+        // Security: JWT iat and the DB cutoff have whole-second precision. Reject the reset
+        // second too: otherwise a pre-reset token from that second can change the password.
+        // A legitimate sign-in in that same second must sign in again in a later second.
+        // Revocation (401) precedes the must-change-password endpoint exception (403).
         if (await membershipStore.FindPasswordStateAsync(context.RequestAborted) is { } state)
         {
             if (state.SessionsInvalidatedEpoch is { } invalidated
-                && (!long.TryParse(context.User.FindFirst("iat")?.Value, out var iat) || iat < invalidated))
+                && (!long.TryParse(context.User.FindFirst("iat")?.Value, out var iat) || iat <= invalidated))
             {
                 LogResolutionFailed(logger, "session_revoked");
                 await WriteProblemAsync(context, StatusCodes.Status401Unauthorized, "session_revoked",

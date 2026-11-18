@@ -18,6 +18,10 @@ public class TenantResolutionMiddlewareTests
     private sealed class FakeStore(ActiveContext? fallback, params (Guid Tenant, string Role)[] grants) : IMembershipStore
     {
         public int DefaultLookups { get; private set; }
+        public PasswordState? PasswordState { get; init; }
+
+        public Task<PasswordState?> FindPasswordStateAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(PasswordState);
 
         public Task<MembershipGrant?> FindActiveGrantAsync(Guid userId, Guid tenantId, Guid? branchId, CancellationToken cancellationToken)
         {
@@ -162,4 +166,89 @@ public class TenantResolutionMiddlewareTests
         Assert.True(called);
         Assert.False(session.IsAuthenticated);
     }
+
+    [Theory]
+    [InlineData(-1, false, false, 401)]
+    [InlineData(0, false, false, 401)]
+    [InlineData(1, false, false, 200)]
+    [InlineData(-1, true, false, 401)]
+    [InlineData(0, true, false, 401)]
+    [InlineData(1, true, false, 403)]
+    [InlineData(-1, true, true, 401)]
+    [InlineData(0, true, true, 401)]
+    [InlineData(1, true, true, 200)]
+    public async Task Reset_second_is_inclusively_revoked_before_password_change_gate(
+        int issuedOffset, bool mustChange, bool changePassword, int expectedStatus)
+    {
+        var cutoff = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        await AssertPasswordGate(new PasswordState(mustChange, cutoff),
+            (cutoff + issuedOffset).ToString(System.Globalization.CultureInfo.InvariantCulture),
+            changePassword, expectedStatus);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("not-an-epoch")]
+    [InlineData("")]
+    [InlineData("1.5")]
+    [InlineData("9223372036854775808")]
+    public async Task Missing_or_invalid_issued_at_is_revoked_after_reset(string? issuedAt)
+    {
+        await AssertPasswordGate(new PasswordState(false, DateTimeOffset.UtcNow.ToUnixTimeSeconds()),
+            issuedAt, false, StatusCodes.Status401Unauthorized);
+    }
+
+    [Fact]
+    public async Task No_reset_cutoff_preserves_existing_session_behavior()
+    {
+        await AssertPasswordGate(new PasswordState(false, null), null, false, StatusCodes.Status200OK);
+    }
+
+    [Theory]
+    [InlineData("POST", "/api/v1/me/password/", true)]
+    [InlineData("POST", "/API/V1/ME/PASSWORD", true)]
+    [InlineData("GET", "/api/v1/me/password", false)]
+    [InlineData("PUT", "/api/v1/me/password", false)]
+    [InlineData("OPTIONS", "/api/v1/me/password", false)]
+    [InlineData("POST", "/api/v1/me/password/extra", false)]
+    public async Task Password_endpoint_variants_never_bypass_revocation(string method, string path, bool allowedAfterReset)
+    {
+        var cutoff = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var state = new PasswordState(true, cutoff);
+        await AssertPasswordGate(state, cutoff.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            false, StatusCodes.Status401Unauthorized, method, path);
+        await AssertPasswordGate(state, (cutoff + 1).ToString(System.Globalization.CultureInfo.InvariantCulture),
+            false, allowedAfterReset ? StatusCodes.Status200OK : StatusCodes.Status403Forbidden, method, path);
+    }
+
+    private static async Task AssertPasswordGate(PasswordState state, string? issuedAt, bool changePassword, int expectedStatus,
+        string? method = null, string? path = null)
+    {
+        var claims = new List<(string, string)> { ("sub", User.ToString()), ("tenant_id", Alpha.ToString()) };
+        if (issuedAt is not null) claims.Add(("iat", issuedAt));
+        var http = NewHttpContext(new RecordingResponseFeature(), claims.ToArray());
+        http.Response.Body = new MemoryStream();
+        http.Request.Method = method ?? (changePassword ? HttpMethods.Post : HttpMethods.Get);
+        http.Request.Path = path ?? (changePassword ? "/api/v1/me/password" : "/api/v1/me");
+        var called = false;
+        var middleware = new TenantResolutionMiddleware(_ => { called = true; return Task.CompletedTask; },
+            NullLogger<TenantResolutionMiddleware>.Instance);
+        var tenant = new TenantContext();
+        var session = new DbSessionContext();
+        await middleware.InvokeAsync(http, tenant, session,
+            new FakeStore(null, (Alpha, HmsRoles.Nurse)) { PasswordState = state });
+
+        Assert.Equal(expectedStatus, http.Response.StatusCode);
+        Assert.Equal(expectedStatus == StatusCodes.Status200OK, called);
+        Assert.Equal(called, tenant.IsResolved);
+        Assert.Equal(called ? Alpha : (Guid?)null, session.TenantId);
+        if (!called)
+        {
+            http.Response.Body.Position = 0;
+            var body = await new StreamReader(http.Response.Body).ReadToEndAsync();
+            Assert.Contains(expectedStatus == StatusCodes.Status401Unauthorized
+                ? "session_revoked" : "password_change_required", body);
+        }
+    }
+
 }
