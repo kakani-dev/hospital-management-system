@@ -35,6 +35,9 @@ select tests.throws_ok(
 
 create temp table seeded on commit drop as
   select identity.seed_zz_qa_wizard_auth_user('zz-qa.wiz.202611181900@synthetic.example', 'Synthetic123x') as id;
+
+-- auth.users is not readable as authenticated; inspect the row as a superuser.
+select tests.as_superuser();
 select tests.ok(
   (select email_confirmed_at is not null from auth.users where id = (select id from seeded))
   and (select email from auth.users where id = (select id from seeded)) = 'zz-qa.wiz.202611181900@synthetic.example'
@@ -43,6 +46,7 @@ select tests.ok(
   and exists (select 1 from identity.user_profiles p where p.id = (select id from seeded) and p.email = 'zz-qa.wiz.202611181900@synthetic.example'),
   'a tagged wizard user is confirmed, hashed, profiled, and never stored in clear');
 
+select tests.authenticate_as('op-82@medicore.example');
 select tests.throws_ok(
   $$select identity.seed_zz_qa_wizard_auth_user('zz-qa.wiz.202611181900@synthetic.example', 'Synthetic123x')$$,
   '23505',
