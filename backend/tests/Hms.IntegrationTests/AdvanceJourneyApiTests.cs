@@ -71,6 +71,6 @@ public sealed class AdvanceJourneyApiTests(HmsApiFactory factory) : IClassFixtur
     private static async Task<JsonElement> Read(HttpResponseMessage response)
     {
         var text = await response.Content.ReadAsStringAsync();
-        return string.IsNullOrWhiteSpace(text) ? default : JsonDocument.Parse(text).RootElement.Clone();
+        return string.IsNullOrWhiteSpace(text) ? default : JsonElement.Parse(text);
     }
 }

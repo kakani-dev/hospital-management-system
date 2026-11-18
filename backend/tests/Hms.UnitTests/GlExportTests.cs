@@ -27,7 +27,7 @@ public class GlExportTests
     private static readonly string Today = DateOnly.FromDateTime(DateTime.UtcNow).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
 
     private static JsonElement Feed(string vouchers) =>
-        JsonDocument.Parse("{\"vouchers\":" + vouchers.Replace("TODAY", Today, StringComparison.Ordinal) + ",\"skippedZero\":1}").RootElement;
+        JsonElement.Parse("{\"vouchers\":" + vouchers.Replace("TODAY", Today, StringComparison.Ordinal) + ",\"skippedZero\":1}");
 
     private const string SaleWithRoundOff = """
         [{"id":"11111111-1111-4111-8111-111111111111","type":"sales","number":"MN/1","date":"TODAY","entries":[
@@ -158,7 +158,7 @@ public class GlExportTests
     [Fact]
     public void Ledger_keys_are_validated_before_the_database()
     {
-        var items = JsonDocument.Parse("""[{"key":"round_off","name":"Round Off"},{"key":"Bad Key","name":"x"}]""").RootElement;
+        var items = JsonElement.Parse("""[{"key":"round_off","name":"Round Off"},{"key":"Bad Key","name":"x"}]""");
         var errors = GlValidation.Check(items);
         Assert.Single(errors);
         Assert.True(errors.ContainsKey("ledgers[1].key"));

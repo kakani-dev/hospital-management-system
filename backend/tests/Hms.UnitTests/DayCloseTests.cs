@@ -7,7 +7,7 @@ namespace Hms.UnitTests;
 
 public class DayCloseTests
 {
-    private static JsonElement J(string json) => JsonDocument.Parse(json).RootElement;
+    private static JsonElement J(string json) => JsonElement.Parse(json);
 
     [Fact]
     public void Close_accepts_count_reason_and_handover()
