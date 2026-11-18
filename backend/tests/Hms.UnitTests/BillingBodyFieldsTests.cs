@@ -7,7 +7,7 @@ namespace Hms.UnitTests;
 
 public class BillingBodyFieldsTests
 {
-    private static JsonElement J(string s) => JsonDocument.Parse(s).RootElement;
+    private static JsonElement J(string s) => JsonElement.Parse(s);
 
     [Theory]
     [InlineData("{}")]
@@ -62,7 +62,7 @@ public class BillingEventTenantStampTests
     public void Missing_tenant_is_set_from_session()
     {
         Assert.True(BodyFields.TryStampTenant("{\"appointment_id\":\"a\"}", Session, out var s));
-        Assert.Equal(Session.ToString(), JsonDocument.Parse(s).RootElement.GetProperty("tenant_id").GetString());
+        Assert.Equal(Session.ToString(), JsonElement.Parse(s).GetProperty("tenant_id").GetString());
     }
 
     [Fact]

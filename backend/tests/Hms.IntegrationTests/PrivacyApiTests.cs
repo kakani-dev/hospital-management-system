@@ -134,6 +134,6 @@ public sealed class PrivacyApiTests(HmsApiFactory factory) : IClassFixture<HmsAp
     private static async Task<JsonElement> Read(HttpResponseMessage response)
     {
         var text = await response.Content.ReadAsStringAsync();
-        return text.Length == 0 ? default : JsonDocument.Parse(text).RootElement.Clone();
+        return text.Length == 0 ? default : JsonElement.Parse(text);
     }
 }

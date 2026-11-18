@@ -15,7 +15,7 @@ public sealed record MembershipGrant(
 public sealed record ActiveContext(Guid TenantId, Guid? BranchId);
 
 /// <param name="MustChangePassword">An admin set this user's password; they must choose their own first.</param>
-/// <param name="SessionsInvalidatedEpoch">Tokens issued (iat) before this Unix time are revoked.</param>
+/// <param name="SessionsInvalidatedEpoch">Tokens issued (iat) at or before this Unix second are revoked; sign in in a later second.</param>
 public sealed record PasswordState(bool MustChangePassword, long? SessionsInvalidatedEpoch);
 
 public interface IMembershipStore
