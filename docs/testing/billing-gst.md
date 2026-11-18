@@ -104,11 +104,11 @@ Source of truth is shared with the Notion database [Test Cases](https://app.noti
 
 **Only draft accepts lines/remove/cancel** · P2 · negative · Role: billing
 
-- Preconditions: Finalized bill
+- Preconditions: Finalized bill; also a cancelled draft for the add-line wording
 - Steps: Add line; remove line; cancel
 - Test data: —
-- Expected: "only a draft bill accepts lines"/"only a draft line can be removed"/"only a draft bill can be cancelled"
-- Rule / code: `billing_commands.sql`
+- Expected: Adding a line to a finalized bill returns "finalized bills are immutable; issue a credit note" (same as BIL-007). Removing a line still returns "only a draft line can be removed". Cancelling still returns "only a draft bill can be cancelled". Adding a line to a cancelled draft returns "only a draft bill accepts lines".
+- Rule / code: `billing.add_line` / `billing_commands.sql`
 
 ## BIL-010
 
