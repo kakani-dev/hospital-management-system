@@ -92,5 +92,13 @@ begin
 end;
 $$;
 
-revoke all on function identity.seed_zz_qa_wizard_auth_user(text, text) from public, anon, hms_api_login;
+revoke all on function identity.seed_zz_qa_wizard_auth_user(text, text) from public, anon;
 grant execute on function identity.seed_zz_qa_wizard_auth_user(text, text) to authenticated, service_role, hms_svc_identity;
+-- hms_api_login exists only on the hosted pooler, not in local CI Postgres.
+do $revoke$
+begin
+  if exists (select 1 from pg_catalog.pg_roles where rolname = 'hms_api_login') then
+    execute 'revoke all on function identity.seed_zz_qa_wizard_auth_user(text, text) from hms_api_login';
+  end if;
+end
+$revoke$;
