@@ -1,6 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import { randomBytes } from 'node:crypto'
 import { c, E, T } from '../h.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -60,22 +61,65 @@ export async function platformToken() {
   return tok
 }
 
-/** Create a confirmed synthetic auth user (no outbound email).
- * Live box: use a pre-seeded `/home/box/.secrets/zz-qa-wiz-*` file (email=/password=)
- * created via Supabase SQL/MCP with extensions.crypt. Password is never logged.
+const SECRETS_DIR = '/home/box/.secrets'
+
+function genWizardPassword() {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'
+  let pw = ''
+  while (pw.length < 16) {
+    const n = randomBytes(1)[0]
+    if (n >= Math.floor(256 / alphabet.length) * alphabet.length) continue
+    pw += alphabet[n % alphabet.length]
+  }
+  if (![...pw].some((c) => /[A-Za-z]/.test(c)) || ![...pw].some((c) => /\d/.test(c))) {
+    return genWizardPassword()
+  }
+  return pw
+}
+
+function writeSecretFile(path, email, password) {
+  fs.writeFileSync(path, `email=${email}\npassword=${password}\n`, { mode: 0o600 })
+  fs.chmodSync(path, 0o600)
+}
+
+function redact(text, password) {
+  return String(text ?? '').replace(new RegExp(password.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '[redacted]')
+}
+
+/** Seed via POST /api/v1/platform/qa/wizard-auth-users (platform admin). Password never logged. */
+async function seedWizardUserHttp(email, password) {
+  const tok = await platformToken()
+  const res = await withToken(tok, 'POST', '/api/v1/platform/qa/wizard-auth-users', { email, password })
+  const userId = res.j?.userId
+  if (res.s >= 300 || !userId || !/^[0-9a-f-]{36}$/i.test(String(userId))) {
+    const errText = redact((res.j?.code || res.j?.detail || res.j?.title || res.t || ('HTTP ' + res.s)), password)
+    throw new Error('seed endpoint returned ' + res.s + ' ' + errText.slice(0, 200))
+  }
+  return String(userId)
+}
+
+/** Create a confirmed synthetic auth user for this run (no outbound email).
+ * Inserts via POST /api/v1/platform/qa/wizard-auth-users (platform-admin, allowlisted emails).
+ * Password is written only to `/home/box/.secrets/zz-qa-wiz-<runId>` and is never logged.
  */
 export async function createSyntheticAuthUser(localPart) {
-  const seeded = [...fs.readdirSync('/home/box/.secrets')].filter(n => n.startsWith('zz-qa-wiz-')).sort().at(-1)
-  if (seeded) {
-    const rawSeed = fs.readFileSync('/home/box/.secrets/' + seeded, 'utf8')
-    const semail = rawSeed.match(/^email=(.*)$/m)?.[1]?.trim()
-    const spass = rawSeed.match(/^password=(.*)$/m)?.[1]?.trim()
-    if (semail && spass) {
-      track('auth_user', { email: semail, userId: null, secretPath: '/home/box/.secrets/' + seeded, seeded: true, requestedLocalPart: localPart })
-      return { email: semail, password: spass, userId: null }
-    }
+  const email = `${String(localPart || '').trim().toLowerCase()}@synthetic.example`
+  if (!/^(zz-qa\.wiz\.[0-9]{12}|zz-qa-wiz-[0-9]{8,14})@synthetic\.example$/.test(email)) {
+    throw new Error('refusing to seed a non zz-qa wizard email')
   }
-  throw new Error('No seeded zz-qa-wiz-* auth user in /home/box/.secrets. Create one via Supabase SQL (auth.users + auth.identities, email confirmed, no outbound mail).')
+  const password = genWizardPassword()
+  const secretPath = `${SECRETS_DIR}/zz-qa-wiz-${RUN_ID}`
+  writeSecretFile(secretPath, email, password)
+  let userId
+  try {
+    userId = await seedWizardUserHttp(email, password)
+  } catch (e) {
+    throw new Error('wizard auth seed failed: ' + redact(e?.message || e, password).slice(0, 240))
+  }
+  // Confirm GoTrue will issue a token before returning the password to the caller.
+  await passwordToken(email, password)
+  track('auth_user', { email, userId, secretPath, seeded: true, createdThisRun: true })
+  return { email, password, userId }
 }
 
 export { c, E, T }

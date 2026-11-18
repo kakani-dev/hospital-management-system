@@ -23,14 +23,15 @@ Created entities are logged as `entities-<runId>.json` beside the runner (box: `
 ## Synthetic auth for WIZ-001
 
 Public Supabase signup sends email / rate-limits, and `@example.test` is rejected by Auth.
-Seed a confirmed user with SQL (no outbound mail), then store credentials in
-`/home/box/.secrets/zz-qa-wiz-<id>` as `email=` / `password=` lines (never commit):
-
-```sql
--- via Supabase SQL / MCP as postgres; use a unique zz-qa email each run
-insert into auth.users (... email ..., encrypted_password := extensions.crypt(...), email_confirmed_at := now(), ...);
-insert into auth.identities (...);
-```
+Each weekly run now seeds its own confirmed user via
+`POST /api/v1/platform/qa/wizard-auth-users` (platform-admin JWT from
+`/home/box/.secrets/medicore-master-login`; no outbound mail) and stores
+credentials in `/home/box/.secrets/zz-qa-wiz-<runId>` as `email=` / `password=`
+lines (never commit, never log). The email is
+`zz-qa.wiz.<12-digit IST run id>@synthetic.example`. The SQL function
+`identity.seed_zz_qa_wizard_auth_user` allows only those tagged addresses
+(or `zz-qa-wiz-<digits>@synthetic.example`), re-checks
+`identity.is_platform_admin()`, and never returns the password.
 
 Hospital signup contact emails may use `@example.test` (accepted by the public API).
 Invite emails use `@synthetic.example`.

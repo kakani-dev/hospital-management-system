@@ -104,3 +104,13 @@ public static class MemberPasswordPolicy
         && password.Any(c => c is (>= 'a' and <= 'z') or (>= 'A' and <= 'Z'))
         && password.Any(char.IsAsciiDigit);
 }
+
+
+/// <summary>Body of POST /api/v1/platform/qa/wizard-auth-users. Never logged or echoed.</summary>
+public sealed record SeedWizardAuthUserRequest(string? Email, string? Password)
+{
+    public override string ToString() => "SeedWizardAuthUserRequest { Email = ***, Password = *** }";
+}
+
+/// <summary>Result of seeding a confirmed synthetic zz-qa wizard auth user. No password.</summary>
+public sealed record SeedWizardAuthUserDto(Guid UserId);
