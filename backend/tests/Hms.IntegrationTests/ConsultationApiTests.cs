@@ -195,6 +195,6 @@ public sealed class ConsultationApiTests(HmsApiFactory factory) : IClassFixture<
         using var request = new HttpRequestMessage(method, path) { Content = body is null ? null : JsonContent.Create(body) };
         var response = await client.SendAsync(request);
         var text = await response.Content.ReadAsStringAsync();
-        return (response.StatusCode, string.IsNullOrWhiteSpace(text) ? default : JsonDocument.Parse(text).RootElement.Clone());
+        return (response.StatusCode, string.IsNullOrWhiteSpace(text) ? default : JsonElement.Parse(text));
     }
 }

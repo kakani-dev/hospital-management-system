@@ -121,13 +121,13 @@ public sealed class ServiceCatalogApiTests(HmsApiFactory factory) : IClassFixtur
     {
         var response = await client.GetAsync(path);
         var text = await response.Content.ReadAsStringAsync();
-        return (response.StatusCode, string.IsNullOrWhiteSpace(text) ? default : JsonDocument.Parse(text).RootElement.Clone());
+        return (response.StatusCode, string.IsNullOrWhiteSpace(text) ? default : JsonElement.Parse(text));
     }
 
     private static async Task<(HttpStatusCode Status, JsonElement Body)> Post(HttpClient client, string path, object body)
     {
         var response = await client.PostAsJsonAsync(path, body);
         var text = await response.Content.ReadAsStringAsync();
-        return (response.StatusCode, string.IsNullOrWhiteSpace(text) ? default : JsonDocument.Parse(text).RootElement.Clone());
+        return (response.StatusCode, string.IsNullOrWhiteSpace(text) ? default : JsonElement.Parse(text));
     }
 }

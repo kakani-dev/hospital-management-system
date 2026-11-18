@@ -163,6 +163,6 @@ public sealed class PharmacyDispenseApiTests(HmsApiFactory factory) : IClassFixt
 
         var response = await client.SendAsync(request);
         var text = await response.Content.ReadAsStringAsync();
-        return (response.StatusCode, string.IsNullOrWhiteSpace(text) ? default : JsonDocument.Parse(text).RootElement.Clone());
+        return (response.StatusCode, string.IsNullOrWhiteSpace(text) ? default : JsonElement.Parse(text));
     }
 }

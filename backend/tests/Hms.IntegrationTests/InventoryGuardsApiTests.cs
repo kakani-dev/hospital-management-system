@@ -98,9 +98,9 @@ public sealed class InventoryGuardsApiTests(HmsApiFactory factory) : IClassFixtu
     public async Task Another_tenant_cannot_pick_or_post_against_alpha_stores()
     {
         using var alpha = factory.ClientAs(AlphaAdmin, Alpha, AlphaMain);
-        var stores = JsonDocument.Parse(await alpha.GetStringAsync("/api/v1/inventory/stores")).RootElement;
+        var stores = JsonElement.Parse(await alpha.GetStringAsync("/api/v1/inventory/stores"));
         var storeId = stores.GetArrayLength() > 0 ? stores[0].GetProperty("id").GetGuid() : Guid.NewGuid();
-        var items = JsonDocument.Parse(await alpha.GetStringAsync("/api/v1/inventory/items")).RootElement.GetProperty("items");
+        var items = JsonElement.Parse(await alpha.GetStringAsync("/api/v1/inventory/items")).GetProperty("items");
         var itemId = items.GetArrayLength() > 0 ? items[0].GetProperty("id").GetGuid() : Guid.NewGuid();
 
         using var beta = factory.ClientAs(BetaAdmin, Beta);
@@ -134,6 +134,6 @@ public sealed class InventoryGuardsApiTests(HmsApiFactory factory) : IClassFixtu
 
         var response = await client.SendAsync(request);
         var text = await response.Content.ReadAsStringAsync();
-        return (response.StatusCode, string.IsNullOrWhiteSpace(text) ? default : JsonDocument.Parse(text).RootElement.Clone());
+        return (response.StatusCode, string.IsNullOrWhiteSpace(text) ? default : JsonElement.Parse(text));
     }
 }
