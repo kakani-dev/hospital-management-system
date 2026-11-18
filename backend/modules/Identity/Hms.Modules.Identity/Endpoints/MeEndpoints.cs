@@ -1,3 +1,5 @@
+using System.Text.Json;
+using Hms.Modules.Identity.Auth;
 using Hms.Platform.Http;
 using Hms.Modules.Identity.Domain;
 using Hms.Modules.Identity.Persistence;
@@ -25,12 +27,13 @@ public static class MeEndpoints
             .WithSummary("Current user, resolved tenant/branch and all memberships (drives the switcher).");
 
         // The one call allowed while an admin-set password must be replaced (TenantResolutionMiddleware).
+        // No WithDbTransaction: the handler commits the password + cutoff itself, then issues a
+        // fresh token pair so GoTrue sees the committed hash (a filter would commit only after return).
         api.MapPost("/me/password", ChangeOwnPasswordAsync)
             .RequireAuthorization()
-            .WithDbTransaction<IdentityDbContext>()
             .WithTags("Identity")
             .WithName("ChangeOwnPassword")
-            .WithSummary("Set your own password (10-72 chars, letters and digits). Clears the must-change flag on the server. 204, 400 weak_password.");
+            .WithSummary("Set your own password (10-72 chars, letters and digits). Clears the must-change flag, revokes other sessions, and returns a fresh token pair for this session. 200, 400 weak_password, 503 if the new session could not be issued.");
 
         api.MapPost("/me/context", SwitchContextAsync)
             .RequireAuthorization()
@@ -236,8 +239,13 @@ public static class MeEndpoints
     private static CurrentTenantDto TenantDto(Tenant row, ITenantContext tenant, string? zone = null) =>
         new(row.Id, row.Code, row.Name, tenant.BranchId, [.. tenant.Roles.Order(StringComparer.Ordinal)], zone ?? row.TimeZone, row.DefaultCountryCode, row.SetupStep, row.SetupCompletedOn);
 
-    private static async Task<Results<NoContent, ProblemHttpResult>> ChangeOwnPasswordAsync(
-        SetMemberPasswordRequest? body, IdentityDbContext db, CancellationToken ct)
+    private static async Task<Results<Ok<PasswordChangeSessionResponse>, ProblemHttpResult, UnauthorizedHttpResult>> ChangeOwnPasswordAsync(
+        SetMemberPasswordRequest? body,
+        IdentityDbContext db,
+        DbSessionContext session,
+        ITenantContext tenant,
+        IPasswordSessionIssuer sessions,
+        CancellationToken ct)
     {
         var password = body?.Password;
         if (!MemberPasswordPolicy.IsValid(password))
@@ -245,17 +253,82 @@ public static class MeEndpoints
             return WeakPassword();
         }
 
+        if (session.UserId is not { } userId)
+        {
+            return TypedResults.Unauthorized();
+        }
+
+        object? raw;
+        await using (var tx = await db.Database.BeginTransactionAsync(ct))
+        {
+            try
+            {
+                // Parameterised; the password is never logged, stored in clear or returned.
+                raw = await RawSql.ScalarAsync(db, "select identity.change_own_password(@password)", ct, ("password", password!));
+                await tx.CommitAsync(ct);
+            }
+            catch (Npgsql.PostgresException ex) when (ex.SqlState == "22023")
+            {
+                await tx.RollbackAsync(ct);
+                return WeakPassword();
+            }
+        }
+
+        var (email, cutoffEpoch) = ReadPasswordChangeResult(raw, session.Email);
+        if (string.IsNullOrWhiteSpace(email))
+        {
+            return PasswordChangedReauth();
+        }
+
         try
         {
-            // Parameterised; the password is never logged, stored in clear or returned.
-            await RawSql.ScalarAsync(db, "select identity.change_own_password(@password)", ct, ("password", password!));
-            return TypedResults.NoContent();
+            var issued = await sessions.IssueAsync(
+                userId,
+                email,
+                password!,
+                cutoffEpoch,
+                tenant.IsResolved ? tenant.TenantId : session.TenantId,
+                tenant.IsResolved ? tenant.BranchId : session.BranchId,
+                ct);
+            return TypedResults.Ok(new PasswordChangeSessionResponse(issued.AccessToken, issued.RefreshToken, issued.ExpiresIn, issued.TokenType));
         }
-        catch (Npgsql.PostgresException ex) when (ex.SqlState == "22023")
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return WeakPassword();
+            // The password and cutoff are already committed. Fail closed: the caller signs in again.
+            return PasswordChangedReauth();
         }
     }
+
+    private static (string? Email, long Epoch) ReadPasswordChangeResult(object? raw, string? fallbackEmail)
+    {
+        var json = raw switch
+        {
+            string s => s,
+            JsonDocument doc => doc.RootElement.GetRawText(),
+            JsonElement element => element.GetRawText(),
+            _ => raw?.ToString(),
+        };
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return (fallbackEmail, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        }
+
+        using var parsed = JsonDocument.Parse(json);
+        var email = parsed.RootElement.TryGetProperty("email", out var emailEl) && emailEl.ValueKind == JsonValueKind.String
+            ? emailEl.GetString()
+            : null;
+        var epoch = parsed.RootElement.TryGetProperty("sessionsInvalidatedEpoch", out var epochEl) && epochEl.TryGetInt64(out var value)
+            ? value
+            : DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        return (string.IsNullOrWhiteSpace(email) ? fallbackEmail : email, epoch);
+    }
+
+    private static ProblemHttpResult PasswordChangedReauth() =>
+        TypedResults.Problem(
+            title: "Your password was updated. Sign in again to continue.",
+            detail: "Your password was updated. Sign in again to continue.",
+            statusCode: StatusCodes.Status503ServiceUnavailable,
+            type: "https://medicore.invalid/errors/password-changed-reauth");
 
     private static ProblemHttpResult WeakPassword() =>
         TypedResults.Problem(title: "Bad request", detail: MemberPasswordPolicy.Message,

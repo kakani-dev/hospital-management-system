@@ -207,4 +207,24 @@ describe('Forced password change (#311)', () => {
     expect(await screen.findByTestId('change-password-required')).toBeInTheDocument()
     expect(screen.queryByTestId('member-row')).not.toBeInTheDocument()
   })
+
+  it('swaps in the returned tokens so the completing session stays signed in (#320)', async () => {
+    stubFetch({
+      'GET /api/v1/me': () => json(meFor()),
+      'GET /api/v1/branches': () => json([]),
+      'GET /api/v1/members': () => json([]),
+      'POST /api/v1/me/password': () =>
+        json({ accessToken: 'new-access', refreshToken: 'new-refresh', expiresIn: 3600, tokenType: 'bearer' }),
+    })
+    const auth = fakeAuthClient({ session: fakeSession('zz-qa@synthetic.example', 'token-1', { needs_password: true }) })
+    const user = userEvent.setup()
+    renderWithProviders(<App />, { path: '/admin/members', auth })
+    await user.type(await screen.findByTestId('change-password-new'), 'ZzOwnChoice2026')
+    await user.type(screen.getByTestId('change-password-confirm'), 'ZzOwnChoice2026')
+    await user.click(screen.getByTestId('change-password-save'))
+    await waitFor(() => expect(auth.setSession).toHaveBeenCalledTimes(1))
+    expect(auth.setSession).toHaveBeenCalledWith({ access_token: 'new-access', refresh_token: 'new-refresh' })
+    expect(auth.refreshSession).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.queryByTestId('change-password-required')).not.toBeInTheDocument())
+  })
 })

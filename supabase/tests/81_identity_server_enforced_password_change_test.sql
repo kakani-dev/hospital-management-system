@@ -28,5 +28,9 @@ select tests.as_superuser();
 select tests.ok(
   (select raw_app_meta_data -> 'must_change_password' is null from auth.users where id = '0a000000-0000-4000-8000-000000000003'),
   'app metadata flag removed');
+select tests.ok(
+  (select not must_change_password and sessions_invalidated_on is not null
+     from identity.user_security where user_id = '0a000000-0000-4000-8000-000000000003'),
+  'changing it also records a session cutoff');
 
 rollback;

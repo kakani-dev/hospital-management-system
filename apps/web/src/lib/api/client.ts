@@ -126,6 +126,14 @@ import type {
 import { resilience as defaultResilience, type ResilienceConfig } from '../config'
 import { beginPending, type PendingHandle } from './pending'
 
+/** Fresh tokens returned by POST /api/v1/me/password so the completing session stays signed in. */
+export type PasswordChangeSession = {
+  accessToken: string
+  refreshToken: string
+  expiresIn: number
+  tokenType: string
+}
+
 export class ApiError extends Error {
   readonly status: number
   readonly problem: ProblemDetails | null
@@ -468,9 +476,9 @@ export class ApiClient {
   }
 
   account = {
-    /** 204: sets your own password and clears the server-side must-change flag. 400 weak_password. */
+    /** 200: sets your own password, revokes other sessions, and returns a fresh token pair for this one. 400 weak_password. 503 if the new session could not be issued. */
     changePassword: (password: string) =>
-      this.request<void>('/api/v1/me/password', { method: 'POST', body: JSON.stringify({ password }), retry: false }),
+      this.request<PasswordChangeSession>('/api/v1/me/password', { method: 'POST', body: JSON.stringify({ password }), retry: false }),
   }
 
   members = {

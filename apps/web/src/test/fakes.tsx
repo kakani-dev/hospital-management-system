@@ -95,6 +95,21 @@ export function fakeAuthClient(
       if (session) notify('TOKEN_REFRESHED', session)
       return { data: { session, user: session?.user ?? null }, error: null }
     }),
+    setSession: vi.fn(async ({ access_token, refresh_token }: { access_token: string; refresh_token: string }) => {
+      if (!session) return { data: { session: null, user: null }, error: { message: 'No session' } }
+      session = {
+        ...session,
+        access_token,
+        refresh_token,
+        user: {
+          ...session.user,
+          app_metadata: { ...session.user.app_metadata, must_change_password: undefined },
+          user_metadata: { ...session.user.user_metadata, needs_password: false },
+        },
+      }
+      notify('TOKEN_REFRESHED', session)
+      return { data: { session, user: session.user }, error: null }
+    }),
   }
   return client as unknown as AuthClient & typeof client
 }

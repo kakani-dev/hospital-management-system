@@ -8,6 +8,7 @@ using Hms.Identity.Api;
 using Hms.Inventory.Api;
 using Hms.Privacy.Api;
 using Hms.Patients.Api;
+using Hms.Modules.Identity.Auth;
 using Hms.Platform.Auth;
 using Hms.Scheduling.Api;
 using Microsoft.AspNetCore.Hosting;
@@ -190,7 +191,11 @@ public class HmsApiFactory : IDisposable
         // per-factory salt: the DB's per-source sign-up cap (3 / 24 h) must not leak across runs on a reused DB
         builder.UseSetting("Onboarding:SourceHashSalt", _onboardingSalt);
         builder.ConfigureTestServices(services =>
-            services.AddHttpClient(SupabaseAuthOptions.JwksHttpClient).ConfigurePrimaryHttpMessageHandler(() => jwks));
+        {
+            services.AddHttpClient(SupabaseAuthOptions.JwksHttpClient).ConfigurePrimaryHttpMessageHandler(() => jwks);
+            services.RemoveAll<IPasswordSessionIssuer>();
+            services.AddSingleton<IPasswordSessionIssuer, TestPasswordSessionIssuer>();
+        });
         ConfigureHost(builder);
     }
 

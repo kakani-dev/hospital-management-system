@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Hms.Modules.Identity.Auth;
 using Hms.Modules.Identity.Endpoints;
 using Hms.Modules.Identity.Persistence;
 using Hms.Platform.Persistence;
@@ -22,6 +23,8 @@ public static class IdentityModule
         services.AddMemoryCache();
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<Caching.TenantReferenceCache>();
+        services.AddHttpClient<IPasswordSessionIssuer, GoTruePasswordSessionIssuer>()
+            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
         services.AddDbContext<IdentityDbContext>((sp, options) => options
             .UseHmsNpgsql(configuration)
             .AddInterceptors(
