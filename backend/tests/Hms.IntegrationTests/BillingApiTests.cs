@@ -318,6 +318,39 @@ public sealed class BillingApiTests(HmsApiFactory factory) : IClassFixture<HmsAp
         Assert.Contains("total discounts would exceed the bill", over.Body.GetRawText());
     }
 
+    [Fact]
+    public async Task Adding_a_line_to_a_finalized_bill_says_immutable_and_to_issue_a_credit_note()
+    {
+        // #316 / BIL-007
+        using var admin = factory.ClientAs(AlphaAdmin, AlphaTenant, Main);
+        var opened = await Post(admin, "/api/v1/accounts", new { patientId = await NewPatientAsync(admin, Main), branchId = Main });
+        Assert.Equal(HttpStatusCode.OK, opened.Status);
+        var billId = Guid.Parse(opened.Body.GetProperty("id").GetString()!);
+        Assert.Equal(HttpStatusCode.OK, (await Post(admin, $"/api/v1/bills/{billId}/lines", new { code = "CONSULT" })).Status);
+        Assert.Equal(HttpStatusCode.OK, (await Post(admin, $"/api/v1/bills/{billId}/finalize", new { })).Status);
+
+        var before = await Get(admin, $"/api/v1/bills/{billId}");
+        var refused = await Post(admin, $"/api/v1/bills/{billId}/lines", new { code = "CONSULT", quantity = 1 });
+        Assert.Equal(HttpStatusCode.Conflict, refused.Status);
+        Assert.Equal("invalid_state", refused.Body.GetProperty("code").GetString());
+        Assert.Equal(
+            "finalized bills are immutable; issue a credit note",
+            refused.Body.GetProperty("detail").GetString());
+        var after = await Get(admin, $"/api/v1/bills/{billId}");
+        Assert.Equal("finalized", after.Body.GetProperty("status").GetString());
+        Assert.Equal(
+            before.Body.GetProperty("lines").GetArrayLength(),
+            after.Body.GetProperty("lines").GetArrayLength());
+
+        var draft = await Post(admin, "/api/v1/accounts", new { patientId = await NewPatientAsync(admin, Main), branchId = Main });
+        var draftId = Guid.Parse(draft.Body.GetProperty("id").GetString()!);
+        Assert.Equal(HttpStatusCode.OK, (await Post(admin, $"/api/v1/bills/{draftId}/lines", new { code = "CONSULT" })).Status);
+        Assert.Equal(HttpStatusCode.OK, (await Post(admin, $"/api/v1/bills/{draftId}/cancel", new { })).Status);
+        var cancelled = await Post(admin, $"/api/v1/bills/{draftId}/lines", new { code = "CONSULT" });
+        Assert.Equal(HttpStatusCode.Conflict, cancelled.Status);
+        Assert.Equal("only a draft bill accepts lines", cancelled.Body.GetProperty("detail").GetString());
+    }
+
     private static async Task<(HttpStatusCode Status, JsonElement Body)> Post(HttpClient client, string path, object body)
     {
         var response = await client.PostAsJsonAsync(path, body);
