@@ -22,10 +22,17 @@ public sealed class VisitLengthSlotsApiTests(HmsApiFactory factory) : IClassFixt
         Assert.Equal(HttpStatusCode.Created, (await admin.PostAsJsonAsync("/api/v1/schedules", hours)).StatusCode);
         Assert.Equal(HttpStatusCode.Created, (await S2.BookAsync(admin, AlphaMain, pr.Id, patient.Id, At(9, 30))).StatusCode);
 
+        var types = (await admin.GetFromJsonAsync<List<VisitTypeDto>>("/api/v1/visit-types"))!;
+        var consult = types.Single(v => v.Code == "new_consult");
+        var consultMinutes = consult.EffectiveDurationMinutes;
+
         var url = $"/api/v1/slots?branchId={AlphaMain}&date={TestDates.Iso(Day)}&practitionerId={pr.Id}";
         var plain = await admin.GetFromJsonAsync<List<S2Slot>>(url);
-        Assert.Equal([At(9), At(9, 15), At(9, 45)], plain!.Select(s => s.StartsAt).ToList());
-        Assert.All(plain!, s => Assert.Equal(TimeSpan.FromMinutes(15), s.EndsAt - s.StartsAt));
+        var expected = await admin.GetFromJsonAsync<List<S2Slot>>(url + $"&durationMinutes={consultMinutes}");
+        Assert.Equal(expected!.Select(s => (s.StartsAt, s.EndsAt)), plain!.Select(s => (s.StartsAt, s.EndsAt)));
+        Assert.All(plain!, s => Assert.Equal(TimeSpan.FromMinutes(consultMinutes), s.EndsAt - s.StartsAt));
+        // Default consult length is longer than the 15-minute grid, so 09:15 overlaps the 09:30 booking.
+        Assert.DoesNotContain(plain!, s => s.StartsAt == At(9, 15));
 
         // 09:15 would overlap the 09:30 booking and 09:45 would run past 10:00.
         var thirty = await admin.GetFromJsonAsync<List<S2Slot>>(url + "&durationMinutes=30");
@@ -49,4 +56,6 @@ public sealed class VisitLengthSlotsApiTests(HmsApiFactory factory) : IClassFixt
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Contains("durationMinutes", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
     }
+
+    private sealed record VisitTypeDto(Guid Id, string Code, int EffectiveDurationMinutes);
 }

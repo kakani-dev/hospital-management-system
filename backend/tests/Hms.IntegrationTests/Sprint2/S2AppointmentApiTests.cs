@@ -154,13 +154,16 @@ public sealed class S2AppointmentApiTests(HmsApiFactory factory) : IClassFixture
 
         Assert.Equal(HttpStatusCode.BadRequest, (await admin.PostAsJsonAsync("/api/v1/schedules", new { practitionerId = pr.Id, branchId = AlphaMain, weekday = 8, startTime = "10:00", endTime = "09:00" })).StatusCode);
 
-        // S2.FutureDay is a Monday: 4 slots 09:00-10:00 IST, minus one booking at 09:15.
+        // S2.FutureDay is a Monday: 09:00-10:00 IST. Default listed length is the configured
+        // new_consult duration (30), so a 15-minute booking at 09:15 removes 09:00 and 09:15;
+        // 09:45 would run past 10:00.
         var patient = await S2.CreatePatientAsync(admin, AlphaMain);
         Assert.Equal(HttpStatusCode.Created, (await S2.BookAsync(admin, AlphaMain, pr.Id, patient.Id, S2.FutureSlot(0, 9, 15))).StatusCode);
         var slots = await reception.GetFromJsonAsync<List<S2Slot>>($"/api/v1/slots?branchId={AlphaMain}&from={TestDates.Iso(S2.FutureDay)}&to={TestDates.Iso(S2.FutureDay)}&practitionerId={pr.Id}");
         Assert.Equal(
-            new[] { S2.FutureSlot(0, 9, 0), S2.FutureSlot(0, 9, 30), S2.FutureSlot(0, 9, 45) }.Select(d => d.ToUniversalTime()),
+            new[] { S2.FutureSlot(0, 9, 30) }.Select(d => d.ToUniversalTime()),
             slots!.Select(s => s.StartsAt));
+        Assert.All(slots!, s => Assert.Equal(TimeSpan.FromMinutes(30), s.EndsAt - s.StartsAt));
 
         using var beta = factory.ClientAs(BetaAdmin, Beta);
         Assert.Equal(HttpStatusCode.NotFound, (await beta.GetAsync($"/api/v1/slots?branchId={AlphaMain}&from={TestDates.Iso(S2.FutureDay)}")).StatusCode);

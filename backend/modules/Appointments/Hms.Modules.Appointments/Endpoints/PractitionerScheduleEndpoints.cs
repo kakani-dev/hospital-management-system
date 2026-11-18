@@ -42,7 +42,7 @@ public static class PractitionerScheduleEndpoints
 
         api.MapGroup("/slots").WithTags("Schedules").RequireTenant().WithDbTransaction<AppointmentsDbContext>()
             .MapGet("/", SlotsAsync).WithName("ListFreeSlots")
-            .WithSummary("Free future slots from the weekly schedules minus blocking appointments (appointment.available_slots).");
+            .WithSummary("Free future starts that fit the visit length (appointment.available_slots_v2). Default length is the configured new_consult duration, not the schedule grid; override with durationMinutes.");
 
         return api;
     }
