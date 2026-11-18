@@ -78,10 +78,22 @@ begin
   end if;
 
   if to_regclass('auth.identities') is not null then
-    insert into auth.identities (provider_id, user_id, identity_data, provider, email, created_at, updated_at)
-    values (v_id::text, v_id,
-            jsonb_build_object('sub', v_id::text, 'email', v_email, 'email_verified', true),
-            'email', v_email, pg_catalog.now(), pg_catalog.now());
+    -- Hosted GoTrue generates auth.identities.email from identity_data; inserting it raises 428C9.
+    if exists (
+      select 1 from information_schema.columns c
+       where c.table_schema = 'auth' and c.table_name = 'identities'
+         and c.column_name = 'email' and c.is_generated = 'ALWAYS'
+    ) then
+      insert into auth.identities (provider_id, user_id, identity_data, provider, created_at, updated_at)
+      values (v_id::text, v_id,
+              jsonb_build_object('sub', v_id::text, 'email', v_email, 'email_verified', true),
+              'email', pg_catalog.now(), pg_catalog.now());
+    else
+      insert into auth.identities (provider_id, user_id, identity_data, provider, email, created_at, updated_at)
+      values (v_id::text, v_id,
+              jsonb_build_object('sub', v_id::text, 'email', v_email, 'email_verified', true),
+              'email', v_email, pg_catalog.now(), pg_catalog.now());
+    end if;
   end if;
 
   insert into identity.user_profiles (id, email, display_name)
