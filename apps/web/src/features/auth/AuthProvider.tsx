@@ -13,7 +13,7 @@ import { useIdleTimeout } from './useIdleTimeout'
 /** The subset of supabase.auth the app uses (lets tests inject a fake). */
 export type AuthClient = Pick<
   SupabaseClient['auth'],
-  'getSession' | 'onAuthStateChange' | 'signInWithPassword' | 'signOut' | 'refreshSession' | 'verifyOtp' | 'updateUser'
+  'getSession' | 'onAuthStateChange' | 'signInWithPassword' | 'signOut' | 'refreshSession' | 'verifyOtp' | 'updateUser' | 'setSession'
 >
 
 /**
@@ -43,6 +43,8 @@ interface AuthContextValue {
   signOut: (reason?: SignOutReason) => Promise<void>
   /** Re-issues the access token so the custom access token hook stamps the new active tenant. */
   refresh: () => Promise<void>
+  /** Apply a freshly issued access + refresh pair (after changing your own password) without signing out. */
+  applySessionTokens: (tokens: { accessToken: string; refreshToken: string }) => Promise<void>
   /** Drops every cached query (PHI) and remounts the routes so nothing stale stays on screen. */
   resetCache: () => void
   /** Bumped by resetCache; App keys its routes on it. */
@@ -324,6 +326,20 @@ export function AuthProvider({
     setSession(data.session)
   }, [client])
 
+  const applySessionTokens = useCallback(
+    async (tokens: { accessToken: string; refreshToken: string }) => {
+      if (!client) throw new Error('Authentication is not configured.')
+      const { data, error } = await client.setSession({
+        access_token: tokens.accessToken,
+        refresh_token: tokens.refreshToken,
+      })
+      if (error || !data.session) throw new Error(error?.message || 'Your password was updated. Sign in again to continue.')
+      setSignedOutReason(null)
+      setSession(data.session)
+    },
+    [client],
+  )
+
   const onIdle = useCallback(() => void signOut('idle'), [signOut])
   useIdleTimeout({ enabled: session !== null, timeoutMs: idleTimeoutMs, onTimeout: onIdle })
 
@@ -340,6 +356,7 @@ export function AuthProvider({
       setPassword,
       signOut,
       refresh,
+      applySessionTokens,
       resetCache,
       cacheEpoch,
       expectTenant,
@@ -347,7 +364,7 @@ export function AuthProvider({
       dismissTenantNotice,
       signedOutReason,
     }),
-    [client, loading, session, signIn, signInWithTokenHash, setPassword, signOut, refresh, resetCache, cacheEpoch, expectTenant, tenantNotice, dismissTenantNotice, signedOutReason],
+    [client, loading, session, signIn, signInWithTokenHash, setPassword, signOut, refresh, applySessionTokens, resetCache, cacheEpoch, expectTenant, tenantNotice, dismissTenantNotice, signedOutReason],
   )
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

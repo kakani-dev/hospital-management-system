@@ -43,7 +43,8 @@ public static class TestJwt
         string audience = "authenticated",
         string role = "authenticated",
         DateTime? expires = null,
-        SecurityKey? key = null)
+        SecurityKey? key = null,
+        DateTime? issuedAt = null)
     {
         var claims = new Dictionary<string, object>
         {
@@ -59,7 +60,7 @@ public static class TestJwt
 
         var signingKey = key ?? SigningKey;
         var algorithm = signingKey is SymmetricSecurityKey ? SecurityAlgorithms.HmacSha256 : SecurityAlgorithms.EcdsaSha256;
-        var now = DateTime.UtcNow;
+        var now = issuedAt ?? DateTime.UtcNow;
         var descriptor = new SecurityTokenDescriptor
         {
             Issuer = issuer,

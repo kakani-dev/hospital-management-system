@@ -12,7 +12,7 @@ import { apiClient } from '../../lib/api/client'
  * needs_password / app_metadata.must_change_password). The person picks their own before anything else; they can also sign out.
  */
 export function ChangePasswordRequired() {
-  const { email, refresh, signOut } = useAuth()
+  const { email, applySessionTokens, signOut } = useAuth()
   const [password, setPasswordValue] = useState('')
   const [confirm, setConfirm] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -24,11 +24,11 @@ export function ChangePasswordRequired() {
     if (password !== confirm) return setError('The two passwords do not match.')
     setBusy(true)
     try {
-      // The server sets the password and clears the flag; a refreshed token no longer carries it.
-      await apiClient.account.changePassword(password)
+      // The server sets the password, revokes other sessions, and returns tokens for this one.
+      const tokens = await apiClient.account.changePassword(password)
       setPasswordValue('')
       setConfirm('')
-      await refresh()
+      await applySessionTokens(tokens)
     } catch (e) {
       setError(e instanceof Error && e.message ? e.message : 'Could not save the password.')
     } finally {

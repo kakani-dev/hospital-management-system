@@ -114,3 +114,9 @@ public sealed record SeedWizardAuthUserRequest(string? Email, string? Password)
 
 /// <summary>Result of seeding a confirmed synthetic zz-qa wizard auth user. No password.</summary>
 public sealed record SeedWizardAuthUserDto(Guid UserId);
+
+/// <summary>200 of POST /api/v1/me/password. Tokens are never logged or echoed in problem details.</summary>
+public sealed record PasswordChangeSessionResponse(string AccessToken, string RefreshToken, int ExpiresIn, string TokenType)
+{
+    public override string ToString() => $"{nameof(PasswordChangeSessionResponse)} {{ ExpiresIn = {ExpiresIn}, TokenType = {TokenType} }}";
+}
