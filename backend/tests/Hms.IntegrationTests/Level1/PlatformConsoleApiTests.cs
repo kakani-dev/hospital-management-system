@@ -204,6 +204,46 @@ public sealed class PlatformConsoleApiTests(HmsApiFactory factory) : IClassFixtu
         Assert.Equal(HttpStatusCode.NotFound, (await factory.CreateClient().GetAsync($"/api/v1/public/invites/{second.Token}")).StatusCode);
     }
 
+    [Fact]
+    public async Task A_platform_admin_can_seed_a_tagged_wizard_auth_user()
+    {
+        var digits = Random.Shared.NextInt64(10_000_000_000_000, 99_999_999_999_999);
+        var email = $"zz-qa-wiz-{digits}@synthetic.example";
+        const string password = "Synthetic123x";
+
+        string NextEmail() => $"zz-qa-wiz-{Random.Shared.NextInt64(10_000_000_000_000, 99_999_999_999_999)}@synthetic.example";
+
+        using var op = factory.ClientAs(Operator);
+        var createdRes = await op.PostAsJsonAsync("/api/v1/platform/qa/wizard-auth-users", new { email, password });
+        var createdBody = await createdRes.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.OK, createdRes.StatusCode);
+        Assert.DoesNotContain(password, createdBody, StringComparison.Ordinal);
+        var created = new SeedWizardAuthUserDto(System.Text.Json.JsonElement.Parse(createdBody).GetProperty("userId").GetGuid());
+        Assert.NotEqual(Guid.Empty, created.UserId);
+        Assert.Equal(email, await ATz.ScalarAsync<string>("select email from auth.users where id = @id", ("id", created.UserId)));
+        Assert.True(await ATz.ScalarAsync<bool>("select email_confirmed_at is not null from auth.users where id = @id", ("id", created.UserId)));
+        var stored = await ATz.ScalarAsync<string>("select encrypted_password from auth.users where id = @id", ("id", created.UserId));
+        Assert.False(string.Equals(stored, password, StringComparison.Ordinal));
+        Assert.True((stored ?? "").Length > 20);
+
+        async Task AssertStatusWithoutPassword(HttpResponseMessage response, HttpStatusCode expected)
+        {
+            var body = await response.Content.ReadAsStringAsync();
+            Assert.Equal(expected, response.StatusCode);
+            Assert.DoesNotContain(password, body, StringComparison.Ordinal);
+        }
+
+        await AssertStatusWithoutPassword(await op.PostAsJsonAsync("/api/v1/platform/qa/wizard-auth-users", new { email, password }), HttpStatusCode.Conflict);
+        await AssertStatusWithoutPassword(await op.PostAsJsonAsync("/api/v1/platform/qa/wizard-auth-users", new { email = "admin@alpha.example", password }), HttpStatusCode.Forbidden);
+        await AssertStatusWithoutPassword(await op.PostAsJsonAsync("/api/v1/platform/qa/wizard-auth-users", new { email = NextEmail(), password = "short" }), HttpStatusCode.BadRequest);
+
+        using var admin = factory.ClientAs(AlphaAdmin, Alpha);
+        await AssertStatusWithoutPassword(await admin.PostAsJsonAsync("/api/v1/platform/qa/wizard-auth-users", new { email = NextEmail(), password }), HttpStatusCode.Forbidden);
+        await AssertStatusWithoutPassword(await factory.CreateClient().PostAsJsonAsync("/api/v1/platform/qa/wizard-auth-users", new { email = NextEmail(), password }), HttpStatusCode.Unauthorized);
+    }
+
+    private sealed record SeedWizardAuthUserDto(Guid UserId);
+
     private static async Task<Guid> CreateUserWithEmailAsync(string email)
     {
         var id = Guid.NewGuid();

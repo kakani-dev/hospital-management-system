@@ -79,7 +79,59 @@ public static partial class PlatformEndpoints
         platform.MapPost("/tenants/{id:guid}/reactivate", (Guid id, TenantStatusRequest r, IdentityDbContext db, CancellationToken ct) => SetStatusAsync(id, "active", r, db, ct))
             .WithName("PlatformReactivateTenant");
         platform.MapPost("/tenants/{id:guid}/admin-invite", ReissueAdminInviteAsync).WithName("PlatformReissueAdminInvite");
+        platform.MapPost("/qa/wizard-auth-users", SeedWizardAuthUserAsync).WithName("SeedWizardAuthUser")
+            .WithSummary("Seed a confirmed synthetic zz-qa wizard auth user for the weekly QA harness. Allowlisted emails only. Never echoes the password.");
         return api;
+    }
+
+
+    /// <summary>Platform-admin only (group filter + function re-check). Returns the new user id; never the password.</summary>
+    private static async Task<Results<Ok<SeedWizardAuthUserDto>, ProblemHttpResult>> SeedWizardAuthUserAsync(
+        SeedWizardAuthUserRequest? body, IdentityDbContext db, CancellationToken ct)
+    {
+        var email = body?.Email?.Trim();
+        var password = body?.Password;
+        if (string.IsNullOrWhiteSpace(email) || password is null)
+        {
+            return TypedResults.Problem(
+                title: "Bad request",
+                detail: "Email and password are required.",
+                statusCode: StatusCodes.Status400BadRequest,
+                extensions: new Dictionary<string, object?> { ["code"] = "invalid_input" });
+        }
+
+        if (!MemberPasswordPolicy.IsValid(password))
+        {
+            return TypedResults.Problem(
+                title: "Bad request",
+                detail: MemberPasswordPolicy.Message,
+                statusCode: StatusCodes.Status400BadRequest,
+                extensions: new Dictionary<string, object?> { ["code"] = "weak_password" });
+        }
+
+        try
+        {
+            var id = await RawSql.ScalarAsync(
+                db,
+                "select identity.seed_zz_qa_wizard_auth_user(@email, @password)",
+                ct,
+                ("email", email),
+                ("password", password));
+            if (id is not Guid userId || userId == Guid.Empty)
+            {
+                return TypedResults.Problem(
+                    title: "Seed failed",
+                    detail: "The seed did not return a user id.",
+                    statusCode: StatusCodes.Status500InternalServerError,
+                    extensions: new Dictionary<string, object?> { ["code"] = "seed_failed" });
+            }
+
+            return TypedResults.Ok(new SeedWizardAuthUserDto(userId));
+        }
+        catch (Exception ex) when (HmsProblems.FromDatabase(ex) is { } problem)
+        {
+            return problem;
+        }
     }
 
     internal static InviteLinkIssuedDto Issued(Guid id, string token, DateTimeOffset expiresOn) => new(id, token, $"/invite/{token}", expiresOn);
